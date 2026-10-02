@@ -18,7 +18,7 @@ export async function uploadJiraAttachment(file: File, headers: Record<string, s
   formData.append('file', file)
   let resp: Response
   try {
-    resp = await fetch('/api/jira/attachment-upload', { method: 'POST', headers, body: formData })
+    resp = await fetch('/api/attachments/upload', { method: 'POST', headers, body: formData })
   } catch {
     return { ok: false, message: '上傳中斷（網路錯誤），請重試' }
   }
@@ -47,7 +47,7 @@ export async function acquireAttachmentLease(cacheIds: string[], headers: Record
   let lastRenew = Date.now()
   if (ids.length) {
     try {
-      const r = await fetch('/api/jira/attachment-cache/lease', {
+      const r = await fetch('/api/attachments/cache/lease', {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ cacheIds: ids }),
       })
       const d = await r.json() as { ok?: boolean; leaseId?: string }
@@ -59,11 +59,11 @@ export async function acquireAttachmentLease(cacheIds: string[], headers: Record
     renew() {
       if (!leaseId || Date.now() - lastRenew < 5 * 60 * 1000) return
       lastRenew = Date.now()
-      fetch(`/api/jira/attachment-cache/lease/${leaseId}/renew`, { method: 'POST', headers }).catch(() => {})
+      fetch(`/api/attachments/cache/lease/${leaseId}/renew`, { method: 'POST', headers }).catch(() => {})
     },
     release() {
       if (!leaseId) return
-      fetch(`/api/jira/attachment-cache/lease/${leaseId}`, { method: 'DELETE', headers }).catch(() => {})
+      fetch(`/api/attachments/cache/lease/${leaseId}`, { method: 'DELETE', headers }).catch(() => {})
       leaseId = null
     },
   }

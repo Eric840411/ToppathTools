@@ -325,3 +325,15 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - **畫面**（CodeX 設計圖 1:1）：工具／Sheet 篩選、只看我的／全部人、勾選後「補寫回 N 筆」；逐列結果分「成功／列已變動不寫（略過）／Sheet 失敗」
 - 驗證：`npx tsx server/meegle-backfill.test.ts`（7，用四個工具真的資料表建資料；拿掉「等 2 分鐘」「新批次已成功不列」「其他步驟要完成」各紅一條）；`node scripts/ui-checks/meegle-backfill-walkthrough.mjs`（真的空清單＋假資料走補寫，兩種主題）
 - ⚠️ 還沒用真的失敗列補寫過一次（本機目前沒有待補的列）；補寫本身走的是各工具已經真跑過的回填函式
+
+## 28g. 移除 Jira（使用者 2026-10-02：Jira 已確定沒人用；CodeX 看過規劃）
+
+**規劃**：① 解綁（行為不變）→ ② 週報、TestCase 改讀 Meegle（使用者選 A＝改、B＝改）→ ③ 刪 Jira 程式（不藏一版；資料表保留）→ ④ 之後再改表名。
+
+### ① 解綁（v4.281.0）
+- **帳號**：沿用 `jira_accounts`（CodeX：另開新表上線後會跟舊表分歧，退版時停權帳號可能復活；最後才改名）。**建帳號不再要 Jira Token**（登入畫面的自助新增拿掉 Token 欄；後端 token 預設空字串）
+- **修 PIN 被清掉**：`upsertAccount` 原本用 `INSERT OR REPLACE`（整列刪掉再插入），管理員改名／角色／狀態就把那個人的 PIN 洗掉（CodeX 抓到）→ `ON CONFLICT DO UPDATE` 只更新帶到的欄位；寫法在 `server/account-store.ts`，測試 `server/account-store.test.ts`（改回 INSERT OR REPLACE 會紅）
+- **搬出 routes/jira.ts**：帳號 → `routes/accounts.ts`、讀 Sheet → `routes/sheets.ts`（路徑本來就中性）、附件 → `routes/attachments.ts`＋`attachment-downloads.ts`。**新舊路徑掛同一個 handler**（CodeX：比轉址穩）：`/api/accounts/*`＝`/api/jira/accounts/*`、`/api/attachments/{upload,prefetch,cache}`＝`/api/jira/attachment-*`；前端全部改用新路徑
+- 代理授權：中性名稱 `hasDelegation`（表仍是 `jira_account_delegates`）
+- 權限 key（`jira`、`jira-ai-*`）**不改**，只改顯示名（Meegle 在用這些 key，改了大家權限會跑掉）
+- 型別檢查：搬家後 server 錯誤 59 → 58，逐條比對過：沒有新增，少的那條是搬過去的帳號路由 `req.params` 型別問題被順手修掉（不是檢查器提早中斷）

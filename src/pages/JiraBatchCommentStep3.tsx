@@ -480,7 +480,7 @@ export function JiraBatchCommentStep3(props: {
                                   ) : att.isVideo ? (
                                     <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
                                       {att.cacheId ? (
-                                        <video src={`/api/jira/attachment-cache/${att.cacheId}`}
+                                        <video src={`/api/attachments/cache/${att.cacheId}`}
                                           style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }} />
                                       ) : (
                                         <div style={{ width: 60, height: 60, background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.4)', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: 18, gap: 2, cursor: 'default' }}>
@@ -494,9 +494,9 @@ export function JiraBatchCommentStep3(props: {
                                     </div>
                                   ) : att.cacheId ? (
                                     <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer', position: 'relative' }}
-                                      onClick={() => setLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)}>
+                                      onClick={() => setLightboxSrc(`/api/attachments/cache/${att.cacheId}`)}>
                                       <img
-                                        src={`/api/jira/attachment-cache/${att.cacheId}`}
+                                        src={`/api/attachments/cache/${att.cacheId}`}
                                         alt={att.filename}
                                         style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }}
                                       />

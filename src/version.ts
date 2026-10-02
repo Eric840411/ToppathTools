@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.280.2'
+export const APP_VERSION = '4.281.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.281.0', date: '2026-10-02', changes: ['refactor(移除 Jira 第 1 步：解綁)：**建帳號不再要 Jira Token**（登入畫面自助新增只填 Email／名稱／PIN）。帳號、讀 Lark Sheet、附件上傳下載從 Jira 的程式搬到獨立模組，新路徑 /api/accounts、/api/attachments 跟舊路徑共用同一份程式，Meegle 工具改用新路徑；畫面行為不變。', 'fix(帳號)：管理員改帳號名稱／角色／狀態會**把那個人的 PIN 清掉**（INSERT OR REPLACE 整列重寫）→ 只更新帶到的欄位（CodeX 抓到，測試：改回舊寫法會紅）'] },
   { version: '4.280.2', date: '2026-10-02', changes: ['fix(Meegle 狀態／修改)：**Sheet 日期欄讀成 Lark 序列數字（例如 46289）會被當成看不懂而擋列**——使用者那份 Sheet 的「日期」欄就是這樣。改成跟週報同一個換算（1899-12-30 起算，可帶小數＝時間只取日），只收 2000～2100 年避免把一般數字當日期。狀態工具「指定日期」與修改工具的日期欄共用這一支'] },
   { version: '4.280.1', date: '2026-10-02', changes: ['style(Meegle 補回填)：逐列結果的成功／略過／失敗標籤貼在表頭上（使用者回報）→ 標題列與表格之間留 16px'] },
   { version: '4.280.0', date: '2026-10-02', changes: ['feat(Meegle 補回填)：Jira 頁新增「**Meegle 補回填**」分頁（CodeX 設計圖 1:1）。列出開單／評論／狀態／修改四個工具裡 Meegle 已完成、只剩 Sheet 回填失敗或卡住的列，可篩選工具／Sheet、只看我的或（admin）全部人，勾選後一次補寫回；補寫一律走各工具原本的回填（同樣先核對那一列），執行時後端再確認仍在待補清單。只做待補記錄、不做標題對帳（使用者選 B）'] },

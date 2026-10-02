@@ -655,9 +655,9 @@ export function JiraCreateStep3(props: {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'flex-start', minWidth: 72 }}>
                               {(descAttachMap[rowIdx] ?? []).filter(a => a.cacheId && !a.error).map((att, ai) => (
                                 att.isImage ? (
-                                  <img key={ai} src={`/api/jira/attachment-cache/${att.cacheId}`} alt={att.filename}
+                                  <img key={ai} src={`/api/attachments/cache/${att.cacheId}`} alt={att.filename}
                                     style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
-                                    onClick={() => setDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
+                                    onClick={() => setDescLightboxSrc(`/api/attachments/cache/${att.cacheId}`)} />
                                 ) : (
                                   <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>影片</span>
                                 )

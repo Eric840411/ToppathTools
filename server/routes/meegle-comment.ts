@@ -13,7 +13,7 @@ import { createReadStream, existsSync } from 'fs'
 import { createHash } from 'crypto'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
-import { accountHasPermission, addHistory, db, getClientIP, hasJiraDelegation, log, matchAccountsByPersonName, writeLimiter } from '../shared.js'
+import { accountHasPermission, addHistory, db, getClientIP, hasDelegation, log, matchAccountsByPersonName, writeLimiter } from '../shared.js'
 import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
@@ -49,7 +49,7 @@ type Identity = { ok: true; email: string; token: string; userKey: string } | { 
 /** 用誰的身分：自己、或有授權的填寫人。綁定與授權每次都即時查，不信前端。 */
 function identityFor(actor: string, asEmail: string): Identity {
   const target = (asEmail || actor).trim().toLowerCase()
-  if (target !== actor && !hasJiraDelegation(actor, target, 'meegle.comment.batch')) {
+  if (target !== actor && !hasDelegation(actor, target, 'meegle.comment.batch')) {
     return { ok: false, code: 'NOT_AUTHORIZED', message: `沒有「Meegle 批量評論」代理授權，不能用 ${target} 的身分送出` }
   }
   const row = getAccountRow(db, target)

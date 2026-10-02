@@ -1489,7 +1489,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     })
     const larkSheetContext = columnLetter ? { sheetUrl, columnLetter } : undefined
     try {
-      const resp = await fetch('/api/jira/attachment-prefetch', {
+      const resp = await fetch('/api/attachments/prefetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({ groups, larkSheetContext }),
@@ -1526,7 +1526,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     })
     const larkSheetContext = columnLetter ? { sheetUrl: editTabUrl, columnLetter } : undefined
     try {
-      const resp = await fetch('/api/jira/attachment-prefetch', {
+      const resp = await fetch('/api/attachments/prefetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({ groups, larkSheetContext }),
@@ -2106,7 +2106,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       const larkSheetContext = columnLetter ? { sheetUrl, columnLetter } : undefined
 
       try {
-        const resp = await fetch('/api/jira/attachment-prefetch', {
+        const resp = await fetch('/api/attachments/prefetch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...emailHeader },
           body: JSON.stringify({ groups, larkSheetContext }),
@@ -2158,7 +2158,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     }))
     // 立即刪除暫存檔，不用等 2 小時 TTL 清理，避免容量爆滿
     if (removedCacheId) {
-      fetch(`/api/jira/attachment-cache/${removedCacheId}`, { method: 'DELETE' }).catch(() => {})
+      fetch(`/api/attachments/cache/${removedCacheId}`, { method: 'DELETE' }).catch(() => {})
     }
   }
 

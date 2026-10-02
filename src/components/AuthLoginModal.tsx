@@ -60,7 +60,6 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
   const [error, setError] = useState('')
   const [loginLoadingEmail, setLoginLoadingEmail] = useState<string | null>(null)
   const [newEmail, setNewEmail] = useState('')
-  const [newToken, setNewToken] = useState('')
   const [newLabel, setNewLabel] = useState('')
   const [newPin, setNewPin] = useState('')
   const [newRole, setNewRole] = useState<'qa' | 'pm'>('qa')
@@ -75,7 +74,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
 
   async function fetchAccounts(cancelled = false) {
     setLoading(true)
-    fetch('/api/jira/accounts')
+    fetch('/api/accounts')
       .then(resp => resp.json() as Promise<AccountsResponse>)
       .then(data => {
         if (!cancelled && data.ok) setAccounts(data.accounts ?? [])
@@ -133,17 +132,16 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
   }
 
   async function handleAddAccount() {
-    if (!newEmail.trim() || !newToken.trim() || !newLabel.trim() || !newPin.trim()) return
+    if (!newEmail.trim() || !newLabel.trim() || !newPin.trim()) return
     setAddLoading(true)
     setError('')
     setAddSuccess('')
     try {
-      const resp = await fetch('/api/jira/accounts', {
+      const resp = await fetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: newEmail.trim(),
-          token: newToken.trim(),
           label: newLabel.trim(),
           role: newRole,
           pin: newPin.trim(),
@@ -156,7 +154,6 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
       }
       setAddSuccess('帳號已新增，請回登入清單選擇帳號。')
       setNewEmail('')
-      setNewToken('')
       setNewLabel('')
       setNewPin('')
       setNewRole('qa')
@@ -276,23 +273,14 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
           {!target && view === 'add' && (
             <div className="modal-body">
               {xianxia && <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="document" size={38} /></div>}
-              <p className="auth-login-copy">填入你的 Jira 帳號資訊並設定登入 PIN 密碼。</p>
+              <p className="auth-login-copy">填入公司 Email、顯示名稱，並設定登入 PIN 密碼。</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab" onClick={() => { setView('login'); setError('') }}>登入</button>
                 <button type="button" className="auth-login-tab active">新增帳號</button>
               </div>
               <div className="auth-login-form">
                 <input value={newLabel} onChange={event => setNewLabel(event.target.value)} placeholder="顯示名稱，例如 Eric Wu" />
-                <input type="email" value={newEmail} onChange={event => setNewEmail(event.target.value)} placeholder="Jira Email" />
-                <input type="password" value={newToken} onChange={event => setNewToken(event.target.value)} placeholder="Jira API Token" />
-                <a
-                  className="auth-login-token-help"
-                  href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  前往 Atlassian 帳號設定產生 API Token
-                </a>
+                <input type="email" value={newEmail} onChange={event => setNewEmail(event.target.value)} placeholder="公司 Email" />
                 <input type="password" value={newPin} onChange={event => setNewPin(event.target.value)} placeholder="設定 PIN 密碼（登入時使用）" />
                 <div className="auth-login-role-row">
                   <button type="button" className={newRole === 'qa' ? 'active' : ''} onClick={() => setNewRole('qa')}>QA</button>
@@ -304,7 +292,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
                 <button
                   type="button"
                   className="auth-login-primary"
-                  disabled={addLoading || !newEmail.trim() || !newToken.trim() || !newLabel.trim() || !newPin.trim()}
+                  disabled={addLoading || !newEmail.trim() || !newLabel.trim() || !newPin.trim()}
                   onClick={() => void handleAddAccount()}
                 >
                   {addLoading ? '新增中...' : '新增帳號'}

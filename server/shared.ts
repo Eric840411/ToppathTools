@@ -15,6 +15,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from './request-context.js'
+import { upsertAccountIn } from './account-store.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -2316,9 +2317,8 @@ export const pinHash = (pin: string) => createHash('sha256').update(pin).digest(
 export const readAccounts = (): JiraAccount[] =>
   db.prepare('SELECT email, token, label, role, pin_hash, status FROM jira_accounts').all() as JiraAccount[]
 
-export const upsertAccount = (a: JiraAccount) =>
-  db.prepare('INSERT OR REPLACE INTO jira_accounts (email, token, label, role, status) VALUES (?, ?, ?, ?, ?)')
-    .run(a.email, a.token, a.label, a.role ?? 'qa', a.status ?? 'active')
+// 寫法與「不能用 INSERT OR REPLACE（會清掉 PIN）」的原因在 account-store.ts
+export const upsertAccount = (a: JiraAccount) => upsertAccountIn(db, a)
 
 export const deleteAccountByEmail = (email: string) =>
   db.prepare('DELETE FROM jira_accounts WHERE email = ?').run(email)
@@ -2794,6 +2794,9 @@ export function hasJiraDelegation(actorEmail: string, targetEmail: string, scope
   `).get(actorEmail.toLowerCase(), targetEmail.toLowerCase(), scope, Date.now())
   return !!row
 }
+
+/** 中性名稱（Jira 停用後的解綁，2026-10-02）。表仍是 jira_account_delegates，最後才改名；Meegle 呼叫端用這個名字 */
+export const hasDelegation = hasJiraDelegation
 
 /** 直接用某個帳號的 token 組 Basic Auth（逐列代發用）。沒有這個帳號、或帳號還沒建 Jira
  *  API token 時回 null——後者是很常見的狀況，畫面上要能明確告訴使用者「去建 token」，

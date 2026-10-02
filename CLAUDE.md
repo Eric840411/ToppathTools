@@ -79,7 +79,11 @@ The Express backend is split into route modules. All live under `server/`:
 |------|---------|
 | `index.ts` | App setup, middleware, mounts all routers, starts server |
 | `shared.ts` | DB, logging, auth helpers, rate limiters, Zod schemas, Google/Lark helpers |
-| `routes/jira.ts` | `/api/jira/*`, `/api/admin/verify`, `/api/lark/sheets/*` |
+| `routes/jira.ts` | `/api/jira/*`（Jira 專用；Jira 停用中，之後整支刪） |
+| `routes/accounts.ts` | 登入帳號 `/api/accounts/*`（舊 `/api/jira/accounts/*` 同一個 handler）、`/api/admin/verify`；表仍是 `jira_accounts` |
+| `routes/sheets.ts` | `/api/lark/sheets/*`（讀／回寫 Lark Sheet，Meegle 工具共用） |
+| `routes/attachments.ts` | 附件 `/api/attachments/*`（舊 `/api/jira/attachment-*` 同一個 handler）；下載邏輯在 `attachment-downloads.ts` |
+| `routes/meegle*.ts` | Meegle 綁定、開單、評論、狀態、修改、補回填（`docs/features/28-meegle.md`） |
 | `routes/gemini.ts` | `/api/gemini/*`, `/api/history` + exported Gemini helpers |
 | `routes/osm.ts` | `/api/osm/*`, `/api/luckylink/*`, `/api/toppath/*`, cron alert |
 | `routes/integrations.ts` | `/api/integrations/*`, `/api/google/sheets/*`, `/api/sheets/writeback-multi` |

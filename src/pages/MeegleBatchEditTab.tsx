@@ -176,7 +176,7 @@ export function MeegleBatchEditTab({ initialSheetUrl }: { initialSheetUrl: strin
     for (let i = colIdx + 1; i > 0; i = Math.floor((i - 1) / 26)) letter = String.fromCharCode(65 + (i - 1) % 26) + letter
     const src = r.rec[`${imageColumn}__url`] || getField(r.rec, imageColumn)
     try {
-      const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/jira/attachment-prefetch', { groups: [{ rowIndex, urls: src ? src.split(/[\n,]/).map(x => x.trim()).filter(Boolean) : [] }], larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
+      const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/attachments/prefetch', { groups: [{ rowIndex, urls: src ? src.split(/[\n,]/).map(x => x.trim()).filter(Boolean) : [] }], larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
       const list = d.result?.find(g => g.rowIndex === rowIndex)?.attachments ?? []
       const bad = list.filter(x => x.error || !x.cacheId)
       const images = list.filter(x => x.cacheId && !x.error && x.isImage)
@@ -505,7 +505,7 @@ export function MeegleBatchEditTab({ initialSheetUrl }: { initialSheetUrl: strin
                       {(fa?.images.length ?? 0) > 0 && (
                         <tr>
                           <td className="me-fname">圖片</td>
-                          <td className="me-vals"><span className="me-thumbs">{fa!.images.map(a => <img key={a.cacheId} src={`/api/jira/attachment-cache/${a.cacheId}`} alt={a.filename} loading="lazy" />)}</span><small className="mb-muted">接在描述後面 {fa!.images.length} 張</small></td>
+                          <td className="me-vals"><span className="me-thumbs">{fa!.images.map(a => <img key={a.cacheId} src={`/api/attachments/cache/${a.cacheId}`} alt={a.filename} loading="lazy" />)}</span><small className="mb-muted">接在描述後面 {fa!.images.length} 張</small></td>
                           <td className="me-op"><button type="button" className="mc-x" aria-label="重新載入圖片" onClick={() => { void loadImages(focusRow.rowIndex).then(imgs => loadPreview(focusRow.rowIndex, imgs)) }}><Icon name="refresh" /></button></td>
                         </tr>
                       )}

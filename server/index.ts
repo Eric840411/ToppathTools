@@ -36,6 +36,9 @@ import { router as meegleCommentRouter } from './routes/meegle-comment.js'
 import { router as meegleStatusRouter } from './routes/meegle-status.js'
 import { router as meegleEditRouter } from './routes/meegle-edit.js'
 import { router as meegleBackfillRouter } from './routes/meegle-backfill.js'
+import { router as accountsRouter } from './routes/accounts.js'
+import { router as sheetsRouter } from './routes/sheets.js'
+import { router as attachmentsRouter } from './routes/attachments.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -354,6 +357,9 @@ app.use(meegleCommentRouter)
 app.use(meegleStatusRouter)
 app.use(meegleEditRouter)
 app.use(meegleBackfillRouter)
+app.use(accountsRouter)
+app.use(sheetsRouter)
+app.use(attachmentsRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

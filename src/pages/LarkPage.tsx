@@ -226,7 +226,7 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
         if (d.prompts) setAvailablePrompts(d.prompts.map(p => ({ id: p.id, name: p.name })))
       })
       .catch(() => {})
-    fetch('/api/jira/accounts')
+    fetch('/api/accounts')
       .then(r => r.json())
       .then((d: { ok: boolean; accounts?: { email: string; label: string }[] }) => {
         if (d.ok && d.accounts) setJiraAccounts(d.accounts)

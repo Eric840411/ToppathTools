@@ -644,7 +644,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     setJiraPanelOpen(o => !o)
     if (jiraAccountList.length === 0) {
       try {
-        const r = await fetch('/api/jira/accounts')
+        const r = await fetch('/api/accounts')
         const d = await r.json() as { ok: boolean; accounts?: Array<{ email: string; label: string }> }
         if (d.ok) setJiraAccountList(d.accounts ?? [])
       } catch { /* 帳號清單讀取失敗不擋面板開啟，查詢時會再擋一次 */ }
@@ -971,7 +971,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       try {
         let accounts = jiraAccountList
         if (accounts.length === 0) {
-          const r = await fetch('/api/jira/accounts')
+          const r = await fetch('/api/accounts')
           const d = await r.json() as { ok: boolean; accounts?: Array<{ email: string; label: string }> }
           accounts = d.ok ? (d.accounts ?? []) : []
           setJiraAccountList(accounts)

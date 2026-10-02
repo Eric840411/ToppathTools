@@ -269,7 +269,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     const src = r[`${attachmentColumn}__url`] || getField(r, attachmentColumn)
     const groups = [{ rowIndex, urls: src ? src.split(/[\n,]/).map(x => x.trim()).filter(Boolean) : [] }]
     try {
-      const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/jira/attachment-prefetch', { groups, larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
+      const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/attachments/prefetch', { groups, larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
       if (stale()) return
       const atts = d.result?.find(g => g.rowIndex === rowIndex)?.attachments ?? []
       const ok = atts.filter(x => x.cacheId && !x.error)
@@ -656,7 +656,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                       <div className="mc-thumbs">
                         {cur.images.map(a => (
                           <figure key={a.cacheId} className="mc-thumb">
-                            <img src={`/api/jira/attachment-cache/${a.cacheId}`} alt={a.filename} loading="lazy" />
+                            <img src={`/api/attachments/cache/${a.cacheId}`} alt={a.filename} loading="lazy" />
                             <figcaption>{a.filename}
                               <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { images: cur.images.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button>
                             </figcaption>

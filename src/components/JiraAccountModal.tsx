@@ -105,7 +105,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
     if (pinNew !== pinConfirm) { setPinSetError('兩次 PIN 不一致'); return }
     setPinSetLoading(true); setPinSetError('')
     try {
-      const r = await fetch(`/api/jira/accounts/${encodeURIComponent(pinTarget!)}/set-pin`, {
+      const r = await fetch(`/api/accounts/${encodeURIComponent(pinTarget!)}/set-pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oldPin: pinOld || undefined, newPin: pinNew || undefined }),
@@ -132,7 +132,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
     if (!verifyTarget) return
     setVerifyLoading(true); setVerifyError('')
     try {
-      const r = await fetch(`/api/jira/accounts/${encodeURIComponent(verifyTarget.email)}/verify-pin`, {
+      const r = await fetch(`/api/accounts/${encodeURIComponent(verifyTarget.email)}/verify-pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: verifyPin }),
@@ -148,7 +148,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
   const fetchAccounts = async () => {
     setLoading(true)
     try {
-      const resp = await fetch('/api/jira/accounts')
+      const resp = await fetch('/api/accounts')
       const data = await resp.json()
       if (data.ok) {
         setAccounts(data.accounts)
@@ -162,10 +162,10 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
   useEffect(() => { fetchAccounts() }, [])
 
   const handleAdd = async () => {
-    if (!newEmail.trim() || !newToken.trim() || !newLabel.trim()) return
+    if (!newEmail.trim() || !newLabel.trim()) return
     setAddLoading(true); setAddError('')
     try {
-      const resp = await fetch('/api/jira/accounts', {
+      const resp = await fetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: newEmail.trim(), token: newToken.trim(), label: newLabel.trim(), role: newRole }),
@@ -186,7 +186,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
     if (!confirm(`確定刪除「${accounts.find(a => a.email === email)?.label ?? email}」？`)) return
     setDeleteLoading(email)
     try {
-      const resp = await fetch(`/api/jira/accounts/${encodeURIComponent(email)}`, {
+      const resp = await fetch(`/api/accounts/${encodeURIComponent(email)}`, {
         method: 'DELETE',
         headers: { 'x-admin-pin': sessionStorage.getItem(ADMIN_SESSION_KEY) ?? '' },
       })
@@ -209,7 +209,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
     if (!roleEditTarget || roleEditValues.size === 0) return
     setRoleEditLoading(true); setRoleEditError('')
     try {
-      const resp = await fetch(`/api/jira/accounts/${encodeURIComponent(roleEditTarget)}/role`, {
+      const resp = await fetch(`/api/accounts/${encodeURIComponent(roleEditTarget)}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'x-admin-pin': sessionStorage.getItem(ADMIN_SESSION_KEY) ?? '' },
         body: JSON.stringify({ roles: [...roleEditValues] }),
@@ -488,7 +488,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                     <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="your@email.com" />
                   </label>
                   <label className="field">
-                    <span>API Token <em className="req">*</em></span>
+                    <span>Jira API Token（可不填，Jira 停用後用不到）</span>
                     <input type="password" value={newToken} onChange={e => setNewToken(e.target.value)} placeholder="ATATT..." />
                     <span className="field-hint">
                       前往{' '}
@@ -503,7 +503,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                 <div className="modal-actions">
                   <button type="button" className={`submit-btn${addSuccess ? ' saved' : ''}`}
                     style={{ width: 'auto', padding: '10px 28px' }}
-                    disabled={!newEmail.trim() || !newToken.trim() || !newLabel.trim() || addLoading}
+                    disabled={!newEmail.trim() || !newLabel.trim() || addLoading}
                     onClick={handleAdd}>
                     {addSuccess ? '已儲存 通過' : addLoading ? '儲存中...' : '儲存'}
                   </button>
