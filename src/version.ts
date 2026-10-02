@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.272.3'
+export const APP_VERSION = '4.272.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.272.4', date: '2026-10-02', changes: ['fix(Meegle 評論)：**③ 附件載入失敗沒有備案**（使用者回報）——改成逐列載入（一列一個請求、同時 2 列），一列失敗不影響別列；每列有「重新載入附件」、頂部有「重新載入失敗的附件」；錯誤訊息逐個列出檔名與原因；載入中的列不能送。手動加的附件重新載入時保留。查到的兩個失敗原因：Sheet「插入→附件」的檔案（v4.272.1 已修）、伺服器重啟時整批預載請求被中斷（原本整批一個請求，所以全部一起失敗）'] },
   { version: '4.272.3', date: '2026-10-02', changes: ['fix(UAT 錄製)：**H5 錄影時版面最下面被切掉**（使用者回報）——頁面本身在 390x844／500x877 都完整，是錄製視窗（頁面高＋瀏覽器標題列／網址列）超過筆電螢幕可用高度被夾短。改成螢幕放不下時自動縮小顯示（CDP 裝置模擬的 scale），頁面 CSS 尺寸不變，所以錄下來的點擊座標照樣對、舊腳本不受影響。agent 與伺服器兩個錄製器同一套（uat-runner/record-window.js）。實測 500x877 在 875 高的螢幕縮到 87%，底部導覽列完整顯示'] },
   { version: '4.272.2', date: '2026-10-02', changes: ['change(Meegle 評論)：評論預設內容＝測試說明的內容（使用者：不要另加「QA 已更新測試頁」那句，測試說明寫什麼評論就寫什麼）；改測試說明（含 AI 整理）評論跟著同步，手改過評論就不再覆蓋', 'fix(Meegle 評論)：「繼續送出」不再略過跨批次「已評論」檢查——舊的沒做完的批次，在新批次已評論完之後按繼續送出會重複貼評論'] },
   { version: '4.272.1', date: '2026-10-02', changes: ['fix(Sheet 附件)：**Sheet 裡用「插入 → 附件」放的檔案（例如螢幕錄影 .mov）現在會自動下載**——原本讀 Sheet 時只留下檔名，附件欄顯示「沒載到」只能手動上傳。實測 Lark API 其實有給 fileToken，改成轉成 lark-media:// 連結交給附件預載，用 medias 下載（drive files 會 403）。Meegle 評論與 Jira 批量評論／開單／修改共用這條預載，一起受惠'] },

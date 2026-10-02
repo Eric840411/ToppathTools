@@ -21,7 +21,7 @@ import './MeegleBatchCommentTab.css'
 type Rec = Record<string, string> & { _rowIndex: number }
 type Phase = 'none' | 'creating' | 'done' | 'failed' | 'unknown' | 'skipped'
 type StepInfo = { step: string; phase: Phase; message: string | null; attemptAt: number | null; name?: string }
-type Att = UploadedAttachment & { error?: string }
+type Att = UploadedAttachment & { error?: string; manual?: boolean }
 type RemoteState = 'empty' | 'same' | 'changed' | 'has-content'
 type Identity = { name: string; status: string; email?: string; label?: string; message?: string; candidates?: string[] }
 type Previous = { batchId: string; workItemId: string; sheetRow: number; summary?: string; mine: boolean; hasPayload?: boolean; steps: StepInfo[] }
@@ -33,6 +33,8 @@ type Item = {
   commentEdited: boolean
   /** 附件有沒載到的，使用者明確勾「不帶這些附件送出」才放行（CodeX review 64f53aa [P1]：原本失敗的附件直接消失、照樣送） */
   skipMissingAtt: boolean
+  /** 這一列的附件正在（重新）載入 */
+  attLoading: boolean
   /** queued＝開了 AI 但還沒輪到：跟 running 一樣不能送（CodeX review 64f53aa [P2]：原本排隊中的列會直接送原文） */
   ai: 'idle' | 'queued' | 'running' | 'done' | 'error'; aiError: string; aiFormatted: boolean
   review: string | null; reviewStale: boolean
@@ -231,41 +233,49 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
       const id = rowIdentity(personOf(r.rec))
       return {
         rowIndex: r.rowIndex, workItemId: r.workItemId!, summary: r.summary, person: personOf(r.rec), asEmail: id.email,
-        text, commentText: defaultComment(text), commentEdited: false, images: [], videos: [], attError: '', skipMissingAtt: false,
+        text, commentText: defaultComment(text), commentEdited: false, images: [], videos: [], attError: '', skipMissingAtt: false, attLoading: !!attachmentColumn,
         ai: useAiFormat || useAiReview ? 'queued' : 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
         remote: { status: 'idle' }, confirmHash: null, rev: 0,
       }
     })
     setItems(base); setCurrent(0); setStep(3)
-    // 附件：沿用 Jira 批量評論的預載（Lark Drive／Google Drive／儲存格圖片）
-    if (attachmentColumn) {
-      const colIdx = headers.indexOf(attachmentColumn)
-      let letter = ''
-      for (let i = colIdx + 1; i > 0; i = Math.floor((i - 1) / 26)) letter = String.fromCharCode(65 + (i - 1) % 26) + letter
-      const groups = recs.map(r => {
-        const src = r.rec[`${attachmentColumn}__url`] || getField(r.rec, attachmentColumn)
-        return { rowIndex: r.rowIndex, urls: src ? src.split(/[\n,]/).map(s => s.trim()).filter(Boolean) : [] }
-      })
-      try {
-        const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/jira/attachment-prefetch', { groups, larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
-        setItems(prev => prev.map(it => {
-          const atts = d.result?.find(g => g.rowIndex === it.rowIndex)?.attachments ?? []
-          const ok = atts.filter(a => a.cacheId && !a.error)
-          const bad = atts.filter(a => a.error || !a.cacheId)
-          return { ...it, images: ok.filter(a => a.isImage), videos: ok.filter(a => !a.isImage), attError: bad.length ? `${bad.length} 個附件沒載到：${bad.map(b => b.error || b.filename).join('、').slice(0, 200)}` : '' }
-        }))
-      } catch (e) {
-        // 整批預載失敗：每一列都可能少了附件，全部標出來，要使用者明確略過才能送
-        const msg = `附件載入失敗：${(e as Error).message}`
-        setPrepError(msg)
-        setItems(prev => prev.map(it => ({ ...it, attError: msg })))
-      }
-    }
+    // 附件：沿用 Jira 批量評論的預載（Lark Drive／Google Drive／儲存格圖片／插入的附件）。
+    // **一列一個請求、同時 2 列**（使用者 10/02：預覽時附件可能整批載入失敗）——原本整批一個請求，
+    // 伺服器重啟、或某一列的大影片拖太久，整批一起失敗；改成逐列，壞一列不影響別列，也能單列重新載入
     setPreparing(false)
+    const attQueue = attachmentColumn ? [...base] : []
+    await Promise.all(Array.from({ length: Math.min(2, attQueue.length) }, async () => { for (let it = attQueue.shift(); it; it = attQueue.shift()) await loadAttachments(it.rowIndex) }))
     // 讀 Meegle 現況：同時最多 3 張（一張一個 CLI 呼叫，24 列一張一張讀要一分多鐘）
     const queue = [...base]
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => { for (let it = queue.shift(); it; it = queue.shift()) await readRemote(it.workItemId) }))
     if (useAiFormat || useAiReview) for (const it of base) await runAi(it.rowIndex, useAiFormat, useAiReview)
+  }
+
+  /** 載入（或重新載入）一列的附件。失敗原因逐個列出來，要使用者明確略過或重試 */
+  async function loadAttachments(rowIndex: number) {
+    const r = records?.find(x => x._rowIndex === rowIndex)
+    if (!r || !attachmentColumn) return
+    setItems(prev => prev.map(it => it.rowIndex === rowIndex ? { ...it, attLoading: true } : it))
+    const colIdx = headers.indexOf(attachmentColumn)
+    let letter = ''
+    for (let i = colIdx + 1; i > 0; i = Math.floor((i - 1) / 26)) letter = String.fromCharCode(65 + (i - 1) % 26) + letter
+    const src = r[`${attachmentColumn}__url`] || getField(r, attachmentColumn)
+    const groups = [{ rowIndex, urls: src ? src.split(/[\n,]/).map(x => x.trim()).filter(Boolean) : [] }]
+    try {
+      const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/jira/attachment-prefetch', { groups, larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
+      const atts = d.result?.find(g => g.rowIndex === rowIndex)?.attachments ?? []
+      const ok = atts.filter(x => x.cacheId && !x.error)
+      const bad = atts.filter(x => x.error || !x.cacheId)
+      setItems(prev => prev.map(it => it.rowIndex !== rowIndex ? it : {
+        ...it, attLoading: false, skipMissingAtt: false,
+        // 重新載入時保留使用者手動加的附件（不在這次結果裡的 cacheId）
+        images: [...ok.filter(x => x.isImage), ...it.images.filter(x => x.manual)],
+        videos: [...ok.filter(x => !x.isImage), ...it.videos.filter(x => x.manual)],
+        attError: bad.length ? `${bad.length} 個附件沒載到：${bad.map(x => `${x.filename}${x.error ? `（${x.error}）` : ''}`).join('、').slice(0, 300)}` : '',
+      }))
+    } catch (e) {
+      setItems(prev => prev.map(it => it.rowIndex === rowIndex ? { ...it, attLoading: false, skipMissingAtt: false, attError: `附件載入失敗：${(e as Error).message}` } : it))
+    }
   }
 
   async function readRemote(workItemId: string) {
@@ -315,7 +325,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
   async function addAttachment(rowIndex: number, file: File) {
     const r = await uploadJiraAttachment(file)
     if (!r.ok) { editItem(rowIndex, { attError: r.message }); return }
-    setItems(prev => prev.map(x => x.rowIndex !== rowIndex ? x : r.data.isImage ? { ...x, images: [...x.images, r.data] } : { ...x, videos: [...x.videos, r.data] }))
+    setItems(prev => prev.map(x => x.rowIndex !== rowIndex ? x : r.data.isImage ? { ...x, images: [...x.images, { ...r.data, manual: true }] } : { ...x, videos: [...x.videos, { ...r.data, manual: true }] }))
   }
 
   /** 這一列能不能送（「可送出 N 列」排除衝突、處理中、驗證失敗——CodeX） */
@@ -324,6 +334,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     if (it.remote.status !== 'ok') return it.remote.status === 'error' ? '讀不到 Meegle 現況' : '讀取 Meegle 中'
     if (it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return '遠端已被修改，需確認'
     if (it.ai === 'running' || it.ai === 'queued') return it.ai === 'queued' ? 'AI 排隊中' : 'AI 處理中'
+    if (it.attLoading) return '附件載入中'
     if (it.attError && !it.skipMissingAtt) return '有附件沒載到'
     if (!it.text.trim()) return '測試說明是空的'
     if (!it.commentText.trim()) return '評論是空的'
@@ -440,7 +451,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
 
   const statusOf = (it: Item): { cls: string; text: string } => {
     if (it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
-    if (it.ai === 'running' || it.ai === 'queued' || it.remote.status === 'loading' || it.remote.status === 'idle') return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : '讀取中' }
+    if (it.ai === 'running' || it.ai === 'queued' || it.remote.status === 'loading' || it.remote.status === 'idle' || it.attLoading) return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : it.attLoading ? '附件載入中' : '讀取中' }
     if (itemIssue(it)) return { cls: 'warn', text: '待處理' }
     if (validateCommentSections(it.text).length) return { cls: 'pending', text: '待補資料' }
     return { cls: 'ok', text: '可送出' }
@@ -601,6 +612,11 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
               )}
             </div>
             {prepError && <div className="mb-alert mb-alert--warn">{prepError}</div>}
+            {items.some(it => it.attError && !it.attLoading) && (
+              <div className="mb-alert mb-alert--warn mc-att-banner"><Icon name="warn" /> {items.filter(it => it.attError).length} 列有附件沒載到
+                <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => { for (const it of items.filter(x => x.attError)) void loadAttachments(it.rowIndex) }}>重新載入失敗的附件</button>
+              </div>
+            )}
             <div className="mc-preview">
               <aside className="mc-list">
                 {items.map((it, i) => {
@@ -646,7 +662,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                         <input type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addAttachment(cur.rowIndex, f); e.target.value = '' }} />
                       </label>
                     </div>
-                    {cur.videos.length === 0 && <div className="mb-muted mc-empty">沒有影片</div>}
+                    {cur.attLoading && <div className="mb-muted mc-empty">附件載入中…</div>}
+                    {!cur.attLoading && cur.videos.length === 0 && <div className="mb-muted mc-empty">沒有影片</div>}
                     {cur.videos.map(a => (
                       <div key={a.cacheId} className="mc-video"><Icon name="play" /><span className="mc-video-name">{a.filename}<small>{(a.size / 1048576).toFixed(1)} MB ・ 已載入</small></span>
                         <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { videos: cur.videos.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button></div>
@@ -654,7 +671,10 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                     {cur.attError && (
                       <div className="mc-missing mc-att-error">
                         <span><Icon name="warn" /> {cur.attError}</span>
-                        <label className="mc-switch"><input type="checkbox" checked={cur.skipMissingAtt} onChange={e => editItem(cur.rowIndex, { skipMissingAtt: e.target.checked })} /> 不帶這些附件送出</label>
+                        <div className="mc-att-actions">
+                          <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={cur.attLoading} onClick={() => void loadAttachments(cur.rowIndex)}><Icon name="refresh" /> {cur.attLoading ? '載入中…' : '重新載入附件'}</button>
+                          <label className="mc-switch"><input type="checkbox" checked={cur.skipMissingAtt} onChange={e => editItem(cur.rowIndex, { skipMissingAtt: e.target.checked })} /> 不帶這些附件送出</label>
+                        </div>
                       </div>
                     )}
                     {useAiReview && (
