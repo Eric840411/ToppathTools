@@ -1517,21 +1517,37 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
         const [w0, h0] = firstTask.resolution.split('x').map(Number)
         const ctx = await browser.newContext({ viewport: { width: w0 || 390, height: h0 || 844 } })
         const page = await ctx.newPage()
+        let actual = ''
+        try {
+          await postStatus(firstTask.id, 'running')
+          actual = await prepare(page)
 
-        await postStatus(firstTask.id, 'running')
-        const actual = await prepare(page)
-
-        for (const task of gmidTasks) {
-          if (uiScreenshotRuns.get(runId)?.stopped) break
-          if (task.id !== firstTask.id) await postStatus(task.id, 'running')
-          const [w, h] = task.resolution.split('x').map(Number)
-          await page.setViewportSize({ width: w || 390, height: h || 844 })
-          await page.waitForTimeout(400) // let layout settle after resize
-          await shootAndUpload(page, task, actual)
+          for (const task of gmidTasks) {
+            if (uiScreenshotRuns.get(runId)?.stopped) break
+            if (task.id !== firstTask.id) await postStatus(task.id, 'running')
+            const [w, h] = task.resolution.split('x').map(Number)
+            await page.setViewportSize({ width: w || 390, height: h || 844 })
+            await page.waitForTimeout(400) // let layout settle after resize
+            await shootAndUpload(page, task, actual)
+          }
+          console.log(`[UI-SS] ${gmid} — done (fast mode), closing browser`)
+        } finally {
+          /**
+           * 🚨 退座一定要在 finally（CodeX review 9af7852 [P2]）：原本寫在 try 最後，
+           *    `prepare()` 一丟錯（例如白名單模式進場後名稱對不上）就整段跳過，座位留著；
+           *    外層 finally 只關瀏覽器，快速模式又沒有「重開一頁再退」的兜底。
+           * H5 跟重新載入模式用同一套：先看還坐不坐著，坐著才退，退不掉記進 seatUnresolved。
+           */
+          if (!isLobbyTarget && !isPc) {
+            const seen = await uiScreenshotSeatSeen(page).catch(() => 'unknown' as const)
+            seat = nextSeatState(seat, seen)
+            if (seen === 'seated') await leaveSeat(page, '快速模式收尾')
+            if (seat === 'held') seatUnresolved.push(`${gmid}（${lastUsedMachine ?? '機台不明'}）`)
+          } else if (!isLobbyTarget) {
+            await exitUiScreenshotMachine(page, actual || (lastUsedMachine ?? gmid)).catch(() => {})
+          }
+          await ctx.close().catch(() => {})
         }
-
-        if (!isLobbyTarget) await exitUiScreenshotMachine(page, actual)
-        console.log(`[UI-SS] ${gmid} — done (fast mode), closing browser`)
       }
 
     } catch (err) {

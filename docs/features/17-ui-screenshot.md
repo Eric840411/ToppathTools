@@ -453,6 +453,7 @@ model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（e
 - **白名單是快照**：建 run 時固定在 `options.targetPools`，每個 task 帶同一份 `allowedGmids`（各解析度共用、重試不重算）。任務名稱 `遊戲 / model / machineType`
 - **舊 agent 一律擋**：舊 agent 會把三段名稱當兩段比對，**默默拍到別的 Machine Model**。新 agent 在 `agent_ready.capabilities` 回報 `ui-ss-pool`（跟著這次連線，重連降版也會被擋）；`/start` 帶白名單但沒有這項 → 409 `AGENT_TOO_OLD`。空白名單、PC 版、非自動選機、白名單有非 gmid 值 → 400。**不會退回不限 Machine Model**
 - **進場後確認真的是挑的那一台**（v4.266.1，CodeX review `d3082af` [P1]）：`enterUiScreenshotMachine` 可能回 already-in-game 或被送回別台，只看推流就緒會把池外機台的畫面記成白名單內的機號。挑機時記下卡片名稱（例如 `Hyper Horse-TBR2052`），進場後畫面上必須有完全相同的文字，否則這張失敗、不拍，該台記進 brokenMachines 下一張不再挑；座位照常由外層收尾
+- **快速模式的退座在 finally**（v4.266.2，CodeX review `9af7852` [P2]）：原本寫在 try 最後，`prepare()` 一丟錯（例如名稱對不上）就跳過，快速模式又沒有「重開一頁再退」的兜底。現在跟重新載入模式同一套：看還坐不坐著，坐著才退，退不掉記進 seatUnresolved
 - **每個三段任務都要有白名單**（v4.266.1，CodeX [P2]）：只要任務名稱是三段就走白名單關卡；pools 缺省、`{}`、少一組都 400——否則那個任務到 agent 會被當成兩段比對、退回不限 Machine Model
 - **agent 端每個入口都守**：`pickUiScreenshotMachine` 有白名單時只比對白名單 gmid；「重新載入後已在機台內」的捷徑只比 model 名稱，有白名單時不走；PC／大廳／非自動選機收到白名單 → 整組回報失敗、不拍
 - **資料夾撞名**：任務名稱同時是資料夾名，`safeSegment()` 會把特殊字元換成 `_`、截到 120 字。同一個 run 裡兩個名稱撞成同一個資料夾 → 400（不然後拍的蓋掉先拍的）
