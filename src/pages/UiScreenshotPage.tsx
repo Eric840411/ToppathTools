@@ -643,7 +643,7 @@ export function UiScreenshotPage() {
                   onClick={() => setCollapsedGames(prev => { const n = new Set(prev); if (n.has(m.key)) n.delete(m.key); else n.add(m.key); return n })}>{open ? '▾' : '▸'}</button>
                 {triBox(keysOf(m), `選取 ${m.model} 底下全部 Machine Model`)}
                 <span className="ui-ss-mm-name">{m.model}</span>
-                <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
+                {/* 遊戲名稱這列不放台數：底下每個 Machine Model 自己有，分類那列有總數（需求方：重複、多餘） */}
               </div>
               {open && renderMMItems(m)}
             </div>

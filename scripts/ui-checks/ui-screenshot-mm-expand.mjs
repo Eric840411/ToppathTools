@@ -87,6 +87,7 @@ for (const mode of ['classic', 'xianxia']) {
   const cats = await page.locator('.ui-ss-mm > .ui-ss-mm-row .ui-ss-mm-game').allInnerTexts()
   check('同分類併成一張卡（BZZF、WLZBHELIX 各一張）', JSON.stringify(cats) === JSON.stringify(['BZZF', 'WLZBHELIX']), cats.join(','))
   const names = await page.locator('.ui-ss-mm-cat .ui-ss-mm-title .ui-ss-mm-name').allInnerTexts()
+  check('遊戲名稱那列不顯示台數（需求方：多餘）', await page.locator('.ui-ss-mm-title .ui-ss-mm-cnt').count() === 0)
   check('兩款遊戲名稱都保留', JSON.stringify(names) === JSON.stringify(['WLZBHELIX', 'Magic Flower']), names.join(','))
   const done = await page.getByRole('button', { name: '完成', exact: true }).boundingBox()
   check('「完成」不折行（高度 < 40px）', !!done && done.height < 40, done ? `${Math.round(done.height)}px` : '找不到')
