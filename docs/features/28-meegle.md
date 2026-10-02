@@ -183,7 +183,7 @@
 
 CLI `workitem create` 回傳的 `url` 是 `https://project.larksuite.com/{project_key}/{type_key}/detail/{id}`，**點開不會跳到那張單**（使用者 2026-10-02 實測）。Meegle 網頁認的是 `/{空間 simple_name}/{類型 api_name}/detail/{id}`（測試空間＝`/3kvkm7/task_normal/`）。`simple_name` 從 `project search --project-key` 取、`api_name` 從 `workitem meta-types` 取（`resolveDetailUrlBase`，成功才快取）。查不到時網址存空字串——畫面與 Sheet 顯示「#單號」純文字，**不退回 CLI 的壞網址**（壞連結看起來正常、點了才發現）。v4.263～4.269.0 開的 3 張單已用 `scripts/meegle-fix-detail-urls.ts` 修正（DB、操作紀錄、Sheet force 重寫）。
 
-## 28c. Meegle 批量評論（Jira 頁「Meegle 評論」分頁，v4.270.3 後端／v4.271.0 分頁）
+## 28c. Meegle 批量評論（Jira 頁「Meegle 評論」分頁，v4.270.3 後端／v4.271.0 分頁上線）
 
 取代 Jira 批量評論，**Sheet 不用改**（使用者：無痛轉移）。Jira 評論要求的五區塊【功能目的】【前置條件】【測試步驟】【說明與備註】【驗證結果】
 正好是 Meegle 任務項「測試頁 → 測試說明」（field_89ff93）的範本，所以「評論內容欄」整格寫進測試說明（使用者選：整格換掉）。
@@ -213,3 +213,14 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 | 操作 | 說明 |
 |---|---|
 | 測試 | `npx tsx server/meegle-comment-ops.test.ts`（37）、`meegle-comment-store.test.ts`（30）、`meegle-comment-run.test.ts`（30），安全規則逐條拿掉都會紅 |
+
+**分頁（v4.271.0，CodeX 設計圖 1:1）**：`src/pages/MeegleBatchCommentTab.tsx`（樣式沿用 MeegleBatchCreateTab.css＋MeegleBatchCommentTab.css）。③ 進入時預載附件（沿用 Jira 的 attachment-prefetch）、**同時最多 3 張**讀 Meegle 現況、再逐列跑 AI。手改正文會讓 AI 結果版本失效（rev），晚回的 AI 不蓋新稿、舊分析標「需重新分析」。單子網址前綴由 `/api/meegle/comment/meta` 給（不在前端寫死，v4.269.1 的坑）。Sheet 文字規則（AI 原文、環境推導、五區塊檢查）跟 Jira 批量評論共用 `src/features/batch-comment/comment-text.ts`。
+
+| 操作 | 說明 |
+|---|---|
+| 讀取 Sheet | 用「Meegle 單號」欄認單；只有 Jira 單號的列標「缺 Meegle 單號」、兩列同單號標「重複單號」都不能勾 |
+| 預設勾選 | 處理階段空白或「已開單…」、沒評論過的列；評論過的列勾了＝再送一輪 |
+| 欄位與身分 | 評論內容欄必選；填寫人欄選了會逐一檢查綁定與「Meegle 批量評論」授權，不能用的列擋下 |
+| 逐列預覽 | 測試說明、評論可直接改；圖片可移除、影片可新增／移除；遠端被改過要勾「確認覆寫」；格式不完整只警告（同 Jira） |
+| 送出結果 | 每步驟狀態；待確認→「查詢候選」→「就是這則」／「確定沒有送出」；只剩回填失敗→「補寫回」；失敗→「修正後重送」 |
+| 驗證 | `node scripts/ui-checks/meegle-comment-walkthrough.mjs`（真 Sheet 走①～③，不送出）、`meegle-comment-step4.mjs`（④ 假送出） |

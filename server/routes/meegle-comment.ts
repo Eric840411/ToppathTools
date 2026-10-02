@@ -21,6 +21,7 @@ import {
   expireStaleSteps, getCommentRow, getSnapshot, getSteps, initMeegleCommentSchema, listPreviousForSource, resolveUnknownStep, type StepRow,
 } from '../meegle-comment-store.js'
 import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment-run.js'
+import { resolveDetailUrlBase } from '../meegle-workitem.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
@@ -62,6 +63,17 @@ function publicSteps(steps: StepRow[]) {
   return steps.map(s => ({ step: s.step, phase: s.phase, message: s.message, attemptAt: s.attempt_at }))
 }
 
+// POST /api/meegle/comment/meta —— 單子網址的前綴（空間簡稱／類型名稱）。不能在前端寫死：CLI 回的 project_key 網址點不開（v4.269.1）
+router.post('/api/meegle/comment/meta', async (req, res, next) => {
+  try {
+    const ctx = requireLogin(req, res); if (!ctx) return
+    const me = identityFor(ctx.email, '')
+    if ('code' in me) return res.json({ ok: true, detailBase: '', bound: false, message: me.message })
+    const base = await resolveDetailUrlBase(me.token)
+    res.json({ ok: true, detailBase: base.kind === 'ok' ? base.value : '', bound: true })
+  } catch (e) { next(e) }
+})
+
 // POST /api/meegle/comment/identities —— ② 填寫人能不能用（綁定＋授權）
 router.post('/api/meegle/comment/identities', (req, res, next) => {
   try {
@@ -82,7 +94,7 @@ router.post('/api/meegle/comment/identities', (req, res, next) => {
         ? { name, status: 'ok', email: hit.email, label: hit.label }
         : { name, status: id.code === 'NOT_AUTHORIZED' ? 'not_authorized' : 'not_bound', email: hit.email, label: hit.label, message: id.message })
     }
-    res.json({ ok: true, self: identityFor(ctx.email, '').ok, results })
+    res.json({ ok: true, self: identityFor(ctx.email, '').ok, selfEmail: ctx.email, results })
   } catch (e) { next(e) }
 })
 
@@ -108,6 +120,9 @@ router.post('/api/meegle/comment/ai', writeLimiter, async (req, res, next) => {
       format: z.boolean(), review: z.boolean(),
       promptId: z.string().max(100).optional(), modelSpec: z.string().max(200).optional(),
       specContext: z.string().max(50000).default(''), knowledgeDocIds: z.array(z.number().int()).max(20).default([]),
+      // 跟 Jira 批量評論送出時帶的同一組環境資訊（前端用 src/features/batch-comment/comment-text.ts 的 aiContextFor 算）
+      environment: z.string().max(200).optional(), version: z.string().max(200).optional(), platform: z.string().max(200).optional(),
+      machineId: z.string().max(200).optional(), gameMode: z.string().max(200).optional(),
     }).parse(req.body)
     const account = getAuthAccount(req)!
     if (body.format && !accountHasPermission(account.email, account.role, 'jira-ai-format')) return res.status(403).json({ ok: false, message: '這個帳號沒有「AI 排版評論」的權限' })
@@ -119,7 +134,7 @@ router.post('/api/meegle/comment/ai', writeLimiter, async (req, res, next) => {
     // AI 失敗要明示（CodeX）：直接回錯，不默默回原文當成功
     let text = body.rawText
     if (body.format) {
-      text = await withRequestOperation('Meegle 評論預覽：AI 排版', () => formatCommentWithAI({ rawText: body.rawText, promptId: body.promptId, specContext: spec || undefined, modelSpec: body.modelSpec }))
+      text = await withRequestOperation('Meegle 評論預覽：AI 排版', () => formatCommentWithAI({ rawText: body.rawText, promptId: body.promptId, specContext: spec || undefined, modelSpec: body.modelSpec, environment: body.environment, version: body.version, platform: body.platform, machineId: body.machineId, gameMode: body.gameMode }))
     }
     let review: string | null = null
     if (body.review) {

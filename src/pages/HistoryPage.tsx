@@ -86,7 +86,7 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare' | 'meegle-batch-create'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare' | 'meegle-batch-create' | 'meegle-batch-comment'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
@@ -109,10 +109,12 @@ const FEATURE_LABELS: Record<string, string> = {
   'gs-bonusv2': 'GS Bonus V2 統計',
   'osm-config-compare': 'Config 比對',
   'meegle-batch-create': 'Meegle 開單',
+  'meegle-batch-comment': 'Meegle 評論',
 }
 
 const FEATURE_COLORS: Record<string, string> = {
   'meegle-batch-create': '#14b8a6',
+  'meegle-batch-comment': '#0ea5a4',
   'testcase': '#6366f1',
   'machine-test': '#0891b2',
   'ui-screenshot': '#0d9488',
@@ -212,7 +214,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'meegle-batch-create', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'meegle-batch-create', 'meegle-batch-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
@@ -352,6 +354,8 @@ export function HistoryPage() {
                       )}
                       {rec.feature === 'meegle-batch-create' && Array.isArray(detail.rows)
                         ? <MeegleBatchHistory detail={detail} />
+                        : rec.feature === 'meegle-batch-comment' && Array.isArray(detail.rows)
+                        ? <MeegleCommentHistory detail={detail} />
                         : (
                           <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
                             {JSON.stringify(detail, null, 2)}
@@ -445,6 +449,49 @@ function MeegleBatchHistory({ detail }: { detail: Record<string, unknown> }) {
                 <td style={cell}>{r.stage || (r.message ? <span style={{ color: '#f87171' }}>{r.message}</span> : '—')}</td>
                 <td style={{ ...cell, color: r.writeback === 'failed' ? '#f87171' : r.writeback === 'done' ? '#94a3b8' : '#fbbf24' }} title={r.writebackMsg ?? ''}>
                   {MEEGLE_WB[r.writeback ?? 'none'] ?? '—'}{r.writebackMsg ? `：${r.writebackMsg}` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+type MeegleCommentHistRow = { workItemId?: string; summary?: string; sheetRow?: number; asEmail?: string; steps?: Array<{ step: string; phase: string; message?: string | null }> }
+const MC_STEP: Record<string, string> = { desc: '測試說明', comment: '評論', review: 'AI 分析', writeback: 'Sheet 回填' }
+const MC_PHASE: Record<string, string> = { done: '完成', skipped: '略過', failed: '失敗', unknown: '待確認', creating: '處理中', none: '未執行' }
+
+/** Meegle 批量評論的紀錄：每列的單號、代理身分、各步驟結果（追溯「哪一列寫到哪張單、哪一步沒成功」） */
+function MeegleCommentHistory({ detail }: { detail: Record<string, unknown> }) {
+  const rows = (detail.rows as MeegleCommentHistRow[]).slice().sort((a, b) => Number(a.sheetRow) - Number(b.sheetRow))
+  const sheetUrl = typeof detail.sheetUrl === 'string' ? detail.sheetUrl : ''
+  const cell: React.CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #1e293b', verticalAlign: 'top' }
+  const color = (p: string) => p === 'done' || p === 'skipped' ? '#94a3b8' : p === 'failed' ? '#f87171' : '#fbbf24'
+  return (
+    <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+      <div style={{ marginBottom: 8 }}>
+        來源 Sheet：{sheetUrl ? <a href={sheetUrl} target="_blank" rel="noreferrer" style={{ color: '#2dd4bf', wordBreak: 'break-all' }}>{sheetUrl}</a> : '—'}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ color: '#94a3b8', textAlign: 'left' }}>
+            {['列', '摘要', 'Meegle 單號', '以誰的身分', '各步驟'].map(h => <th key={h} style={{ ...cell, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={`${r.workItemId}-${r.sheetRow}`}>
+                <td style={{ ...cell, color: '#94a3b8' }}>{r.sheetRow ?? '—'}</td>
+                <td style={cell}>{r.summary || '—'}</td>
+                <td style={{ ...cell, whiteSpace: 'nowrap' }}>{r.workItemId ? `#${r.workItemId}` : '—'}</td>
+                <td style={cell}>{r.asEmail || '本人'}</td>
+                <td style={cell}>
+                  {(r.steps ?? []).map(s => (
+                    <span key={s.step} title={s.message ?? ''} style={{ marginRight: 8, whiteSpace: 'nowrap', color: color(s.phase) }}>
+                      {MC_STEP[s.step] ?? (s.step.startsWith('video:') ? `影片 ${Number(s.step.slice(6)) + 1}` : s.step)}：{MC_PHASE[s.phase] ?? s.phase}
+                    </span>
+                  ))}
                 </td>
               </tr>
             ))}

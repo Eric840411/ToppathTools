@@ -1,0 +1,92 @@
+/* Meegle 批量評論（Jira 頁「Meegle 評論」分頁）
+   版面：CodeX 2026-10-02 設計圖。外框、步驟列、按鈕、表格、進度列沿用 MeegleBatchCreateTab.css（mb-*，雙主題 token 也在那裡），
+   這裡只放本分頁多出來的：③ 左清單＋兩塊可編輯預覽、常駐覆寫警示、遠端變更對照、④ 逐步驟狀態、候選評論。 */
+
+.mc-loadbar { display: flex; gap: 10px; margin-bottom: 8px; }
+.mc-loadbar .mb-input { flex: 1; min-width: 0; }
+.mb-table tr.is-blocked td { opacity: .55; }
+
+/* ② 身分與 AI */
+.mc-identity { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; font-size: 12.5px; }
+.mc-id { display: flex; align-items: center; gap: 6px; }
+.mc-id.is-ok { color: var(--mb-ok); }
+.mc-id.is-bad { color: var(--mb-bad); }
+.mc-ai { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--mb-border); border-radius: 10px; padding: 12px 14px; margin-top: 6px; background: var(--mb-card2); }
+.mc-switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+
+/* ③ 常駐覆寫警示 */
+.mc-overwrite { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 8px; margin: 2px 0 10px;
+  background: rgba(242, 107, 107, .14); border: 1px solid rgba(242, 107, 107, .55); color: #ffb4b4; font-weight: 700; font-size: 14px; }
+.mc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mc-nav { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+
+/* ③ 左清單＋兩塊預覽 */
+.mc-preview { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .mc-preview { grid-template-columns: 1fr; } }
+.mc-list { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--mb-border); border-radius: 10px; padding: 6px; background: var(--mb-card2); max-height: 560px; overflow: auto; }
+.mc-list-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border-radius: 7px;
+  background: none; border: 1px solid transparent; color: var(--mb-text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.mc-list-row:hover { background: rgba(255, 255, 255, .03); }
+.mc-list-row.is-on { border-color: var(--mb-primary); background: rgba(47, 127, 240, .12); }
+.mc-list-no { color: var(--mb-muted); font-variant-numeric: tabular-nums; }
+.mc-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; white-space: nowrap; }
+.mc-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.mc-dot--ok { color: var(--mb-ok); }
+.mc-dot--bad { color: var(--mb-bad); }
+.mc-dot--warn { color: var(--mb-warn); }
+.mc-dot--pending { color: var(--mb-pending); }
+.mc-dot--info { color: var(--mb-info); }
+
+.mc-panel { border: 1px solid var(--mb-border); border-radius: 10px; padding: 10px 12px 12px; background: var(--mb-card2); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mc-panel-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.mc-sub-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; margin-top: 4px; }
+.mc-text { width: 100%; box-sizing: border-box; resize: vertical; font: 13px/1.6 inherit; font-family: inherit; color: var(--mb-text);
+  background: rgba(0, 0, 0, .22); border: 1px solid var(--mb-border); border-radius: 8px; padding: 10px 12px; min-height: 240px; }
+.mc-text--short { min-height: 90px; }
+.mc-text:focus { outline: none; border-color: var(--mb-primary); box-shadow: 0 0 0 3px var(--mb-primary-glow); }
+.mc-missing { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--mb-warn); }
+.mc-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.mc-thumb { margin: 0; border: 1px solid var(--mb-border); border-radius: 8px; overflow: hidden; background: rgba(0, 0, 0, .25); }
+.mc-thumb img { display: block; width: 100%; height: 84px; object-fit: cover; }
+.mc-thumb figcaption { display: flex; align-items: center; gap: 4px; padding: 4px 6px; font-size: 11px; color: var(--mb-muted); }
+.mc-thumb figcaption { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mc-x { margin-left: auto; background: none; border: 0; color: var(--mb-muted); cursor: pointer; padding: 2px; display: inline-flex; }
+.mc-x:hover { color: var(--mb-bad); }
+.mc-upload { cursor: pointer; }
+.mc-empty { font-size: 12px; }
+.mc-video { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--mb-border); border-radius: 8px; font-size: 12.5px; }
+.mc-video-name { display: flex; flex-direction: column; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mc-video-name small { color: var(--mb-muted); font-size: 11px; }
+.mc-review { border-top: 1px dashed var(--mb-border); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.mc-review-text { white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; max-height: 200px; overflow: auto; }
+
+/* 遠端已被修改 */
+.mc-remote { border: 1px solid rgba(242, 107, 107, .6); border-radius: 10px; padding: 10px 12px; background: rgba(242, 107, 107, .07); display: flex; flex-direction: column; gap: 8px; }
+.mc-remote-title { display: flex; align-items: center; gap: 6px; color: #ffb4b4; font-weight: 700; }
+.mc-remote-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mc-remote-cmp b { display: block; font-size: 12px; margin-bottom: 4px; }
+.mc-remote-cmp pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 11.5px/1.5 inherit; font-family: inherit; max-height: 160px; overflow: auto;
+  background: rgba(0, 0, 0, .25); border-radius: 6px; padding: 6px 8px; }
+
+.mc-foot { margin-top: 14px; }
+
+/* ④ 逐步驟狀態 */
+.mc-step { font-size: 11.5px; padding: 1px 7px; border-radius: 5px; border: 1px solid; line-height: 1.6; }
+.mc-step--done, .mc-step--skipped { color: var(--mb-ok); border-color: rgba(63, 208, 127, .45); }
+.mc-step--skipped { opacity: .7; }
+.mc-step--failed { color: var(--mb-bad); border-color: rgba(242, 107, 107, .5); }
+.mc-step--unknown { color: var(--mb-pending); border-color: rgba(180, 140, 255, .5); }
+.mc-step--creating { color: var(--mb-info); border-color: rgba(90, 167, 255, .5); }
+.mc-step--none { color: var(--mb-muted); border-color: var(--mb-border); }
+.mc-cands { grid-column: 1 / -1; border: 1px solid rgba(180, 140, 255, .45); border-radius: 10px; padding: 10px 12px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; background: rgba(180, 140, 255, .06); }
+.mc-cand { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; padding: 6px 8px; border-radius: 6px; background: rgba(0, 0, 0, .2); white-space: pre-wrap; }
+.mc-cand small { color: var(--mb-muted); }
+
+/* 修仙版：只換配色（結構不變） */
+:root[data-theme-mode="xianxia"] .mc-list-row.is-on { border-color: #6fe3c3; background: rgba(31, 176, 140, .12); }
+:root[data-theme-mode="xianxia"] .mc-text:focus { border-color: #6fe3c3; box-shadow: 0 0 0 3px rgba(31, 176, 140, .2); }
+:root[data-theme-mode="xianxia"] .mc-panel,
+:root[data-theme-mode="xianxia"] .mc-list,
+:root[data-theme-mode="xianxia"] .mc-ai { border-color: rgba(201, 168, 92, .35); }
+:root[data-theme-mode="xianxia"] .mc-overwrite { background: rgba(192, 64, 64, .16); border-color: rgba(214, 104, 92, .65); }
