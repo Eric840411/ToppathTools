@@ -69,6 +69,8 @@ export const FRONTEND_BLOCK_DEFS = Object.freeze({
   read_value: { category: 'read' },
   // 比對兩個算式：這才是檢查
   assert_compare: { category: 'assert' },
+  // 暫停／恢復自動關彈窗：是操作不是檢查
+  popup_watch: { category: 'nav' },
 });
 
 /**

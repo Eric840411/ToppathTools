@@ -69,6 +69,8 @@ export const FRONTEND_ACTIONS = Object.freeze([
   'wait_for',
   // 讀成變數 ＋ 比對（前台原本只有「驗這一格的文字」，沒辦法把兩個地方的數字擺在一起比）
   'read_value', 'assert_compare',
+  // 暫停／恢復「全程自動關彈窗」——要驗的就是彈窗本身時用（例：大廳廣告 JP 彈框）
+  'popup_watch',
 ]);
 
 /**
@@ -213,7 +215,16 @@ export async function runFrontendStep(step, ctx) {
     // Backend 的 block-engine 早就踩過這個坑（也是實測才發現）。
     ctx.state.netMark = Date.now();
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(3000);
+    /**
+     * 導頁後的緩衝，預設 3 秒（舊腳本沒有這個欄位，行為不變）。
+     *
+     * ⚠️ 要截「載入畫面」的腳本（例：左下角的版本號，畫面只停留約 1～4 秒）必須填 0——
+     *    固定等 3 秒的話截到的已經是大廳，而且不會報錯，只會截錯畫面。
+     *    填 0 時下面「掉進機台」的檢查會在頁面還沒轉址前就做，所以那道防線等於不生效。
+     */
+    const settleMs = Math.min(Math.max(Number(step.settleMs ?? 3000), 0), 30000);
+    if (!Number.isFinite(settleMs)) throw new Error('導頁後等待要填 0～30000 的毫秒數');
+    if (settleMs > 0) await page.waitForTimeout(settleMs);
     /**
      * 🚨 **上一輪的位子還佔著時，載入會直接掉進機台。**
      *
@@ -1024,6 +1035,25 @@ export async function runFrontendStep(step, ctx) {
     }
     await located.locator.waitFor({ state: 'visible', timeout: 10000 });
     await log(`✅ ${idx} ${label}（命中 ${counted.count} 個）`);
+    return { shots };
+  }
+
+  if (step.action === 'popup_watch') {
+    /**
+     * 暫停／恢復執行期間的「自動關彈窗」看門狗（agent-runner 全程掛著，每 1.5 秒關一次）。
+     *
+     * 🚨 **要驗彈窗本身時必須先暫停**：大廳的廣告 JP 彈框，關閉鍵正是看門狗白名單裡的
+     *    `notification-close`——不暫停的話，等 3 秒再截圖時它早就被關了，
+     *    截到的是大廳、驗證失敗，而 log 只寫「關掉彈窗」，看起來像彈框沒出現。
+     * ⚠️ host 沒給這個能力（舊版 agent、或沒有看門狗的執行路徑）要**明確失敗**，
+     *    不能當成功跳過——那樣彈窗照樣被關。
+     */
+    const mode = String(step.value || 'pause');
+    if (mode !== 'pause' && mode !== 'resume') throw new Error('自動關彈窗要選「暫停」或「恢復」');
+    if (!ctx.popupWatch) throw new Error('這個執行環境沒有自動關彈窗的開關——請確認伺服器與 Local Agent 都已更新');
+    if (mode === 'pause') await ctx.popupWatch.pause();
+    else ctx.popupWatch.resume();
+    await log(`✅ ${idx} ${label}（自動關彈窗：${mode === 'pause' ? '已暫停' : '已恢復'}）`);
     return { shots };
   }
 

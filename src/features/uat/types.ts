@@ -59,6 +59,8 @@ export interface AutoStep {
   statusCode?: number
   /** assert_api_called／assert_ws_called：至少要被打到幾次 */
   minCount?: number
+  /** `goto`：導頁後再等幾毫秒（預設 3000；要截載入畫面時填 0） */
+  settleMs?: number
   /** `read_value`：要存成哪個變數名 */
   as?: string
   /** `read_value`：同名變數是否允許覆寫（預設不允許，避免後面引用到哪一次讀的看不出來） */

@@ -225,6 +225,8 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             )}
             <label>{xianxia ? '術式類別' : '動作類型'}<select className="uat-field" value={selected.action} onChange={event => updateSelected({ ...createStep(event.target.value), id: selected.id, name: selected.name })}>{STEP_LIBRARY.map(item => <option value={item.action} key={item.action}>{labelFor(item.action)}</option>)}</select></label>
             {selected.action === 'goto' && <label>網址<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="https://..." /></label>}
+            {selected.action === 'goto' && <label>導頁後等待毫秒<input className="uat-field" type="number" min="0" max="30000" value={selected.settleMs ?? 3000} onChange={event => updateSelected({ settleMs: event.target.value === '' ? undefined : Number(event.target.value) })} /><span className="uat-hint">預設 3000。要截載入畫面（例：左下角版本號）填 0，不然截到的會是大廳</span></label>}
+            {selected.action === 'popup_watch' && <label>自動關彈窗<select className="uat-field" value={selected.value || 'pause'} onChange={event => updateSelected({ value: event.target.value })}><option value="pause">暫停（要驗彈窗本身時，放在彈窗出現之前）</option><option value="resume">恢復</option></select><span className="uat-hint">執行期間工具每 1.5 秒自動關大廳彈窗；要截圖或點彈窗（例：廣告 JP 彈框）就先暫停</span></label>}
             {['click', 'type', 'assert_visible', 'scroll'].includes(selected.action) && <label>Selector<input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="#submit 或 [data-testid=...]" /></label>}
             {selected.action === 'assert_ws_called' && (
               <>

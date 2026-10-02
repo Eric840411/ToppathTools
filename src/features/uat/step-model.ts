@@ -20,6 +20,7 @@ export const STEP_LIBRARY = [
   { action: 'assert_compare', label: '比對兩個值／算式', category: 'assertion', description: '例：左邊填 before - bet，右邊填 after。支援 + - * / 與括號、容差' },
   { action: 'wait_for', label: '等到…出現／消失', category: 'flow', description: '等元素出現／消失、文字出現、或 PC 節點出現；條件成立就立刻往下走（取代猜秒數的等待）' },
   { action: 'require_precondition', label: '前置條件（不符判受阻）', category: 'flow', description: '環境要備好才測得了（例：活動要開著、要有第二台空機）。不成立時整筆 TC 判「受阻」——不是 FAIL，避免對 Lark 謊報一個不存在的 bug' },
+  { action: 'popup_watch', label: '暫停／恢復自動關彈窗', category: 'flow', description: '執行期間工具會自動關大廳彈窗；要驗彈窗本身（例：廣告 JP 彈框）時先暫停，驗完再恢復' },
   { action: 'backend_snippet', label: '後台設定', category: 'backend', description: '跑一份後台設定片段（例如把某個開關打開），完成後回到前端繼續' },
   // ⚠️ PC（Cocos）專用：畫面是一張 canvas，沒有 DOM 可選，所以 H5 那套選擇器積木在 PC 上一律命中 0。
   //    這兩顆讀的是 Cocos 場景樹。

@@ -86,23 +86,36 @@ export async function dismissLobbyPopups(page, { rounds = 4, settleMs = 800, all
  *    症狀會變成「這個 TC 永遠失敗而且看不出為什麼」——所以留 `onClose` 讓呼叫端寫 log，
  *    而且要能關掉這個看門狗（回傳 stop）。
  *
+ * 🚨 **反過來，有些 TC 要驗的就是彈窗本身**（例：大廳的廣告 JP 彈框，它的 ✕ 正是
+ *    `notification-close`）。所以回傳的 stop 身上另外掛 `pause()`／`resume()`，
+ *    讓「暫停自動關彈窗」積木在那幾步把它停下來。
+ *    ⚠️ `pause()` 要等「正在跑的那一輪」結束才 resolve——不等的話，暫停當下剛好在
+ *    evaluate 中的那一輪還是會把彈窗關掉，下一步的截圖就是空的，而且只會偶爾發生。
+ *
  * @param {import('playwright').Page} page
  * @param {{ intervalMs?: number, onClose?: (cls: string) => void }} [opts]
- * @returns {() => string[]} 停止並回傳這段期間關掉的清單
+ * @returns {(() => string[]) & { pause: () => Promise<void>, resume: () => void, isPaused: () => boolean }}
+ *   呼叫本身＝停止並回傳這段期間關掉的清單
  */
 export function startLobbyPopupWatcher(page, { intervalMs = 1500, onClose, allow = LOBBY_CLOSE_ALLOW } = {}) {
   const closed = []
   let stopped = false
+  let paused = false
+  let inflight = Promise.resolve()
   const tick = async () => {
-    if (stopped) return
+    if (stopped || paused) return
     const r = await page.evaluate(LOBBY_CLOSE_IN_PAGE, allow).catch(() => ({ closed: '' }))
     if (r.closed) {
       closed.push(r.closed)
       if (onClose) { try { onClose(r.closed) } catch { /* log 失敗不能影響測試 */ } }
     }
   }
-  const timer = setInterval(() => { void tick() }, intervalMs)
+  const timer = setInterval(() => { inflight = tick() }, intervalMs)
   // ⚠️ unref：這顆 timer 不能讓 node 程序活著不肯結束
   if (typeof timer.unref === 'function') timer.unref()
-  return () => { stopped = true; clearInterval(timer); return closed }
+  const stop = () => { stopped = true; clearInterval(timer); return closed }
+  stop.pause = async () => { paused = true; await inflight.catch(() => {}) }
+  stop.resume = () => { paused = false }
+  stop.isPaused = () => paused
+  return stop
 }

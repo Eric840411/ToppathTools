@@ -1608,7 +1608,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
   let statsTimer: ReturnType<typeof setInterval> | null = null
   // 彈窗看門狗的停止函式——在 try 裡面建立、finally 要停掉，所以宣告在外面
-  let stopPopupWatcher: (() => string[]) | null = null
+  let stopPopupWatcher: ReturnType<typeof startLobbyPopupWatcher> | null = null
   // 門檻走 server 派工時帶下來的值，沒帶就用共用預設
   const netThresholds = {
     api: msg.netThresholds?.api ?? DEFAULT_THRESHOLDS.api,
@@ -1698,6 +1698,15 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       log, page, browser,
       recordedLocator, netCapture,
       startUrl,
+      /**
+       * 「暫停／恢復自動關彈窗」積木用的開關。
+       * ⚠️ 看門狗在下面才建立，這裡用函式延遲取用；還沒建立就呼叫＝明確失敗，
+       *    不能默默當成功（那樣彈窗照樣被關，TC 永遠失敗又看不出原因）。
+       */
+      popupWatch: {
+        pause: async () => { if (!stopPopupWatcher) throw new Error('自動關彈窗的看門狗還沒啟動'); await stopPopupWatcher.pause() },
+        resume: () => { if (!stopPopupWatcher) throw new Error('自動關彈窗的看門狗還沒啟動'); stopPopupWatcher.resume() },
+      },
       viewportHeight: h,
       backend: msg.backend ?? null,
       // PC（Cocos）積木的能力。⚠️ 引擎是純 JS，不能自己 import 這支 TS——見 pc-cocos.ts 的說明
