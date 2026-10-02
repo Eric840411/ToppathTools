@@ -15,7 +15,7 @@
  *    查不到就是查不到，**不猜、不退回操作人**。
  * 6. MQL 單次最多 50 筆，要用 session_id + group_pagination_list 翻頁，不能只拿第一頁。
  */
-import { runMeegle, MeegleCliError, type CliResult } from './meegle-cli.js'
+import { runMeegle, MeegleCliError, MEEGLE_HOST, type CliResult } from './meegle-cli.js'
 import type { Requirement } from '../shared/meegle-batch-rules.js'
 
 /** 允許開單的空間與類型。只認這一組，關聯需求也只能指向同一空間的「需求」。 */
@@ -292,6 +292,43 @@ export async function createTask(token: string, input: CreateInput, roleIds: Rec
   // 成功卻拿不到單號：單可能已經開了，不能當失敗讓人重送
   if (!/^\d+$/.test(id)) return { kind: 'unknown', message: 'Meegle 回應成功但沒有單號' }
   return { kind: 'ok', value: { workItemId: id, url: typeof v.url === 'string' ? v.url : '' } }
+}
+
+/**
+ * 🚨 單子網址不能用 CLI 建單回傳的 url（2026-10-02 使用者實測點開不會跳到單）：
+ * CLI 給的是 `/{project_key}/{type_key}/detail/{id}`，Meegle 網頁認的是 `/{空間 simple_name}/{類型 api_name}/detail/{id}`
+ * （測試空間＝`/3kvkm7/task_normal/detail/…`）。兩個名字各查一次就快取；只快取成功的結果。
+ */
+const detailBaseCache = new Map<string, string>()
+export async function resolveDetailUrlBase(token: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<string>> {
+  const t = meegleTarget(env)
+  const ck = `${t.projectKey}|${t.taskTypeKey}`
+  const hit = detailBaseCache.get(ck)
+  if (hit) return { kind: 'ok', value: hit }
+  const p = await call(runner, ['project', 'search', '--project-key', t.projectKey], token)
+  if (p.kind !== 'ok') return p
+  const proj = ((p.value as { projects?: Array<{ project_key?: unknown; simple_name?: unknown }> }).projects ?? [])
+    .find(x => x.project_key === t.projectKey)
+  if (typeof proj?.simple_name !== 'string' || !proj.simple_name) return { kind: 'rejected', message: `查不到空間 ${t.projectKey} 的 simple_name` }
+  const m = await call(runner, ['workitem', 'meta-types', '--project-key', t.projectKey], token)
+  if (m.kind !== 'ok') return m
+  const type = ((m.value as { list?: Array<{ type_key?: unknown; api_name?: unknown }> }).list ?? []).find(x => x.type_key === t.taskTypeKey)
+  if (typeof type?.api_name !== 'string' || !type.api_name) return { kind: 'rejected', message: `查不到工作項類型 ${t.taskTypeKey} 的 api_name` }
+  const base = `https://${MEEGLE_HOST}/${encodeURIComponent(proj.simple_name)}/${encodeURIComponent(type.api_name)}/detail/`
+  detailBaseCache.set(ck, base)
+  return { kind: 'ok', value: base }
+}
+
+/** 測試用：清掉網址快取 */
+export function clearDetailUrlCache() { detailBaseCache.clear() }
+
+/**
+ * 給一張單的網頁網址。查不到 simple_name／api_name 時回空字串——
+ * 不退回 CLI 那個點了不會跳的網址：空字串在畫面和 Sheet 上會是「#單號」純文字，看得出沒有連結；壞連結看起來正常、點了才發現。
+ */
+export async function detailUrlFor(token: string, workItemId: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const b = await resolveDetailUrlBase(token, runner, env)
+  return b.kind === 'ok' ? b.value + workItemId : ''
 }
 
 // ─── 狀態 ───────────────────────────────────────────────────────────────────

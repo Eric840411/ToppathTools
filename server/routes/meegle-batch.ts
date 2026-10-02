@@ -26,7 +26,7 @@ import {
   listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
 import {
-  confirmRequirement, createTask, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
+  confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
   meegleTarget, resolveRoleIds, resolveUsersByEmail, transitionToState,
 } from '../meegle-workitem.js'
 import { MEEGLE_ROLE_DEFS, normAlias, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
@@ -199,7 +199,8 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
       finishCreate(db, body.batchId, body.rowKey, { phase: 'unknown', message: created.message })
       return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
     }
-    finishCreate(db, body.batchId, body.rowKey, { phase: 'created', workItemId: created.value.workItemId, url: created.value.url })
+    // 網址自己組（空間 simple_name／類型 api_name），CLI 回的 url 點了不會跳到單——見 detailUrlFor
+    finishCreate(db, body.batchId, body.rowKey, { phase: 'created', workItemId: created.value.workItemId, url: await detailUrlFor(ctx.token, created.value.workItemId) })
     log('ok', getClientIP(req), ctx.email, 'Meegle 開單', `#${created.value.workItemId} ${body.name}${unmapped.length ? `（未對照留空：${[...new Set(unmapped)].join('、')}）` : ''}`)
     await pushState(ctx, body.batchId, body.rowKey, created.value.workItemId, body.targetStateKey)
     // 推完狀態才寫，「處理階段」才寫得對（已推到 X／推到 X 未完成）
@@ -249,8 +250,7 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
     const candidates = found.value.filter(f => !taken.has(f.workItemId))
     if (candidates.length === 1) {
       const id = candidates[0].workItemId
-      const t = meegleTarget()
-      resolveUnknown(db, body.batchId, body.rowKey, { workItemId: id, url: `https://project.larksuite.com/${t.projectKey}/${t.taskTypeKey}/detail/${id}` })
+      resolveUnknown(db, body.batchId, body.rowKey, { workItemId: id, url: await detailUrlFor(ctx.token, id) })
       // 查回來的單還沒推過狀態，照原本送出時的目標補推（CodeX review 999f895 [P2]）
       const after = getBatchRow(db, body.batchId, body.rowKey)
       if (after && needsStatePush(after)) await pushState(ctx, after.batch_id, after.row_key, after.work_item_id!, after.target_state)

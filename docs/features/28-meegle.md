@@ -177,3 +177,8 @@
 - 來源列 UUID（可靠對應插列／排序後的列；要在 Sheet 多一欄、防重複鍵一起換）
 - 附件（Sheet 的圖、測試附件）沒有帶進 Meegle
 - Google Sheets 來源
+
+
+### 單子網址要自己組（v4.269.1）
+
+CLI `workitem create` 回傳的 `url` 是 `https://project.larksuite.com/{project_key}/{type_key}/detail/{id}`，**點開不會跳到那張單**（使用者 2026-10-02 實測）。Meegle 網頁認的是 `/{空間 simple_name}/{類型 api_name}/detail/{id}`（測試空間＝`/3kvkm7/task_normal/`）。`simple_name` 從 `project search --project-key` 取、`api_name` 從 `workitem meta-types` 取（`resolveDetailUrlBase`，成功才快取）。查不到時網址存空字串——畫面與 Sheet 顯示「#單號」純文字，**不退回 CLI 的壞網址**（壞連結看起來正常、點了才發現）。v4.263～4.269.0 開的 3 張單已用 `scripts/meegle-fix-detail-urls.ts` 修正（DB、操作紀錄、Sheet force 重寫）。

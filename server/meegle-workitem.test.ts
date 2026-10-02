@@ -8,7 +8,7 @@
  * - MQL 第 2 頁之後沒有 session_id／count，不能因此停在第 2 頁
  */
 import {
-  buildCreateFields, createTask, findUserViaParticipants, interpretCli, listRequirements, mqlString, pickUserByEmail,
+  buildCreateFields, clearDetailUrlCache, createTask, detailUrlFor, findUserViaParticipants, interpretCli, listRequirements, mqlString, pickUserByEmail,
   planTransition, queryAll, resolveRoleIds, resolveUsersByEmail, transitionToState, type Runner,
 } from './meegle-workitem.js'
 import { pickRequirement } from '../shared/meegle-batch-rules.js'
@@ -119,6 +119,30 @@ eq('少一個角色 → rejected（設定被改過就整批不開）', (await re
   eq('建單逾時 → unknown（不可重送）', (await createTask('t', { name: 'A', requirementId: '1', roles: {} }, roleIds, async () => out('', true), ENV)).kind, 'unknown')
   eq('人員無效 → rejected（整張沒建，可修正後重送）', (await createTask('t', { name: 'A', requirementId: '1', roles: {} }, roleIds, async () => out(userNotFound), ENV)).kind, 'rejected')
   eq('回應成功但沒單號 → unknown，不能當失敗', (await createTask('t', { name: 'A', requirementId: '1', roles: {} }, roleIds, async () => out('{"url":""}'), ENV)).kind, 'unknown')
+}
+
+// ── 單子網址：用空間 simple_name／類型 api_name，不用 CLI 回的 project_key/type_key（2026-10-02 使用者實測點不開）──
+{
+  // 實測回應（project search／workitem meta-types，TP-項目管理-測試）
+  const projectOut = JSON.stringify({ pagination: { total: 1 }, projects: [{ name: 'TP-項目管理-測試', project_key: '6abb348976c120f4f43c746a', simple_name: '3kvkm7' }] })
+  const typesOut = JSON.stringify({ list: [{ api_name: 'story', type_key: 'story' }, { api_name: 'task_normal', name: '任務項', type_key: '6abd3a436ef2d2a4b44051d8' }] })
+  let calls = 0
+  const runner: Runner = async args => { calls++; return out(args[0] === 'project' ? projectOut : typesOut) }
+  clearDetailUrlCache()
+  eq('網址＝simple_name／api_name（不是 project_key／type_key）', await detailUrlFor('t', '15194994', runner, ENV), 'https://project.larksuite.com/3kvkm7/task_normal/detail/15194994')
+  const before = calls
+  eq('第二張單用快取', await detailUrlFor('t', '15194995', runner, ENV), 'https://project.larksuite.com/3kvkm7/task_normal/detail/15194995')
+  eq('快取命中不再打 CLI', calls, before)
+
+  clearDetailUrlCache()
+  const noType: Runner = async args => out(args[0] === 'project' ? projectOut : JSON.stringify({ list: [{ api_name: 'story', type_key: 'story' }] }))
+  eq('查不到類型 → 空字串，不退回壞網址', await detailUrlFor('t', '1', noType, ENV), '')
+  clearDetailUrlCache()
+  const noProj: Runner = async args => out(args[0] === 'project' ? JSON.stringify({ projects: [{ project_key: 'other', simple_name: 'zz' }] }) : typesOut)
+  eq('查不到空間（只有別的空間）→ 空字串', await detailUrlFor('t', '1', noProj, ENV), '')
+  clearDetailUrlCache()
+  eq('CLI 逾時 → 空字串', await detailUrlFor('t', '1', async () => out('', true), ENV), '')
+  eq('失敗不進快取：之後查得到就用對的', await detailUrlFor('t', '7', runner, ENV), 'https://project.larksuite.com/3kvkm7/task_normal/detail/7')
 }
 
 // ── 狀態（id 取自實測：從「待辦事項」出發）──
