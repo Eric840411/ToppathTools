@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   MEEGLE_ROLE_DEFS, collectAliases, isRestorablePrevious, normAlias, planRow,
   type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan,
@@ -99,7 +99,6 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [progressDismissed, setProgressDismissed] = useState(false)
-  const resultsRef = useRef<HTMLDivElement | null>(null)
 
   // 批量填寫：對已勾選的列一次寫入逐列覆寫（留空的欄位不動）
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -579,7 +578,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
 
         {/* ── ④ 送出結果 ── */}
         {step === 4 && (
-          <div className="mb-pane" ref={resultsRef}>
+          <div className="mb-pane">
             <h3 className="mb-pane-title">送出結果</h3>
             <div className="mb-chips mb-tally">
               <span className="mb-chip mb-chip--ok is-on">已開單 <b>{tally.ok}</b></span>
@@ -622,10 +621,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
             <button type="button" className="mb-btn mb-btn--outline mb-btn--block mb-export" disabled={!resultEntries.length} onClick={exportCsv}>
               <Icon name="download" /> {xianxia ? <>封存玉簡<small>匯出結果</small></> : '匯出結果'}
             </button>
-            <div className="mb-done-line">
-              <span>處理完成 <b>{progress.done}</b> / {progress.total || resultEntries.length}</span>
-            </div>
-            <div className="dashboard-bar-track mb-progress-track"><span className="dashboard-bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : (resultEntries.length ? 100 : 0)}%` }} /></div>
+            {/* ④ 不再自己畫一條進度：跟下方固定進度列重複（使用者 10/02 回報「兩個進度條」），進度只看固定列 */}
             <div className="mb-done-note">完成不代表全數成功，請看上方各列結果</div>
             <div className="mb-pane-actions">
               <button type="button" className="mb-btn mb-btn--outline" disabled={running} onClick={() => setStep(3)}>上一步</button>
@@ -647,7 +643,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
           </div>
           <div className="dashboard-bar-track mb-progress-track mb-dock-bar"><span className="dashboard-bar-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
           <div className="mb-dock-actions">
-            <button type="button" className="mb-btn mb-btn--small" onClick={() => { if (step === 4) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setStep(4) }}>看結果</button>
+            {/* 已經在 ④ 時不顯示「看結果」：結果就在畫面上，按了看起來沒反應 */}
+            {step !== 4 && <button type="button" className="mb-btn mb-btn--small" onClick={() => setStep(4)}>看結果</button>}
             {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
           </div>
         </div>
