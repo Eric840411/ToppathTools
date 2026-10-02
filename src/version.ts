@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.274.3'
+export const APP_VERSION = '4.274.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.274.4', date: '2026-10-02', changes: ['fix(UAT H5 積木)：CodeX 覆核 v4.273～4.274 抓到的三個缺口。①「暫停自動關彈窗」仍有競態：evaluate 比 interval 慢時會疊出多輪，pause 只等最後一輪，亂序完成時暫停後還會被關一次 → 改成同一時間只跑一輪。②後台片段裡的 {{變數}} 原樣送進後台（例：把「{{machine}}」填進搜尋欄、查到 0 筆）→ 跑後台前換成前台變數，不存在就先失敗。③「影片要真的在播」用最後一次減第一次，片尾循環回 0 會誤判 FAIL → 改累計前進秒數。補 3 條測試（競態與循環兩條做過突變驗證）'] },
   { version: '4.274.3', date: '2026-10-02', changes: ['fix(UAT H5 積木)：「讀取數值」沒指定所屬 TC 時，編輯器現在會直接標紅「未指定 TC」——原本後端執行前會擋、編輯器卻不標，畫面看起來沒問題，按執行才被「請指定所屬 TC」擋下來（v4.244.0 起就漏了）。前後端一致的檢查早就有，但沒人會記得跑，這次接進 build:server：對不上建置直接失敗'] },
   { version: '4.274.2', date: '2026-10-02', changes: ['fix(UAT 後台片段)：**後台片段在 uat-cp 上其實從來沒登入成功**——登入頁是 SPA，帳密欄位在 domcontentloaded 之後才畫出來，原本馬上數欄位、數到 0 就當成「已經登入」，整份片段都在登入頁上跑，每一步回報「命中 0 個」，錯誤完全指不到登入。改成先等密碼欄出現（或網址已離開 /login 才算已登入）、逐字輸入帳密（fill 在剛畫出的 Vue 欄位會被吃掉）、按完仍停在登入頁就明確失敗'] },
   { version: '4.274.1', date: '2026-10-02', changes: ['fix(UAT H5)：**UAT 上「退出機台」收尾從來沒生效過**——h5InGame 只認 osm-h5 網域，UAT 的 H5 是 uat-h5.osmslot.org，判斷永遠是「不在機台裡」，所以腳本跑完（或 goto 回大廳時）帳號會一直卡在座位上，下一輪一載入就掉進機台。改成 osm-h5／uat-h5 都認（仍要求網址含 /game）。popup-watch.test.mjs 補 1 條'] },

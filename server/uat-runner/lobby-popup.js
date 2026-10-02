@@ -101,20 +101,24 @@ export function startLobbyPopupWatcher(page, { intervalMs = 1500, onClose, allow
   const closed = []
   let stopped = false
   let paused = false
-  let inflight = Promise.resolve()
+  // 正在跑的那一輪。⚠️ **同一時間只允許一輪**（CodeX 10-02 覆核重現）：evaluate 比 interval 慢時
+  // 原本會疊出兩輪，inflight 只記得最後一輪——後輪先完成的話 pause() 已經返回，前輪還是會把彈窗關掉
+  let inflight = null
   const tick = async () => {
-    if (stopped || paused) return
     const r = await page.evaluate(LOBBY_CLOSE_IN_PAGE, allow).catch(() => ({ closed: '' }))
     if (r.closed) {
       closed.push(r.closed)
       if (onClose) { try { onClose(r.closed) } catch { /* log 失敗不能影響測試 */ } }
     }
   }
-  const timer = setInterval(() => { inflight = tick() }, intervalMs)
+  const timer = setInterval(() => {
+    if (stopped || paused || inflight) return
+    inflight = tick().finally(() => { inflight = null })
+  }, intervalMs)
   // ⚠️ unref：這顆 timer 不能讓 node 程序活著不肯結束
   if (typeof timer.unref === 'function') timer.unref()
   const stop = () => { stopped = true; clearInterval(timer); return closed }
-  stop.pause = async () => { paused = true; await inflight.catch(() => {}) }
+  stop.pause = async () => { paused = true; if (inflight) await inflight.catch(() => {}) }
   stop.resume = () => { paused = false }
   stop.isPaused = () => paused
   return stop

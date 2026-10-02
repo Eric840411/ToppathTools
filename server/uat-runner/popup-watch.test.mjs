@@ -84,3 +84,22 @@ test('h5InGame：UAT 的 uat-h5 網域也要認得（不然收尾退出機台在
   assert.equal(h5InGame(p('https://uat-h5.osmslot.org/lobby')), false)
   assert.equal(h5InGame(p('https://example.com/game')), false)
 })
+
+test('暫停：前一輪很慢、後一輪很快（亂序完成）時，pause 返回後也不能再關（CodeX 10-02 重現的競態）', async () => {
+  let call = 0, closesAfterPause = 0, pausedAt = null
+  const page = {
+    evaluate: async () => {
+      const mine = ++call
+      await sleep(mine === 1 ? 300 : 10)
+      if (pausedAt !== null) closesAfterPause++
+      return { closed: 'notification-close' }
+    },
+  }
+  const watch = startLobbyPopupWatcher(page, { intervalMs: 20 })
+  await sleep(60) // 第一輪（慢）在跑，舊版這時已經疊出第二、三輪
+  await watch.pause()
+  pausedAt = Date.now()
+  await sleep(400)
+  assert.equal(closesAfterPause, 0, 'pause 返回之後不能有任何一輪再關彈窗')
+  watch()
+})

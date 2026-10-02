@@ -88,6 +88,33 @@ function frontendVars(ctx) {
   return ctx.state.vars;
 }
 
+/**
+ * 後台片段裡的 `{{變數}}` 換成前台變數（例：把彈框讀到的機台名填進後台搜尋欄）。
+ *
+ * ⚠️ 只換字串欄位，不改原片段物件（片段會被同一份腳本重複引用）。
+ * ⚠️ 引用的變數不存在要**在跑後台之前就失敗**——原樣把 `{{machine}}` 填進搜尋欄的話，
+ *    後台會乖乖查一個叫「{{machine}}」的東西、查到 0 筆，錯誤看起來像資料不存在（CodeX 10-02 實測重現）。
+ */
+export function fillSnippetVars(steps, ctx) {
+  const text = JSON.stringify(steps ?? []);
+  if (!/\{\{\s*[\w.]+\s*\}\}/.test(text)) return steps ?? [];
+  const vars = frontendVars(ctx);
+  const lookup = (nameRef) => nameRef.split('.').reduce((cur, part) => (cur === undefined || cur === null ? cur : cur[part]), vars);
+  const sub = (value) => {
+    if (typeof value === 'string') {
+      return value.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, name) => {
+        const v = lookup(name);
+        if (v === undefined || v === null || typeof v === 'object') throw new Error(`後台片段引用的變數「${name}」不存在或不是單一值`);
+        return String(v);
+      });
+    }
+    if (Array.isArray(value)) return value.map(sub);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sub(v)]));
+    return value;
+  };
+  return sub(steps);
+}
+
 /** 表格列裡取欄位：先完全相同，再忽略大小寫與空白（表頭偶爾多一個空格） */
 function cellOf(row, column) {
   if (column in row) return row[column];
@@ -1168,15 +1195,20 @@ export async function runFrontendStep(step, ctx) {
     const first = await read();
     const started = Date.now();
     let last = first;
+    // 累計「實際播了幾秒」而不是拿最後一次減第一次：影片接近片尾時會循環回 0，
+    // 直接相減會變負數、在播也判 FAIL（CodeX 10-02 覆核）。時間倒退就當成從 0 重新開始累加。
+    let advanced = 0;
     while (Date.now() - started < timeoutMs) {
       await page.waitForTimeout(400);
-      last = await read();
-      if (!last.paused && last.t - first.t >= minAdvance) {
-        await log(`✅ ${idx} ${label}（影片在播：${first.t.toFixed(1)}s → ${last.t.toFixed(1)}s）`);
+      const now = await read();
+      advanced += now.t >= last.t ? now.t - last.t : now.t;
+      last = now;
+      if (!last.paused && advanced >= minAdvance) {
+        await log(`✅ ${idx} ${label}（影片在播：累計前進 ${advanced.toFixed(1)}s，目前 ${last.t.toFixed(1)}s）`);
         return { shots };
       }
     }
-    throw new Error(`影片沒有在播：${(timeoutMs / 1000).toFixed(0)} 秒內播放時間 ${first.t.toFixed(1)}s → ${last.t.toFixed(1)}s，`
+    throw new Error(`影片沒有在播：${(timeoutMs / 1000).toFixed(0)} 秒內播放時間只前進 ${advanced.toFixed(1)}s（${first.t.toFixed(1)}s → ${last.t.toFixed(1)}s），`
       + `${last.paused ? '仍是暫停狀態' : '沒有暫停但時間沒前進（可能卡在載入）'}（readyState=${last.ready}）`);
   }
 
@@ -1215,7 +1247,7 @@ export async function runFrontendStep(step, ctx) {
     if (as && as in vars && step.overwrite !== true) throw new Error(`變數名「${as}」重複。換個名字，或勾「允許覆寫」`);
     await log(`⏳ ${idx} ${label}：${snippetTitle}`);
     const opResult = await runBackendOps(ctx.browser, {
-      ...ctx.backend, steps: snippetSteps, title: snippetTitle,
+      ...ctx.backend, steps: fillSnippetVars(snippetSteps, ctx), title: snippetTitle,
       onNote: (line) => { void log(line) },
       // 後台畫面也要能當證據回寫 Lark（host 的截圖函式收第二個參數＝要拍哪一頁）
       capture: ctx.takeScreenshot ? (backendPage) => ctx.takeScreenshot(`${label}（後台）`, backendPage) : null,
