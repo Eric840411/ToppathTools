@@ -127,22 +127,38 @@ export async function syncOsmChannel(channel: OsmChannel): Promise<OsmChannelRes
     const token = loginData.data?.token
     if (!token) throw new Error(`登入失敗：${loginData.msg ?? '無法取得 token'}`)
 
-    const listResp = await fetch(
-      `${baseUrl}/egm/floor/egmList?page=1&pageSize=500&isShowClient=1&searchName=&channelId=${channel.channelId}`,
-      {
-        headers: {
-          'Host': 'backendserver.osmplay.com',
-          'Origin': channel.origin,
-          'Referer': `${channel.origin}/`,
-          'token': token,
+    /**
+     * 🚨 **一定要翻完每一頁**（2026-10-02 使用者在 UI 截圖看到「未同步」才發現）：
+     * 原本只抓 `page=1&pageSize=500`，NCH 有 574 台，**後面 74 台從來沒進過 Dashboard**，而且沒有任何徵兆
+     * （CLAUDE.md 跨功能踩坑 #9「分頁只抓第一頁」）。回應裡有 `total`，照它翻到齊；
+     * 拿到空頁或超過上限就丟錯——寧可這個渠道同步失敗，也不要回傳一份默默少掉的清單。
+     */
+    const PAGE_SIZE = 500
+    const items: Array<Record<string, unknown>> = []
+    for (let page = 1; ; page++) {
+      const listResp = await fetch(
+        `${baseUrl}/egm/floor/egmList?page=${page}&pageSize=${PAGE_SIZE}&isShowClient=1&searchName=&channelId=${channel.channelId}`,
+        {
+          headers: {
+            'Host': 'backendserver.osmplay.com',
+            'Origin': channel.origin,
+            'Referer': `${channel.origin}/`,
+            'token': token,
+          },
         },
-      },
-    )
-    const listData = await listResp.json() as {
-      data?: { items?: Array<Record<string, unknown>> }
-      msg?: string
+      )
+      const listData = await listResp.json() as {
+        data?: { items?: Array<Record<string, unknown>>; total?: number }
+        msg?: string
+      }
+      const pageItems = listData.data?.items ?? []
+      items.push(...pageItems)
+      const total = Number(listData.data?.total ?? 0)
+      if (!total || items.length >= total) break
+      if (pageItems.length === 0) throw new Error(`egmList 第 ${page} 頁是空的，但總數 ${total}、只拿到 ${items.length} 台`)
+      if (page >= 50) throw new Error(`egmList 翻了 50 頁還沒拿齊（總數 ${total}、拿到 ${items.length}）`)
     }
-    const machines = (listData.data?.items ?? []).map(item => {
+    const machines = items.map(item => {
       const raw = String((item as { onlineState?: unknown }).onlineState ?? '').trim().toLowerCase()
       let onlineState = 'unknown'
       if (raw === 'online' || raw === '1' || raw === 'true') onlineState = 'online'
