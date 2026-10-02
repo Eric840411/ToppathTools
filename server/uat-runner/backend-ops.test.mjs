@@ -220,6 +220,32 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     result.ok === false && result.fails.some(f => f.includes('沒有出現帳密欄位')), JSON.stringify(result.fails));
 }
 
+// ── ⑨ 延遲轉址才成功（v4.274.6，CodeX 建議）：按完登入後過一陣子才離開 /login，要算成功 ──
+{
+  const { browser, page } = stubBrowser();
+  let current = 'https://cp.example/login';
+  page.url = () => current;
+  const realLocator = page.locator;
+  page.locator = (selector) => {
+    const base = realLocator(selector);
+    if (!/submit|Login|登/.test(selector)) return base;
+    const btn = { ...base, click: async () => { setTimeout(() => { current = 'https://cp.example/dashboards' }, 80) } };
+    btn.first = () => btn;
+    return btn;
+  };
+  page.waitForURL = async (pred, { timeout = 1000 } = {}) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) { if (pred(current)) return; await new Promise(r => setTimeout(r, 10)) }
+    throw new Error('timeout');
+  };
+  const result = await runBackendOps(browser, {
+    backendUrl: 'https://cp.example/', username: USERNAME, password: PASSWORD, title: 't',
+    steps: [{ action: 'set_checked', selector: '#sw', checked: true }],
+  });
+  check('⑨ 按完登入 80ms 後才轉址 → 仍算登入成功（不能一看到 /login 就判失敗）',
+    !result.fails.some(f => f.includes('登入失敗')), JSON.stringify(result.fails));
+}
+
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
