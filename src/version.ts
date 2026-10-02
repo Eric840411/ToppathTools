@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.274.1'
+export const APP_VERSION = '4.274.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.274.2', date: '2026-10-02', changes: ['fix(UAT 後台片段)：**後台片段在 uat-cp 上其實從來沒登入成功**——登入頁是 SPA，帳密欄位在 domcontentloaded 之後才畫出來，原本馬上數欄位、數到 0 就當成「已經登入」，整份片段都在登入頁上跑，每一步回報「命中 0 個」，錯誤完全指不到登入。改成先等密碼欄出現（或網址已離開 /login 才算已登入）、逐字輸入帳密（fill 在剛畫出的 Vue 欄位會被吃掉）、按完仍停在登入頁就明確失敗'] },
   { version: '4.274.1', date: '2026-10-02', changes: ['fix(UAT H5)：**UAT 上「退出機台」收尾從來沒生效過**——h5InGame 只認 osm-h5 網域，UAT 的 H5 是 uat-h5.osmslot.org，判斷永遠是「不在機台裡」，所以腳本跑完（或 goto 回大廳時）帳號會一直卡在座位上，下一輪一載入就掉進機台。改成 osm-h5／uat-h5 都認（仍要求網址含 /game）。popup-watch.test.mjs 補 1 條'] },
   { version: '4.274.0', date: '2026-10-02', changes: ['feat(UAT H5 積木)：**前台畫面跟後台資料沒辦法對照**（AI T-003：大廳廣告 JP 彈框按 ▶ 後的 TOTAL WIN／TIME 要跟後台 Jackpot Ranking 比）。①「後台設定」片段可以放「讀取表格」（唯一新增的讀取動作，斷言類仍擋——判定只在前台做），填「讀回的資料存成變數名」就把表格交回前台；片段結束時的後台畫面自動截圖回寫 Lark。②新檢查「表格要有一筆符合」：一行一條 `欄位 運算子 值`（= 數值／文字相等、^= 開頭、*= 包含、~= 遮罩、@now 起訖包含現在、{{變數}} 代入），對不上時回報最接近那列差在哪；引用不存在的變數在比對前就失敗。③新檢查「影片要真的在播」：沒暫停且播放時間前進才算（只看沒暫停會把卡載入當成在播，突變驗過）。新增 row-match.test.mjs 11 條'] },
   { version: '4.273.0', date: '2026-10-02', changes: ['feat(UAT H5 積木)：**要驗「載入畫面」與「大廳彈窗本身」的 TC 原本錄不出來**（Lark 使用者要錄 AI T-001～T-003）。①「前往頁面」新增「導頁後等待毫秒」（預設 3000，舊腳本行為不變）——載入畫面左下角的版本號只停留約 1～4 秒，固定等 3 秒會截到大廳；填 0 就能截到。②新積木「暫停／恢復自動關彈窗」——執行期間看門狗每 1.5 秒關一次大廳彈窗，而廣告 JP 彈框的 ✕ 正是白名單裡的 notification-close，不暫停就等不到截圖。暫停會等「正在跑的那一輪」結束才生效，避免暫停後仍被關一次；舊版 agent 沒有這個開關時積木明確失敗、不當成功。新增 popup-watch.test.mjs 6 條（暫停那條做過突變：拿掉等待就變紅）'] },

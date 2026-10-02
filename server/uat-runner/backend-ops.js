@@ -62,15 +62,30 @@ export function unsupportedBackendOps(steps) {
  */
 async function login(page, { backendUrl, username, password, waitMs = 1500 }) {
   await page.goto(backendUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  /**
+   * 🚨 **登入頁是 SPA，帳密欄位在 domcontentloaded 之後才畫出來**（2026-10-02 實測 uat-cp）。
+   *    原本馬上數欄位：數到 0 就當成「已經登入」直接往下跑，結果整份片段都在登入頁上執行，
+   *    每一步都「命中 0 個」——錯誤訊息完全指不到登入。所以先等：等到密碼欄出現，
+   *    或網址已經不在 /login（真的是已登入、被導去別頁），兩者都沒有才算失敗。
+   */
+  const pw = page.locator('input[type="password"]');
+  const appeared = await pw.first().waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!appeared) {
+    if (!/\/login/i.test(page.url())) return { loggedIn: false, reason: 'already-signed-in' };
+    throw new Error('後台登入頁 15 秒內沒有出現帳密欄位');
+  }
   const user = page.locator('input[type="text"], input[name*="user"], input[id*="user"]').first();
-  // 已經登入過（cookie 還在）就不會有帳密欄位——這不是錯誤
-  if (!(await user.count())) return { loggedIn: false, reason: 'already-signed-in' };
-  await user.fill(username);
-  await page.locator('input[type="password"]').fill(password);
+  // ⚠️ 用逐字輸入，不用 fill：這個登入表單（Vue）在欄位剛畫出來時 fill 會被吃掉、值是空的
+  await user.click();
+  await user.pressSequentially(username, { delay: 20 });
+  await pw.first().click();
+  await pw.first().pressSequentially(password, { delay: 20 });
   await page.locator('button[type="submit"], button:has-text("登录"), button:has-text("登入"), button:has-text("Login")')
     .first().click({ timeout: 15_000 });
   await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
   await page.waitForTimeout(waitMs);
+  // 還停在登入頁＝帳密錯或被擋。⚠️ 要明確失敗，不能當登入成功往下跑
+  if (/\/login/i.test(page.url())) throw new Error('後台登入失敗（按了登入仍停在登入頁，請確認帳密）');
   return { loggedIn: true };
 }
 
