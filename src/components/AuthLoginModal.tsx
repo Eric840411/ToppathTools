@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Portal from './Portal'
 import { useIsGameMode } from './GameModeContext'
-import type { AccountInfo } from './JiraAccountModal'
+import type { AccountInfo } from '../accountTypes'
 import { XianxiaIcon } from './XianxiaIcon'
 
 const LAST_LOGIN_EMAIL_KEY = 'toppath_last_login_email'

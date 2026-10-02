@@ -1,3 +1,8 @@
+> ## ⚠️ 2026-10-02（v5.0.0）Jira 批量工具已整個移除
+> Jira 停用（使用者確認沒人用）。四個批量分頁、補回填／對帳、Jira API（routes/jira.ts）都刪了；取代品是 Meegle 五個分頁（`docs/features/28-meegle.md`）。
+> 共用的帳號、讀 Sheet、附件已先搬到 routes/accounts.ts、sheets.ts、attachments.ts。資料表（jira_accounts 等）**刻意保留**——帳號表還在用、退版退不了 migration。
+> 這份文件留著當歷史紀錄：權限三合一、身分邊界、代理授權、靜默丟資料等踩坑的道理仍然適用。
+
 # Jira 批量開單／評論／修改
 
 > 這份是 `CLAUDE.md` 的 Product Features 章節拆出來的。維護規則不變：功能有新增或修改，要同步更新這裡。

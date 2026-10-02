@@ -341,3 +341,10 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 ### ② 週報、TestCase 改讀 Meegle（v4.282.0 TestCase／v4.283.0 週報）
 - TestCase：參考單改填 Meegle 單號（`shared/meegle-ref.ts` 解析、`server/meegle-ref-fetch.ts` 讀），用自己的綁定；看不懂或讀不到任何一張整批擋下；輸出欄名「JIRA對應單號」不改
 - 週報：見 `docs/features/23-weekly-report.md`「依時間撈單改撈 Meegle」
+
+### ③ 刪 Jira（v5.0.0）
+- 前端：刪 JiraPage 與四個 Jira 批量分頁、JiraAccountModal、SheetSourceToggle／SheetUrlEntryStep／JiraStepWidgets；新頁 `src/pages/MeegleToolsPage.tsx` 只放 Meegle 五個分頁（記住上次的分頁）。側邊欄「Jira 批量開單」→「Meegle 批量工具」；權限頁顯示名改 Meegle，**key 不改**
+- `AccountInfo`／`accountHasRole` 從 JiraAccountModal 搬到 `src/accountTypes.ts`；遊戲版（GameApp）的切帳號改成登出回登入畫面
+- 後端：刪 `routes/jira.ts`；index／worker 的 Jira 批次轉送、操作紀錄標籤一起拿掉；週報的 jira-by-range 與 Jira 撈單 helper 刪除
+- 型別檢查 58 → 53：逐條比對，少的 5 條全是 jira.ts 本身的，沒有新增
+- **刻意保留**（之後第 ④ 步再收）：資料表 jira_accounts／jira_account_delegates／jira_pending_writebacks；shared.ts 裡沒人呼叫的 Jira helper；`jira-attachment-files.ts` 的 uploadFileToJira；代理授權頁上已無作用的兩個 Jira 用途

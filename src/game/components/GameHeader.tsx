@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { DungeonIcon } from '../../components/DungeonIcon'
-import type { AccountInfo } from '../../components/JiraAccountModal'
+import type { AccountInfo } from '../../accountTypes'
 import { useAvatar } from '../hooks/useAvatar'
 import { AvatarPickerModal } from './AvatarPickerModal'
 

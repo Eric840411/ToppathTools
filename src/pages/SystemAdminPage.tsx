@@ -26,9 +26,10 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   // OR 成同一個 gate、都指向同一頁——關掉其中一個沒有任何效果，等於給管理員
   // 一個假的安全感。收成一筆。名稱用「批量工具」不是「批量開單」：那一頁裡面
   // 有開單／評論／更新狀態／修改四個工具，叫開單會再次低估範圍（CodeX 建議）。
-  { key: 'jira',         label: 'Jira 批量工具',            group: 'Jira / TestCase' },
-  { key: 'lark',         label: 'TestCase 生成',            group: 'Jira / TestCase' },
-  { key: 'weekly-report', label: '週報彙整',                group: 'Jira / TestCase' },
+  // 2026-10-02 Jira 停用：顯示名改成 Meegle，key 不改（CodeX：改 key 大家權限會跑掉）
+  { key: 'jira',         label: 'Meegle 批量工具',          group: 'Meegle / TestCase' },
+  { key: 'lark',         label: 'TestCase 生成',            group: 'Meegle / TestCase' },
+  { key: 'weekly-report', label: '週報彙整',                group: 'Meegle / TestCase' },
   { key: 'osm',          label: 'OSM 版號同步',        group: 'OSM Tools' },
   { key: 'machinetest',  label: '機台自動化測試',       group: 'OSM Tools' },
   { key: 'imagecheck',   label: '圖片刪除驗證',         group: 'OSM Tools' },

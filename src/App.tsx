@@ -7,7 +7,7 @@ import { DashboardPage } from './pages/DashboardPage'
 const OsmPage = lazy(() => import('./pages/OsmPage').then(m => ({ default: m.OsmPage })))
 const OsmConfigComparePage = lazy(() => import('./pages/OsmConfigComparePage').then(m => ({ default: m.OsmConfigComparePage })))
 const AutoSpinPage = lazy(() => import('./pages/AutoSpinPage').then(m => ({ default: m.AutoSpinPage })))
-const JiraPage = lazy(() => import('./pages/JiraPage').then(m => ({ default: m.JiraPage })))
+const MeegleToolsPage = lazy(() => import('./pages/MeegleToolsPage').then(m => ({ default: m.MeegleToolsPage })))
 const LarkPage = lazy(() => import('./pages/LarkPage').then(m => ({ default: m.LarkPage })))
 const MachineTestPage = lazy(() => import('./pages/MachineTestPage').then(m => ({ default: m.MachineTestPage })))
 const ScriptedBetPage = lazy(() => import('./pages/ScriptedBetPage').then(m => ({ default: m.ScriptedBetPage })))
@@ -36,7 +36,7 @@ import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
 import { XianxiaIcon, type XianxiaIconName } from './components/XianxiaIcon'
 import { XianxiaReveal } from './components/XianxiaReveal'
-import { type AccountInfo } from './components/JiraAccountModal'
+import { type AccountInfo } from './accountTypes'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
@@ -75,12 +75,12 @@ type Group = {
 const groups: Group[] = [
   {
     id: 'jira',
-    label: 'Jira 批量開單',
+    label: 'Meegle 批量工具',
     themeLabel: '卷宗管理',
     icon: 'J',
     iconClass: 'tab-icon--jira',
     tab: 'jira',
-    description: '從試算表資料建立 Issue、新增評論、切換狀態（支援 QA / PM 模式切換）',
+    description: '從試算表批量開 Meegle 單、評論、更新狀態、修改欄位、補回填 Sheet',
   },
   {
     id: 'lark',
@@ -947,7 +947,7 @@ function App() {
         ) : (
           <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
-            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
+            {currentGroup?.id === 'jira' && <MeegleToolsPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}

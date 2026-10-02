@@ -16,7 +16,6 @@ import { z } from 'zod'
 import { WebSocket, WebSocketServer } from 'ws'
 
 // Route files
-import { router as jiraRouter } from './routes/jira.js'
 import { getUserAiKey, router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
 import { router as meterReconcileRouter } from './routes/meter-reconcile.js'
@@ -121,11 +120,6 @@ function shouldProxyPathToWorker(p: string): boolean {
   if (p.startsWith('/api/autospin/')) return true
   if (p.startsWith('/api/ui-screenshot/')) return true
   if (p.startsWith('/api/frontend-auto/')) return true
-  if (p === '/api/jira/batch-create') return true
-  if (p === '/api/jira/batch-comment') return true
-  if (p === '/api/jira/batch-transition') return true
-  if (p === '/api/jira/batch-comment/stream') return true
-  if (p.startsWith('/api/jira/batch-comment/status/')) return true
   return false
 }
 
@@ -169,24 +163,6 @@ function buildOperationLabel(req: express.Request): string {
   if (p === '/api/integrations/generate-testcases-file') return '生成 TestCase（檔案）'
   if (p === '/api/gs/pdf-testcase') return 'Game Show：PDF TestCase 生成'
   if (p === '/api/osm/config-compare') return 'OSM Config AI 分析'
-  if (p === '/api/jira/batch-comment') {
-    const keys = extractIssueKeys(req)
-    if (keys.length === 0) return 'Jira 批次評論'
-    const lead = keys.slice(0, 3).join(', ')
-    return `Jira 批次評論（${lead}${keys.length > 3 ? ` +${keys.length - 3}` : ''}）`
-  }
-  if (p === '/api/jira/batch-create') {
-    const keys = extractIssueKeys(req)
-    if (keys.length === 0) return 'Jira 批次開單'
-    const lead = keys.slice(0, 3).join(', ')
-    return `Jira 批次開單（${lead}${keys.length > 3 ? ` +${keys.length - 3}` : ''}）`
-  }
-  if (p === '/api/jira/batch-transition') {
-    const keys = extractIssueKeys(req)
-    if (keys.length === 0) return 'Jira 批次切換狀態'
-    const lead = keys.slice(0, 3).join(', ')
-    return `Jira 批次切換狀態（${lead}${keys.length > 3 ? ` +${keys.length - 3}` : ''}）`
-  }
   return `${req.method} ${p}`
 }
 
@@ -336,7 +312,6 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
 
 app.use(proxyToWorker)
 
-app.use(jiraRouter)
 app.use(geminiRouter)
 app.use(osmRouter)
 app.use(meterReconcileRouter)

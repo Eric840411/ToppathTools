@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { AccountInfo } from '../components/JiraAccountModal'
+import type { AccountInfo } from '../accountTypes'
 import { XianxiaIcon } from '../components/XianxiaIcon'
 import { APP_VERSION } from '../version'
 

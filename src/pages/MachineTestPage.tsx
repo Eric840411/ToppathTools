@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ModelSelector } from '../components/ModelSelector'
 import GeminiSettingsModal from '../components/GeminiSettingsModal'
-import type { AccountInfo } from '../components/JiraAccountModal'
+import type { AccountInfo } from '../accountTypes'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
 interface StepResult {

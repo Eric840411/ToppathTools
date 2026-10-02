@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountInfo } from '../components/JiraAccountModal'
+import type { AccountInfo } from '../accountTypes'
 import { type UrlPoolEntry } from '../data/urlPoolData'
 import { POOL_SOURCE, POOL_LABEL, POOL_ENVS, type PoolEnv } from '../data/urlPoolEnv'
 

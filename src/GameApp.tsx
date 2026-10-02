@@ -4,7 +4,7 @@ import { GameModeProvider } from './components/GameModeContext'
 import { GameSidebar, type GameTabId } from './game/components/GameSidebar'
 import { GameHeader } from './game/components/GameHeader'
 
-import { JiraPage } from './pages/JiraPage'
+import { MeegleToolsPage } from './pages/MeegleToolsPage'
 import { LarkPage } from './pages/LarkPage'
 import { OsmPage } from './pages/OsmPage'
 import { MachineTestPage } from './pages/MachineTestPage'
@@ -20,7 +20,7 @@ import { GsStatsPage } from './pages/gs/GsStatsPage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
-import { JiraAccountModal, type AccountInfo } from './components/JiraAccountModal'
+import { type AccountInfo } from './accountTypes'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
 import { GameProfileProvider } from './game/context/GameProfileContext'
@@ -36,7 +36,7 @@ export function GameApp() {
   const [activeTab, setActiveTab] = useState<GameTabId>('jira')
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
-  const [showAccount, setShowAccount] = useState(false)
+  // 切帳號：Jira 帳號彈窗刪掉後（2026-10-02）改成登出回登入畫面
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
 
@@ -62,7 +62,6 @@ export function GameApp() {
   const handleAccountSelect = (acc: AccountInfo) => {
     setGlobalAccount(acc)
     saveGlobalAccount(acc)
-    setShowAccount(false)
   }
 
   const handleAccountClear = async () => {
@@ -87,7 +86,7 @@ export function GameApp() {
     }}>
       <GameHeader
         account={globalAccount}
-        onAccountClick={() => setShowAccount(true)}
+        onAccountClick={() => void handleAccountClear()}
         onSettingsClick={() => setShowGemini(true)}
         onChangelogClick={() => setShowChangelog(true)}
         version={APP_VERSION}
@@ -104,7 +103,7 @@ export function GameApp() {
           background: 'var(--bg-dark)',
         }}>
           <div key={activeTab} className="px-tab-enter" style={{ minHeight: '100%' }}>
-          {activeTab === 'jira'          && <JiraPage account={globalAccount} />}
+          {activeTab === 'jira'          && <MeegleToolsPage account={globalAccount} />}
           {activeTab === 'lark'          && <LarkPage themeMode="classic" />}
           {activeTab === 'osm'           && <OsmPage />}
           {activeTab === 'machinetest'   && <MachineTestPage account={globalAccount} />}
@@ -126,14 +125,6 @@ export function GameApp() {
       {showGemini    && <GeminiSettingsModal onClose={() => setShowGemini(false)} />}
       {!authChecking && !globalAccount && (
         <AuthLoginModal onLogin={handleAccountSelect} />
-      )}
-      {showAccount && globalAccount && (
-        <JiraAccountModal
-          currentEmail={globalAccount?.email ?? ''}
-          onClose={() => setShowAccount(false)}
-          onSelect={handleAccountSelect}
-          onClearCurrent={() => { handleAccountClear(); setShowAccount(false) }}
-        />
       )}
 
       {/* Game systems */}

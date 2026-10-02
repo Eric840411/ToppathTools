@@ -17,7 +17,6 @@ import { WebSocketServer } from 'ws'
 import { z } from 'zod'
 import { larkGenerateSchema, log, verifyLocalAgentToken, verifyInternalIdentity, getClientIP, getUser, db } from './shared.js'
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerationJob, type WorkerUploadFile } from './routes/integrations.js'
-import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter, broadcastAgentLog } from './routes/autospin.js'
 import {
@@ -487,9 +486,6 @@ function shouldQueueRequest(path: string, method: string): boolean {
   if (path.startsWith('/api/osm-uat/')) return true
   if (path.startsWith('/api/autospin/')) return true
   if (path.startsWith('/api/frontend-auto/')) return true
-  if (path === '/api/jira/batch-create') return true
-  if (path === '/api/jira/batch-comment') return true
-  if (path === '/api/jira/batch-transition') return true
   return false
 }
 
@@ -521,7 +517,6 @@ app.use((req, res, next) => {
 
 // Heavy route ownership lives on the worker. The public server proxies selected
 // endpoints here so frontend URLs remain unchanged.
-app.use(jiraRouter)
 app.use(gameshowRouter)
 app.use(autospinRouter)
 app.use(osmUatRouter)

@@ -1,4 +1,4 @@
-import type { AccountInfo } from './components/JiraAccountModal'
+import type { AccountInfo } from './accountTypes'
 
 export const GLOBAL_ACCOUNT_KEY = 'global_jira_account'
 

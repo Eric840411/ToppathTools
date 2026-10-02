@@ -93,7 +93,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'machine-test': '機台測試',
   'ui-screenshot': 'UI 截圖',
   'scripted-bet': '腳本化投注',
-  'jira': 'Jira 批量開單',
+  'jira': 'Meegle 批量工具',
   'jira-comment': 'Jira 批次評論',
   'osm-sync': 'OSM 機台同步',
   'osm-components': 'OSM 元件版本',

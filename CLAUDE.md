@@ -79,7 +79,6 @@ The Express backend is split into route modules. All live under `server/`:
 |------|---------|
 | `index.ts` | App setup, middleware, mounts all routers, starts server |
 | `shared.ts` | DB, logging, auth helpers, rate limiters, Zod schemas, Google/Lark helpers |
-| `routes/jira.ts` | `/api/jira/*`（Jira 專用；Jira 停用中，之後整支刪） |
 | `routes/accounts.ts` | 登入帳號 `/api/accounts/*`（舊 `/api/jira/accounts/*` 同一個 handler）、`/api/admin/verify`；表仍是 `jira_accounts` |
 | `routes/sheets.ts` | `/api/lark/sheets/*`（讀／回寫 Lark Sheet，Meegle 工具共用） |
 | `routes/attachments.ts` | 附件 `/api/attachments/*`（舊 `/api/jira/attachment-*` 同一個 handler）；下載邏輯在 `attachment-downloads.ts` |
@@ -106,7 +105,7 @@ When adding a new route:
 
 | # | 功能 | 檔案 |
 |---|------|------|
-| 1 | Jira 批量開單／評論／修改／更新狀態、身分邊界與代理授權、權限三合一 | `docs/features/01-jira.md` |
+| 1 | ~~Jira 批量工具~~（**v5.0.0 已移除**，Jira 停用；身分邊界、權限三合一、代理授權的原則仍適用） | `docs/features/01-jira.md` |
 | 2 | TestCase 生成（Lark／PDF／Google Doc）、規格書分批與 JSON 解析 | `docs/features/02-testcase.md` |
 | 3 | OSM／LuckyLink／Toppath 版號同步、機種渠道分布、型號標籤 | `docs/features/03-osm-version.md` |
 | 4 | 機台自動化測試（MachineTestPage） | `docs/features/04-machine-test.md` |

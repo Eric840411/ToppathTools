@@ -37,7 +37,6 @@ import {
   updateJobBitableCoords,
 } from '../shared.js'
 import { callLLM, getUserAiKey, readGeminiPrompts, renderPrompt } from './gemini.js'
-import { extractAdfText } from './jira.js'
 import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthAccount } from '../auth-session.js'

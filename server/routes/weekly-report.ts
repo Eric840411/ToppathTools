@@ -26,8 +26,6 @@ import { decryptMeegleToken } from '../meegle-token-crypto.js'
 
 export const router = Router()
 
-/** 週報「依時間範圍撈 Jira 單」——沿用 jira.ts 批次開單時寫入的驗證人員欄位 id，不用另外動態偵測 */
-const WEEKLY_REPORT_VERIFIER_FIELD_ID = process.env.JIRA_VERIFIER_FIELD_ID ?? 'customfield_10440'
 
 /** Lark Sheets API 儲存格可能是字串/數字/布林/富文本陣列/物件，統一抽出純文字（跟 jira.ts 的 extractCell 同一套邏輯） */
 function extractSheetCell(cell: unknown): string {
@@ -266,126 +264,6 @@ router.post('/api/weekly-report/meegle-by-range', async (req, res) => {
     res.status(500).json({ ok: false, message: `查詢失敗：${e instanceof Error ? e.message : String(e)}` })
   }
 })
-
-// POST /api/weekly-report/jira-by-range — 依時間範圍撈這個人的 Jira 單（Jira 已停用，前端改用 meegle-by-range；第 3 步整支刪）
-// 2026-08-11 討論結論：拿掉原本設計的 operation_history 來源（雜訊太多），改成單純撈
-// Jira——reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出；created 或 updated
-// 落在時間範圍內都算，不限工作流程階段。驗證人員欄位沿用 jira.ts 批次開單時寫入的同一個
-// customfield id，不用另外動態偵測。不限制 project，撈這個人 token 能看到的所有專案。
-router.post('/api/weekly-report/jira-by-range', async (req, res) => {
-  try {
-    // 這支端點是既有的「跨帳號讀取」正式功能：週報彙整的全自動載入會用 Eric／Lusa／Siara 三個
-    // 帳號的 email 平行呼叫，各自用各自的 token 撈自己的單（v4.5.0）。userJiraAuth() 2026-08-20
-    // 起預設只允許本人，所以這裡必須明確標成代理讀取，否則週報會當場壞掉。過渡期先 fallback 放行
-    // 並印 JIRA_DELEGATION_FALLBACK_ALLOW 警告，等實際用到的關係都補進授權表後再關掉 fallback。
-    const userAuth = userJiraAuth(req, { allowDelegationScope: 'jira.read.asOther', fallbackAllowUnauthorized: true })
-    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
-    const { startDate, endDate } = z.object({
-      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    }).parse(req.body)
-
-    // 結束日 +1 天、用 `<` 排除，避免 Jira 日期只算到當天 00:00 的邊界問題
-    const endExclusive = new Date(`${endDate}T00:00:00Z`)
-    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
-    const endExclusiveStr = endExclusive.toISOString().slice(0, 10)
-
-    // 2026-08-20 修正：原本查寫死的 cf[10440]，但「QA驗證人員」在這個 Jira 實例是**每個專案
-    // 各自一個自訂欄位**（列 /rest/api/3/field 有三十幾個同名的 people 欄位），10440 只是 DSFT
-    // 專案在用的那一個。結果是「QA驗證人員是我」這個條件長期只對一個專案有效，其他專案全部漏抓
-    // （真實案例：P5MA-9303 的 QA驗證人員確實有 Eric Wu，但那個專案用的是 cf[10087]，撈不到）。
-    // 改用欄位名稱查詢，Jira 會跨所有同名欄位比對。已實測確認是超集合不是替換：
-    // project = DSFT AND cf[10440] = currentUser() 與 project = DSFT AND "QA驗證人員" = currentUser()
-    // 回傳完全相同的單，而後者另外還抓得到 P5MA／P5BU／LBCMS／HYSL 等專案的單。
-    const jql = `(reporter = currentUser() OR assignee = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
-
-    const baseUrl = mustEnv('JIRA_BASE_URL')
-    const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
-      method: 'POST',
-      headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jql,
-        maxResults: 200,
-        fields: ['summary', 'status', 'created', 'updated', 'reporter', 'assignee', 'project', WEEKLY_REPORT_VERIFIER_FIELD_ID],
-      }),
-    })
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '')
-      return res.json({ ok: false, message: `Jira 查詢失敗 HTTP ${resp.status}：${errText.slice(0, 200)}` })
-    }
-    type JiraSearchIssue = {
-      key: string
-      fields: {
-        summary?: string
-        status?: { name?: string }
-        created?: string
-        updated?: string
-        reporter?: { accountId?: string }
-        assignee?: { accountId?: string } | null
-        project?: { name?: string; key?: string }
-        [key: string]: unknown
-      }
-    }
-    const data = (await resp.json()) as { issues?: JiraSearchIssue[] }
-    const meAccountId = await resolveMyAccountId(baseUrl, userAuth.auth)
-
-    const seen = new Set<string>()
-    const issues = (data.issues ?? [])
-      .filter(i => {
-        if (seen.has(i.key)) return false
-        seen.add(i.key)
-        return true
-      })
-      .map(i => {
-        const verifierField = i.fields[WEEKLY_REPORT_VERIFIER_FIELD_ID]
-        const verifierIds: string[] = Array.isArray(verifierField)
-          ? verifierField.map((v: unknown) => (v as { accountId?: string })?.accountId).filter((x): x is string => !!x)
-          : verifierField && typeof verifierField === 'object'
-            ? [((verifierField as { accountId?: string }).accountId ?? '')].filter(Boolean)
-            : []
-        const isReporter = meAccountId ? i.fields.reporter?.accountId === meAccountId : false
-        // 我們只拿得到 WEEKLY_REPORT_VERIFIER_FIELD_ID 這一個欄位的值，但每個專案的「QA驗證人員」
-        // 是不同的 customfield id，其他專案的值不在回應裡。用 JQL 語意反推：條件是
-        // (reporter = 我 OR QA驗證人員 = 我)，所以「不是 reporter 卻被撈出來」的唯一可能就是驗證人員。
-        // 已知代價：既是 reporter 又是驗證人員、但該專案驗證人員在其他欄位 id 的單，會被標成
-        // reporter 而不是 both——只是標籤精細度，不影響有沒有撈到。
-        const isVerifierByField = meAccountId ? verifierIds.includes(meAccountId) : false
-        const isAssignee = meAccountId ? i.fields.assignee?.accountId === meAccountId : false
-        // 2026-08-20：撈單條件加上 assignee 之後，原本「不是 reporter 就推定是驗證人員」的反推不再成立
-        // （可能只是被指派的）。收緊成「不是 reporter、也不是 assignee，且已知的驗證人員欄位裡沒有我」→
-        // 那就只剩下「其他專案的驗證人員欄位」這一種可能（那些欄位 id 不同，值不在回應裡）。
-        const isVerifier = isVerifierByField || (!isReporter && !isAssignee)
-        return {
-          key: i.key,
-          summary: i.fields.summary ?? '',
-          status: i.fields.status?.name ?? '',
-          created: i.fields.created ?? '',
-          updated: i.fields.updated ?? '',
-          // 拿不到自己的 accountId 時（/myself 失敗）根本無從判斷身分——舊寫法會讓 isReporter
-          // 一律 false，配合上面的反推就會把所有單都標成 verifier，等於用一個假答案蓋掉「不知道」。
-          // 標成 unknown 誠實得多（CodeX review 指出）。
-          role: !meAccountId ? 'unknown' : isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : isReporter ? 'reporter' : 'assignee',
-          jiraProjectName: i.fields.project?.name ?? '',
-        }
-      })
-
-    res.json({ ok: true, issues })
-  } catch (e) {
-    res.status(500).json({ ok: false, message: `查詢失敗：${e instanceof Error ? e.message : String(e)}` })
-  }
-})
-
-/** 取得目前 Jira token 擁有者的 accountId，用來判斷每張單是因為 reporter 還是驗證人員身份被撈出來 */
-async function resolveMyAccountId(baseUrl: string, auth: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`${baseUrl}/rest/api/3/myself`, { headers: { Authorization: auth, Accept: 'application/json' } })
-    if (!resp.ok) return null
-    const data = await resp.json() as { accountId?: string }
-    return data.accountId ?? null
-  } catch {
-    return null
-  }
-}
 
 // POST /api/weekly-report/sheet-headers — 欄位對應設定用，讀一份 Sheet 只回表頭（不同來源 Sheet 欄位可能長得不一樣，需要使用者自己選哪欄是日期/填寫人/內容）
 router.post('/api/weekly-report/sheet-headers', async (req, res) => {
@@ -789,28 +667,6 @@ let weeklyReminderTask: cron.ScheduledTask | null = null
 //    不默默少資料
 // 4. 「預設帳號」只代表要嘗試撈誰，**不代表 actor 自動有權撈誰**
 
-/** 撈某個 Jira 帳號在區間內的單。auth 由呼叫端負責取得（也就是由呼叫端負責通過授權檢查）。*/
-async function fetchJiraIssuesInRange(auth: string, startDate: string, endDate: string): Promise<RangeIssueRaw[]> {
-  const endExclusive = new Date(`${endDate}T00:00:00Z`)
-  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
-  const endExclusiveStr = endExclusive.toISOString().slice(0, 10)
-  const jql = `(reporter = currentUser() OR assignee = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
-  const baseUrl = mustEnv('JIRA_BASE_URL')
-  const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
-    method: 'POST',
-    headers: { Authorization: auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jql, maxResults: 200, fields: ['summary', 'status', 'created', 'updated', 'project'] }),
-  })
-  if (!resp.ok) throw new Error(`Jira 查詢失敗 HTTP ${resp.status}`)
-  const data = await resp.json() as { issues?: Array<{ key: string; fields: { summary?: string; project?: { name?: string } } }> }
-  return (data.issues ?? []).map(i => ({
-    key: i.key,
-    summary: i.fields.summary ?? '',
-    jiraProjectName: i.fields.project?.name ?? '',
-  }))
-}
-
-interface RangeIssueRaw { key: string; summary: string; jiraProjectName: string }
 
 export interface JiraCronOutcome {
   drafts: Array<{ person: string; item: SharedDraftItem }>
