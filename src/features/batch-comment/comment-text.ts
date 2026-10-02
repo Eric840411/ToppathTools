@@ -89,6 +89,10 @@ export const COMMENT_TEMPLATE_SECTIONS: { header: string; items: string[] }[] = 
   { header: '【驗證結果】', items: [] },
 ]
 
+// 剝掉行首清單符號：1. 1、 1) 1） (1) （1） - * •（後面可有空白）——Meegle 測試說明範本本身就是「1. 目的」編號格式
+const stripListMarker = (l: string): string =>
+  l.trim().replace(/^(?:\d+\s*[.、)）]|[(（]\d+[)）]|[-*•])\s*/, '')
+
 // 回傳所有「缺漏」項目：缺少區塊標題、缺欄位、或細項冒號後沒填內容
 export const validateCommentSections = (text: string): string[] => {
   const problems: string[] = []
@@ -106,12 +110,9 @@ export const validateCommentSections = (text: string): string[] => {
       if (!hasContent) problems.push(`${sec.header} 未填結果`)
     } else {
       for (const item of sec.items) {
-        const line = lines.find(l => {
-          const t = l.trim()
-          return t.startsWith(`${item}：`) || t.startsWith(`${item}:`)
-        })
+        const line = lines.map(stripListMarker).find(t => t.startsWith(`${item}：`) || t.startsWith(`${item}:`))
         if (!line) { problems.push(`${item}（缺欄位）`); continue }
-        const after = line.replace(/^[^：:]*[：:]/, '').trim()
+        const after = line.slice(item.length + 1).trim()
         if (!after) problems.push(item)
       }
     }
