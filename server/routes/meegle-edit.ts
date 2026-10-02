@@ -19,7 +19,7 @@ import { resolveDetailUrlBase, resolveRoleIds, type CallOutcome } from '../meegl
 import { listEditOptions, readEditCurrent, roleOperate, updateFields, uploadDescriptionImage } from '../meegle-edit-ops.js'
 import { textFingerprint } from '../meegle-comment-ops.js'
 import { listPersonMap } from '../meegle-batch-store.js'
-import { EDIT_FIELDS, displayCurrent, resolveRow, sameValue, type ResolveCtx } from '../../shared/meegle-edit-rules.js'
+import { EDIT_FIELDS, displayCurrent, resolveEdit, resolveRow, sameValue, type ResolveCtx } from '../../shared/meegle-edit-rules.js'
 import type { MappedPerson, MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
 import {
   expireStaleEditSteps, getEditRow, getEditSteps, initMeegleEditSchema, listPreviousEditForSource, type EditStepRow,
@@ -113,7 +113,12 @@ router.post('/api/meegle/edit/preview', async (req, res, next) => {
       ok: true, issues: plan.issues, planHash: planHash(plan.edits, keys.map(key => ({ key }))),
       // 預覽原值：送出時覆寫保護用。只回要改的欄位＋描述（只加圖時也要比對描述）
       baseline: Object.fromEntries([...plan.edits.map(e => e.key), 'description'].map(k => [k, cur.value.values[k] ?? ''])),
-      changes: plan.edits.map(e => ({ key: e.key, from: disp(e.key), to: e.display, same: sameValue(e, cur.value.values[e.key], textFingerprint) })),
+      // 換不出來的欄位也列出來（紅字＋原因），使用者才能在這一列用 ✎ 修正或改成不改——不列的話受阻了卻找不到要改哪裡（walkthrough 抓到的）
+      changes: b.raws.map(r => {
+        const res = resolveEdit(r, c.value)
+        if ('edit' in res) return { key: r.key, from: disp(r.key), to: res.edit.display, same: sameValue(res.edit, cur.value.values[r.key], textFingerprint) }
+        return { key: r.key, from: disp(r.key), to: r.op === 'set' ? r.raw : '（清空）', same: false, error: res.reason }
+      }),
       currentDescription: String(cur.value.values.description ?? ''),
     })
   } catch (e) { next(e) }

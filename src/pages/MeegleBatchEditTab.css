@@ -1,0 +1,68 @@
+/* Meegle 批量修改（Jira 頁「Meegle 修改」分頁）
+   版面：CodeX 2026-10-02 設計圖（使用者確認 1:1）。外框、步驟列、按鈕、表格沿用 Meegle 開單／評論／狀態的樣式，
+   這裡只放這個分頁特有的：② 欄位分組與人員對照、③ 清單＋原值→新值表。修仙版只換配色。 */
+
+/* ② 欄位分組 */
+.me-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.me-group, .me-people { border: 1px solid var(--mb-border); border-radius: 10px; padding: 10px 12px; background: var(--mb-card2); }
+.me-group-title { font-weight: 700; font-size: 13.5px; color: var(--mb-info); margin-bottom: 8px; }
+.me-field { display: grid; grid-template-columns: 110px 120px minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; }
+.me-field-label { font-size: 13px; }
+.me-mode { padding: 5px 8px; font-size: 13px; }
+.me-mode--static { font-size: 13px; color: var(--mb-muted); padding-left: 8px; }
+.me-field-value { min-width: 0; }
+.me-field-value .mb-select, .me-field-value .mb-input { width: 100%; padding: 5px 8px; font-size: 13px; }
+.me-fixed-text { resize: vertical; font-family: inherit; }
+.me-clear-note { font-size: 12.5px; color: var(--mb-warn); }
+.me-people { margin-top: 12px; }
+.me-person { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; }
+.me-person-name { font-weight: 700; color: var(--mb-bad); }
+.me-person-miss { color: var(--mb-bad); font-size: 13px; }
+.me-person .mb-select { width: auto; min-width: 200px; padding: 5px 8px; font-size: 13px; }
+
+/* ③ 預覽 */
+.me-preview-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.me-preview-head .mb-pane-title { margin: 0 6px 0 0; }
+.me-repreview { margin-left: auto; }
+.me-preview { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.me-list-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; padding: 4px 8px 8px; font-size: 12px; color: var(--mb-muted); border-bottom: 1px solid var(--mb-border); margin-bottom: 4px; }
+.me-list-row { cursor: pointer; }
+.me-list-name { display: flex; flex-direction: column; min-width: 0; }
+.me-list-name small { color: var(--mb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-st { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.me-st--ok { color: var(--mb-ok); }
+.me-st--bad { color: var(--mb-bad); }
+.me-st--info { color: var(--mb-info); }
+.me-st--muted { color: var(--mb-muted); }
+.me-detail { gap: 10px; }
+.me-detail-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.me-open { margin-left: auto; }
+.me-changes td { padding: 8px 10px; vertical-align: middle; }
+.me-changes tr.is-same td { opacity: .65; }
+.me-changes tr.is-error td { background: rgba(242, 107, 107, .07); }
+.me-changes tr.is-error .me-to { color: var(--mb-bad); text-decoration: line-through; }
+.me-err { color: var(--mb-bad); flex-basis: 100%; }
+.me-fname { white-space: nowrap; width: 120px; }
+.me-ov { margin-left: 6px; }
+.me-vals { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.me-from { color: var(--mb-muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-to { font-weight: 700; white-space: pre-wrap; overflow-wrap: anywhere; }
+.me-op { width: 52px; text-align: center; }
+.me-thumbs { display: flex; gap: 6px; }
+.me-thumbs img { width: 72px; height: 44px; object-fit: cover; border-radius: 4px; border: 1px solid var(--mb-border); }
+.me-editing { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--mb-border-strong); border-radius: 8px; }
+.me-editing .mb-input { flex: 1 1 220px; padding: 5px 8px; }
+.me-block { margin: 0; }
+.me-foot { justify-content: flex-start; }
+.me-foot .mb-btn--primary { margin-left: auto; }
+.me-ov-note { display: inline-flex; align-items: center; gap: 6px; color: var(--mb-ok); font-size: 13px; border: 1px solid rgba(63, 208, 127, .4); border-radius: 8px; padding: 6px 10px; }
+
+@media (max-width: 900px) {
+  .me-preview { grid-template-columns: 1fr; }
+  .me-groups { grid-template-columns: 1fr; }
+  .me-field { grid-template-columns: 1fr; }
+}
+
+/* ══════════ 修仙版 ══════════ */
+:root[data-theme-mode="xianxia"] .me-group-title { color: #e6c77f; letter-spacing: .06em; }
+:root[data-theme-mode="xianxia"] .me-ov-note { color: #6fe3c3; border-color: rgba(31, 176, 140, .5); }
