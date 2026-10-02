@@ -4,7 +4,7 @@
  */
 import Database from 'better-sqlite3'
 import { claimRow, finishCreate, finishState, getBatchRow, initMeegleBatchSchema, writebackStageText } from './meegle-batch-store.js'
-import { normName, writebackRow, type SheetCell, type WritebackDeps } from './meegle-sheet-writeback.js'
+import { MAX_COL_IDX, normName, planColumns, writebackRow, type SheetCell, type WritebackDeps } from './meegle-sheet-writeback.js'
 
 let pass = 0
 const fails: string[] = []
@@ -108,6 +108,30 @@ eq('名稱缺時用 key', writebackStageText({ target_state: 'BAOjDk8Pv', target
   eq('還沒開單成功 → 跳過', (await writebackRow(db, 'B', '5', fakeDeps({ summary: 'x', title: '' }).deps)).phase, 'skipped')
 }
 eq('名稱正規化', normName('  a\r\nb   c '), 'a b c')
+
+// ── CodeX review d7d2d20 [P2]：同一毫秒的更新也要擋（版本改用整數 rev）──
+{
+  const db = setup('A', 'K', '可本機測試')
+  const { deps, writes } = fakeDeps({ summary: 'A', title: '' })
+  // 寫的途中狀態推成功，而且**跟開單成功同一毫秒**（updated_at 一樣）
+  deps.writeRow = async (_k, rowIndex, columns) => { writes.push({ rowIndex, columns }); finishState(db, 'B', '5', 'done', null, 2000); return { ok: true } }
+  await writebackRow(db, 'B', '5', deps)
+  eq('同毫秒更新：updated_at 沒變但內容變了 → 仍維持 pending', getBatchRow(db, 'B', '5')?.writeback_phase, 'pending')
+  deps.writeRow = async (_k, rowIndex, columns) => { writes.push({ rowIndex, columns }); return { ok: true } }
+  eq('下一次不會被 skipped，會寫最新內容', [(await writebackRow(db, 'B', '5', deps)).phase, writes.at(-1)?.columns['處理階段']], ['done', '已開單（Meegle）・已推到可本機測試'])
+}
+// ── CodeX review d7d2d20 [P2]：欄位超過 ZZ 一律拒寫 ──
+{
+  const names = ['Meegle 單號', '處理階段', '處理時間']
+  const full = Array.from({ length: MAX_COL_IDX + 1 }, (_, i) => [`c${i}`])
+  const r = planColumns(full, MAX_COL_IDX + 1, names)
+  eq('表頭滿到 ZZ、三欄都要新建 → 拒寫', r.ok, false)
+  const near = Array.from({ length: MAX_COL_IDX - 1 }, (_, i) => [`c${i}`])
+  eq('只剩兩格、要新建三欄 → 拒寫（第三欄會超過）', planColumns(near, MAX_COL_IDX - 1, names).ok, false)
+  const withExisting = [...near.slice(0, 5), ['處理階段'], ['處理時間']]
+  eq('已存在的欄位用原位置、只新建缺的', planColumns(withExisting, 7, names), { ok: true, idx: { 'Meegle 單號': 7, '處理階段': 5, '處理時間': 6 } })
+  eq('欄名比對忽略空白與箭頭（跟 helper 一致）', (planColumns([['處理 階段↓']], 1, ['處理階段']) as { idx: Record<string, number> }).idx['處理階段'], 0)
+}
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

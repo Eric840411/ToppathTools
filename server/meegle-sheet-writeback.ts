@@ -10,7 +10,7 @@
  *   跟開單時的名稱不同就**不寫**、標「列已變動」。⚠️ 這只是防呆不是保證（CodeX）：同名列被刪、另一筆補進同位置，
  *   名稱一樣照樣會過；讀完到寫入之間有人插列也擋不住。要可靠得換成「來源列 UUID」（下一版選項）
  * - **舊回填蓋掉新狀態**：同一份 Sheet 用行程內的鎖排隊；拿到鎖之後才從 DB 讀**最新**的列組內容，
- *   寫完只有在版本（updated_at）沒變時才標 done，途中狀態又變了就維持 pending
+ *   寫完只有在版本（writeback_rev，每次標 pending 就 +1）沒變時才標 done，途中狀態又變了就維持 pending
  * - 回填失敗不影響開單結果；④ 顯示、可以「補寫回」（只用已存的單號，不重開）
  *
  * Lark 相關的讀寫從外面傳進來，測試用假的。
@@ -68,7 +68,7 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
     // 拿到鎖之後才讀最新狀態——排隊期間可能又推了狀態
     const row = getBatchRow(db, batchId, rowKey) as BatchRow
     if (row.writeback_phase === 'done' && !opts.force) return { phase: 'skipped', message: '已經寫回過' }
-    const seen = row.updated_at
+    const seen = row.writeback_rev
     const now = deps.now?.() ?? Date.now()
     const rowIndex = Number(row.row_key)
     const fail = (message: string): WritebackOutcome => { finishWriteback(db, batchId, rowKey, seen, false, message, now); return { phase: 'failed', message } }
@@ -92,6 +92,27 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
     finishWriteback(db, batchId, rowKey, seen, r.ok, r.ok ? null : `寫入 Sheet 失敗：${r.error ?? '未知錯誤'}`, now)
     return r.ok ? { phase: 'done' } : { phase: 'failed', message: r.error }
   })
+}
+
+/** Lark 讀表頭的上限：A1:ZZ（第 702 欄，0-based 701）。超過這裡的欄位我們看不到，寫過去可能蓋掉別人的資料 */
+export const MAX_COL_IDX = 26 + 26 * 26 - 1
+
+/**
+ * 先算好每個要寫的欄位落在第幾欄（已存在的用原位置，缺的從最後一個非空表頭後面接）。純函式。
+ * **任何一欄超過 ZZ 就整筆拒寫**（CodeX review d7d2d20 [P2]）——`multiWritebackLarkBatch` 本身不擋，
+ * 表頭滿到 ZZ 時會照樣寫到 AAA～AAC，那幾欄要是有資料就被蓋掉，而且回傳成功。
+ */
+export function planColumns(headerCandidates: string[][], nextAppendColIdx: number, names: string[]): { ok: true; idx: Record<string, number> } | { ok: false; error: string } {
+  const norm = (x: string) => x.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
+  const idx: Record<string, number> = {}
+  let append = nextAppendColIdx
+  for (const n of names) {
+    const found = headerCandidates.findIndex(c => c.some(h => norm(h) === norm(n)))
+    idx[n] = found !== -1 ? found : append++
+  }
+  const over = names.filter(n => idx[n] > MAX_COL_IDX)
+  if (over.length) return { ok: false, error: `欄位超過 ZZ（${over.join('、')} 會落在第 ${idx[over[0]] + 1} 欄），為了不蓋到別的資料沒有寫入。請刪掉不用的欄位，或手動在 ZZ 以內建好這幾欄` }
+  return { ok: true, idx }
 }
 
 // ─── 真的 Lark 讀寫（路由用）────────────────────────────────────────────────
@@ -137,7 +158,16 @@ export function larkWritebackDeps(): WritebackDeps {
       return { summary: await read(si), title: await read(ti) }
     },
     async writeRow(sheetKey, rowIndex, columns) {
-      const { multiWritebackLarkBatch } = await import('./routes/integrations.js')
+      const { multiWritebackLarkBatch, resolveSheetHeaders } = await import('./routes/integrations.js')
+      const { getLarkToken } = await import('./shared.js')
+      // 寫之前先算好欄位位置：任何一欄超過 ZZ 就不寫（helper 自己不擋）
+      const [, spreadsheetToken, sheetId] = sheetKey.split(':')
+      const token = await getLarkToken()
+      const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+      const { headerCandidates, nextAppendColIdx } = await resolveSheetHeaders(base, token, spreadsheetToken, sheetId)
+      const plan = planColumns(headerCandidates, nextAppendColIdx, Object.keys(columns))
+      // server tsconfig 沒開 strictNullChecks，聯集要用 'error' in 縮小
+      if ('error' in plan) return { ok: false, error: plan.error }
       const [res] = await multiWritebackLarkBatch(sheetKeyToUrl(sheetKey), [{ rowIndex, columns }])
       return res ? { ok: res.ok, error: res.error } : { ok: false, error: '沒有回傳結果' }
     },

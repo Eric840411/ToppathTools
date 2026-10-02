@@ -37,6 +37,8 @@ export type BatchRow = {
   writeback_phase: WritebackPhase
   writeback_msg: string | null
   writeback_at: number | null
+  /** 回填版本：每次標 pending（內容可能變了）就 +1。寫完時比對這個，不比 updated_at——同一毫秒的兩次更新 updated_at 會一樣（CodeX review d7d2d20 [P2]） */
+  writeback_rev: number
   created_at: number
   updated_at: number
 }
@@ -78,6 +80,7 @@ export function initMeegleBatchSchema(db: DB) {
   if (!cols.includes('writeback_phase')) db.exec("ALTER TABLE meegle_batch_rows ADD COLUMN writeback_phase TEXT NOT NULL DEFAULT 'none'")
   if (!cols.includes('writeback_msg')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_msg TEXT')
   if (!cols.includes('writeback_at')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_at INTEGER')
+  if (!cols.includes('writeback_rev')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_rev INTEGER NOT NULL DEFAULT 0')
 }
 
 /**
@@ -150,7 +153,7 @@ export function finishCreate(db: DB, batchId: string, rowKey: string,
   result: { phase: 'created'; workItemId: string; url: string } | { phase: 'failed' | 'unknown'; message: string }, now = Date.now()) {
   if (result.phase === 'created') {
     // 回填 pending 跟「開單成功」同一筆 UPDATE 落地（CodeX）：程序在兩者之間掛掉的話，重啟後仍知道要補寫
-    db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, updated_at = ?
+    db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, writeback_rev = writeback_rev + 1, updated_at = ?
       WHERE batch_id = ? AND row_key = ? AND create_phase = 'creating'`).run(result.workItemId, result.url, now, batchId, rowKey)
   } else {
     db.prepare(`UPDATE meegle_batch_rows SET create_phase = ?, message = ?, updated_at = ?
@@ -184,7 +187,7 @@ export function adoptTarget(db: DB, batchId: string, rowKey: string, requested: 
 
 export function finishState(db: DB, batchId: string, rowKey: string, phase: StatePhase, message: string | null, now = Date.now()) {
   // 狀態變了 → Sheet「處理階段」也要跟著改，同一筆 UPDATE 標 pending
-  db.prepare(`UPDATE meegle_batch_rows SET state_phase = ?, message = ?, writeback_phase = 'pending', updated_at = ?
+  db.prepare(`UPDATE meegle_batch_rows SET state_phase = ?, message = ?, writeback_phase = 'pending', writeback_rev = writeback_rev + 1, updated_at = ?
     WHERE batch_id = ? AND row_key = ? AND create_phase = 'created'`).run(phase, message, now, batchId, rowKey)
 }
 
@@ -195,7 +198,7 @@ export function finishState(db: DB, batchId: string, rowKey: string, phase: Stat
 export function resolveUnknown(db: DB, batchId: string, rowKey: string,
   found: { workItemId: string; url: string } | null, now = Date.now()): boolean {
   const r = found
-    ? db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, updated_at = ?
+    ? db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, writeback_rev = writeback_rev + 1, updated_at = ?
         WHERE batch_id = ? AND row_key = ? AND create_phase = 'unknown'`).run(found.workItemId, found.url, now, batchId, rowKey)
     : db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'failed', message = '確認過 Meegle 沒有這張單，可以重送', updated_at = ?
         WHERE batch_id = ? AND row_key = ? AND create_phase = 'unknown'`).run(now, batchId, rowKey)
@@ -255,16 +258,16 @@ export function writebackStageText(row: Pick<BatchRow, 'target_state' | 'target_
 }
 
 /**
- * 寫完回報結果。只有在寫入前讀到的版本（updated_at）沒變時才標 done——
+ * 寫完回報結果。只有在寫入前讀到的版本（writeback_rev）沒變時才標 done——
  * 寫的途中狀態又變了（例如重推成功），這次寫的已經是舊內容，要維持 pending 讓下一次補上（成功、失敗都一樣）。
  */
-export function finishWriteback(db: DB, batchId: string, rowKey: string, seenUpdatedAt: number, ok: boolean, message: string | null, now = Date.now()): void {
+export function finishWriteback(db: DB, batchId: string, rowKey: string, seenRev: number, ok: boolean, message: string | null, now = Date.now()): void {
   if (ok) {
     db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'done', writeback_msg = NULL, writeback_at = ?
-      WHERE batch_id = ? AND row_key = ? AND updated_at = ?`).run(now, batchId, rowKey, seenUpdatedAt)
+      WHERE batch_id = ? AND row_key = ? AND writeback_rev = ?`).run(now, batchId, rowKey, seenRev)
   } else {
     // 失敗也一樣：狀態在寫的途中又變了，代表已經排了一次新的回填，這次的失敗不要蓋掉那個 pending
     db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'failed', writeback_msg = ?, writeback_at = ?
-      WHERE batch_id = ? AND row_key = ? AND updated_at = ?`).run(message, now, batchId, rowKey, seenUpdatedAt)
+      WHERE batch_id = ? AND row_key = ? AND writeback_rev = ?`).run(message, now, batchId, rowKey, seenRev)
   }
 }

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.267.0'
+export const APP_VERSION = '4.267.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.267.1', date: '2026-10-02', changes: ['fix(Meegle)：**表頭已經滿到 ZZ 欄時，回填會寫到看不到的 AAA 欄、可能蓋掉資料**（CodeX [P2]）——寫入前先算好每欄位置，任何一欄超過 ZZ 就整筆不寫並說明原因', 'fix(Meegle)：**同一毫秒的兩次更新會讓回填誤標成已完成**（CodeX [P2]）——版本改用每次 +1 的整數，不再比時間戳；否則 Sheet 留著舊的「未完成」、下一次卻被當成已寫過而跳過', 'test(Meegle)：回填 24 → 30 條（同毫秒、ZZ 邊界），兩個防線拿掉各紅 2 條；真 Sheet 重跑回填成功'] },
   { version: '4.267.0', date: '2026-10-02', changes: ['feat(Meegle)：**開單結果回填 Sheet**（使用者要求追溯）——每開成一張就寫「Meegle 單號」（點了開那張單）、「處理階段」（已開單／已推到 X）、「處理時間」；欄位不存在自動加在最右邊。④ 顯示已寫回／待寫回／回填失敗，可按「補寫回」', 'feat(Meegle)：**操作歷史紀錄看得到開單路徑**——篩選多「Meegle 開單」，明細是表格：來源 Sheet → 第幾列 → 任務名稱 → Meegle 單號（可點）→ 關聯需求 → 處理階段 → 回填結果', 'fix(Meegle)：避開以前回填踩過的坑——欄位超過 Z、寫入前核對那一列還是不是同一筆（有人插列就不寫，標「列已變動」）、舊回填不蓋新狀態、Lark 失敗也回 HTTP 200；另外實測抓到兩個新坑：摘要是公式時要讀計算後的值、超連結要用 richtext 格式', 'test(Meegle)：回填 24 條（突變三個都紅）；用使用者的真 Sheet 實測回填第 2 列成功、隔壁列沒動'] },
   { version: '4.266.2', date: '2026-10-02', changes: ['fix(UI 截圖)：**快速模式（不每個解析度重新載入）進場失敗會留著座位**（CodeX [P2]）——退出機台寫在最後一步，進場後名稱對不上一丟錯就整段跳過，外層只關瀏覽器、也沒有兜底。改成一律在 finally 收尾：先看還坐不坐著，坐著才退，退不掉記進「座位不明」回報'] },
   { version: '4.266.1', date: '2026-10-02', changes: ['fix(UI 截圖)：**進場後沒確認是不是挑的那一台**（CodeX [P1]）——被送回白名單外的機台時，畫面就緒照樣拍、還記成白名單內的機號。現在挑機時記下卡片名稱，進場後畫面上找不到同樣的名字就這張失敗、不拍，下一張不再挑那台', 'fix(UI 截圖)：**三段任務漏帶白名單會退回不限 Machine Model**（CodeX [P2]）——前端沒帶 pools、帶 {}、少一組都能通過。現在只要任務名稱是三段就一定要有自己的白名單', 'test(UI 截圖)：shared 17 → 21、真 server 15 → 18（拿掉新檢查 5 條紅）。⚠️ 進場後名稱比對要真 agent 對真大廳才驗得到'] },
