@@ -5112,9 +5112,12 @@
 .ui-ss-mm-tag { font-family: monospace; font-size: 11px; color: #7dd3fc; background: rgba(125, 211, 252, .08); border: 1px solid rgba(125, 211, 252, .3); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
 .ui-ss-mm-tag.is-unsynced, .ui-ss-mm-item.is-unsynced .ui-ss-mm-tag { color: #fbbf24; border-color: rgba(251, 191, 36, .35); background: rgba(251, 191, 36, .08); }
 .ui-ss-mm-sub { margin: 4px 0 4px 32px; padding-left: 10px; border-left: 2px solid #2d3f55; display: flex; flex-direction: column; gap: 2px; }
-.ui-ss-mm-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; padding: 3px 0; cursor: pointer; }
-.ui-ss-mm-item.is-unsynced { cursor: not-allowed; opacity: .8; }
-.ui-ss-mm-gmids { color: #94a3b8; font-family: monospace; font-size: 11px; line-height: 1.7; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ui-ss-mm-item { font-size: 12px; padding: 3px 0; }
+.ui-ss-mm-item-row { display: flex; align-items: center; gap: 8px; }
+.ui-ss-mm-item-row .ui-ss-mm-cnt { margin-left: auto; }
+.ui-ss-mm-item.is-unsynced { opacity: .8; }
+.ui-ss-mm-tag-btn { cursor: pointer; font: inherit; }
+.ui-ss-mm-gmids { color: #94a3b8; font-family: monospace; font-size: 11px; line-height: 1.7; min-width: 0; overflow-wrap: anywhere; padding: 2px 0 4px 44px; }
 .ui-ss-mm-gmids .is-busy { color: #f87171; }
 .ui-ss-mm-gmids em { font-style: normal; color: #fbbf24; font-family: inherit; }
 :root[data-theme-mode="xianxia"] .ui-ss-mm.is-on { background: rgba(98, 198, 165, .08); }

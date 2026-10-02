@@ -292,6 +292,8 @@ export function UiScreenshotPage() {
   const [osmSyncedAt, setOsmSyncedAt] = useState<number | null>(null)
   const [osmSyncing, setOsmSyncing] = useState(false)
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set())
+  /** 個別 Machine Model 是否展開 gmid 清單（key = model key + MM_SEP + machineType；未同步用 '_'） */
+  const [expandedMMs, setExpandedMMs] = useState<Set<string>>(new Set())
   const [unparsed, setUnparsed] = useState<Array<{ gmid: string; text: string }>>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -578,17 +580,26 @@ export function UiScreenshotPage() {
             {groups.map(g => {
               const k = g.machineType ? mmKey(m.key, g.machineType) : ''
               const on = !!k && selectedModels.includes(k)
+              const ek = mmKey(m.key, g.machineType ?? '_')
+              const mmOpen = expandedMMs.has(ek)
               return (
-                <label key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
-                  <input type="checkbox" checked={on} disabled={!g.machineType}
-                    onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
-                  <span className="ui-ss-mm-tag">{g.machineType ?? '未同步'}</span>
-                  <span className="ui-ss-mm-gmids">
-                    {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
-                    {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
-                  </span>
-                  <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
-                </label>
+                <div key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
+                  <div className="ui-ss-mm-item-row">
+                    <button type="button" className="ui-ss-mm-caret" aria-expanded={mmOpen} aria-label={mmOpen ? '收合 gmid' : '展開 gmid'}
+                      onClick={() => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })}>{mmOpen ? '▾' : '▸'}</button>
+                    <input type="checkbox" checked={on} disabled={!g.machineType} aria-label={`選取 ${g.machineType ?? '未同步'}`}
+                      onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
+                    <button type="button" className="ui-ss-mm-tag ui-ss-mm-tag-btn"
+                      onClick={() => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })}>{g.machineType ?? '未同步'}</button>
+                    <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
+                  </div>
+                  {mmOpen && (
+                    <div className="ui-ss-mm-gmids">
+                      {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
+                      {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>

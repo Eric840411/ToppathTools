@@ -442,7 +442,8 @@ model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（e
 
 | 操作 | 說明 |
 |------|------|
-| 展開／收合 | 收合時只顯示 Machine Model 標籤；展開列出每組 gmid（紅字＝掃描當下被佔用） |
+| 展開／收合（遊戲） | 收合時只顯示 Machine Model 標籤；展開列出每個 Machine Model（名稱＋台數） |
+| 展開／收合（Machine Model，v4.268.0） | 每個 Machine Model 預設不列 gmid；點 ▸ 或名稱才列出底下的 gmid（紅字＝掃描當下被佔用）。勾選框獨立，不用先展開也能勾 |
 | 勾 Machine Model | 每個勾選的 Machine Model ＝ 一個任務：**只從那組 gmid 挑空機**，每個解析度各拍一次；全被佔用就該項失敗，**不換到別的 Machine Model** |
 | 勾 model 主列 | 全選／半選底下所有 Machine Model |
 | 未同步 | OSM 查不到的 gmid 歸黃色「未同步」，**不能選**（不猜）。按「重新同步」跑一次 OSM 同步後重新分組，不用再掃大廳 |

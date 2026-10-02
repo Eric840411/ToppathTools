@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.267.6'
+export const APP_VERSION = '4.268.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.268.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**每個 Machine Model 可以單獨展開**——展開遊戲後，每個 Machine Model 預設只顯示名稱與台數，點 ▸ 或名稱才列出底下的 gmid（紅字＝被佔用），機台多的遊戲不會一展開就整片洗版；勾選仍可直接勾，不必先展開'] },
   { version: '4.267.6', date: '2026-10-02', changes: ['fix(OSM)：**機台版本同步只抓第一頁，NCH 少了 74 台**（UI 截圖的 Machine Model 顯示「未同步」才發現）——後台一頁最多 500 台，NCH 有 574 台。現在照總數把每一頁抓完；拿到空頁就讓該渠道同步失敗，不回傳少掉的清單。實測 NCH 574 台、BZZF-0266～0271 都對到 bzzf1。機台版本 Dashboard 也一起補齊'] },
   { version: '4.267.5', date: '2026-10-02', changes: ['fix(Meegle)：**欄名有箭頭（例如「單子標題貼這→」）時，保護不覆蓋 Jira 單會失效**（CodeX）——讀的時候只忽略空白和 ↓、寫的時候還忽略 ↑→←，讀不到舊值卻寫得到欄位。讀寫改用同一支欄名比對', 'test(Meegle)：adapter 測試 5 → 8 條（箭頭變體欄名已有 Jira 值 → 標題欄零寫入、其他三欄照寫），改回舊比對會紅'] },
   { version: '4.267.4', date: '2026-10-02', changes: ['fix(Meegle)：**「單子標題貼這」已經有別張單時會被覆蓋**（CodeX）——例如這列之前用 Jira 開過（CGFB-50），回填會把它換成 Meegle 單號。現在只有空白或同一張 Meegle 單才寫，其他情況保留原值，其他三欄照寫，④ 與操作紀錄顯示附註', 'test(Meegle)：回填 31 → 38 條（Jira 單、別張 Meegle 單、單號前綴、空白、同一張），拿掉檢查紅 4 條、改回前綴比對紅 1 條'] },
