@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.272.6'
+export const APP_VERSION = '4.272.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.272.7', date: '2026-10-02', changes: ['fix(UAT 錄製)：**H5 錄製視窗底部被切的真正原因**——視窗外框是在開了手機模擬「之後」才用 outerHeight − innerHeight 量，這時 innerHeight 回的是模擬值（877），算出來是負數被當成 0，視窗就被設成剛好 877 高（含外框約 95px），頁面只剩約 780px 可見。v4.272.5 加的回報抓到：使用者 Mac 螢幕可用 1920x1055，根本不需要縮放，還是被切。改成在開模擬前量真實外框記住，視窗＝頁面高×比例＋真實外框。實測 Windows：外框 95、視窗 972，整頁含底部導覽列完整'] },
   { version: '4.272.6', date: '2026-10-02', changes: ['style(Meegle)：開單 ①②、評論 ② 改滿版（原本限寬 560px，右邊空一大塊）；四個預設欄位寬螢幕排成一列，按鈕不拉滿整排'] },
   { version: '4.272.5', date: '2026-10-02', changes: ['chore(UAT 錄製)：錄製視窗把量到的螢幕可用大小、外框、縮放比例、實際視窗大小回報給伺服器（worker log「[UAT 錄製視窗]」）——Mac 上 v4.272.3 的縮放沒生效，agent 的 console 伺服器看不到，用這個查原因'] },
   { version: '4.272.4', date: '2026-10-02', changes: ['fix(Meegle 評論)：**③ 附件載入失敗沒有備案**（使用者回報）——改成逐列載入（一列一個請求、同時 2 列），一列失敗不影響別列；每列有「重新載入附件」、頂部有「重新載入失敗的附件」；錯誤訊息逐個列出檔名與原因；載入中的列不能送。手動加的附件重新載入時保留。查到的兩個失敗原因：Sheet「插入→附件」的檔案（v4.272.1 已修）、伺服器重啟時整批預載請求被中斷（原本整批一個請求，所以全部一起失敗）'] },

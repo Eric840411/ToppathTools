@@ -376,6 +376,8 @@ type CdpSend = (method: string, params?: object) => Promise<CdpMessage>
 interface UatRecSession {
   /** 真實螢幕可用大小：第一次量（還沒開裝置模擬前）就記住——開了手機模擬後 screen.* 可能變成模擬值 */
   screenAvail?: { w: number; h: number }
+  /** 真實視窗外框（outer − inner），也要在開模擬前量：模擬後 innerHeight 回的是模擬值，外框會被量錯 */
+  frame?: { width: number; height: number }
   sessionId: string
   proc: ReturnType<typeof spawn>
   profileDir: string
@@ -2060,13 +2062,17 @@ type ViewportReport = { platform: string; screenAvail: { w: number; h: number } 
 
 async function syncUatViewport(sess: UatRecSession, report?: (r: ViewportReport) => void) {
   if (!sess.cdpSend) return
-  // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js
-  if (!sess.screenAvail) {
-    const scr = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight })', returnByValue: true })
-    const v = (scr.result?.result as { value?: { w?: number; h?: number } } | undefined)?.value
-    if (v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+  // ⚠️ 真實螢幕大小與真實外框都要在**開裝置模擬之前**量一次記住（2026-10-02 Mac 實測）：
+  //    開了模擬後 screen.* 和 innerHeight 都回模擬值（500x877），用 outer−inner 量外框會被量成 90，
+  //    Mac 實際外框更高 → 視窗被設得太短、底部被切；螢幕夠大（1920x1055）也一樣會切。
+  if (!sess.screenAvail || !sess.frame) {
+    const m = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight, dw: window.outerWidth - window.innerWidth, dh: window.outerHeight - window.innerHeight })', returnByValue: true })
+    const v = (m.result?.result as { value?: { w?: number; h?: number; dw?: number; dh?: number } } | undefined)?.value
+    if (!sess.screenAvail && v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+    if (!sess.frame && typeof v?.dh === 'number' && v.dh > 0) sess.frame = { width: Math.max(0, v.dw ?? 0), height: v.dh }
   }
-  const frame = recordableWindowSize(0, 0)
+  const frame = sess.frame ?? recordableWindowSize(0, 0)
+  // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js
   const scale = sess.screenAvail
     ? recordingScale({ width: sess.width, height: sess.height, availWidth: sess.screenAvail.w, availHeight: sess.screenAvail.h, chromeWidth: frame.width, chromeHeight: frame.height })
     : 1
@@ -2077,38 +2083,15 @@ async function syncUatViewport(sess: UatRecSession, report?: (r: ViewportReport)
     mobile: sess.platform === 'h5',
     ...(scale < 1 ? { scale } : {}),
   })
-  const sendReport = async (wid?: number) => {
-    if (!report) return
+  const b = await sess.cdpSend('Browser.getWindowForTarget')
+  const wid = (b.result as { windowId?: number } | undefined)?.windowId
+  if (typeof wid === 'number') {
+    await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.width * scale) + frame.width, height: Math.round(sess.height * scale) + frame.height } })
+  }
+  if (report) {
     let windowAfter: unknown
-    try { if (typeof wid === 'number') windowAfter = (await sess.cdpSend!('Browser.getWindowBounds', { windowId: wid })).result } catch {}
+    try { if (typeof wid === 'number') windowAfter = (await sess.cdpSend('Browser.getWindowBounds', { windowId: wid })).result } catch {}
     report({ platform: process.platform, screenAvail: sess.screenAvail ?? null, frame, scale, page: { width: sess.width, height: sess.height }, windowAfter })
-  }
-  if (scale < 1) {
-    // 縮小時視窗照「縮完的大小＋外框」設；量 outer−inner 在縮放下不準，用平台外框常數
-    const b = await sess.cdpSend('Browser.getWindowForTarget')
-    const wid = (b.result as { windowId?: number } | undefined)?.windowId
-    if (typeof wid === 'number') {
-      await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.width * scale) + frame.width, height: Math.round(sess.height * scale) + frame.height } })
-    }
-    await sendReport(wid)
-    return
-  }
-  void sendReport()
-  const size = await sess.cdpSend('Runtime.evaluate', {
-    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
-    returnByValue: true,
-  })
-  const delta = size.result?.result as { value?: { dw?: number; dh?: number } } | undefined
-  const bounds = await sess.cdpSend('Browser.getWindowForTarget')
-  const windowId = (bounds.result as { windowId?: number } | undefined)?.windowId
-  if (typeof windowId === 'number') {
-    await sess.cdpSend('Browser.setWindowBounds', {
-      windowId,
-      bounds: {
-        width: sess.width + Math.round(delta?.value?.dw ?? 0),
-        height: sess.height + Math.round(delta?.value?.dh ?? 0),
-      },
-    })
   }
 }
 

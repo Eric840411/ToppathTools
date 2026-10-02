@@ -513,6 +513,8 @@ function isLocalRecordRequest(req: express.Request) {
 interface RecSession {
   /** 真實螢幕可用大小：第一次量（還沒開裝置模擬前）就記住——開了手機模擬後 screen.* 可能變成模擬值 */
   screenAvail?: { w: number; h: number }
+  /** 真實視窗外框（outer − inner），也要在開模擬前量：模擬後 innerHeight 回的是模擬值，外框會被量錯 */
+  frame?: { width: number; height: number }
   proc: ChildProcess
   profileDir: string
   originalUrl: string
@@ -702,13 +704,14 @@ function recorderScript(sess?: RecSession) {
 
 async function syncRecorderViewport(sess: RecSession) {
   if (!sess.cdpSend) return
-  // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js；agent 端同一套
-  if (!sess.screenAvail) {
-    const scr = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight })', returnByValue: true })
-    const v = scr.result?.result?.value as { w?: number; h?: number } | undefined
-    if (v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+  // 真實螢幕與外框都要在開裝置模擬前量一次記住（agent 端同一套，理由見 agent-runner.ts syncUatViewport）
+  if (!sess.screenAvail || !sess.frame) {
+    const m = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight, dw: window.outerWidth - window.innerWidth, dh: window.outerHeight - window.innerHeight })', returnByValue: true })
+    const v = m.result?.result?.value as { w?: number; h?: number; dw?: number; dh?: number } | undefined
+    if (!sess.screenAvail && v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+    if (!sess.frame && typeof v?.dh === 'number' && v.dh > 0) sess.frame = { width: Math.max(0, v.dw ?? 0), height: v.dh }
   }
-  const frame = recordableWindowSize(0, 0)
+  const frame = sess.frame ?? recordableWindowSize(0, 0)
   const scale = sess.screenAvail
     ? recordingScale({ width: sess.viewportWidth, height: sess.viewportHeight, availWidth: sess.screenAvail.w, availHeight: sess.screenAvail.h, chromeWidth: frame.width, chromeHeight: frame.height })
     : 1
@@ -719,29 +722,10 @@ async function syncRecorderViewport(sess: RecSession) {
     mobile: sess.platform === 'h5',
     ...(scale < 1 ? { scale } : {}),
   })
-  if (scale < 1) {
-    const b = await sess.cdpSend('Browser.getWindowForTarget')
-    const wid = b.result?.windowId
-    if (typeof wid === 'number') {
-      await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.viewportWidth * scale) + frame.width, height: Math.round(sess.viewportHeight * scale) + frame.height } })
-    }
-    return
-  }
-  const size = await sess.cdpSend('Runtime.evaluate', {
-    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
-    returnByValue: true,
-  })
-  const delta = size.result?.result?.value as { dw?: number; dh?: number } | undefined
   const win = await sess.cdpSend('Browser.getWindowForTarget')
   const windowId = win.result?.windowId
   if (typeof windowId === 'number') {
-    await sess.cdpSend('Browser.setWindowBounds', {
-      windowId,
-      bounds: {
-        width: sess.viewportWidth + Math.round(delta?.dw ?? 0),
-        height: sess.viewportHeight + Math.round(delta?.dh ?? 0),
-      },
-    })
+    await sess.cdpSend('Browser.setWindowBounds', { windowId, bounds: { width: Math.round(sess.viewportWidth * scale) + frame.width, height: Math.round(sess.viewportHeight * scale) + frame.height } })
   }
 }
 
