@@ -2971,8 +2971,13 @@ export const larkGenerateSchema = z.object({
   googleDocsUrl: z.string().optional(),
   manualTestCases: z.array(z.record(z.string(), z.any())).default([]),
   promptId: z.string().optional(),
+  // Jira 已停用（2026-10-02）：舊前端送 jiraKeys 會被擋下並告知改填 Meegle 單號
   jiraKeys: z.array(z.string()).default([]),
   jiraEmail: z.string().optional(),
+  /** 參考單：使用者手填的 Meegle 單號／網址（原文，後端用 shared/meegle-ref.ts 解析） */
+  meegleRefs: z.string().max(5000).default(''),
+  /** 後端讀好的參考單內容（請求進來時一律清掉、由後端填，不收前端給的） */
+  refIssues: z.array(z.record(z.string(), z.any())).optional(),
   modelSpec: z.string().optional(),
   // Diff mode: old spec sources (fetched separately, passed as {{old_spec}})
   oldSources: z.array(z.object({

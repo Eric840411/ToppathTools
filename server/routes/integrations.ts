@@ -42,6 +42,10 @@ import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthAccount } from '../auth-session.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { parseMeegleRefs } from '../../shared/meegle-ref.js'
+import { fetchMeegleRefs } from '../meegle-ref-fetch.js'
+import { getAccountRow } from '../meegle-account-service.js'
+import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import { splitSpecIntoChunks, renumberCases, describeBatchOutcome, runBatched, checkPrefixConsistency } from '../lib/spec-chunk.js'
 
 export const router = Router()
@@ -145,29 +149,6 @@ function getWorkerUrl() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** 從 Jira 帳號拉取 Issue 詳情 */
-const fetchJiraIssues = async (keys: string[], email: string): Promise<object[]> => {
-  const account = readAccounts().find(a => a.email === email)
-  if (!account) throw new Error(`找不到 Jira 帳號 ${email}`)
-  const baseUrl = process.env.JIRA_BASE_URL ?? mustEnv('JIRA_BASE_URL')
-  const auth = `Basic ${Buffer.from(`${email}:${account.token}`).toString('base64')}`
-  return Promise.all(keys.map(async key => {
-    const resp = await fetch(`${baseUrl}/rest/api/3/issue/${key}`, {
-      headers: { Authorization: auth, Accept: 'application/json' }
-    })
-    if (!resp.ok) throw new Error(`無法取得 Jira ${key}: HTTP ${resp.status}`)
-    const data = await resp.json() as Record<string, unknown>
-    const fields = (data.fields ?? {}) as Record<string, unknown>
-    return {
-      key: data.key,
-      summary: fields.summary ?? '',
-      description: extractAdfText(fields.description),
-      status: (fields.status as Record<string, unknown>)?.name ?? '',
-      issueType: (fields.issuetype as Record<string, unknown>)?.name ?? '',
-    }
-  }))
-}
 
 /** 從 Lark Wiki 取得文件純文字內容 */
 const fetchLarkDocContent = async (documentId: string): Promise<string> => {
@@ -1671,14 +1652,10 @@ export async function runLarkGenerateTestcasesJob(params: {
     ? `Multiple sources (${sourcesToFetch.length})`
     : sourcesToFetch[0].type === 'gdocs' ? 'Google Docs' : 'Lark Wiki'
 
-  if (!docContent.trim() && body.jiraKeys.length === 0) {
+  // 參考單（Meegle）在收到請求時就讀好放進 body.refIssues（見 generate-testcases 路由）；變數名沿用 prompt 的 {{jira_issues}}
+  const jiraIssues: object[] = body.refIssues ?? []
+  if (!docContent.trim() && jiraIssues.length === 0) {
     return { ok: false, message: '文件內容為空，請確認讀取權限' }
-  }
-
-  let jiraIssues: object[] = []
-  if (body.jiraKeys.length > 0) {
-    jiraIssues = await fetchJiraIssues(body.jiraKeys, body.jiraEmail!)
-    log('info', clientIp, user, 'Jira Issues loaded', `${jiraIssues.length} issues`)
   }
 
   log('info', clientIp, user, 'TestCase worker started', body.promptId ?? 'testcase-default')
@@ -1921,8 +1898,23 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         return res.status(400).json({ ok: false, message: `無法解析 Lark Wiki URL：${src.url}` })
     }
   }
-  if (body.jiraKeys.length > 0 && !body.jiraEmail)
-    return res.status(400).json({ ok: false, message: '請選擇用於讀取 Jira 的帳號' })
+  // 參考單：Jira 已停用 → 改讀 Meegle（使用者 2026-10-02 選 B）。用操作者自己的綁定；讀不到任何一張就整批擋下
+  // （少一張參考單 AI 不會知道，TestCase 會默默缺一塊）。後端讀好放進 body.refIssues，worker／背景工作兩條路都用這份
+  body.refIssues = undefined
+  if (body.jiraKeys.length > 0) return res.status(400).json({ ok: false, message: 'Jira 已停用，參考單請改填 Meegle 單號' })
+  if (body.meegleRefs.trim()) {
+    const refs = parseMeegleRefs(body.meegleRefs)
+    if (refs.invalid.length) return res.status(400).json({ ok: false, message: `看不懂的單號：${refs.invalid.join('、')}（請填 Meegle 單號、#單號或單子網址）` })
+    if (refs.ids.length > 30) return res.status(400).json({ ok: false, message: '參考單一次最多 30 張' })
+    const me = getAuthAccount(req)
+    const bound = me ? getAccountRow(db, me.email.toLowerCase()) : undefined
+    if (!me || !bound || bound.status !== 'valid') return res.status(400).json({ ok: false, message: '讀 Meegle 參考單要先綁定你的 Meegle（個人帳號頁）' })
+    let token: string
+    try { token = decryptMeegleToken(bound.token_enc) } catch { return res.status(400).json({ ok: false, message: '你的 Meegle token 解不開，請重新綁定' }) }
+    const got = await fetchMeegleRefs(token, refs.ids)
+    if (got.kind !== 'ok') return res.status(400).json({ ok: false, message: got.message })
+    body.refIssues = got.value
+  }
 
   const heavyTask = tryStartHeavyTask(req, 'testcase', 'TestCase 生成')
   if (!heavyTask.ok) {
@@ -2005,14 +1997,9 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         ? `多份規格書 (${sourcesToFetch.length})`
         : sourcesToFetch[0].type === 'gdocs' ? 'Google Docs' : 'Lark Wiki'
 
-      if (!docContent.trim() && body.jiraKeys.length === 0) {
+      const jiraIssues: object[] = body.refIssues ?? []
+      if (!docContent.trim() && jiraIssues.length === 0) {
         finishJob(requestId, { ok: false, message: '文件內容為空，請確認讀取權限' }); return
-      }
-
-      let jiraIssues: object[] = []
-      if (body.jiraKeys.length > 0) {
-        jiraIssues = await fetchJiraIssues(body.jiraKeys, body.jiraEmail!)
-        log('info', clientIp, user, 'Jira Issues 已載入', `${jiraIssues.length} 筆`)
       }
 
       log('info', clientIp, user, 'TestCase 生成開始', body.promptId ?? 'testcase-default')

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseMeegleRefs } from '../../shared/meegle-ref'
 import { ModelSelector } from '../components/ModelSelector'
 import { DungeonIcon } from '../components/DungeonIcon'
 import { useIsGameMode } from '../components/GameModeContext'
@@ -212,10 +213,10 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
   const [enableSecondPass, setEnableSecondPass] = useState(false)
   const [secondPassModel, setSecondPassModel] = useState('gemini')
   const [secondPassPromptId, setSecondPassPromptId] = useState('testcase-second-pass')
-  const [useJira, setUseJira] = useState(false)
-  const [jiraAccounts, setJiraAccounts] = useState<{ email: string; label: string }[]>([])
-  const [jiraEmail, setJiraEmail] = useState('')
-  const [jiraKeysInput, setJiraKeysInput] = useState('')
+  // 參考單：Jira 停用後改讀 Meegle（2026-10-02）。用登入者自己的 Meegle 綁定讀，不用選帳號
+  const [useRefs, setUseRefs] = useState(false)
+  const [refsInput, setRefsInput] = useState('')
+  const refsParsed = useMemo(() => parseMeegleRefs(refsInput), [refsInput])
 
   const LARK_PENDING_KEY = 'lark_pending_request_id'
 
@@ -224,12 +225,6 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
       .then(r => r.json())
       .then((d: { prompts?: { id: string; name: string }[] }) => {
         if (d.prompts) setAvailablePrompts(d.prompts.map(p => ({ id: p.id, name: p.name })))
-      })
-      .catch(() => {})
-    fetch('/api/accounts')
-      .then(r => r.json())
-      .then((d: { ok: boolean; accounts?: { email: string; label: string }[] }) => {
-        if (d.ok && d.accounts) setJiraAccounts(d.accounts)
       })
       .catch(() => {})
     fetch('/api/user-ai-keys')
@@ -490,8 +485,7 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
           } } : {}),
           manualTestCases: testcaseUrl ? [{ url: testcaseUrl }] : [],
           promptId: selectedPromptId,
-          jiraKeys: useJira ? jiraKeysInput.split(/[,\s\n]+/).map(k => k.trim()).filter(Boolean) : [],
-          jiraEmail: useJira ? jiraEmail : undefined,
+          meegleRefs: useRefs ? refsInput : '',
           modelSpec: selectedModel,
           secondPass: enableSecondPass,
           ...(enableSecondPass ? { secondPassModel, secondPassPromptId } : {}),
@@ -926,34 +920,27 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
 
           {action === 'generate' && (
             <>
-              {/* Jira card */}
+              {/* 參考單（Meegle）卡片：Jira 停用後改讀 Meegle（2026-10-02） */}
               <div className="option-card">
                 <label>
-                  <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} />
-                  <span className="option-card-title">整合 Jira 單號（可選）</span>
-                  <span className="option-card-hint">AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
+                  <input type="checkbox" checked={useRefs} onChange={e => setUseRefs(e.target.checked)} />
+                  <span className="option-card-title">整合 Meegle 單號（可選）</span>
+                  <span className="option-card-hint">AI 將同時參考 Meegle 任務項（名稱、描述、測試說明）與規格書生成 TestCase；用你自己的 Meegle 綁定讀取</span>
                 </label>
-                {useJira && (
+                {useRefs && (
                   <div className="option-card-body">
                     <label className="field" style={{ margin: 0 }}>
-                      <span>Jira 帳號</span>
-                      <select value={jiraEmail} onChange={e => setJiraEmail(e.target.value)}>
-                        <option value="">請選擇帳號</option>
-                        {jiraAccounts.map(a => (
-                          <option key={a.email} value={a.email}>{a.label} ({a.email})</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field" style={{ margin: 0 }}>
-                      <span>Jira 單號（逗號或換行分隔，如 CGSG-220, CGSG-221）</span>
+                      <span>Meegle 單號（單號、#單號或單子網址；逗號或換行分隔）</span>
                       <textarea
-                        value={jiraKeysInput}
-                        onChange={e => setJiraKeysInput(e.target.value)}
-                        placeholder="CGSG-220&#10;CGSG-221"
+                        value={refsInput}
+                        onChange={e => setRefsInput(e.target.value)}
+                        placeholder="#15194994&#10;15194995"
                         rows={3}
                         style={{ fontFamily: 'monospace' }}
                       />
                     </label>
+                    {refsParsed.invalid.length > 0 && <span style={{ color: '#f87171', fontSize: 12 }}>看不懂的單號：{refsParsed.invalid.join('、')}（送出會被擋下）</span>}
+                    {refsParsed.ids.length > 0 && <span style={{ color: '#94a3b8', fontSize: 12 }}>將讀取 {refsParsed.ids.length} 張：{refsParsed.ids.map(i => `#${i}`).join('、')}</span>}
                   </div>
                 )}
               </div>
