@@ -57,7 +57,9 @@
 
 /* ── 每一步的內容 ── */
 .mb-pane { padding-top: 10px; }
-.mb-pane--narrow { max-width: 560px; }
+/* 2026-10-02 使用者：改滿版（原本 560px 右邊空一大塊）。欄位跟著寬度排，按鈕不拉到整排 */
+.mb-pane--narrow { max-width: none; }
+.mb-pane--narrow .mb-btn--block { width: auto; min-width: 220px; padding-left: 28px; padding-right: 28px; }
 .mb-pane-title { margin: 6px 0 14px; font-size: 22px; font-weight: 800; letter-spacing: .02em; }
 .mb-pane-actions { display: flex; gap: 12px; margin-top: 16px; }
 .mb-pane-actions .mb-btn { flex: 1; }
@@ -72,7 +74,7 @@
   border: 1px solid var(--mb-border-strong); border-radius: 8px; padding: 9px 12px; font-size: 13px;
 }
 .mb-input:focus, .mb-select:focus { outline: none; border-color: var(--mb-primary); box-shadow: 0 0 0 3px rgba(47, 127, 240, .18); }
-.mb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin-top: 14px; }
+.mb-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 14px; margin-top: 14px; }
 
 /* ── 按鈕 ── */
 .mb-btn {
