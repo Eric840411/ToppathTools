@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.268.1'
+export const APP_VERSION = '4.268.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.268.2', date: '2026-10-02', changes: ['fix(Meegle)：**④ 保留頁面內的進度條、改成不顯示下方固定進度列**（使用者：v4.268.1 刪反了）。固定進度列在 ①～③ 照常顯示，「看結果」跳到 ④'] },
   { version: '4.268.1', date: '2026-10-02', changes: ['fix(Meegle)：**④ 送出結果出現兩條進度條、「看結果」按了沒反應**（使用者回報）——④ 拿掉頁面內那條，進度只看下方固定進度列（結果列多時仍看得到）；已經在 ④ 時不顯示「看結果」，只留關閉'] },
   { version: '4.268.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**每個 Machine Model 可以單獨展開**——展開遊戲後，每個 Machine Model 預設只顯示名稱與台數，點 ▸ 或名稱才列出底下的 gmid（紅字＝被佔用），機台多的遊戲不會一展開就整片洗版；勾選仍可直接勾，不必先展開'] },
   { version: '4.267.6', date: '2026-10-02', changes: ['fix(OSM)：**機台版本同步只抓第一頁，NCH 少了 74 台**（UI 截圖的 Machine Model 顯示「未同步」才發現）——後台一頁最多 500 台，NCH 有 574 台。現在照總數把每一頁抓完；拿到空頁就讓該渠道同步失敗，不回傳少掉的清單。實測 NCH 574 台、BZZF-0266～0271 都對到 bzzf1。機台版本 Dashboard 也一起補齊'] },

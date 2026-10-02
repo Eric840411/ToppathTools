@@ -621,7 +621,10 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
             <button type="button" className="mb-btn mb-btn--outline mb-btn--block mb-export" disabled={!resultEntries.length} onClick={exportCsv}>
               <Icon name="download" /> {xianxia ? <>封存玉簡<small>匯出結果</small></> : '匯出結果'}
             </button>
-            {/* ④ 不再自己畫一條進度：跟下方固定進度列重複（使用者 10/02 回報「兩個進度條」），進度只看固定列 */}
+            <div className="mb-done-line">
+              <span>處理完成 <b>{progress.done}</b> / {progress.total || resultEntries.length}</span>
+            </div>
+            <div className="dashboard-bar-track mb-progress-track"><span className="dashboard-bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : (resultEntries.length ? 100 : 0)}%` }} /></div>
             <div className="mb-done-note">完成不代表全數成功，請看上方各列結果</div>
             <div className="mb-pane-actions">
               <button type="button" className="mb-btn mb-btn--outline" disabled={running} onClick={() => setStep(3)}>上一步</button>
@@ -631,8 +634,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       </section>
 
       {/* 固定在畫面下方的進度列：跨步驟保留（CodeX 設計） */}
-      {/* ④ 也要保留：結果列多時，④ 自己那條進度在最下面看不到（CodeX review 34e4e1e [P2]） */}
-      {progress.total > 0 && !progressDismissed && (
+      {/* ④ 不顯示：④ 頁面內已有自己那條進度，兩條重複（使用者 10/02 決定保留頁面內那條、刪固定列；取代 CodeX review 34e4e1e [P2]「④ 也保留」） */}
+      {progress.total > 0 && !progressDismissed && step !== 4 && (
         <div className="mb-dock" role="status" aria-live="polite">
           <div className="mb-dock-text">
             <b>{running ? `送出中 ${progress.done} / ${progress.total}` : `送出完成 ${progress.done} / ${progress.total}`}</b>
@@ -643,8 +646,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
           </div>
           <div className="dashboard-bar-track mb-progress-track mb-dock-bar"><span className="dashboard-bar-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
           <div className="mb-dock-actions">
-            {/* 已經在 ④ 時不顯示「看結果」：結果就在畫面上，按了看起來沒反應 */}
-            {step !== 4 && <button type="button" className="mb-btn mb-btn--small" onClick={() => setStep(4)}>看結果</button>}
+            <button type="button" className="mb-btn mb-btn--small" onClick={() => setStep(4)}>看結果</button>
             {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
           </div>
         </div>
