@@ -5104,12 +5104,13 @@
 .ui-ss-mm.is-on { background: rgba(59, 130, 246, .08); }
 .ui-ss-mm-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .ui-ss-mm-caret { background: none; border: 0; color: #64748b; font-size: 11px; width: 14px; padding: 0; cursor: pointer; }
-.ui-ss-mm-game { color: #64748b; font-family: monospace; font-size: 11px; width: 110px; flex-shrink: 0; }
-.ui-ss-mm-name { color: #e2e8f0; flex: 1; }
+/* 2026-10-02 需求方：分類（遊戲代碼）用白字、遊戲名稱用灰字（原本相反）。灰字用 #94a3b8，#64748b 在深底對比不夠 */
+.ui-ss-mm-game { color: #e2e8f0; font-family: monospace; font-size: 12px; font-weight: 700; width: 110px; flex-shrink: 0; }
+.ui-ss-mm-name { color: #94a3b8; flex: 1; }
 /* 同分類多款遊戲（v4.270.0）：分類一列、每款遊戲名稱一列，各自的 Machine Model 縮在底下 */
 .ui-ss-mm-catnote { color: #64748b; font-size: 11px; flex: 1; }
 .ui-ss-mm-sec { margin: 6px 0 0 8px; }
-.ui-ss-mm-title .ui-ss-mm-name { font-weight: 600; }
+.ui-ss-mm-title .ui-ss-mm-name { font-weight: 500; }
 .ui-ss-mm-sec .ui-ss-mm-sub { margin-left: 22px; }
 .ui-ss-mm-cnt { color: #94a3b8; font-size: 11px; white-space: nowrap; margin-left: auto; }
 .ui-ss-mm-cnt.is-full { color: #f87171; }
