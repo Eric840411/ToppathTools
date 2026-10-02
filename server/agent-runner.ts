@@ -39,6 +39,7 @@ import { createFrontendTcEngine, toMultiTcSteps } from './uat-runner/frontend-tc
 // 基準圖比對：跟伺服器端同一份。以前只有伺服器端有，這顆積木在 agent 上被靜默跳過。
 import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
+import { recordingScale } from './uat-runner/record-window.js'
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
@@ -373,6 +374,8 @@ type CdpMessage = { id?: number; result?: Record<string, unknown>; error?: { mes
 type CdpSend = (method: string, params?: object) => Promise<CdpMessage>
 
 interface UatRecSession {
+  /** 真實螢幕可用大小：第一次量（還沒開裝置模擬前）就記住——開了手機模擬後 screen.* 可能變成模擬值 */
+  screenAvail?: { w: number; h: number }
   sessionId: string
   proc: ReturnType<typeof spawn>
   profileDir: string
@@ -2054,12 +2057,32 @@ function recordableWindowSize(width: number, height: number) {
 
 async function syncUatViewport(sess: UatRecSession) {
   if (!sess.cdpSend) return
+  // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js
+  if (!sess.screenAvail) {
+    const scr = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight })', returnByValue: true })
+    const v = (scr.result?.result as { value?: { w?: number; h?: number } } | undefined)?.value
+    if (v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+  }
+  const frame = recordableWindowSize(0, 0)
+  const scale = sess.screenAvail
+    ? recordingScale({ width: sess.width, height: sess.height, availWidth: sess.screenAvail.w, availHeight: sess.screenAvail.h, chromeWidth: frame.width, chromeHeight: frame.height })
+    : 1
   await sess.cdpSend('Emulation.setDeviceMetricsOverride', {
     width: sess.width,
     height: sess.height,
     deviceScaleFactor: 1,
     mobile: sess.platform === 'h5',
+    ...(scale < 1 ? { scale } : {}),
   })
+  if (scale < 1) {
+    // 縮小時視窗照「縮完的大小＋外框」設；量 outer−inner 在縮放下不準，用平台外框常數
+    const b = await sess.cdpSend('Browser.getWindowForTarget')
+    const wid = (b.result as { windowId?: number } | undefined)?.windowId
+    if (typeof wid === 'number') {
+      await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.width * scale) + frame.width, height: Math.round(sess.height * scale) + frame.height } })
+    }
+    return
+  }
   const size = await sess.cdpSend('Runtime.evaluate', {
     expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
     returnByValue: true,

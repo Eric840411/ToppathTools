@@ -7,6 +7,7 @@ import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
 import { createRecordedLocators } from '../uat-runner/recorded-selector.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from '../uat-runner/chrome-debug-port.js'
+import { recordingScale } from '../uat-runner/record-window.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from '../uat-runner/frontend-recorder.js'
 import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
@@ -510,6 +511,8 @@ function isLocalRecordRequest(req: express.Request) {
 // ── Chrome DevTools Recorder ──────────────────────────────────────────────────
 
 interface RecSession {
+  /** 真實螢幕可用大小：第一次量（還沒開裝置模擬前）就記住——開了手機模擬後 screen.* 可能變成模擬值 */
+  screenAvail?: { w: number; h: number }
   proc: ChildProcess
   profileDir: string
   originalUrl: string
@@ -699,12 +702,31 @@ function recorderScript(sess?: RecSession) {
 
 async function syncRecorderViewport(sess: RecSession) {
   if (!sess.cdpSend) return
+  // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js；agent 端同一套
+  if (!sess.screenAvail) {
+    const scr = await sess.cdpSend('Runtime.evaluate', { expression: '({ w: screen.availWidth, h: screen.availHeight })', returnByValue: true })
+    const v = scr.result?.result?.value as { w?: number; h?: number } | undefined
+    if (v?.w && v?.h) sess.screenAvail = { w: v.w, h: v.h }
+  }
+  const frame = recordableWindowSize(0, 0)
+  const scale = sess.screenAvail
+    ? recordingScale({ width: sess.viewportWidth, height: sess.viewportHeight, availWidth: sess.screenAvail.w, availHeight: sess.screenAvail.h, chromeWidth: frame.width, chromeHeight: frame.height })
+    : 1
   await sess.cdpSend('Emulation.setDeviceMetricsOverride', {
     width: sess.viewportWidth,
     height: sess.viewportHeight,
     deviceScaleFactor: 1,
     mobile: sess.platform === 'h5',
+    ...(scale < 1 ? { scale } : {}),
   })
+  if (scale < 1) {
+    const b = await sess.cdpSend('Browser.getWindowForTarget')
+    const wid = b.result?.windowId
+    if (typeof wid === 'number') {
+      await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.viewportWidth * scale) + frame.width, height: Math.round(sess.viewportHeight * scale) + frame.height } })
+    }
+    return
+  }
   const size = await sess.cdpSend('Runtime.evaluate', {
     expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
     returnByValue: true,

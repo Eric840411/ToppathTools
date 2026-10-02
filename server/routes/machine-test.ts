@@ -80,6 +80,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/api-assert.js':          join(SERVER_ROOT, 'uat-runner', 'api-assert.js'),
   // Chrome 偵錯連接埠的取得方式。agent-runner.ts 靜態 import 它。
   'uat-runner/chrome-debug-port.js':   join(SERVER_ROOT, 'uat-runner', 'chrome-debug-port.js'),
+  // 錄製視窗放不下時縮小顯示的比例計算。agent-runner.ts 靜態 import 它（2026-10-02）
+  'uat-runner/record-window.js':       join(SERVER_ROOT, 'uat-runner', 'record-window.js'),
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
   // 🚨 下面這三個是 2026-09-21 漏掉的那一批，使用者在 Mac 上裝 agent 時炸出來：
