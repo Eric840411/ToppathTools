@@ -1196,12 +1196,14 @@ export async function runFrontendStep(step, ctx) {
     const started = Date.now();
     let last = first;
     // 累計「實際播了幾秒」而不是拿最後一次減第一次：影片接近片尾時會循環回 0，
-    // 直接相減會變負數、在播也判 FAIL（CodeX 10-02 覆核）。時間倒退就當成從 0 重新開始累加。
+    // 直接相減會變負數、在播也判 FAIL（CodeX 10-02 覆核）。
+    // ⚠️ 時間倒退的那一次**不加任何秒數**，只把基準移過去、之後看正向增量——
+    //    把倒退當成「從 0 播到現在」的話，10 秒跳回 9 秒後卡住會被算成前進 9 秒、假 PASS（CodeX 重現）。
     let advanced = 0;
     while (Date.now() - started < timeoutMs) {
       await page.waitForTimeout(400);
       const now = await read();
-      advanced += now.t >= last.t ? now.t - last.t : now.t;
+      if (now.t >= last.t) advanced += now.t - last.t;
       last = now;
       if (!last.paused && advanced >= minAdvance) {
         await log(`✅ ${idx} ${label}（影片在播：累計前進 ${advanced.toFixed(1)}s，目前 ${last.t.toFixed(1)}s）`);

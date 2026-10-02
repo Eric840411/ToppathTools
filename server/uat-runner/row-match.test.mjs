@@ -93,7 +93,7 @@ test('後台片段：多收「讀取表格」，斷言類仍然擋掉（判定�
 })
 
 test('assert_video_playing：接近片尾循環回 0 也算在播（不能用最後一次減第一次）', async () => {
-  const page = videoPage([{ paused: false, t: 11.6 }, { paused: false, t: 11.9 }, { paused: false, t: 0.3 }, { paused: false, t: 0.8 }])
+  const page = videoPage([{ paused: false, t: 11.6 }, { paused: false, t: 11.9 }, { paused: false, t: 0.3 }, { paused: false, t: 0.8 }, { paused: false, t: 1.4 }])
   await runFrontendStep({ action: 'assert_video_playing', minAdvanceSec: 1, timeoutMs: 3000 }, ctxWith({ netMark: 0 }, page))
 })
 
@@ -106,4 +106,9 @@ test('後台片段的 {{變數}} 換成前台值；變數不存在要在跑後�
   assert.equal(steps[0].value, '{{machine}}', '原片段物件不能被改')
   assert.throws(() => fillSnippetVars(steps, { state: { vars: {} } }), /變數「machine」不存在/)
   assert.equal(fillSnippetVars([{ action: 'wait', waitMs: 1 }], { state: {} })[0].waitMs, 1, '沒有 {{}} 就原樣回傳、也不需要變數表')
+})
+
+test('assert_video_playing：倒退之後卡住不能 PASS（倒退那次不能算成前進）', async () => {
+  const page = videoPage([{ paused: false, t: 10 }, { paused: false, t: 9, ready: 1 }])
+  await assert.rejects(() => runFrontendStep({ action: 'assert_video_playing', minAdvanceSec: 1, timeoutMs: 1200 }, ctxWith({ netMark: 0 }, page)), /時間沒前進/)
 })
