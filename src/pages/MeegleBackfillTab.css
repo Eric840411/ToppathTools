@@ -1,0 +1,42 @@
+/* Meegle 補回填（Jira 頁「Meegle 補回填」分頁）。版面：CodeX 2026-10-02 設計圖（1:1）。
+   外框、按鈕、表格沿用 Meegle 開單／評論的樣式；這裡只放這頁特有的。修仙版只換配色。 */
+
+.bf-page { gap: 14px; }
+.bf-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.bf-count { color: var(--mb-muted); font-size: 15px; }
+.bf-count b { font-size: 19px; margin: 0 2px; }
+.bf-n-warn { color: var(--mb-warn); }
+.bf-n-sel { color: var(--mb-info); }
+.bf-refresh { margin-left: auto; }
+.bf-sub { margin: 6px 0 12px; }
+.bf-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bf-filters .mb-select { width: auto; min-width: 160px; }
+.bf-scope { display: inline-flex; border: 1px solid var(--mb-border-strong); border-radius: 8px; overflow: hidden; }
+.bf-scope button { background: transparent; border: 0; color: var(--mb-muted); padding: 8px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.bf-scope button.is-on { background: var(--mb-primary); color: #fff; }
+.bf-scope button:disabled { cursor: not-allowed; opacity: .5; }
+.bf-admin { font-weight: 700; }
+.bf-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 15px; color: var(--mb-muted); }
+.bf-tool { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 10px; border-radius: 999px; border: 1px solid; }
+.bf-tool--create { color: var(--mb-info); border-color: rgba(90, 167, 255, .5); background: rgba(90, 167, 255, .1); }
+.bf-tool--comment { color: var(--mb-pending); border-color: rgba(180, 140, 255, .5); background: rgba(180, 140, 255, .1); }
+.bf-tool--status { color: var(--mb-ok); border-color: rgba(63, 208, 127, .5); background: rgba(63, 208, 127, .1); }
+.bf-tool--edit { color: var(--mb-orange); border-color: rgba(245, 154, 59, .5); background: rgba(245, 154, 59, .1); }
+.bf-id { margin-top: 3px; font-variant-numeric: tabular-nums; }
+.bf-sheet { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-msg { max-width: 260px; overflow-wrap: anywhere; }
+.bf-badge-pending { color: var(--mb-info); border-color: rgba(90, 167, 255, .5); background: rgba(90, 167, 255, .1); }
+.bf-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; font-size: 14px; }
+.bf-badge-last { color: var(--mb-info); border-color: rgba(90, 167, 255, .5); }
+.bf-tally { margin-left: auto; display: flex; gap: 8px; }
+.bf-chip-skip { border-color: rgba(245, 183, 59, .5); color: var(--mb-warn); background: rgba(245, 183, 59, .08); }
+.bf-result { display: inline-block; font-size: 12.5px; font-weight: 700; padding: 2px 12px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.bf-result--ok { color: var(--mb-ok); border-color: rgba(63, 208, 127, .5); background: rgba(63, 208, 127, .08); }
+.bf-result--skip { color: var(--mb-warn); border-color: rgba(245, 183, 59, .5); background: rgba(245, 183, 59, .08); }
+.bf-result--bad { color: var(--mb-bad); border-color: rgba(242, 107, 107, .5); background: rgba(242, 107, 107, .08); }
+.bf-ran { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--mb-muted); font-size: 13.5px; }
+
+/* ══════════ 修仙版 ══════════ */
+:root[data-theme-mode="xianxia"] .bf-scope button.is-on { background: linear-gradient(180deg, #2bc59f, #12896b); color: #06110e; }
+:root[data-theme-mode="xianxia"] .bf-n-sel { color: #6fe3c3; }
+:root[data-theme-mode="xianxia"] .bf-ran { color: #e6c77f; }

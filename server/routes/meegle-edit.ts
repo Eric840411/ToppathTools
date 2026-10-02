@@ -31,7 +31,7 @@ import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachm
 export const router = Router()
 initMeegleEditSchema(db)
 
-const STALE_MS = 10 * 60_000
+export const STALE_MS = 10 * 60_000
 
 type Ctx = { email: string; token: string }
 function requireSelf(req: Request, res: Response): Ctx | null {

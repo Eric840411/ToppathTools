@@ -26,7 +26,7 @@ export const router = Router()
 initMeegleStatusSchema(db)
 
 /** 送出途中伺服器重啟留下的 creating：一列最多約 25 秒（等自動化 20 秒＋讀回），留足餘裕 */
-const STALE_MS = 5 * 60_000
+export const STALE_MS = 5 * 60_000
 
 type Ctx = { email: string; token: string }
 

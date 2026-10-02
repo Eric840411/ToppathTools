@@ -33,7 +33,7 @@ export const router = Router()
 initMeegleCommentSchema(db)
 
 /** 送出途中伺服器重啟留下的 creating：超過就轉「結果不明」。每列最多好幾次 CLI（各 45 秒），留足餘裕 */
-const STALE_MS = 15 * 60_000
+export const STALE_MS = 15 * 60_000
 
 type Ctx = { email: string; label: string }
 
