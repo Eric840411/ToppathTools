@@ -83,9 +83,13 @@ async function login(page, { backendUrl, username, password, waitMs = 1500 }) {
   await page.locator('button[type="submit"], button:has-text("登录"), button:has-text("登入"), button:has-text("Login")')
     .first().click({ timeout: 15_000 });
   await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+  /**
+   * 還停在登入頁＝帳密錯或被擋。⚠️ 要明確失敗，不能當登入成功往下跑。
+   * ⚠️ 但要**等轉址**：登入 API 回來之後 SPA 才換頁，固定等 1.5 秒偶爾還在 /login（10-02 實跑 AI T-003 誤判一次）。
+   */
+  const left = await page.waitForURL(u => !/\/login/i.test(String(u)), { timeout: 15_000 }).then(() => true).catch(() => false);
+  if (!left) throw new Error('後台登入失敗（按了登入 15 秒仍停在登入頁，請確認帳密）');
   await page.waitForTimeout(waitMs);
-  // 還停在登入頁＝帳密錯或被擋。⚠️ 要明確失敗，不能當登入成功往下跑
-  if (/\/login/i.test(page.url())) throw new Error('後台登入失敗（按了登入仍停在登入頁，請確認帳密）');
   return { loggedIn: true };
 }
 

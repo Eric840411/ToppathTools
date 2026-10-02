@@ -49,6 +49,8 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     waitForTimeout: async () => {},
     keyboard: { press: async () => {} },
     url: () => 'https://cp.example/dashboards',
+    // 登入後等轉址（v4.274.6）：假物件立刻依目前網址判斷
+    waitForURL: async (pred) => { if (!pred(page.url())) throw new Error('timeout') },
   };
   const browser = {
     newContext: async () => {

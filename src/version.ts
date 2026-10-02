@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.274.5'
+export const APP_VERSION = '4.274.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.274.6', date: '2026-10-02', changes: ['fix(UAT 後台片段)：登入後**等轉址再判斷**——4.274.2 按完登入固定等 1.5 秒就檢查網址，SPA 換頁較慢時還在 /login，被誤判成「登入失敗」（AI T-003 實跑誤判一次並回寫了 FAIL）。改成最多等 15 秒網址離開 /login 才算失敗。實站連跑 3 次片段都登入成功'] },
   { version: '4.274.5', date: '2026-10-02', changes: ['fix(UAT H5 積木)：「影片要真的在播」**倒退後卡住會假 PASS**（CodeX 覆核重現）——4.274.4 把任何倒退都當成循環、把新位置整段算成前進，10 秒跳回 9 秒後卡住會被當成前進 9 秒。改成倒退那次不加秒數、只移基準，之後看正向增量。補「倒退後卡住必須 FAIL」（突變驗證：放回舊寫法會紅），片尾循環 PASS 測試保留。另以 worktree 比對 33a5e70 與目前的 tsc 錯誤內容：59 條完全相同，沒有新增'] },
   { version: '4.274.4', date: '2026-10-02', changes: ['fix(UAT H5 積木)：CodeX 覆核 v4.273～4.274 抓到的三個缺口。①「暫停自動關彈窗」仍有競態：evaluate 比 interval 慢時會疊出多輪，pause 只等最後一輪，亂序完成時暫停後還會被關一次 → 改成同一時間只跑一輪。②後台片段裡的 {{變數}} 原樣送進後台（例：把「{{machine}}」填進搜尋欄、查到 0 筆）→ 跑後台前換成前台變數，不存在就先失敗。③「影片要真的在播」用最後一次減第一次，片尾循環回 0 會誤判 FAIL → 改累計前進秒數。補 3 條測試（競態與循環兩條做過突變驗證）'] },
   { version: '4.274.3', date: '2026-10-02', changes: ['fix(UAT H5 積木)：「讀取數值」沒指定所屬 TC 時，編輯器現在會直接標紅「未指定 TC」——原本後端執行前會擋、編輯器卻不標，畫面看起來沒問題，按執行才被「請指定所屬 TC」擋下來（v4.244.0 起就漏了）。前後端一致的檢查早就有，但沒人會記得跑，這次接進 build:server：對不上建置直接失敗'] },
