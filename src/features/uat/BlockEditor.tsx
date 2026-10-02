@@ -74,7 +74,7 @@ function nudge(tree: AutoStep[], parentId: string | null, id: string, delta: num
  * 一致——不一致的症狀是「畫面沒標紅、按執行才被擋」，或更糟的反過來。
  * 後端才是說了算的那一份；這裡只是提早顯示。
  */
-const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot', 'assert_pc_scene', 'assert_pc_node', 'assert_ws_called', 'assert_text', 'assert_compare'])
+const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot', 'assert_pc_scene', 'assert_pc_node', 'assert_ws_called', 'assert_text', 'assert_compare', 'assert_row_match', 'assert_video_playing'])
 export function needsTc(action: string) { return TC_REQUIRED_ACTIONS.has(action) }
 
 function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianxia, labelFor, tcLabel }: {
@@ -417,6 +417,33 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                   這一步會另開一顆瀏覽器登入後台、跑完這份設定再回來繼續。
                   ⚠️ <b>不會自動還原</b>——要還原請在腳本最後再放一顆，選還原用的那份片段。
                 </p>
+                <label>讀回的資料存成變數名（選填）
+                  <input className="uat-field uat-code-field" value={selected.as ?? ''} onChange={event => updateSelected({ as: event.target.value })} placeholder="jp" />
+                  <span className="uat-hint">片段裡有「讀取表格」時填。例：片段存成 rows、這裡填 jp → 後面用 <code>jp.rows</code>。片段結束時的後台畫面會自動截圖當證據</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'assert_row_match' && (
+              <>
+                <label>表格變數
+                  <input className="uat-field uat-code-field" value={selected.from ?? ''} onChange={event => updateSelected({ from: event.target.value })} placeholder="jp.rows" />
+                </label>
+                <label>條件（一行一條，全部符合的列至少要有一列）
+                  <textarea className="uat-field uat-code-field" rows={4} value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })}
+                    placeholder={'Jackpot Amount = {{amount}}\nBet Time = {{time}}\nClient Announcement Time @now'} />
+                  <span className="uat-hint"><code>=</code> 相等（像數字就比數值）、<code>^=</code> 開頭是、<code>*=</code> 包含、<code>~=</code> 遮罩（te*****aa）、<code>@now</code> 欄位「起 To 迄」要包含現在。<code>{'{{變數}}'}</code> 會換成前面「讀成變數」的值</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'assert_video_playing' && (
+              <>
+                <label>影片選擇器
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="video（預設）" />
+                </label>
+                <div className="uat-field-row">
+                  <label>至少前進秒數<input className="uat-field" type="number" min="0.1" step="0.1" value={selected.minAdvanceSec ?? 0.5} onChange={event => updateSelected({ minAdvanceSec: Number(event.target.value) })} /></label>
+                  <label>最多等毫秒<input className="uat-field" type="number" min="1000" value={selected.timeoutMs ?? 8000} onChange={event => updateSelected({ timeoutMs: Number(event.target.value) })} /></label>
+                </div>
               </>
             )}
             {['click_viewport', 'click_xy'].includes(selected.action) && <div className="uat-field-row"><label>X<input className="uat-field" type="number" value={selected.x ?? 0} onChange={event => updateSelected({ x: Number(event.target.value) })} /></label><label>Y<input className="uat-field" type="number" value={selected.y ?? 0} onChange={event => updateSelected({ y: Number(event.target.value) })} /></label></div>}

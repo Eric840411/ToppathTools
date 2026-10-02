@@ -356,10 +356,12 @@
           <thead><tr><th>積木</th><th>做什麼</th></tr></thead>
           <tbody>
             <tr><td class="name">等待</td><td>停幾毫秒</td></tr>
+            <tr><td class="name">表格要有一筆符合</td><td>拿前台讀到的值去表格（通常是後台片段讀回來的）找那一筆。一行一條，例：<code>Jackpot Amount = {{amount}}</code>、<code>Client Announcement Time @now</code>。這是檢查</td></tr>
+            <tr><td class="name">影片要真的在播</td><td>沒暫停、而且播放時間有往前走。這是檢查</td></tr>
             <tr><td class="name">暫停／恢復自動關彈窗</td><td>執行期間工具每 1.5 秒自動關大廳彈窗。<b>要驗彈窗本身</b>（例：廣告 JP 彈框）就在它出現前放一顆「暫停」，驗完再「恢復」</td></tr>
             <tr><td class="name">截圖</td><td>存證據，回寫時一起上傳到 Lark</td></tr>
             <tr><td class="name">前置條件</td><td>環境沒備好就把這筆 TC 判「受阻」，見下一節</td></tr>
-            <tr><td class="name">後台設定</td><td>中途跑一段後台設定（例如把某個開關打開）再回前台</td></tr>
+            <tr><td class="name">後台設定</td><td>（片段裡可以放「讀取表格」，填「讀回的資料存成變數名」就能交回前台比對，結束時的後台畫面會自動截圖）中途跑一段後台設定（例如把某個開關打開）再回前台</td></tr>
           </tbody>
         </table>
       </div>

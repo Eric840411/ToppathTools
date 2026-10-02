@@ -71,6 +71,10 @@ export const FRONTEND_BLOCK_DEFS = Object.freeze({
   assert_compare: { category: 'assert' },
   // 暫停／恢復自動關彈窗：是操作不是檢查
   popup_watch: { category: 'nav' },
+  // 表格要有一筆符合（前後台比對）：檢查
+  assert_row_match: { category: 'assert' },
+  // 影片真的在播：檢查
+  assert_video_playing: { category: 'assert' },
 });
 
 /**

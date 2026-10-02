@@ -71,6 +71,8 @@ export const FRONTEND_ACTIONS = Object.freeze([
   'read_value', 'assert_compare',
   // 暫停／恢復「全程自動關彈窗」——要驗的就是彈窗本身時用（例：大廳廣告 JP 彈框）
   'popup_watch',
+  // 前後台比對：表格（後台片段讀回來的）要有一列符合；影片要真的在播
+  'assert_row_match', 'assert_video_playing',
 ]);
 
 /**
@@ -84,6 +86,82 @@ function frontendVars(ctx) {
   if (!ctx.state) throw new Error('這顆積木需要執行狀態（host 沒給 ctx.state）');
   if (!ctx.state.vars) ctx.state.vars = {};
   return ctx.state.vars;
+}
+
+/** 表格列裡取欄位：先完全相同，再忽略大小寫與空白（表頭偶爾多一個空格） */
+function cellOf(row, column) {
+  if (column in row) return row[column];
+  const norm = s => String(s).toLowerCase().replace(/\s+/g, '');
+  const key = Object.keys(row).find(k => norm(k) === norm(column));
+  return key === undefined ? undefined : row[key];
+}
+
+/** 「像數字」才回數字：去掉貨幣符號、千分位、空白。其他一律 null（不要把日期當成數字） */
+function looseNumber(value) {
+  const s = String(value ?? '').replace(/[₱$,\s]/g, '');
+  return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+}
+
+const collapse = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+/** 「2026-10-01 00:00:00」→ 本地時間的 Date；認不得回 null */
+function parseLocalTime(text) {
+  const m = String(text ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
+}
+
+/**
+ * 解析「表格要有一筆符合」的條件。一行一條：`欄位 運算子 值`。
+ * ⚠️ 值裡引用的變數不存在要**在比對前就失敗**——不然會變成「拿 undefined 去比」，
+ *    回報成「找不到符合的列」，看起來像資料對不上，其實是前面沒讀到。
+ */
+export function parseRowConditions(text, lookup) {
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (!lines.length) throw new Error('至少要填一條條件（例：Jackpot Amount = {{amount}}）');
+  return lines.map(line => {
+    const m = line.match(/^(.+?)\s*(@now|\^=|\*=|~=|=)\s*(.*)$/);
+    if (!m) throw new Error(`看不懂這條條件：「${line}」（格式：欄位 運算子 值，運算子有 = ^= *= ~= @now）`);
+    const [, column, op, raw] = m;
+    if (op === '@now') return { column: column.trim(), op, expect: '' };
+    if (!raw.trim()) throw new Error(`條件「${line}」少了要比的值`);
+    const expect = raw.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, name) => {
+      const v = lookup(name);
+      if (v === undefined || v === null) throw new Error(`條件「${line}」引用的變數「${name}」不存在`);
+      return String(v);
+    });
+    return { column: column.trim(), op, expect: expect.trim() };
+  });
+}
+
+/** 一列是否符合一條條件。符合回 null，不符合回一句「差在哪」 */
+export function checkRowCondition(row, cond, now = new Date()) {
+  const cell = cellOf(row, cond.column);
+  if (cell === undefined) return `表格沒有「${cond.column}」這一欄（有：${Object.keys(row).filter(Boolean).join('、')}）`;
+  const have = collapse(cell);
+  const want = collapse(cond.expect);
+  const shown = `${cond.column}「${have.slice(0, 40)}」`;
+  switch (cond.op) {
+    case '=': {
+      const a = looseNumber(have), b = looseNumber(want);
+      if (a !== null && b !== null) return frontendNumbersEqual(a, b, 0, 1e-6) ? null : `${shown} ≠ ${want}`;
+      return have === want ? null : `${shown} ≠「${want}」`;
+    }
+    case '^=': return have.startsWith(want) ? null : `${shown} 開頭不是「${want}」`;
+    case '*=': return have.includes(want) ? null : `${shown} 不包含「${want}」`;
+    case '~=': {
+      const re = new RegExp(`^${want.split(/\*+/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`);
+      return re.test(have) ? null : `${shown} 對不上遮罩「${want}」`;
+    }
+    case '@now': {
+      const [startText, endText] = have.split(/\s+to\s+/i);
+      const start = parseLocalTime(startText), end = parseLocalTime(endText);
+      if (!start) return `${shown} 認不得起始時間`;
+      if (!end) return `${shown} 沒有結束時間（空白算已到期）`;
+      return now >= start && now <= end ? null : `${shown} 不在有效期間（現在 ${now.toLocaleString('sv-SE')}）`;
+    }
+    default: return `不支援的運算子 ${cond.op}`;
+  }
 }
 
 /** 數字比較（跟後台同一套語意：相對容差或絕對容差任一成立就算相等） */
@@ -1038,6 +1116,70 @@ export async function runFrontendStep(step, ctx) {
     return { shots };
   }
 
+  if (step.action === 'assert_row_match') {
+    await log(`⏳ ${idx} ${label}`);
+    /**
+     * 表格（通常是「後台設定」片段讀回來的）裡**至少要有一列**同時符合所有條件。
+     *
+     * 🚨 **為什麼需要**：前台彈框上的數字要跟後台的哪一筆對？後台列表有好幾百筆、
+     *    順序也不固定，沒辦法用「第 N 列」比——只能「拿前台讀到的值去表格裡找那一筆」。
+     *    例（AI T-003）：`Jackpot Amount = {{amount}}`、`Bet Time = {{time}}`、
+     *    `Client Announcement Time @now`（只算公告還在有效期間的）。
+     *
+     * 條件一行一條：`欄位 運算子 值`，值裡的 `{{變數}}` 會換成前台變數。
+     *   `=`  相等（兩邊都像數字就比數值：₱8,000,000,111 ＝ 8,000,000,111.00）
+     *   `^=` 開頭是　`*=` 包含　`~=` 遮罩（`te*****aa`，* 代表一個以上任意字）
+     *   `@now` 欄位是「起 To 迄」，現在要落在中間（迄是空白＝已到期，後台公告規格）
+     * ⚠️ 時間用執行機器的本地時區解讀（後台與我們都是 UTC+8）。
+     */
+    const vars = frontendVars(ctx);
+    const lookup = (nameRef) => nameRef.split('.').reduce((cur, part) => (cur === undefined || cur === null ? cur : cur[part]), vars);
+    const from = String(step.from ?? '').trim();
+    if (!from) throw new Error('要填表格變數（例：jp.rows）');
+    const rows = lookup(from);
+    if (!Array.isArray(rows)) throw new Error(`變數「${from}」不是表格（${rows === undefined ? '不存在' : typeof rows}）`);
+    const conditions = parseRowConditions(String(step.value ?? ''), lookup);
+    if (!rows.length) throw new Error(`表格「${from}」是空的，沒有任何一列可以比對`);
+    let best = null;
+    for (const row of rows) {
+      const misses = conditions.map(cond => checkRowCondition(row, cond)).filter(Boolean);
+      if (!misses.length) {
+        const show = conditions.map(cond => `${cond.column}=${String(cellOf(row, cond.column) ?? '').replace(/\s+/g, ' ').slice(0, 40)}`).join('，');
+        await log(`✅ ${idx} ${label}（${rows.length} 列中找到符合的一列：${show}）`);
+        return { shots };
+      }
+      if (!best || misses.length < best.misses.length) best = { row, misses };
+    }
+    throw new Error(`${rows.length} 列裡沒有一列同時符合 ${conditions.length} 個條件；最接近的那列差在：${best.misses.join('；')}`);
+  }
+
+  if (step.action === 'assert_video_playing') {
+    await log(`⏳ ${idx} ${label}`);
+    /**
+     * 影片真的在播：沒有暫停，而且播放時間有往前走。
+     * ⚠️ 只看 `paused === false` 不夠——網路卡住時它也是 false，但畫面停在第一格。
+     *    所以要看到 currentTime 真的前進 minAdvanceSec 秒以上才算數。
+     */
+    const sel = (step.selector ?? '').trim() || 'video';
+    const minAdvance = Math.max(0.1, Number(step.minAdvanceSec) || 0.5);
+    const timeoutMs = Math.min(Math.max(Number(step.timeoutMs) || 8000, 1000), 60000);
+    if (!(await page.locator(sel).count())) throw new Error(`找不到影片 ${sel}`);
+    const read = () => page.locator(sel).first().evaluate(v => ({ paused: v.paused, t: v.currentTime, ended: v.ended, ready: v.readyState }));
+    const first = await read();
+    const started = Date.now();
+    let last = first;
+    while (Date.now() - started < timeoutMs) {
+      await page.waitForTimeout(400);
+      last = await read();
+      if (!last.paused && last.t - first.t >= minAdvance) {
+        await log(`✅ ${idx} ${label}（影片在播：${first.t.toFixed(1)}s → ${last.t.toFixed(1)}s）`);
+        return { shots };
+      }
+    }
+    throw new Error(`影片沒有在播：${(timeoutMs / 1000).toFixed(0)} 秒內播放時間 ${first.t.toFixed(1)}s → ${last.t.toFixed(1)}s，`
+      + `${last.paused ? '仍是暫停狀態' : '沒有暫停但時間沒前進（可能卡在載入）'}（readyState=${last.ready}）`);
+  }
+
   if (step.action === 'popup_watch') {
     /**
      * 暫停／恢復執行期間的「自動關彈窗」看門狗（agent-runner 全程掛著，每 1.5 秒關一次）。
@@ -1063,12 +1205,32 @@ export async function runFrontendStep(step, ctx) {
     const snippetTitle = step.snippetTitle ?? '後台設定';
     if (!ctx.browser) throw new Error('瀏覽器尚未就緒，無法執行後台設定');
     if (!ctx.backend) throw new Error('沒有後台帳密，無法執行後台設定');
+    /**
+     * 「存成變數名」有填時，片段裡「讀取表格」讀到的東西接回前台變數表（`<名稱>.<片段裡的變數名>`），
+     * 後面用「表格要有一筆符合」拿來跟前台畫面比。
+     * ⚠️ 名稱先檢查再跑片段：撞名的話後台已經跑完才報錯，白跑一趟。
+     */
+    const as = String(step.as ?? '').trim();
+    const vars = as ? frontendVars(ctx) : null;
+    if (as && as in vars && step.overwrite !== true) throw new Error(`變數名「${as}」重複。換個名字，或勾「允許覆寫」`);
     await log(`⏳ ${idx} ${label}：${snippetTitle}`);
     const opResult = await runBackendOps(ctx.browser, {
       ...ctx.backend, steps: snippetSteps, title: snippetTitle,
       onNote: (line) => { void log(line) },
+      // 後台畫面也要能當證據回寫 Lark（host 的截圖函式收第二個參數＝要拍哪一頁）
+      capture: ctx.takeScreenshot ? (backendPage) => ctx.takeScreenshot(`${label}（後台）`, backendPage) : null,
     });
+    if (Array.isArray(opResult.shots)) shots.push(...opResult.shots);
     if (!opResult.ok) throw new Error(opResult.fails.join('；'));
+    if (as) {
+      const got = Object.fromEntries(Object.entries(opResult.vars ?? {}).map(([name, entry]) => [name, entry?.value]));
+      // ⚠️ 要接資料卻什麼都沒讀到＝片段沒放「讀取表格」，明確失敗；不然後面的比對會說「找不到變數」，離原因很遠
+      if (!Object.keys(got).length) throw new Error(`片段「${snippetTitle}」沒有讀到任何資料（要在片段裡放「讀取表格」並填變數名）`);
+      vars[as] = got;
+      const summary = Object.entries(got).map(([name, value]) => `${as}.${name}${Array.isArray(value) ? `（${value.length} 列）` : ''}`).join('、');
+      await log(`✅ ${idx} ${label}：${snippetTitle} 完成，讀回 ${summary}`);
+      return { shots };
+    }
     await log(`✅ ${idx} ${label}：${snippetTitle} 完成`);
     return { shots };
   }

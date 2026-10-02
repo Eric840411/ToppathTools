@@ -36,6 +36,10 @@ export const BACKEND_OP_ACTIONS = Object.freeze([
   'keypress',       // 送 Enter 之類
   'submit_search',  // 送出查詢
   'wait',           // 等元素或等時間
+  // ⚠️ 唯一的「讀取」動作（2026-10-02 加）：讀表格存成變數，交回前台腳本比對。
+  //    只讀不改，所以放進來不會讓片段多出副作用；斷言類仍然不收——判定一律在前台做，
+  //    不然同一筆 TC 會有兩個地方各自判 PASS／FAIL。
+  'read_table',
 ]);
 
 /** 片段裡有哪些動作是這個執行器不支援的（回傳去重後的動作名） */
@@ -128,13 +132,18 @@ export function createBackendOpContext(page, { baseUrl, onNote = () => {} }) {
  *
  * @param {import('playwright').Browser} browser 已經開好的瀏覽器（跟前端腳本共用同一顆）
  * @param {{ backendUrl: string, username: string, password: string, steps: object[],
- *           title?: string, onNote?: (line: string) => void }} options
- * @returns {Promise<{ ok: boolean, notes: string[], fails: string[] }>}
+ *           title?: string, onNote?: (line: string) => void,
+ *           capture?: (page: import('playwright').Page) => Promise<string | null> }} options
+ *   capture：片段跑完、關掉後台頁之前呼叫一次，回傳證據路徑（host 決定存到哪）
+ * @returns {Promise<{ ok: boolean, notes: string[], fails: string[], vars?: object, shots?: string[] }>}
  */
 export async function runBackendOps(browser, options) {
-  const { backendUrl, username, password, steps, title = '後台設定', onNote = () => {} } = options;
+  const { backendUrl, username, password, steps, title = '後台設定', onNote = () => {}, capture = null } = options;
   const fails = [];
   const notes = [];
+  const shots = [];
+  // 片段自己的變數表（「讀取表格」寫在這）；每次呼叫都是新的，不會沾到上一份片段的值
+  const state = { vars: {} };
   const say = (line) => { notes.push(line); onNote(line) };
 
   // ⚠️ 帳密不能出現在日誌裡。執行日誌會被存起來、也會給別人看。
@@ -172,9 +181,17 @@ export async function runBackendOps(browser, options) {
     say(signIn.loggedIn ? '🔧 後台登入完成' : '🔧 後台已是登入狀態');
 
     const ctx = createBackendOpContext(page, { baseUrl: backendUrl, onNote: say });
-    const result = await runSteps(steps, ctx, { autoScreenshot: false });
+    const result = await runSteps(steps, ctx, { autoScreenshot: false, state });
     for (const note of result?.notes ?? []) say(`🔧 ${redact(note)}`);
     for (const problem of result?.criticalFails ?? []) fails.push(redact(problem));
+    /**
+     * 片段結束時的後台畫面當證據（例：讀到的 Jackpot Ranking 表格）。
+     * ⚠️ 要在 context.close() 之前拍；拍失敗只記一行，不能讓片段本身變失敗。
+     */
+    if (capture) {
+      const shot = await capture(page).catch(error => { say(`⚠️ 後台畫面截圖失敗：${error instanceof Error ? error.message : String(error)}`); return null });
+      if (shot) shots.push(shot);
+    }
   } catch (error) {
     fails.push(redact(`後台設定「${title}」執行失敗：${error instanceof Error ? error.message : String(error)}`));
   } finally {
@@ -182,5 +199,6 @@ export async function runBackendOps(browser, options) {
     //    長時間跑壓測時會把記憶體吃光，而症狀是「跑久了就變慢」。
     await context.close().catch(() => {});
   }
-  return { ok: fails.length === 0, notes, fails };
+  // vars：片段裡「讀取表格」存下的變數（{ 名稱: { kind, value } }），前台積木會接回去
+  return { ok: fails.length === 0, notes, fails, vars: state.vars, shots };
 }

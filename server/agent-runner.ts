@@ -1790,10 +1790,11 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
          * ⚠️ 送不回去回 null 不 throw（截圖是證據不是斷言），但**要講出來**：
          *    安靜掉一張圖的話，那一筆 TC 看起來只是「沒截圖」。
          */
-        takeScreenshot: async (name: string) => {
+        // targetPage：要拍的不是遊戲頁時才給（例：後台片段在另一個 context 開的後台頁）
+        takeScreenshot: async (name: string, targetPage?: typeof page) => {
           if (!msg.evidenceUrl || !msg.evidenceToken) return null
           try {
-            const png = await page.screenshot({ fullPage: false })
+            const png = await (targetPage ?? page).screenshot({ fullPage: false })
             const response = await fetch(msg.evidenceUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

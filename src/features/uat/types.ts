@@ -59,6 +59,10 @@ export interface AutoStep {
   statusCode?: number
   /** assert_api_called／assert_ws_called：至少要被打到幾次 */
   minCount?: number
+  /** `assert_row_match`：表格變數（例：jp.rows） */
+  from?: string
+  /** `assert_video_playing`：播放時間至少要前進幾秒 */
+  minAdvanceSec?: number
   /** `goto`：導頁後再等幾毫秒（預設 3000；要截載入畫面時填 0） */
   settleMs?: number
   /** `read_value`：要存成哪個變數名 */
