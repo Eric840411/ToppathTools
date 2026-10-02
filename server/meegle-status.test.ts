@@ -37,6 +37,11 @@ eq('Sheet 日期空白＝沒指定', parseSheetDate('  '), { ok: true, ms: null,
 eq('沒有年份 → 擋', parseSheetDate('9/15').ok, false)
 eq('不存在的日期 → 擋', parseSheetDate('2026/02/30').ok, false)
 eq('其他格式 → 擋', parseSheetDate('下週一').ok, false)
+// 使用者 Sheet「日期」欄實測讀出 46289（Lark 序列數字）；週報同一個 epoch（1899-12-30）：2026-01-01＝46023，+266 天＝9/24
+eq('Lark 日期序列數字 46289 → 2026-09-24', parseSheetDate('46289'), { ok: true, ms: taipeiDayStart(2026, 9, 24), day: '2026-09-24' })
+eq('Lark 序列數字 46023 → 2026-01-01（年初對齊）', (parseSheetDate('46023') as { day?: string }).day, '2026-01-01')
+eq('序列數字帶時間（小數）只取日', (parseSheetDate('46289.75') as { day?: string }).day, '2026-09-24')
+eq('一般小數字不當成日期', parseSheetDate('5').ok, false)
 eq('desired：keep 有原值＝原值', desiredDate('keep', 5, null), 5)
 eq('desired：keep 原本空＝不動', desiredDate('keep', null, null), null)
 eq('desired：set 有填＝Sheet', desiredDate('set', 5, 9), 9)

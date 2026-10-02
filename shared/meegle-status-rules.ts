@@ -70,13 +70,23 @@ export type ParsedDate = { ok: true; ms: number; day: string } | { ok: false; re
 
 /**
  * Sheet 日期欄 → 台北當天 00:00。空白＝沒指定（呼叫端退回保留原值）。
- * 只收「年-月-日」（分隔 - / .，可帶時間，時間忽略——Meegle 這兩欄是日期）；
+ * 收「年-月-日」（分隔 - / .，可帶時間，時間忽略——Meegle 這兩欄是日期）與 Lark 日期序列數字；
  * 沒有年份（9/15）、日期不存在（2/30）、其他格式都回錯誤擋列，不猜。
  */
 export function parseSheetDate(text: string | null | undefined): ParsedDate {
   const s = String(text ?? '').trim()
   if (!s) return { ok: true, ms: null, day: null }
-  const m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/.exec(s)
+  // Lark 的日期儲存格讀出來是**序列數字**（例如 46289，從 1899-12-30 起算的天數；可帶小數＝時間）——
+  // 使用者那份 Sheet 的「日期」欄就是這樣（2026-10-02 實測），週報也踩過（server/routes/weekly-report.ts parseSheetDateCell）。
+  // 只收 2000～2100 年，避免把「5」這種一般數字當成 1900 年的日期
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(s)) * 86400000)
+    const y = dt.getUTCFullYear()
+    if (y < 2000 || y > 2100) return { ok: false, reason: `日期「${s}」看不懂（請用 2026/09/15 這種有年份的格式）` }
+    const ms = taipeiDayStart(y, dt.getUTCMonth() + 1, dt.getUTCDate())
+    return { ok: true, ms, day: taipeiDay(ms) }
+  }
+  const m =/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/.exec(s)
   if (!m) return { ok: false, reason: `日期「${s}」看不懂（請用 2026/09/15 這種有年份的格式）` }
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
   const ms = taipeiDayStart(y, mo, d)
