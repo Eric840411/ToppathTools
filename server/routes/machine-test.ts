@@ -25,7 +25,7 @@ import {
   hashOne, hashSources, RESTART_REQUIRED_SOURCES,
   compareAgentSources, type AgentUpdateStatus,
 } from '../agent-source-hash.js'
-import { MachineTestRunner } from '../machine-test/runner.js'
+import { MachineTestRunner, noteOsmObservation } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
 import {
   broadcastToViewers,
@@ -36,7 +36,7 @@ import {
   getJobStatuses,
   agentConnections,
 } from '../agent-hub.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { bindHeavyTaskOwner, finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -55,6 +55,7 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'lib/pc-cocos.ts':               join(SERVER_ROOT, 'lib', 'pc-cocos.ts'),
   'machine-test/runner.ts':        join(SERVER_ROOT, 'machine-test', 'runner.ts'),
   'machine-test/types.ts':         join(SERVER_ROOT, 'machine-test', 'types.ts'),
+  'machine-test/verdicts.ts':      join(SERVER_ROOT, 'machine-test', 'verdicts.ts'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
@@ -944,6 +945,7 @@ router.post('/api/machine-test/osm-status', (req, res) => {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
           osmMachineUpdatedAt.set(gm.id, lastOsmWebhookAt)
+          noteOsmObservation(gm.id, lastOsmWebhookAt)
           persistOsmMachineStatus(gm.id, gm.status)
           updates.push({ machineId: gm.id, status: gm.status })
         }
@@ -1043,6 +1045,9 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
 
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    // 2026-09-30：把鎖綁到 session（lock_key），批次工具 agent 斷線自動續跑時才能確認「這把殘留鎖是舊 session 的」再清；
+    // 只是紀錄用途，孤兒判定目前只對 autospin-agent 生效，不影響機台測試鎖的釋放
+    bindHeavyTaskOwner(heavyTask.token, sessionId)
     if (operator) sessionOperators.set(sessionId, operator)
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
     const profiles = rawProfiles.map(r => ({

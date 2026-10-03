@@ -137,6 +137,8 @@ function toPublicTask(row: HeavyTaskRow) {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     error: row.error,
+    // 鎖保護的 session id（2026-09-30 起機台測試也會綁）；批次工具續跑時用它確認殘留鎖屬於哪個 session
+    lockKey: row.lock_key ?? null,
   }
 }
 
