@@ -112,7 +112,8 @@ export function LarkNotifySettingsPage() {
   const save = async () => {
     setBusy('save'); setSaveMsg(null)
     const j = await api<{ config: Config; outlets: Record<string, Outlet> }>('PUT', '/api/lark-notify/config', {
-      appId, secret: secret || undefined, chatId, toolUrl, outlets,
+      // 不送 outlets：v5.5.0 起出口固定 Lark，存的舊選擇留給退版用，這裡寫進去會把它覆蓋成全 Lark（CodeX review）
+      appId, secret: secret || undefined, chatId, toolUrl,
     })
     setBusy('')
     if (!j.ok) { setSaveMsg({ ok: false, text: j.message ?? '儲存失敗' }); return }

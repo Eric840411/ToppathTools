@@ -68,7 +68,7 @@ for (const theme of ['classic', 'xianxia']) {
   await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
   const page = await ctx.newPage()
   const now = Date.now()
-  const mk = (sheet, n, extra) => ({ ...base, sheetLabel: sheet, tool: 'create', toolLabel: '開單', stage: '已開單', batchId: `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`, rowKey: String(n), workItemId: String(15000000 + n), sheetRow: n, phase: 'failed', message: '沒有編輯權限', lastAt: now - 60_000, ...extra })
+  const mk = (sheet, n, extra) => ({ ...base, sheetLabel: sheet, sourceKey: 'lark:' + sheet, tool: 'create', toolLabel: '開單', stage: '已開單', batchId: `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`, rowKey: String(n), workItemId: String(15000000 + n), sheetRow: n, phase: 'failed', message: '沒有編輯權限', lastAt: now - 60_000, ...extra })
   const G = [
     mk('舊的那份', 1, { lastAt: now - 9e6 }), mk('舊的那份', 2, { lastAt: now - 9e6, message: '逾時' }),
     mk('最新的那份', 5), mk('最新的那份', 3), mk('最新的那份', 4, { message: '逾時' }), mk('最新的那份', 6, { phase: 'stuck', message: null }),
@@ -99,6 +99,22 @@ for (const theme of ['classic', 'xianxia']) {
   await page.waitForTimeout(500)
   check('只送勾選的 3 列', sent.length === 3 && sent.every(x => ['4', '5', '6'].includes(x.rowKey)), JSON.stringify(sent.map(x => x.rowKey)))
   await page.screenshot({ path: 'bf-grouped.png', fullPage: true })
+  await ctx.close()
+}
+// 兩份不同的 Sheet 顯示名稱撞名（顯示名稱是截短的）→ 仍是兩組（CodeX review）
+{
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+  await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
+  const page = await ctx.newPage()
+  const mk2 = (src, n) => ({ ...base, sheetLabel: 'JjLosM…／1Xp7sf', sourceKey: src, tool: 'create', toolLabel: '開單', stage: '已開單', batchId: `bbbbbbbb-bbbb-4bbb-8bbb-${String(n).padStart(12, '0')}`, rowKey: String(n), workItemId: String(16000000 + n), sheetRow: n, phase: 'failed', message: 'x', lastAt: Date.now() - n })
+  await page.route('**/api/meegle/backfill/pending**', r => r.fulfill({ json: { ok: true, scope: 'mine', canSeeAll: false, items: [mk2('lark:AAA/1Xp7sf', 1), mk2('lark:BBB/1Xp7sf', 2)] } }))
+  await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByRole('button', { name: 'Meegle 補回填' }).click()
+  await page.locator('.bf-group').first().waitFor()
+  check('顯示名稱撞名的兩份 Sheet 仍分成兩組', await page.locator('.bf-group').count() === 2)
+  await page.locator('.bf-group').first().getByLabel(/這份全選/).uncheck()
+  check('「這份全選」只動自己那組（剩 1 筆）', await page.getByRole('button', { name: '補寫回 1 筆' }).isVisible())
   await ctx.close()
 }
 await browser.close()

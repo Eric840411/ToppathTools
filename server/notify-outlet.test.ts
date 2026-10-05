@@ -52,6 +52,15 @@ eq('顏色：紅 / 灰 / 藍', [larkTemplateFor(0xef4444), larkTemplateFor(0x6b7
   eq('沒給 larkCard → 照舊從 embed 轉', (larkSent[0] as { header: { title: { content: string } } }).header.title.content, 'embed 版')
 }
 
+// ── v5.5.0 Discord 退場：佇列裡的 Discord 補送不再送 ──
+{
+  reset()
+  queue = [{ id: 'd-old', feature: 'autospin', side: 'discord', embed: { title: '退場前排的' }, firstAt: Date.now(), tries: 0 }, { id: 'l-1', feature: 'autospin', side: 'lark', embed: { title: 'lark 的' }, firstAt: Date.now(), tries: 0 }]
+  const r = await flushNotifyRetries(() => 'https://discord.example/hook')
+  eq('Discord 補送沒有送出（即使有 webhook）', discordSent.length, 0)
+  eq('Discord 補送從佇列移除、Lark 照常補送', [queue.length, larkSent.length, r.dropped], [0, 1, 1])
+}
+
 // ── 出口選擇 ──
 const input = { feature: 'autospin' as const, embed: { title: 't' }, discordContent: '<@1>', mentionLabels: ['Eric'] }
 reset(); outlet = 'discord'; await deliverNotice(input, sendDiscord)

@@ -204,6 +204,9 @@ export async function flushNotifyRetries(getWebhookUrl: () => string, now = () =
       const q = readQueue().map(it => { if (it.id) return it; patched = true; return { ...it, id: newRetryId() } })
       for (const it of q) {
         if (expired(it, t)) { dead.push(it); continue }
+        // v5.5.0 Discord 退場：退場前排進來的 Discord 補送一律丟掉（補送有 ignoreOutlet，不擋的話會照樣發到 Discord；CodeX review）。
+        // 不改送 Lark：那則多半已經在 Lark 發過（雙發時只有失敗那邊才排補送），轉送會重複
+        if (it.side === 'discord') { dead.push({ ...it, lastError: 'Discord 已停用，補送取消' }); continue }
         if (!it.leaseUntil || it.leaseUntil <= t) { const leased = { ...it, leaseUntil: t + RETRY_LEASE_MS }; mine.push(leased); rest.push(leased) }
         else rest.push(it)
       }

@@ -14,7 +14,7 @@ import './MeegleBackfillTab.css'
 
 type Item = {
   tool: 'create' | 'comment' | 'status' | 'edit'; toolLabel: string; stage: string; batchId: string; rowKey: string; workItemId: string
-  sheetLabel: string; sheetRow: number; summary: string; owner: string; phase: 'failed' | 'stuck'; message: string | null; lastAt: number
+  sheetLabel: string; sourceKey: string; sheetRow: number; summary: string; owner: string; phase: 'failed' | 'stuck'; message: string | null; lastAt: number
 }
 type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }
 
@@ -34,17 +34,19 @@ const fmt = (ms: number) => new Date(ms).toLocaleString('zh-TW', { timeZone: 'As
 const resultKind = (r: Result) => r.ok ? 'ok' : /列已變動|不是 #|不在待補清單/.test(r.message ?? '') ? 'skip' : 'bad'
 const RESULT_TEXT = { ok: '成功', skip: '列已變動不寫', bad: 'Sheet 失敗' } as const
 
-type Group = { label: string; items: Item[]; failed: number; stuck: number; lastAt: number; topReason: { text: string; n: number } | null }
-/** 依 Sheet 分組：最近有動靜的那份排最上面；每份算出最常見的失敗原因（同一份通常是同一個原因，例如權限被拿掉） */
+type Group = { key: string; label: string; items: Item[]; failed: number; stuck: number; lastAt: number; topReason: { text: string; n: number } | null }
+/** 依 Sheet 分組：最近有動靜的那份排最上面；每份算出最常見的失敗原因（同一份通常是同一個原因，例如權限被拿掉）。
+ *  ⚠️ 分組用完整的來源識別 sourceKey，不用 sheetLabel——那是截短的顯示名稱，兩份 Sheet 撞名時會被合成一組，「這份全選」就選到別份（CodeX review） */
 function groupBySheet(items: Item[]): Group[] {
   const m = new Map<string, Item[]>()
-  for (const i of items) m.set(i.sheetLabel, [...(m.get(i.sheetLabel) ?? []), i])
-  return [...m.entries()].map(([label, list]) => {
+  for (const i of items) { const k = i.sourceKey || i.sheetLabel; m.set(k, [...(m.get(k) ?? []), i]) }
+  return [...m.entries()].map(([key, list]) => {
+    const label = list[0].sheetLabel
     const reasons = new Map<string, number>()
     for (const i of list) if (i.phase === 'failed' && i.message) reasons.set(i.message, (reasons.get(i.message) ?? 0) + 1)
     const top = [...reasons.entries()].sort((a, b) => b[1] - a[1])[0]
     return {
-      label, items: [...list].sort((a, b) => a.sheetRow - b.sheetRow),
+      key, label, items: [...list].sort((a, b) => a.sheetRow - b.sheetRow),
       failed: list.filter(i => i.phase === 'failed').length, stuck: list.filter(i => i.phase !== 'failed').length,
       lastAt: Math.max(...list.map(i => i.lastAt)), topReason: top ? { text: top[0], n: top[1] } : null,
     }
@@ -79,7 +81,7 @@ export function MeegleBackfillTab() {
 
   const visible = items.filter(i => !toolFilter || i.tool === toolFilter)
   const groups = useMemo(() => groupBySheet(visible), [visible])   // eslint-disable-line react-hooks/exhaustive-deps
-  const isOpen = (g: Group, idx: number) => openOverride[g.label] ?? idx === 0
+  const isOpen = (g: Group, idx: number) => openOverride[g.key] ?? idx === 0
   const toggleSel = (list: Item[], on: boolean) => setSelected(prev => { const n = new Set(prev); list.forEach(i => on ? n.add(key(i)) : n.delete(key(i))); return n })
   const chosen = visible.filter(i => selected.has(key(i)))
 
@@ -129,9 +131,9 @@ export function MeegleBackfillTab() {
             const allOn = g.items.every(i => selected.has(key(i)))
             const someOn = !allOn && g.items.some(i => selected.has(key(i)))
             return (
-              <div key={g.label} className={`bf-group${open ? ' is-open' : ''}`}>
+              <div key={g.key} className={`bf-group${open ? ' is-open' : ''}`}>
                 <div className="bf-group-head">
-                  <button type="button" className="bf-group-toggle" aria-expanded={open} onClick={() => setOpenOverride(o => ({ ...o, [g.label]: !open }))}>
+                  <button type="button" className="bf-group-toggle" aria-expanded={open} onClick={() => setOpenOverride(o => ({ ...o, [g.key]: !open }))}>
                     <span className="bf-caret" aria-hidden>▾</span>
                     <span className="bf-group-name" title={g.items[0]?.summary}>{g.label}</span>
                     {g.failed > 0 && <span className="mb-badge mb-badge--bad">失敗 {g.failed}</span>}
