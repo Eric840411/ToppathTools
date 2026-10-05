@@ -34,6 +34,7 @@ import { callLLM } from './gemini.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
 import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
+import { roleExists } from '../role-store.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
@@ -116,6 +117,9 @@ router.post(['/api/accounts', '/api/jira/accounts'], writeLimiter, (req, res, ne
 
 // DELETE /api/jira/accounts/:email
 router.delete(['/api/accounts/:email', '/api/jira/accounts/:email'], (req, res) => {
+  // v5.9.0：原本只看 ADMIN_PIN 環境變數——**沒設的話任何人都能刪帳號**。一律先要管理員登入（PIN 有設的話照樣要對）
+  const caller = getAuthAccount(req)
+  if (!caller || caller.role !== 'admin') return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
   if (pin && provided !== pin) {
@@ -130,14 +134,18 @@ router.delete(['/api/accounts/:email', '/api/jira/accounts/:email'], (req, res) 
 
 // PATCH /api/jira/accounts/:email/role  (管理員專用)
 router.patch(['/api/accounts/:email/role', '/api/jira/accounts/:email/role'], (req, res) => {
+  // v5.9.0：同上，原本只看 ADMIN_PIN；而且這支會寫出逗號多角色。改成要管理員登入、只收單一角色
+  const caller = getAuthAccount(req)
+  if (!caller || caller.role !== 'admin') return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
   if (pin && provided !== pin) {
     return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
   }
   const email = decodeURIComponent(String(req.params.email))
-  const { roles } = z.object({ roles: z.array(z.enum(['qa', 'pm'])).min(1) }).parse(req.body)
-  const roleStr = [...new Set(roles)].sort().join(',')  // 'pm,qa' → 'pm,qa'（排序固定）
+  const { roles } = z.object({ roles: z.array(z.string()).length(1) }).parse(req.body)
+  const roleStr = roles[0]
+  if (roleStr === 'admin' || !roleExists(db, roleStr)) return res.status(400).json({ ok: false, message: '沒有這個角色' })
   const result = db.prepare('UPDATE jira_accounts SET role = ? WHERE email = ?').run(roleStr, email)
   if (result.changes === 0) return res.status(404).json({ ok: false, message: '帳號不存在' })
   log('warn', getClientIP(req), getUser(req), '角色更新（管理員）', `${email} → ${roleStr}`)

@@ -6,12 +6,13 @@ import { DELEGATION_SCOPE_KEYS } from '../../shared/delegation-scopes.js'
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod'
 import {
-  db, pinHash, readAccounts, upsertAccount, deleteAccountByEmail,
+  db, pinHash, readAccounts, upsertAccount, deleteAccountByEmail, log, getClientIP,
   writeLimiter, ALL_PAGE_KEYS, getPermissionsForRole, type AccountRole,
   getCultivationInfo, setCultivationDays, CULTIVATION_LEVELS,
   getEffectivePermissions, getAccountPermissionOverrides,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
+import { ADMIN_ROLE, createRole, deleteRole, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from '../role-store.js'
 
 export const router = Router()
 
@@ -42,14 +43,14 @@ router.get('/api/admin/permissions', requireAdmin, (_req, res) => {
   const rows = db.prepare('SELECT role, page_key, allowed FROM role_permissions').all() as {
     role: string; page_key: string; allowed: number
   }[]
-  // Build { qa: { jira: true, ... }, pm: {...}, other: {...} }
-  const matrix: Record<string, Record<string, boolean>> = { qa: {}, pm: {}, other: {} }
+  // 舊版「功能權限」矩陣（v5.9.0 起畫面改用 /api/admin/roles，這支留著相容）。角色清單照角色表走
+  const roleKeys = listRoles(db).map(r => r.key)
+  const matrix: Record<string, Record<string, boolean>> = Object.fromEntries(roleKeys.map(k => [k, {}]))
   for (const row of rows) {
-    if (!matrix[row.role]) matrix[row.role] = {}
+    if (!matrix[row.role]) continue
     matrix[row.role][row.page_key] = row.allowed === 1
   }
-  // Fill missing keys with false
-  for (const role of ['qa', 'pm', 'other']) {
+  for (const role of roleKeys) {
     for (const key of ALL_PAGE_KEYS) {
       if (matrix[role][key] === undefined) matrix[role][key] = false
     }
@@ -64,14 +65,74 @@ router.put('/api/admin/permissions', requireAdmin, writeLimiter, (req, res) => {
   }
   const upsert = db.prepare('INSERT OR REPLACE INTO role_permissions (role, page_key, allowed) VALUES (?, ?, ?)')
   db.transaction(() => {
-    for (const role of ['qa', 'pm', 'other']) {
+    for (const role of listRoles(db).map(r => r.key)) {
       const rolePerms = body.matrix![role]
+      if (!rolePerms) continue   // 沒送的角色不動（原本會把沒送的角色整排清成關）
       for (const key of ALL_PAGE_KEYS) {
         const allowed = rolePerms && rolePerms[key] ? 1 : 0
         upsert.run(role, key, allowed)
       }
     }
   })()
+  res.json({ ok: true })
+})
+
+// ─── 角色管理（v5.9.0）────────────────────────────────────────────────────────
+// 角色＝一組可見功能。admin 固定全開、不在角色表；規則在 role-store.ts
+
+router.get('/api/admin/roles', requireAdmin, (_req, res) => {
+  const accounts = readAccounts()
+  const roles = listRoles(db).map(r => ({
+    key: r.key, label: r.label, color: r.color, builtin: !!r.builtin,
+    users: usersOfRole(accounts, r.key), perms: rolePermissionMap(db, r.key, ALL_PAGE_KEYS),
+  }))
+  res.json({
+    ok: true, pageKeys: ALL_PAGE_KEYS,
+    roles: [{ key: ADMIN_ROLE, label: '管理員', color: '#7c3aed', builtin: true, fixed: true, users: usersOfRole(accounts, ADMIN_ROLE), perms: Object.fromEntries(ALL_PAGE_KEYS.map(k => [k, true])) }, ...roles],
+  })
+})
+
+const roleBody = z.object({ label: z.string().max(40).optional(), color: z.string().max(10).optional(), perms: z.record(z.string(), z.boolean()).optional() })
+const roleErr = (res: Response, r: { code: string; message: string; users?: string[] }) =>
+  res.status(r.code === 'NOT_FOUND' ? 404 : r.code === 'IN_USE' ? 409 : 400).json({ ok: false, ...r })
+
+router.post('/api/admin/roles', requireAdmin, writeLimiter, (req, res) => {
+  const b = roleBody.parse(req.body)
+  const r = createRole(db, { label: b.label ?? '', color: b.color ?? '#64748b' })
+  if ('code' in r) return roleErr(res, r)
+  if (b.perms) {
+    const p = setRolePermissions(db, r.role.key, b.perms, ALL_PAGE_KEYS)
+    if ('code' in p) { deleteRole(db, r.role.key, []); return roleErr(res, p) }
+  }
+  log('ok', getClientIP(req), getAuthAccount(req)?.email ?? '-', '角色新增', `${r.role.label}（${r.role.key}）`)
+  res.json({ ok: true, role: r.role })
+})
+
+router.put('/api/admin/roles/:key', requireAdmin, writeLimiter, (req, res) => {
+  const key = String(req.params.key)
+  const b = roleBody.parse(req.body)
+  // 先驗權限 key，再改名稱顏色：不要改到一半才發現 key 不認得
+  if (b.perms) {
+    const bad = Object.keys(b.perms).filter(k => !(ALL_PAGE_KEYS as readonly string[]).includes(k))
+    if (bad.length) return res.status(400).json({ ok: false, code: 'BAD_KEY', message: `不支援的權限 key：${bad.join(', ')}` })
+  }
+  if (b.label !== undefined || b.color !== undefined) {
+    const r = updateRole(db, key, { label: b.label, color: b.color })
+    if ('code' in r) return roleErr(res, r)
+  }
+  if (b.perms) {
+    const p = setRolePermissions(db, key, b.perms, ALL_PAGE_KEYS)
+    if ('code' in p) return roleErr(res, p)
+  }
+  log('ok', getClientIP(req), getAuthAccount(req)?.email ?? '-', '角色修改', key)
+  res.json({ ok: true })
+})
+
+router.delete('/api/admin/roles/:key', requireAdmin, writeLimiter, (req, res) => {
+  const key = String(req.params.key)
+  const r = deleteRole(db, key, readAccounts())
+  if ('code' in r) return roleErr(res, r)
+  log('warn', getClientIP(req), getAuthAccount(req)?.email ?? '-', '角色刪除', key)
   res.json({ ok: true })
 })
 
@@ -84,20 +145,29 @@ router.get('/api/admin/accounts', requireAdmin, (_req, res) => {
     role: a.role,
     status: a.status ?? 'active',
     hasPIN: !!a.pin_hash,
+    // 舊資料的逗號多角色：v5.9.0 起一個帳號一個角色，畫面會標出來請管理員選一個（權限照舊取聯集，不會突然少）
+    multiRole: isMultiRole(a.role),
+    // 個人覆寫（帳號管理「功能權限」單獨加減的）筆數：避免以為角色勾的就是最終權限（CodeX）
+    overrideCount: Object.keys(getAccountPermissionOverrides(a.email.toLowerCase())).length,
   }))
   res.json({ ok: true, accounts })
 })
 
+/** 指派給帳號的角色：必須是角色表裡的單一角色（admin 不能透過這裡產生；一個帳號一個角色） */
+const assignableRole = z.string().min(1).refine(r => r !== ADMIN_ROLE && roleExists(db, r), { message: '沒有這個角色' })
+
 const createAccountSchema = z.object({
-  // For 'other' role, accepts any unique identifier; qa/pm must be valid email
   email: z.string().min(1),
   label: z.string().min(1),
-  role: z.enum(['qa', 'pm', 'other']),
+  role: assignableRole,
+  /** 帳號不是 Email（任意識別碼，例如 guest01）。v5.9.0 前是「角色＝Other 就不用 Email」，綁在角色上；
+   *  角色可自建之後拆成帳號自己的屬性（CodeX）。舊前端沒送這個欄位時，Other 照舊視為識別碼 */
+  nonEmail: z.boolean().optional(),
   token: z.string().default(''),
   pin: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
-}).refine(d => d.role === 'other' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email), {
-  message: 'QA / PM 帳號必須填寫有效的 Email',
+}).refine(d => (d.nonEmail ?? d.role === 'other') || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email), {
+  message: '帳號要填有效的 Email（不是 Email 的帳號請勾「識別碼帳號」）',
   path: ['email'],
 })
 
@@ -108,7 +178,7 @@ router.post('/api/admin/accounts', requireAdmin, writeLimiter, (req, res) => {
   upsertAccount({
     email: data.email,
     label: data.label,
-    role: data.role,
+    role: data.role as AccountRole,
     token: data.token,
     status: data.status,
   })
@@ -120,7 +190,7 @@ router.post('/api/admin/accounts', requireAdmin, writeLimiter, (req, res) => {
 
 const updateAccountSchema = z.object({
   label: z.string().min(1).optional(),
-  role: z.enum(['qa', 'pm', 'other']).optional(),
+  role: assignableRole.optional(),
   token: z.string().optional(),
   pin: z.string().optional(),
   clearPin: z.boolean().optional(),
@@ -137,7 +207,7 @@ router.put('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) 
   const updated = {
     ...existing,
     label: data.label ?? existing.label,
-    role: data.role ?? existing.role,
+    role: (data.role ?? existing.role) as AccountRole,
     token: data.token ?? existing.token,
     status: data.status ?? existing.status ?? 'active',
   } as typeof existing

@@ -3,6 +3,7 @@
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
 import type { DelegationScope } from '../shared/delegation-scopes.js'
+import { initRoles, roleExists } from './role-store.js'
 import Bottleneck from 'bottleneck'
 import { createHash, createHmac, createSign, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
 import Database from 'better-sqlite3'
@@ -275,6 +276,8 @@ db.exec(`
     PRIMARY KEY (role, page_key)
   );
 `)
+// 角色清單（v5.9.0 可自建角色；qa／pm／other 是內建）。說明在 role-store.ts
+initRoles(db)
 
 // Per-user AI keys — isolated per account, keyed by (user_email, provider)
 db.exec(`
@@ -2385,8 +2388,8 @@ export function getPermissionsForRole(role: AccountRole | string): string[] {
     return Array.from(merged)
   }
 
-  // Unknown/unmapped roles get nothing
-  if (!['qa', 'pm', 'other'].includes(role)) return []
+  // 不在角色表裡的一律沒有權限（v5.9.0 起角色可自建，不再寫死 qa／pm／other）
+  if (!roleExists(db, role)) return []
 
   const rows = db.prepare('SELECT page_key FROM role_permissions WHERE role = ? AND allowed = 1').all(role) as { page_key: string }[]
   return rows.map(r => r.page_key)

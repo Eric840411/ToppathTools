@@ -127,6 +127,7 @@ When adding a new route:
 | 24–27 | **OSM UAT 整合測試**（Agent 派工、網路量測、積木化、錄製、按鈕配色慣例） | `docs/features/24-27-uat.md` |
 | 28 | **Meegle 個人綁定＋批量開單**（Jira 退場；token 加密、CLI 沒帶 token 會沿用主機登入、防重複開單、人員對照表） | `docs/features/28-meegle.md` |
 | 29 | **Lark 通知**（通知出口 Discord／Lark／雙發、embed 轉卡片、只補送失敗那邊、只發不收） | `docs/features/29-lark-notify.md` |
+| 30 | **角色管理**（自建角色、依角色分配可見功能、一個帳號一個角色、管理員固定） | `docs/features/30-roles.md` |
 
 > **維護規則**：每次新增或修改功能，必須同步更新對應的 `docs/features/*.md`；新增功能要在上表加一列。
 > 記錄格式不變：功能說明 + 使用者可執行的操作清單。

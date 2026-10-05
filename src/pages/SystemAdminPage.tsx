@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { DELEGATION_SCOPES, delegationScopeShort, type DelegationScope } from '../../shared/delegation-scopes'
 import { MeegleIdentityOverridesPanel } from '../components/MeegleIdentityOverridesPanel'
+import { RoleBadge, RoleManager, type RoleInfo } from '../components/RoleManager'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Role = 'qa' | 'pm' | 'admin' | 'other'
+/** v5.9.0 起角色可自建：key 是字串（qa／pm／other／admin／r_xxxx）；舊資料可能是逗號多角色 */
+type Role = string
 type Status = 'active' | 'disabled'
 
 interface Account {
@@ -13,12 +15,10 @@ interface Account {
   role: Role
   status: Status
   hasPIN: boolean
-}
-
-interface PermMatrix {
-  qa: Record<string, boolean>
-  pm: Record<string, boolean>
-  other: Record<string, boolean>
+  /** 舊的逗號多角色帳號（v5.9.0 起一個帳號一個角色，要請管理員選一個） */
+  multiRole?: boolean
+  /** 個人覆寫筆數（帳號管理「功能權限」單獨加減的） */
+  overrideCount?: number
 }
 
 const PAGE_META: { key: string; label: string; group: string }[] = [
@@ -55,44 +55,21 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'jira-ai-review', label: 'AI 完整性分析（批量評論）', group: '功能開關' },
 ]
 
-const ROLE_LABELS: Record<Role, string> = { admin: '管理員', qa: 'QA', pm: 'PM', other: 'Other' }
-
-const EMPTY_MATRIX: PermMatrix = { qa: {}, pm: {}, other: {} }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function badge(role: Role) {
-  const color: Record<Role, string> = {
-    admin: '#7c3aed', qa: '#0284c7', pm: '#0052cc', other: '#64748b',
-  }
-  return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 99,
-      background: `${color[role]}22`, color: color[role],
-      fontSize: 11, fontWeight: 600, border: `1px solid ${color[role]}44`,
-    }}>
-      {ROLE_LABELS[role]}
-    </span>
-  )
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SystemAdminPage() {
-  const [subTab, setSubTab] = useState<'permissions' | 'accounts'>('permissions')
-
-  // ── Permission matrix state ──
-  const [matrix, setMatrix] = useState<PermMatrix>(EMPTY_MATRIX)
-  const [matrixLoading, setMatrixLoading] = useState(true)
-  const [matrixSaving, setMatrixSaving] = useState(false)
-  const [matrixMsg, setMatrixMsg] = useState('')
+  // v5.9.0：「功能權限」矩陣併進「角色管理」（CodeX 設計、使用者確認樣稿）
+  const [subTab, setSubTab] = useState<'roles' | 'accounts'>('roles')
+  const [roleList, setRoleList] = useState<RoleInfo[]>([])
+  /** 可以指派給帳號的角色（管理員不能用一般指派產生） */
+  const assignable = roleList.filter(r => !r.fixed)
 
   // ── Account state ──
   const [accounts, setAccounts] = useState<Account[]>([])
   const [acctLoading, setAcctLoading] = useState(false)
   const [acctMsg, setAcctMsg] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newAcct, setNewAcct] = useState({ email: '', label: '', role: 'qa' as Role, token: '', pin: '', status: 'active' as Status })
+  const [newAcct, setNewAcct] = useState({ email: '', label: '', role: 'qa' as Role, nonEmail: false, token: '', pin: '', status: 'active' as Status })
   const [editTarget, setEditTarget] = useState<Account | null>(null)
   const [editForm, setEditForm] = useState({ label: '', role: 'qa' as Role, status: 'active' as Status, pin: '', clearPin: false })
 
@@ -124,13 +101,12 @@ export function SystemAdminPage() {
       .catch(() => {})
   }, [])
 
-  // ── Load matrix ──
+  // ── Load roles（帳號管理的角色下拉與標籤也要用；角色管理分頁會自己再讀一次並回報變動）──
   useEffect(() => {
-    setMatrixLoading(true)
-    fetch('/api/admin/permissions')
+    fetch('/api/admin/roles')
       .then(r => r.json())
-      .then(d => { if (d.ok) setMatrix(d.matrix) })
-      .finally(() => setMatrixLoading(false))
+      .then(d => { if (d.ok) setRoleList(d.roles) })
+      .catch(() => {})
   }, [])
 
   // ── Load accounts ──
@@ -143,31 +119,6 @@ export function SystemAdminPage() {
   }
   useEffect(() => { loadAccounts(); void loadDelegates() }, [])
 
-  function togglePerm(role: keyof PermMatrix, key: string) {
-    setMatrix(prev => ({
-      ...prev,
-      [role]: { ...prev[role], [key]: !prev[role][key] },
-    }))
-  }
-
-  async function saveMatrix() {
-    setMatrixSaving(true)
-    setMatrixMsg('')
-    try {
-      const r = await fetch('/api/admin/permissions', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matrix }),
-      })
-      const d = await r.json()
-      setMatrixMsg(d.ok ? '通過 已儲存' : `失敗 ${d.message}`)
-    } catch {
-      setMatrixMsg('失敗 儲存失敗')
-    } finally {
-      setMatrixSaving(false)
-    }
-  }
-
   async function createAccount() {
     if (!newAcct.email || !newAcct.label) { setAcctMsg('失敗 請填寫 Email 和名稱'); return }
     const r = await fetch('/api/admin/accounts', {
@@ -178,7 +129,7 @@ export function SystemAdminPage() {
     const d = await r.json()
     if (d.ok) {
       setAcctMsg('通過 已新增')
-      setNewAcct({ email: '', label: '', role: 'qa', token: '', pin: '', status: 'active' })
+      setNewAcct({ email: '', label: '', role: 'qa', nonEmail: false, token: '', pin: '', status: 'active' })
       setShowAddForm(false)
       loadAccounts()
     } else {
@@ -188,12 +139,14 @@ export function SystemAdminPage() {
 
   function openEdit(a: Account) {
     setEditTarget(a)
-    setEditForm({ label: a.label, role: a.role, status: a.status, pin: '', clearPin: false })
+    // 舊的多角色帳號：不預選，要管理員自己挑一個（不自動幫他選，避免默默少掉權限）
+    setEditForm({ label: a.label, role: a.multiRole ? '' : a.role, status: a.status, pin: '', clearPin: false })
     setAcctMsg('')
   }
 
   async function saveEdit() {
     if (!editTarget) return
+    if (!editForm.role) { setAcctMsg('失敗 請選一個角色'); return }
     const r = await fetch(`/api/admin/accounts/${encodeURIComponent(editTarget.email)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -314,8 +267,6 @@ export function SystemAdminPage() {
     }
   }
 
-  // ── Group pages for matrix display ──
-  const groups = Array.from(new Set(PAGE_META.map(p => p.group)))
 
   // ─── Styles ───────────────────────────────────────────────────────────────
 
@@ -371,7 +322,7 @@ export function SystemAdminPage() {
     <div style={{ width: '100%' }}>
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#162032', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #2d3f55' }}>
-        {([['permissions', '功能權限'], ['accounts', '帳號管理']] as const).map(([id, label]) => (
+        {([['roles', '角色管理'], ['accounts', '帳號管理']] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -389,81 +340,8 @@ export function SystemAdminPage() {
         ))}
       </div>
 
-      {/* ── Permission Matrix ── */}
-      {subTab === 'permissions' && (
-        <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>功能頁面權限</h2>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理員永遠全開（不可修改）。Other 為客製化角色，由管理員自訂。</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {matrixMsg && <span style={{ fontSize: 12, color: matrixMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{matrixMsg}</span>}
-              <button type="button" style={btnPrimary} onClick={saveMatrix} disabled={matrixSaving}>
-                {matrixSaving ? '儲存中…' : '儲存權限設定'}
-              </button>
-            </div>
-          </div>
-
-          {matrixLoading ? (
-            <p style={{ color: '#94a3b8', fontSize: 13 }}>載入中…</p>
-          ) : (
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={{ ...thLeft, width: '40%' }}>功能頁面</th>
-                  <th style={th}>
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {badge('admin')} <span style={{ fontSize: 10, color: '#94a3b8' }}>鎖定</span>
-                    </span>
-                  </th>
-                  <th style={th}>{badge('qa')}</th>
-                  <th style={th}>{badge('pm')}</th>
-                  <th style={th}>{badge('other')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map(group => (
-                  <>
-                    <tr key={`grp-${group}`}>
-                      <td colSpan={5} style={{
-                        padding: '8px 16px', background: '#162032',
-                        fontSize: 11, fontWeight: 600, color: '#64748b',
-                        textTransform: 'uppercase', letterSpacing: '.6px',
-                        borderBottom: '1px solid #2d3f55',
-                      }}>
-                        {group}
-                      </td>
-                    </tr>
-                    {PAGE_META.filter(p => p.group === group).map(page => (
-                      <tr key={page.key} style={{ transition: 'background .1s' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        <td style={tdLeft}>{page.label}</td>
-                        {/* Admin — always checked, disabled */}
-                        <td style={td}>
-                          <input type="checkbox" checked disabled style={{ cursor: 'not-allowed', accentColor: '#7c3aed' }} />
-                        </td>
-                        {(['qa', 'pm', 'other'] as const).map(role => (
-                          <td key={role} style={td}>
-                            <input
-                              type="checkbox"
-                              checked={!!matrix[role]?.[page.key]}
-                              onChange={() => togglePerm(role, page.key)}
-                              style={{ cursor: 'pointer', accentColor: '#0284c7' }}
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+      {/* ── 角色管理 ── */}
+      {subTab === 'roles' && <RoleManager pageMeta={PAGE_META} onChanged={setRoleList} onGoAccounts={() => setSubTab('accounts')} />}
 
       {/* ── Account Management ── */}
       {subTab === 'accounts' && (
@@ -472,7 +350,12 @@ export function SystemAdminPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>帳號管理</h2>
-                <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理所有使用者帳號，指派角色與 PIN。</p>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理所有使用者帳號，指派角色與 PIN。一個帳號一個角色；角色能看哪些功能在「角色管理」設定。</p>
+                {accounts.some(a => a.multiRole) && (
+                  <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(245,183,59,.45)', background: 'rgba(245,183,59,.08)', color: '#f5b73b', fontSize: 12.5 }}>
+                    ⚠️ 有 {accounts.filter(a => a.multiRole).length} 個帳號同時掛多個角色（{accounts.filter(a => a.multiRole).map(a => a.label).join('、')}）。現在權限照舊是合起來算，請按「編輯」幫每個帳號選定一個角色。
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {acctMsg && <span style={{ fontSize: 12, color: acctMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{acctMsg}</span>}
@@ -488,10 +371,10 @@ export function SystemAdminPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
                   <div>
                     <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
-                      {newAcct.role === 'other' ? '帳號識別碼 *' : 'Email *'}
+                      {newAcct.nonEmail ? '帳號識別碼 *' : 'Email *'}
                     </label>
                     <input style={inputStyle}
-                      placeholder={newAcct.role === 'other' ? '任意唯一識別碼（如 guest01）' : 'user@example.com'}
+                      placeholder={newAcct.nonEmail ? '任意唯一識別碼（如 guest01）' : 'user@example.com'}
                       value={newAcct.email}
                       onChange={e => setNewAcct(p => ({ ...p, email: e.target.value }))} />
                   </div>
@@ -504,10 +387,16 @@ export function SystemAdminPage() {
                     <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>角色</label>
                     <select style={{ ...inputStyle }} value={newAcct.role}
                       onChange={e => setNewAcct(p => ({ ...p, role: e.target.value as Role }))}>
-                      <option value="qa">QA</option>
-                      <option value="pm">PM</option>
-                      <option value="other">Other</option>
+                      {assignable.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>帳號類型</label>
+                    {/* v5.9.0：原本「角色＝Other 就不用 Email」，角色可自建後拆成帳號自己的屬性（CodeX） */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#cbd5e1', padding: '6px 0', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={newAcct.nonEmail} onChange={e => setNewAcct(p => ({ ...p, nonEmail: e.target.checked }))} />
+                      識別碼帳號（不是 Email）
+                    </label>
                   </div>
                   <div>
                     <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>Jira Token（可選）</label>
@@ -556,11 +445,11 @@ export function SystemAdminPage() {
                       <select style={{ ...inputStyle }} value={editForm.role}
                         onChange={e => setEditForm(p => ({ ...p, role: e.target.value as Role }))}
                         disabled={editTarget?.role === 'admin'}>
-                        <option value="qa">QA</option>
-                        <option value="pm">PM</option>
-                        <option value="other">Other</option>
+                        {editTarget?.multiRole && <option value="">（目前有多個角色，請選一個）</option>}
+                        {assignable.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
                         {editTarget?.role === 'admin' && <option value="admin">管理員（唯一，不可更改）</option>}
                       </select>
+                      {editTarget?.multiRole && <div style={{ fontSize: 11, color: '#f5b73b', marginTop: 4 }}>這個帳號目前同時有 {editTarget.role.split(',').length} 個角色（權限是合起來算的）。一個帳號只能一個角色，選定後就照那個角色的權限。</div>}
                     </div>
                     <div>
                       <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>狀態</label>
@@ -712,7 +601,11 @@ export function SystemAdminPage() {
                     >
                       <td style={{ ...tdLeft, fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{a.email}</td>
                       <td style={tdLeft}>{a.label}</td>
-                      <td style={td}>{badge(a.role)}</td>
+                      <td style={td}>
+                        <RoleBadge role={a.role} roles={roleList} />
+                        {a.multiRole && <div style={{ fontSize: 10.5, color: '#f5b73b', marginTop: 3 }}>多個角色，請按編輯選一個</div>}
+                        {!!a.overrideCount && <div style={{ fontSize: 10.5, color: '#a5b4fc', marginTop: 3 }} title="帳號在「功能權限」單獨加減的權限">＋覆寫 {a.overrideCount}</div>}
+                      </td>
                       <td style={td}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
