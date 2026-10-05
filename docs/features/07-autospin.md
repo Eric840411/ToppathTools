@@ -502,3 +502,16 @@ session 在那個空窗裡看起來就像不存在。
 - 撤銷只關 socket、不先刪 `agentConnections`：worker 的 ws close handler 要靠裡面的 sessionId 收掉進行中的任務。**CLOSING 也不刪**（正在關時又撤一次，刪了 handler 就拿不到 sessionId），只有已 CLOSED 的殘留才刪。規則在 `server/agent-token-disconnect.ts`，測試 `npx tsx server/agent-token-disconnect.test.ts`（10 條；把 CLOSING 也刪會紅）
 - 批次撤銷的 keepId 檢查與 UPDATE 在同一個 transaction
 - 驗證：真伺服器實測偽造 header 打 worker（status／install.bat／撤銷）全擋、跨帳號撤不到、無效 keepId 零變更、超過 50 把時最舊的有效 token 仍列得出、重複撤銷回 0
+
+
+### 定時彙總報告的 Lark 原生卡片（v5.8.0）
+使用者看過預覽卡片確認。原本 Lark 走 `embedToLarkCard()` 把整段 description 塞成一個 markdown（一大坨字）；現在 `server/autospin-report-lark-card.ts` 的 `buildStatusReportLarkCard()` 用同一份資料組 Lark 卡片，**Discord embed 不動**。`deliverNotice` 多一個 `larkCard`（拿 @人 那行組卡片），沒給就照舊轉 embed。
+- header：「📊 AutoSpin 定時彙總｜機台」，副標「gmid · 本期間 X 分鐘 · 已跑 ~XhYm」；試發送橘色＋「試發送」標籤，正式藍色
+- 🎰 局數與輸贏（本期間／累計兩欄）：spin 嘗試、完成局數（＋延遲推定小字）、wins／totalWin（累計附 lastCoin）；疑似完成／延遲推定／不確定／未起局縮成 note
+- ⚠️ errcode：每個 code 一列，依累計次數排序，寫累計與本期間；扣款疑慮 0 綠 >0 紅、最長恢復、餘額不明／待查帳有值才出現；最近時間點放 note；沒有寫「無」
+- 🛡️ 穩定性（本期間為主、累計小字）：RECOVER／kickouts（>0 橘）／CR checks
+- 🌐 SLS：查不到對應是「⚠️ 查不了」note、不寫服務正常；有事件逐列
+- 📝 備註、🤖 AI 分析各一區；外來文字的 < > 換全形（防止注入 <at>、<font>）
+- 哪些區塊出現照欄位開關。用詞沿用 CodeX 定的（延遲推定、不出現 ok%）
+- 補送佇列不存 larkCard（定時彙總報告本來就不排補送）
+- 測試：`npx tsx server/autospin-report-lark-card.test.ts`（26）、`notify-outlet.test.ts`（larkCard 有給才用）；真伺服器試發送 Lark 回 ok

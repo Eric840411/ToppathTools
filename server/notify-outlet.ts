@@ -124,6 +124,9 @@ export type DeliverInput = {
   mentionLabels?: string[]
   /** 已發過、要改同一則（各邊各自的 message id） */
   update?: { discordMessageId?: string; larkMessageId?: string }
+  /** Lark 專用卡片（拿 @人 那行組好）；不給就用 embedToLarkCard 從 embed 轉。目前只有 AutoSpin 定時彙總報告用（v5.8.0）。
+   *  ⚠️ 補送佇列不存這個——它只存 embed，補送會退回轉換版；定時彙總報告本來就不排補送 */
+  larkCard?: (mentionLine: string) => object
   /** 只送這幾邊（重試失敗那一邊用）；不給＝依設定 */
   only?: Array<'discord' | 'lark'>
   /** 補送／試發用：不看功能的出口設定，only 指定哪邊就送哪邊 */
@@ -140,7 +143,7 @@ export async function deliverNotice(p: DeliverInput, sendDiscord: (body: object,
   })())
   if (wantLark) tasks.push((async () => {
     const m = await deps.mention(p.mentionLabels ?? [])
-    const card = embedToLarkCard(p.embed, m.line)
+    const card = p.larkCard ? p.larkCard(m.line) : embedToLarkCard(p.embed, m.line)
     const r = p.update?.larkMessageId ? await deps.updateLark(p.update.larkMessageId, card) : await deps.sendLark(deps.chatId(), card)
     // 沒設定（沒憑證／沒選群）不是暫時性失敗，排重試也不會好；照樣回失敗讓呼叫端記下來，但標 skipped 不進佇列
     out.lark = r.ok ? { ok: true, messageId: p.update?.larkMessageId ?? (r.value as string) }

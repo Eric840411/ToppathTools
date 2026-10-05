@@ -36,6 +36,7 @@ import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
 import { matchesLogFilter, isEmptyFilter, type PinusCategory } from '../../shared/autospin-log-rules.js'
 import { resolveGeminiKeyEntries } from './gemini.js'
+import { buildStatusReportLarkCard, type ErrImpact, type StatusReportFieldKey, type StatusReportOpts, type StatusReportStats } from '../autospin-report-lark-card.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -561,7 +562,7 @@ function getStatusReportIntervalMin(userLabel: string): number {
   return Number.isFinite(n) && n > 0 ? n : 20
 }
 
-type StatusReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime' | 'sls'
+// 型別定義搬到 autospin-report-lark-card.ts（Discord embed 與 Lark 卡片共用同一份資料形狀）
 const DEFAULT_STATUS_REPORT_FIELDS: Record<StatusReportFieldKey, boolean> = {
   spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
   // SLS 服務健康（G2S／MML）。⚠️ 預設開——它回答的是「這段時間掉單是不是因為服務掛了」，
@@ -620,57 +621,6 @@ router.post('/api/autospin/status-report-settings', (req, res) => {
   if (typeof aiEnabled === 'boolean') upsertNotifyPrefs(userLabel, { reportAiEnabled: aiEnabled ? 1 : 0 })
   res.json({ ok: true })
 })
-
-/** 每個 errcode 的「影響」結論。Agent 端由 summarize_err_snapshots() 算好送上來。 */
-interface ErrImpact {
-  count: number
-  /** 餘額有減少但這局沒轉成 —— 也就是「扣了錢沒東西」，這是唯一真正該升級的訊號 */
-  deducted: number
-  /** 當下讀不到餘額，判斷不了有沒有扣 */
-  unknown: number
-  /** 需要進一步對帳的筆數（扣款疑慮／狀態不明／長時間沒恢復）*/
-  needsReconcile: number
-  /** 從錯誤到下一次成功 spin 最久花了幾秒 —— 熱更新測試真正要回報的「多久恢復」*/
-  maxRecoverSec: number | null
-  /** 伺服器自己給的錯誤描述，回答「異常是什麼」*/
-  lastDes: string
-}
-
-interface StatusReportStats {
-  spinCount: number; okSpinCount: number; winCount: number; totalWin: number; lastCoin: number | null
-  errcodeCounts: Record<string, number>; errcodeTimes?: Record<string, number[]>
-  recoverCount: number; kickoutCount: number
-  crChecks: number; crNoResponse: number
-  /** 舊版 Agent 不會送這個欄位，所以是選填——沒有就退回只顯示次數 */
-  errImpact?: Record<string, ErrImpact>
-  /**
-   * 局數分類。spinCount 是**按鈕嘗試次數**，這裡才是「跑了幾局」。
-   * 實體機台上按 SPIN 可能落在動畫中或 FG/JP，那一下不會起局——
-   * 兩者混在一起的話，「spins 90、ok 100%」會被誤讀成「跑了 90 局全部成功」。
-   *
-   * 舊版 Agent 沒有這個欄位，所以是選填；沒有就退回舊格式。
-   */
-  outcomeCounts?: {
-    /** coin_update：有 moneyNtc 結算，確定完成一局 */
-    completed?: number
-    /** 原本逾時判成 unknown，但下一次 spin 前才觀察到 coin 更新 → 推定那一局其實跑完了。
-     *
-     *  ⚠️ **刻意不併進 completed**（跟 CodeX 討論定案）。`__coinUpdatedAt` 是「任何一則
-     *     帶 coin 欄位的 pinus 訊息」都會更新，route 與 reason 都沒過濾，所以它只證明
-     *     「這段期間曾經有 coin 更新」，證據等級低於 8 秒內收到的結算。併進去會讓
-     *     「完成局數」從確定訊號變成混合訊號，而且改版前後不可比。
-     *
-     *  這個比例本身就是健康指標：變多代表結算訊號常常晚到或漏接。 */
-    completed_late?: number
-    /** button_disabled_toggle：按鈕進出 spinning，局跑過了但缺結算證據。
-     *  這個數字變多本身就是訊號——代表 moneyNtc 收不到（pinus 補丁失效）*/
-    suspected?: number
-    /** timeout_8s：什麼訊號都沒收到。不代表沒跑，所以不能算成沒起局 */
-    unknown?: number
-    /** spin_rejected：伺服器明確拒絕，確定沒起 */
-    not_started?: number
-  }
-}
 
 /** errcode 發生時間（epoch ms）格式化成台北時區 HH:mm:ss，供報告內文顯示最近幾次發生時間。 */
 function fmtErrTime(ts: number): string {
@@ -921,7 +871,7 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     }
   }
 
-  const embed = buildStatusReportEmbed({
+  const reportOpts = {
     machineType,
     gameTitleCode,
     periodMinutes: periodMinutes ?? 0,
@@ -932,11 +882,12 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     customNote: getStatusReportCustomNote(userLabel),
     aiAnalysis,
     sls: slsStatus,
-  })
+  }
+  const embed = buildStatusReportEmbed(reportOpts)
 
   // 定時報告失敗不排補送：下一期本來就會再來一份（累計數字也包含在內），補送舊的只會讓頻道多一則過期資料
   try {
-    const r = await deliverNotice({ feature: 'autospin', embed, discordContent: mentionForUserLabel(userLabel), mentionLabels: userLabel ? [userLabel] : [] }, discordWebhookSender(webhookUrl))
+    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(reportOpts, m), discordContent: mentionForUserLabel(userLabel), mentionLabels: userLabel ? [userLabel] : [] }, discordWebhookSender(webhookUrl))
     for (const side of ['discord', 'lark'] as const) if (r[side] && !r[side]!.ok) console.warn(`[autospin] 定時彙總報告 ${side} 發送失敗：${r[side]!.message}`)
   } catch (e) {
     console.warn('[autospin] 定時彙總報告發送失敗:', e)
@@ -981,7 +932,7 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
     : null
   const mention = mentionForUserLabel(userLabel || getOperatorFromContext()?.name)
 
-  const embed = buildStatusReportEmbed({
+  const testOpts: StatusReportOpts = {
     machineType: 'TEST',
     gameTitleCode: '873-TEST-0001',
     periodMinutes: getStatusReportIntervalMin(userLabel),
@@ -1010,12 +961,14 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
           times: [Date.now() - 5 * 60_000], count: 1, logstore: '__demo__-g2s-example-logs' },
       ],
     },
-  })
+  }
+  const embed = buildStatusReportEmbed(testOpts)
 
   // 試發照「AutoSpin」的出口設定送（設成 Lark 就試 Lark、兩邊就兩邊），哪邊失敗講哪邊
   try {
     const opLabel = userLabel || getOperatorFromContext()?.name || ''
-    const r = await deliverNotice({ feature: 'autospin', embed, discordContent: mention, mentionLabels: opLabel ? [opLabel] : [] }, discordWebhookSender(webhookUrl))
+    // 試發送也走 Lark 原生卡片（v5.8.0），才測得到正式報告長怎樣
+    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(testOpts, m), discordContent: mention, mentionLabels: opLabel ? [opLabel] : [] }, discordWebhookSender(webhookUrl))
     const bad = (['discord', 'lark'] as const).filter(k => r[k] && !r[k]!.ok).map(k => `${k === 'lark' ? 'Lark' : 'Discord'}：${r[k]!.message}`)
     if (bad.length) return res.status(400).json({ ok: false, message: bad.join('；') })
     res.json({ ok: true })

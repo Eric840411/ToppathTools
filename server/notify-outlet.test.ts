@@ -40,6 +40,18 @@ eq('inline 欄位兩兩一列、非 inline 自己一列', card.elements.filter(e
 eq('頁尾變 note', card.elements[card.elements.length - 1].tag, 'note')
 eq('顏色：紅 / 灰 / 藍', [larkTemplateFor(0xef4444), larkTemplateFor(0x6b7280), larkTemplateFor(0x3b82f6)], ['red', 'grey', 'blue'])
 
+// ── Lark 專用卡片（v5.8.0：AutoSpin 定時彙總報告）──
+{
+  reset(); outlet = 'lark'
+  let gotMention = ''
+  await deliverNotice({ feature: 'autospin', embed: { title: 'embed 版' }, mentionLabels: ['Eric'], larkCard: m => { gotMention = m; return { custom: true } } }, sendDiscord)
+  eq('有給 larkCard → Lark 送的是它，不是 embed 轉的', larkSent, [{ custom: true }])
+  eq('larkCard 拿到 @人 那行', gotMention, '@Eric')
+  reset()
+  await deliverNotice({ feature: 'autospin', embed: { title: 'embed 版' } }, sendDiscord)
+  eq('沒給 larkCard → 照舊從 embed 轉', (larkSent[0] as { header: { title: { content: string } } }).header.title.content, 'embed 版')
+}
+
 // ── 出口選擇 ──
 const input = { feature: 'autospin' as const, embed: { title: 't' }, discordContent: '<@1>', mentionLabels: ['Eric'] }
 reset(); outlet = 'discord'; await deliverNotice(input, sendDiscord)
