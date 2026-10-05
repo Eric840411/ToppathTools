@@ -588,7 +588,10 @@ async function applyLearn(type, snapshot, plan, backupDir, meta) {
 async function orientationFor(result, pngPath, code, outDir) {
   if (!pngPath || !fs.existsSync(pngPath)) return { status: 'na', shadow: true, note: '沒有推流截圖，方向未驗', crops: [] }
   try {
-    const { default: sharp } = await import('sharp')
+    // sharp 裝在資料根目錄（osm-qa-agent）的 node_modules，不在 Toppath repo 裡 → 從 MT_HOME 解析
+    // （1005 搬進 repo 後直接 import('sharp') 會 Cannot find package，方向裁切整個失效）
+    const { createRequire } = await import('node:module')
+    const sharp = createRequire(path.join(ROOT, 'package.json'))('sharp')
     const s = stepLearn(result, '推流檢測').data
     const meta = await sharp(pngPath).metadata()
     const scale = s?.viewportW ? meta.width / s.viewportW : 1
