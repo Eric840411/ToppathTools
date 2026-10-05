@@ -5,6 +5,7 @@
  * payload 存送出當下的原文與預覽原值：重試用它，不靠前端草稿。
  */
 import type Database from 'better-sqlite3'
+import { addSpaceColumn, spaceGuard, type MeegleSpace, type SpaceGuard } from './meegle-space.js'
 
 type DB = Database.Database
 
@@ -14,6 +15,8 @@ export const EDIT_STEPS: EditStep[] = ['fields', 'roles', 'verify', 'writeback']
 export type EditRow = {
   batch_id: string; row_key: string; source_key: string; sheet_url: string; sheet_row: number; summary: string
   work_item_id: string; owner_email: string; payload: string; created_at: number; updated_at: number
+  /** 哪個 Meegle 空間（v5.10.0；舊紀錄是 test） */
+  space: MeegleSpace
 }
 export type EditStepRow = { batch_id: string; row_key: string; step: EditStep; phase: EditPhase; message: string | null; attempt_at: number | null; updated_at: number; data: string | null }
 
@@ -33,6 +36,7 @@ export function initMeegleEditSchema(db: DB) {
       PRIMARY KEY (batch_id, row_key, step)
     );
   `)
+  addSpaceColumn(db, 'meegle_edit_rows')
 }
 
 export function getEditRow(db: DB, batchId: string, rowKey: string): EditRow | undefined {
@@ -42,8 +46,8 @@ export function getEditSteps(db: DB, batchId: string, rowKey: string): EditStepR
   return db.prepare('SELECT * FROM meegle_edit_steps WHERE batch_id = ? AND row_key = ? ORDER BY rowid').all(batchId, rowKey) as EditStepRow[]
 }
 
-export type EditClaimInput = { batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string; ownerEmail: string; payload: string }
-export type EditClaimResult = { kind: 'claimed' } | { kind: 'busy'; batchId: string; step: string } | { kind: 'not-owner' } | { kind: 'source-mismatch' } | { kind: 'already-sent' }
+export type EditClaimInput = { batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string; ownerEmail: string; payload: string; space: MeegleSpace }
+export type EditClaimResult = { kind: 'claimed' } | { kind: 'busy'; batchId: string; step: string } | { kind: 'not-owner' } | { kind: 'source-mismatch' } | { kind: 'already-sent' } | SpaceGuard
 
 /**
  * 認領（IMMEDIATE 交易）：同一張單任何批次有 creating 就不給跑。
@@ -54,6 +58,8 @@ export function claimEditRow(db: DB, input: EditClaimInput, now = Date.now()): E
   const R = input.workItemId
   return db.transaction((): EditClaimResult => {
     if (db.prepare('SELECT 1 FROM meegle_edit_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)) return { kind: 'source-mismatch' }
+    const sg = spaceGuard(db, 'meegle_edit_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    if (sg) return sg
     const live = db.prepare(`SELECT s.batch_id, s.step FROM meegle_edit_steps s JOIN meegle_edit_rows r ON r.batch_id = s.batch_id AND r.row_key = s.row_key
       WHERE r.work_item_id = ? AND s.phase = 'creating' LIMIT 1`).get(R) as { batch_id: string; step: string } | undefined
     if (live) return { kind: 'busy', batchId: live.batch_id, step: live.step }
@@ -66,8 +72,8 @@ export function claimEditRow(db: DB, input: EditClaimInput, now = Date.now()): E
       db.prepare(`UPDATE meegle_edit_steps SET phase = 'none', message = NULL, updated_at = ? WHERE batch_id = ? AND row_key = ?`).run(now, input.batchId, R)
       return { kind: 'claimed' }
     }
-    db.prepare(`INSERT INTO meegle_edit_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, payload, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.batchId, R, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, R, owner, input.payload, now, now)
+    db.prepare(`INSERT INTO meegle_edit_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, payload, space, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.batchId, R, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, R, owner, input.payload, input.space, now, now)
     const ins = db.prepare('INSERT INTO meegle_edit_steps (batch_id, row_key, step, phase, updated_at) VALUES (?, ?, ?, ?, ?)')
     for (const s of EDIT_STEPS) ins.run(input.batchId, R, s, 'none', now)
     return { kind: 'claimed' }
@@ -96,9 +102,9 @@ export function expireStaleEditSteps(db: DB, olderThanMs: number, now = Date.now
   return db.prepare(`UPDATE meegle_edit_steps SET phase = 'failed', message = '處理中斷，可重試', updated_at = ?
     WHERE phase = 'creating' AND COALESCE(attempt_at, updated_at) < ?`).run(now, now - olderThanMs).changes
 }
-export function listPreviousEditForSource(db: DB, sourceKey: string): Array<EditRow & { steps: EditStepRow[] }> {
+export function listPreviousEditForSource(db: DB, sourceKey: string, space: MeegleSpace): Array<EditRow & { steps: EditStepRow[] }> {
   const rows = db.prepare(`SELECT r.* FROM meegle_edit_rows r
-    WHERE r.source_key = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_edit_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)`)
-    .all(sourceKey) as EditRow[]
+    WHERE r.source_key = ? AND r.space = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_edit_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)`)
+    .all(sourceKey, space) as EditRow[]
   return rows.map(r => ({ ...r, steps: getEditSteps(db, r.batch_id, r.row_key) }))
 }

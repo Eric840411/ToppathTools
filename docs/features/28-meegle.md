@@ -360,3 +360,41 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 後端：刪 `routes/jira.ts`；index／worker 的 Jira 批次轉送、操作紀錄標籤一起拿掉；週報的 jira-by-range 與 Jira 撈單 helper 刪除
 - 型別檢查 58 → 53：逐條比對，少的 5 條全是 jira.ts 本身的，沒有新增
 - **刻意保留**（之後第 ④ 步再收）：資料表 jira_accounts／jira_account_delegates／jira_pending_writebacks；shared.ts 裡沒人呼叫的 Jira helper；`jira-attachment-files.ts` 的 uploadFileToJira；代理授權頁上已無作用的兩個 Jira 用途
+
+## 28h. 雙空間：測試開單／正式開單（v5.10.0）
+
+> 使用者 2026-10-05：之後會有兩個空間，一個正式開單、一個測試開單；選 A＝**每個分頁自己切換**；同一份 Sheet 不會兩邊都開。
+> 規則 CodeX 拍板（預設測試；正式每批送出前確認一次；這版不另加正式專用權限）。
+
+### 使用者可以做的事
+| 操作 | 說明 |
+|---|---|
+| 切換空間 | 開單／評論／狀態／修改四個分頁上方都有「Meegle 空間：測試｜正式」。**預設測試** |
+| 各頁各自記住 | 每個分頁記自己選的；沒選過的分頁用「最後一次選的」當初始值。在 A 分頁切空間不會改到 B 分頁 |
+| 切換＝重來 | 切空間會清掉這一頁讀到的需求、人員、狀態選擇與預覽，要重新讀 Sheet（晚回來的舊空間請求不會蓋到新畫面） |
+| 送到正式前確認 | 正式空間按送出（含「重送這一列」）會跳確認：空間、操作、Sheet、筆數。按取消一筆都不送；測試空間不跳 |
+| 送出中不能切 | 一批送到一半時切換鈕反灰 |
+| 切錯空間會被擋 | 這份 Sheet 已在另一個空間送過 → 讀 Sheet 就顯示紅字、送出鈕不能按（伺服器也會擋） |
+| 補回填 | 正式空間的列多一個「正式」標籤（補寫回只寫 Sheet，不碰 Meegle） |
+
+### 規則
+- **空間跟著紀錄走**：四張紀錄表（`meegle_batch_rows`／`meegle_comment_rows`／`meegle_status_rows`／`meegle_edit_rows`）都加 `space` 欄，舊資料一律 `test`
+- **新請求一定要帶 `space`**（`test`／`prod`），缺了或亂帶 → 400，不默默當成測試。**重試、補推、查詢結果、繼續送出、補回填一律用紀錄上的 space**，不讀畫面目前的切換值
+- **一個批次只屬於一個空間**（`space-mismatch`）；**同一份 Sheet 已在另一個空間送過 → 擋下**（`space-conflict`）。只靠「Sheet＋列＋空間」去重的話，誤切空間後會在另一邊再開一次（CodeX）
+- 「結果待確認」查單時排除的已用單號只看同一個空間（`takenWorkItemIds`）
+- 快取依空間分開：人員名單（空間＋操作者）、修改分頁的欄位選項與角色 id（token＋空間）、單子網址前綴（project key）
+- 空間的 project key 只在後端：測試 `6abb348976c120f4f43c746a`、正式 `6ac081a48614642b450645c5`（env `MEEGLE_PROJECT_KEY`／`MEEGLE_PROD_PROJECT_KEY` 可覆寫）。任務項類型、欄位、角色 key 兩邊實測相同
+- 程式：`shared/meegle-space.ts`（代號、名稱、預設）、`server/meegle-space.ts`（`spaceEnv` 把 key 一路傳給既有操作、`spaceGuard`、`checkItemSpace`）、`src/components/MeegleSpace.tsx`（切換列、確認彈窗、提示）
+
+### ⚠️ Meegle 不驗 project key（2026-10-05 實測）
+拿**正式**的 project key 去 `workitem get` **測試空間**的單 #15194995，照樣回 200、內容完整，只有 `owned_project.key` 看得出它其實在測試。
+寫入大概也一樣——所以切錯空間時，評論／狀態／修改會**安安靜靜改到另一個空間的單**。
+→ 評論／狀態／修改**動到既有單之前**（預覽讀單、送出、重試、繼續送出）一律先 `checkItemSpace` 核對 `owned_project`，對不上回 409 `WRONG_SPACE`；讀不到所屬空間當失敗，不當通過。
+
+### 還沒做（記著）
+- 週報彙整、TestCase 生成讀 Meegle 單時仍只看**測試**空間（`meegleTarget()` 預設值）。正式開始用後要決定週報掃哪一邊
+- 評論的「上次寫入的測試說明」基準（`meegle_desc_snapshots`）以單號為鍵、沒有分空間——Meegle 單號全租戶唯一，所以不會撞
+
+### 測試
+- `npx tsx server/meegle-space.test.ts`（31，記憶體 DB＋假 CLI）：四張表的 mismatch／conflict、只列同空間、已用單號分空間、舊資料是測試、`checkItemSpace` 的對／錯／讀不到
+- `node scripts/ui-checks/meegle-space-switch.mjs`（兩種主題，API 全假）：預設測試、帶 space、正式確認（取消不送）、送出中不能切、各頁各自記住、另一空間送過擋下

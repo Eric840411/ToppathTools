@@ -16,7 +16,7 @@ function eq(name: string, got: unknown, want: unknown) {
 const fresh = () => { const db = new Database(':memory:'); initMeegleCommentSchema(db); return db }
 const base = (o: Partial<ClaimInput> = {}): ClaimInput => ({
   batchId: 'b1', workItemId: '100', sourceKey: 'lark:T:S', sheetUrl: 'https://x/sheets/T?sheet=S', sheetRow: 5, summary: '登入',
-  ownerEmail: 'Eric@x.com', asEmail: '', videos: [{ key: 'k0', name: 'v0.mp4' }, { key: 'k1', name: 'v1.mp4' }], withReview: true, ...o,
+  space: 'test' as const, ownerEmail: 'Eric@x.com', asEmail: '', videos: [{ key: 'k0', name: 'v0.mp4' }, { key: 'k1', name: 'v1.mp4' }], withReview: true, ...o,
 })
 const phases = (db: Database.Database, b = 'b1', r = '100') => Object.fromEntries(getSteps(db, b, r).map(s => [s.step, s.phase]))
 
@@ -119,7 +119,7 @@ eq('只有 writeback 一步 → 不回填', readyForWriteback([{ step: 'writebac
   claimCommentRow(db, base(), 1000)
   beginStep(db, 'b1', '100', 'comment'); finishStep(db, 'b1', '100', 'comment', 'done')
   claimCommentRow(db, base({ batchId: 'b2', allowRepeat: true }), 2000)
-  const prev = listPreviousForSource(db, 'lark:T:S')
+  const prev = listPreviousForSource(db, 'lark:T:S', 'test')
   eq('同單只回最新那批', prev.map(p => p.batch_id), ['b2'])
 }
 

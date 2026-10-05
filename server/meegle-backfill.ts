@@ -26,6 +26,8 @@ export type PendingItem = {
   tool: BackfillTool; batchId: string; rowKey: string; workItemId: string
   sourceKey: string; sheetUrl: string; sheetRow: number; summary: string; owner: string
   phase: 'failed' | 'stuck'; message: string | null; lastAt: number
+  /** 哪個 Meegle 空間開的（v5.10.0；畫面標示用，補寫回只寫 Sheet、不碰 Meegle） */
+  space: 'test' | 'prod'
 }
 
 type StepLike = { step: string; phase: string; message: string | null; attempt_at: number | null; updated_at: number }
@@ -36,10 +38,10 @@ function fromStepTables(db: DB, tool: Exclude<BackfillTool, 'create'>, owner: st
   const stepsTable = { comment: 'meegle_comment_steps', status: 'meegle_status_steps', edit: 'meegle_edit_steps' }[tool]
   const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(rowsTable)
   if (!exists) return []
-  const rows = db.prepare(`SELECT r.batch_id, r.row_key, r.work_item_id, r.source_key, r.sheet_url, r.sheet_row, r.summary, r.owner_email
+  const rows = db.prepare(`SELECT r.batch_id, r.row_key, r.work_item_id, r.source_key, r.sheet_url, r.sheet_row, r.summary, r.owner_email, r.space
     FROM ${rowsTable} r JOIN ${stepsTable} s ON s.batch_id = r.batch_id AND s.row_key = r.row_key AND s.step = 'writeback'
     WHERE s.phase IN ('failed', 'none', 'pending') AND r.source_key LIKE 'lark:%' ${owner ? 'AND r.owner_email = ?' : ''}`)
-    .all(...(owner ? [owner] : [])) as Array<{ batch_id: string; row_key: string; work_item_id: string; source_key: string; sheet_url: string; sheet_row: number; summary: string; owner_email: string }>
+    .all(...(owner ? [owner] : [])) as Array<{ batch_id: string; row_key: string; work_item_id: string; source_key: string; sheet_url: string; sheet_row: number; summary: string; owner_email: string; space: string }>
   const out: PendingItem[] = []
   for (const r of rows) {
     const steps = db.prepare(`SELECT step, phase, message, attempt_at, updated_at FROM ${stepsTable} WHERE batch_id = ? AND row_key = ?`).all(r.batch_id, r.row_key) as StepLike[]
@@ -48,7 +50,7 @@ function fromStepTables(db: DB, tool: Exclude<BackfillTool, 'create'>, owner: st
     const wb = steps.find(s => s.step === 'writeback')!
     const lastAt = Math.max(...steps.map(s => s.updated_at))
     if (wb.phase !== 'failed' && now - lastAt < IDLE_MS) continue
-    out.push({ tool, batchId: r.batch_id, rowKey: r.row_key, workItemId: r.work_item_id, sourceKey: r.source_key, sheetUrl: r.sheet_url, sheetRow: r.sheet_row, summary: r.summary, owner: r.owner_email, phase: wb.phase === 'failed' ? 'failed' : 'stuck', message: wb.message, lastAt })
+    out.push({ tool, batchId: r.batch_id, rowKey: r.row_key, workItemId: r.work_item_id, sourceKey: r.source_key, sheetUrl: r.sheet_url, sheetRow: r.sheet_row, summary: r.summary, owner: r.owner_email, phase: wb.phase === 'failed' ? 'failed' : 'stuck', message: wb.message, lastAt, space: r.space === 'prod' ? 'prod' : 'test' })
   }
   return out
 }
@@ -56,12 +58,12 @@ function fromStepTables(db: DB, tool: Exclude<BackfillTool, 'create'>, owner: st
 function fromCreate(db: DB, owner: string | null, now: number): PendingItem[] {
   const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meegle_batch_rows'").get()
   if (!exists) return []
-  const rows = db.prepare(`SELECT batch_id, row_key, work_item_id, sheet_url, name, owner_email, writeback_phase, writeback_msg, writeback_at, updated_at
+  const rows = db.prepare(`SELECT batch_id, row_key, work_item_id, sheet_url, name, owner_email, writeback_phase, writeback_msg, writeback_at, updated_at, space
     FROM meegle_batch_rows WHERE create_phase = 'created' AND writeback_phase IN ('pending', 'failed') AND sheet_url LIKE 'lark:%' ${owner ? 'AND owner_email = ?' : ''}`)
-    .all(...(owner ? [owner] : [])) as Array<{ batch_id: string; row_key: string; work_item_id: string; sheet_url: string; name: string; owner_email: string; writeback_phase: string; writeback_msg: string | null; writeback_at: number | null; updated_at: number }>
+    .all(...(owner ? [owner] : [])) as Array<{ batch_id: string; row_key: string; work_item_id: string; sheet_url: string; name: string; owner_email: string; writeback_phase: string; writeback_msg: string | null; writeback_at: number | null; updated_at: number; space: string }>
   return rows
     .filter(r => r.writeback_phase === 'failed' || now - Math.max(r.updated_at, r.writeback_at ?? 0) >= IDLE_MS)
-    .map(r => ({ tool: 'create' as const, batchId: r.batch_id, rowKey: r.row_key, workItemId: r.work_item_id, sourceKey: r.sheet_url, sheetUrl: '', sheetRow: Number(r.row_key), summary: r.name, owner: r.owner_email, phase: r.writeback_phase === 'failed' ? 'failed' as const : 'stuck' as const, message: r.writeback_msg, lastAt: Math.max(r.updated_at, r.writeback_at ?? 0) }))
+    .map(r => ({ tool: 'create' as const, batchId: r.batch_id, rowKey: r.row_key, workItemId: r.work_item_id, sourceKey: r.sheet_url, sheetUrl: '', sheetRow: Number(r.row_key), summary: r.name, owner: r.owner_email, phase: r.writeback_phase === 'failed' ? 'failed' as const : 'stuck' as const, message: r.writeback_msg, lastAt: Math.max(r.updated_at, r.writeback_at ?? 0), space: r.space === 'prod' ? 'prod' as const : 'test' as const }))
 }
 
 /**

@@ -10,6 +10,7 @@
  * - 認領在 IMMEDIATE 交易裡做完，交易提交後才呼叫遠端
  */
 import type Database from 'better-sqlite3'
+import { addSpaceColumn, spaceGuard, type MeegleSpace, type SpaceGuard } from './meegle-space.js'
 
 type DB = Database.Database
 
@@ -19,6 +20,8 @@ export type CommentRow = {
   work_item_id: string; owner_email: string; as_email: string; created_at: number; updated_at: number
   /** 這次送出的內容（測試說明、評論、附件快取 id、分析）。「繼續送出」從這裡拿，不靠前端草稿——重整頁面後草稿就沒了 */
   payload: string | null
+  /** 哪個 Meegle 空間（v5.10.0；舊紀錄是 test） */
+  space: MeegleSpace
 }
 export type StepRow = { batch_id: string; row_key: string; step: string; phase: StepPhase; message: string | null; attempt_at: number | null; updated_at: number; data: string | null }
 
@@ -43,6 +46,7 @@ export function initMeegleCommentSchema(db: DB) {
   `)
   const cols = (db.prepare('PRAGMA table_info(meegle_comment_rows)').all() as Array<{ name: string }>).map(c => c.name)
   if (!cols.includes('payload')) db.exec('ALTER TABLE meegle_comment_rows ADD COLUMN payload TEXT')
+  addSpaceColumn(db, 'meegle_comment_rows')
 }
 
 export type VideoKey = { key: string; name: string }
@@ -68,6 +72,7 @@ export type ClaimInput = {
   batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string
   ownerEmail: string; asEmail: string; videos: VideoKey[]; withReview: boolean; allowRepeat?: boolean
   payload?: string
+  space: MeegleSpace
 }
 export type ClaimResult =
   | { kind: 'claimed' }
@@ -76,6 +81,7 @@ export type ClaimResult =
   | { kind: 'already-commented'; batchId: string }
   | { kind: 'not-owner' }
   | { kind: 'source-mismatch' }
+  | SpaceGuard
 
 /**
  * 認領一列。全部在 IMMEDIATE 交易裡判斷完——兩個分頁同時送同一張單，只有一個拿得到。
@@ -87,6 +93,8 @@ export function claimCommentRow(db: DB, input: ClaimInput, now = Date.now()): Cl
   return db.transaction((): ClaimResult => {
     const other = db.prepare('SELECT 1 FROM meegle_comment_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)
     if (other) return { kind: 'source-mismatch' }
+    const sg = spaceGuard(db, 'meegle_comment_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    if (sg) return sg
 
     // 跨批次：同一份 Sheet、同一張單
     const inflight = db.prepare(`SELECT s.batch_id, s.step, s.phase FROM meegle_comment_steps s JOIN meegle_comment_rows r ON r.batch_id = s.batch_id AND r.row_key = s.row_key
@@ -131,9 +139,9 @@ export function claimCommentRow(db: DB, input: ClaimInput, now = Date.now()): Cl
       return { kind: 'claimed' }
     }
 
-    db.prepare(`INSERT INTO meegle_comment_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, as_email, payload, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(input.batchId, rowKey, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, input.workItemId, owner, input.asEmail.trim().toLowerCase(), input.payload ?? null, now, now)
+    db.prepare(`INSERT INTO meegle_comment_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, as_email, payload, space, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(input.batchId, rowKey, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, input.workItemId, owner, input.asEmail.trim().toLowerCase(), input.payload ?? null, input.space, now, now)
     const ins = db.prepare('INSERT INTO meegle_comment_steps (batch_id, row_key, step, phase, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)')
     for (const s of stepNames(input.videos, input.withReview)) ins.run(input.batchId, rowKey, s.step, s.phase, now, s.data ?? null)
     return { kind: 'claimed' }
@@ -195,9 +203,9 @@ export function setSnapshot(db: DB, workItemId: string, hash: string, by: string
 }
 
 /** 這份 Sheet 之前送過的列（最新一批），讓畫面接回「待確認／補寫回」。 */
-export function listPreviousForSource(db: DB, sourceKey: string): Array<CommentRow & { steps: StepRow[] }> {
+export function listPreviousForSource(db: DB, sourceKey: string, space: MeegleSpace): Array<CommentRow & { steps: StepRow[] }> {
   const rows = db.prepare(`SELECT r.* FROM meegle_comment_rows r
-    WHERE r.source_key = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_comment_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)
-    ORDER BY r.created_at`).all(sourceKey) as CommentRow[]
+    WHERE r.source_key = ? AND r.space = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_comment_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)
+    ORDER BY r.created_at`).all(sourceKey, space) as CommentRow[]
   return rows.map(r => ({ ...r, steps: getSteps(db, r.batch_id, r.row_key) }))
 }

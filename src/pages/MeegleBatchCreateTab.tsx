@@ -6,6 +6,8 @@ import {
 import type { RosterPerson } from '../../shared/meegle-people-match'
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
+import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量開單（Jira 頁的「Meegle 開單」分頁）。版面由 CodeX 設計：01 預覽表／02 人員對照／03 送出結果。
@@ -108,8 +110,11 @@ function resultLabel(r: RowResult): { text: string; tone: 'ok' | 'warn' | 'pendi
   return { text: '開單失敗', tone: 'bad' }
 }
 
-export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
+  // 這份 Sheet 已經在另一個空間開過（伺服器回的）；有的話整頁不能送
+  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
+  const [confirmProd, prodModal] = useProdConfirm(space)
   const [records, setRecords] = useState<SheetRecord[] | null>(null)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [sheetLoading, setSheetLoading] = useState(false)
@@ -182,10 +187,10 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
   const loadMeta = useCallback(async () => {
     setMetaError(null)
     try {
-      const j = await api<Meta & { ok: true }>('/api/meegle/batch/meta')
+      const j = await api<Meta & { ok: true }>(`/api/meegle/batch/meta?space=${space}`)
       setMeta({ requirements: j.requirements, states: j.states, statesError: j.statesError })
     } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
-  }, [])
+  }, [space])
   const loadPeople = useCallback(async () => {
     try {
       const j = await api<{ people: Array<{ alias: string; userKey: string; email: string; name: string }> }>('/api/meegle/batch/people')
@@ -201,8 +206,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
     setSheetLoading(true); setSheetError('')
     try {
       const j = await api<{ records: SheetRecord[] }>('/api/lark/sheets/records', { sheetUrl: url.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[] }>('/api/meegle/batch/previous', { sheetUrl: url.trim() }).catch(() => ({ rows: [] as Previous[] }))
-      setRecords(j.records); setLoadedUrl(url.trim()); setPrevious(prev.rows)
+      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/batch/previous', { sheetUrl: url.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
+      setRecords(j.records); setLoadedUrl(url.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
       onSheetLoaded?.(url.trim())
       // 每次讀 Sheet 都換新批次——批次綁定來源 Sheet，伺服器也會擋「換 Sheet 沿用舊批次」（CodeX review 999f895 [P1]）
       setBatchId('')
@@ -296,7 +301,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
     setVerifying(v => ({ ...v, [alias]: true })); setVerifyError(v => ({ ...v, [alias]: '' }))
     try {
       const picked = rosterByEmail(email)
-      await api('/api/meegle/batch/people/verify', { alias, email, ...(picked ? { userKey: picked.userKey } : {}) })
+      await api('/api/meegle/batch/people/verify', { alias, email, space, ...(picked ? { userKey: picked.userKey } : {}) })
       if (reload) await loadPeople()
       // 等回應期間使用者又改了這列 → 不收起編輯框，保留他新打的（不然新編輯會被藏到「已對照」裡）
       setVerified(v => ({ ...v, [alias]: { ver, email } }))
@@ -313,10 +318,10 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
     const seq = ++suggestSeq.current
     setRosterState(s => ({ ...s, loading: true, error: '' }))
     try {
-      const r = await api<{ users: RosterPerson[]; fetchedAt: number }>('/api/meegle/batch/people/roster', { refresh })
+      const r = await api<{ users: RosterPerson[]; fetchedAt: number }>('/api/meegle/batch/people/roster', { refresh, space })
       if (seq !== suggestSeq.current) return
       setRoster(r.users)
-      const j = aliases.length ? await api<{ suggestions: Suggestion[] }>('/api/meegle/batch/people/suggest', { aliases }) : { suggestions: [] }
+      const j = aliases.length ? await api<{ suggestions: Suggestion[] }>('/api/meegle/batch/people/suggest', { aliases, space }) : { suggestions: [] }
       if (seq !== suggestSeq.current) return
       const m: Record<string, Suggestion> = {}
       for (const sg of j.suggestions) m[normAlias(sg.alias)] = sg
@@ -358,7 +363,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
   function rowPayload(r: typeof rows[number]) {
     const roles = {} as Record<MeegleRoleKey, string[]>
     for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = r.plan.roles[d.key].aliases
-    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '' }
+    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
   }
 
   function ensureBatch() {
@@ -368,9 +373,11 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
     return id
   }
 
-  async function submit() {
+  async function submit(confirmed = false) {
     const list = sendable
-    if (!list.length) return
+    if (!list.length || otherSpace) return
+    // 正式空間：每批送出前確認一次（CodeX）
+    if (!confirmed && !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: list.length }))) return
     const id = ensureBatch()
     setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
     for (const r of list) {
@@ -402,7 +409,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
 
   async function resendFailed(rowIndex: number) {
     const r = rows.find(x => x.rec._rowIndex === rowIndex)
-    if (!r || r.plan.blocks.length) return
+    if (!r || r.plan.blocks.length || otherSpace) return
+    if (!(await confirmProd({ op: 'Meegle 開單（重送這一列）', sheet: loadedUrl, count: 1 }))) return
     setRowBusy(b => ({ ...b, [rowIndex]: true }))
     try {
       const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: ensureBatch(), ...rowPayload(r) })
@@ -447,9 +455,11 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
   }
 
   async function submitAndShow() {
+    if (otherSpace || !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendable.length }))) return
     setStep(4)
-    await submit()
+    await submit(true)
   }
+  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
 
   // ── 畫面 ──
   if (metaError) {
@@ -475,6 +485,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
 
   return (
     <div className="mb-page">
+      {prodModal}
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量開單</h2>
@@ -510,6 +521,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
               <Icon name="link" /> {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
             </button>
             {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
+            <OtherSpaceNotice other={otherSpace} space={space} />
             {records && <div className="mb-muted mb-loaded">已讀取 {rows.length} 列{unmappedAliases.length ? `・${unmappedAliases.length} 個名字未對照` : '・人員都已對照'}</div>}
             {!meta && <div className="mb-muted">正在讀取 Meegle 需求清單…</div>}
             {meta && (
@@ -754,7 +766,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initi
             <footer className="mb-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(unmappedAliases.length || aliasRows.length ? 2 : 1)}>上一步</button>
               <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b></div>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length} onClick={() => void submitAndShow()}>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length || !!otherSpace} onClick={() => void submitAndShow()}>
                 {running ? `送出中 ${progress.done}/${progress.total}` : `送出 ${sendable.length} 列`}
               </button>
             </footer>

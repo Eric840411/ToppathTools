@@ -17,7 +17,7 @@ function eq(name: string, got: unknown, want: unknown) {
 const SHEET = 'lark:TOK:S1'
 function setup(name = '修正登入驗證失敗', target = '', targetName = '') {
   const db = new Database(':memory:'); initMeegleBatchSchema(db)
-  claimRow(db, { batchId: 'B', rowKey: '5', ownerEmail: 'a@x.tw', sheetUrl: SHEET, name, requirementId: '1', targetState: target, targetStateName: targetName }, 1000)
+  claimRow(db, { batchId: 'B', rowKey: '5', space: 'test' as const, ownerEmail: 'a@x.tw', sheetUrl: SHEET, name, requirementId: '1', targetState: target, targetStateName: targetName }, 1000)
   finishCreate(db, 'B', '5', { phase: 'created', workItemId: '15191459', url: 'https://meegle/x/15191459' }, 2000)
   return db
 }
@@ -91,7 +91,7 @@ eq('名稱缺時用 key', writebackStageText({ target_state: 'BAOjDk8Pv', target
 {
   const db = new Database(':memory:'); initMeegleBatchSchema(db)
   for (const k of ['5', '6', '7']) {
-    claimRow(db, { batchId: 'B', rowKey: k, ownerEmail: 'a@x.tw', sheetUrl: SHEET, name: `n${k}`, requirementId: '1', targetState: '' }, 1000)
+    claimRow(db, { batchId: 'B', rowKey: k, space: 'test' as const, ownerEmail: 'a@x.tw', sheetUrl: SHEET, name: `n${k}`, requirementId: '1', targetState: '' }, 1000)
     finishCreate(db, 'B', k, { phase: 'created', workItemId: k, url: '' }, 2000)
   }
   let active = 0, maxActive = 0
@@ -105,7 +105,7 @@ eq('名稱缺時用 key', writebackStageText({ target_state: 'BAOjDk8Pv', target
 }
 {
   const db = new Database(':memory:'); initMeegleBatchSchema(db)
-  claimRow(db, { batchId: 'B', rowKey: '5', ownerEmail: 'a@x.tw', sheetUrl: SHEET, name: 'x', requirementId: '1', targetState: '' })
+  claimRow(db, { batchId: 'B', rowKey: '5', space: 'test' as const, ownerEmail: 'a@x.tw', sheetUrl: SHEET, name: 'x', requirementId: '1', targetState: '' })
   eq('還沒開單成功 → 跳過', (await writebackRow(db, 'B', '5', fakeDeps({ summary: 'x', title: '' }).deps)).phase, 'skipped')
 }
 eq('名稱正規化', normName('  a\r\nb   c '), 'a b c')

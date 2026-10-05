@@ -31,7 +31,7 @@ for (const mode of ['classic', 'xianxia']) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
   await ctx.addCookies([{ name: 'toppath_auth', value: sess.sid, domain: HOST, path: '/' }])
   await ctx.addInitScript(m => { localStorage.setItem('toppath-theme-mode', m); localStorage.setItem('toppath-sidebar-collapsed', '0') }, mode)
-  await ctx.route('**/api/meegle/batch/meta', r => r.fulfill({ json: { ok: true, requirements: [{ id: '900001', name: '假需求' }], states: [], statesError: null } }))
+  await ctx.route('**/api/meegle/batch/meta*', r => r.fulfill({ json: { ok: true, requirements: [{ id: '900001', name: '假需求' }], states: [], statesError: null } }))
   await ctx.route('**/api/meegle/batch/people', r => r.fulfill({ json: { ok: true, people } }))
   await ctx.route('**/api/meegle/batch/people/roster', r => r.fulfill({ json: { ok: true, users: [], fetchedAt: Date.now() } }))
   await ctx.route('**/api/meegle/batch/people/suggest', r => r.fulfill({ json: { ok: true, suggestions: [] } }))

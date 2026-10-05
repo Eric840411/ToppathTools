@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBackfillTab.css'
+import { SpaceTag } from '../components/MeegleSpace'
 
 /**
  * Meegle 補回填（Jira 頁「Meegle 補回填」分頁）。只做「待補記錄」（使用者 2026-10-02 選 B，不做標題對帳）。
@@ -15,6 +16,8 @@ import './MeegleBackfillTab.css'
 type Item = {
   tool: 'create' | 'comment' | 'status' | 'edit'; toolLabel: string; stage: string; batchId: string; rowKey: string; workItemId: string
   sheetLabel: string; sourceKey: string; sheetRow: number; summary: string; owner: string; phase: 'failed' | 'stuck'; message: string | null; lastAt: number
+  /** 哪個 Meegle 空間（v5.10.0）。補寫回只寫 Sheet、不碰 Meegle，標出來只是讓人分得出是哪邊的單 */
+  space?: 'test' | 'prod'
 }
 type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }
 
@@ -159,7 +162,7 @@ export function MeegleBackfillTab() {
                           <tr key={key(i)}>
                             <td className="mb-col-check"><input type="checkbox" checked={selected.has(key(i))} aria-label={`選取 #${i.workItemId}`}
                               onChange={e => toggleSel([i], e.target.checked)} /></td>
-                            <td><span className={`bf-tool bf-tool--${i.tool}`}>{i.toolLabel}</span><div className="bf-id">#{i.workItemId}</div></td>
+                            <td><span className={`bf-tool bf-tool--${i.tool}`}>{i.toolLabel}</span><div className="bf-id">#{i.workItemId} {i.space === 'prod' && <SpaceTag space="prod" />}</div></td>
                             <td className="mb-num">第 {i.sheetRow} 列</td>
                             <td>{i.stage}</td>
                             <td>{i.phase === 'failed' ? <span className="mb-badge mb-badge--bad">失敗</span> : <span className="mb-badge bf-badge-pending" title="超過 2 分鐘沒寫成，可能中斷了">待回填</span>}</td>

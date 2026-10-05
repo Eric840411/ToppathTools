@@ -6,6 +6,8 @@ import { isCommentPendingStage, MEEGLE_ID_COLUMN, parseMeegleIdCell } from '../.
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
+import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量評論（Jira 頁「Meegle 評論」分頁）。取代 Jira 批量評論，Sheet 不變。
@@ -84,11 +86,14 @@ function defaultComment(text: string): string {
 
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 
-export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFormat, canAiReview }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void; canAiFormat: boolean; canAiReview: boolean }) {
+export function MeegleBatchCommentTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded, canAiFormat, canAiReview }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void; canAiFormat: boolean; canAiReview: boolean }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // ① 讀取與選列
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
+  // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
+  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
+  const [confirmProd, prodModal] = useProdConfirm(space)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -134,7 +139,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
   itemsRef.current = items
 
   useEffect(() => {
-    api<{ detailBase: string }>('/api/meegle/comment/meta', {}).then(j => setDetailBase(j.detailBase)).catch(() => {})
+    api<{ detailBase: string }>('/api/meegle/comment/meta', { space }).then(j => setDetailBase(j.detailBase)).catch(() => {})
     fetch('/api/gemini/prompts').then(r => r.json()).then((d: { prompts?: Array<{ id: string; name: string }> }) => {
       if (d.prompts) setPrompts(d.prompts.map(p => ({ id: p.id, name: p.name })))
     }).catch(() => {})
@@ -161,8 +166,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
     setLoading(true); setLoadError('')
     try {
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[] }>('/api/meegle/comment/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
-      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/comment/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
+      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
       onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
@@ -293,7 +298,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
   async function readRemote(workItemId: string) {
     setItems(prev => prev.map(it => it.workItemId === workItemId ? { ...it, remote: { status: 'loading' } } : it))
     try {
-      const j = await api<{ current: string; hash: string; state: RemoteState }>('/api/meegle/comment/remote', { workItemId })
+      const j = await api<{ current: string; hash: string; state: RemoteState }>('/api/meegle/comment/remote', { workItemId, space })
       setItems(prev => prev.map(it => it.workItemId === workItemId ? {
         ...it, remote: { status: 'ok', state: j.state, hash: j.hash, current: j.current },
         // 確認綁定遠端版本：版本變了，舊的確認不算數
@@ -355,9 +360,13 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
   const sendable = items.filter(it => !itemIssue(it))
 
   // ── ④ 送出 ──
+  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
+
   async function submit() {
     const list = sendable
-    if (!list.length) return
+    if (!list.length || otherSpace) return
+    // 正式空間：每批送出前確認一次（CodeX）
+    if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: list.length }))) return
     const id = batchId || newStepId()
     if (!batchId) setBatchId(id)
     setStep(4); setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
@@ -374,7 +383,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
             commentText: it.commentText, videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })),
             reviewText: useAiReview && it.review ? it.review : null,
             expectedRemoteHash: it.remote.hash, confirmedRemoteHash: it.confirmHash,
-            allowRepeat: !!row?.commented,
+            allowRepeat: !!row?.commented, space,
           })
           res = { rowIndex: it.rowIndex, workItemId: it.workItemId, summary: it.summary, batchId: id, steps: j.steps, claim: j.claim.kind }
         } catch (e) {
@@ -428,7 +437,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
 
   async function resend(r: Result) {
     const it = items.find(x => x.workItemId === r.workItemId)
-    if (!it) return
+    if (!it || otherSpace) return
+    if (!(await confirmProd({ op: 'Meegle 評論（重送這一列）', sheet: loadedUrl, count: 1 }))) return
     setBatchId(r.batchId)
     setRowBusy(b => ({ ...b, [`${r.workItemId}:resend`]: true }))
     try {
@@ -436,7 +446,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
         batchId: r.batchId, sheetUrl: loadedUrl, sheetRow: it.rowIndex, summary: it.summary, workItemId: it.workItemId, asEmail: it.asEmail,
         description: it.text, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })), commentText: it.commentText,
         videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })), reviewText: useAiReview && it.review ? it.review : null,
-        expectedRemoteHash: it.remote.hash, confirmedRemoteHash: it.confirmHash, allowRepeat: !!rows.find(x => x.rowIndex === it.rowIndex)?.commented,
+        expectedRemoteHash: it.remote.hash, confirmedRemoteHash: it.confirmHash, allowRepeat: !!rows.find(x => x.rowIndex === it.rowIndex)?.commented, space,
       })
       setResults(prev => prev.map(x => x.workItemId === r.workItemId ? { ...x, steps: j.steps, claim: j.claim.kind, error: undefined } : x))
     } catch (e) {
@@ -471,6 +481,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
 
   return (
     <div className="mb-page mc-page">
+      {prodModal}
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量評論</h2>
@@ -504,6 +515,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
               </button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
+            <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。只有 Jira 單號的列不送；處理階段已有值、或之前評論過的列預設不勾（勾了＝再送一輪）。</p>
             {records && (
               <>
@@ -725,7 +737,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFor
             <footer className="mb-foot mc-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
               <span className="mb-foot-sum">可送出 <b>{sendable.length}</b> / {items.length} 列</span>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running} onClick={() => void submit()}>前往送出</button>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace} onClick={() => void submit()}>前往送出</button>
             </footer>
           </div>
         )}

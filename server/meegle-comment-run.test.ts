@@ -55,7 +55,7 @@ function makeDeps(f: Fake): RunDeps {
 
 const TEMPLATE = '【功能目的】\n1. 目的\n【驗證結果】'
 const payload = (o: Partial<RowPayload> = {}): RowPayload => ({
-  batchId: 'b1', workItemId: '15194994', sourceKey: 'lark:T:S', sheetUrl: 'u', sheetRow: 5, summary: '登入', ownerEmail: 'me@x', asEmail: '',
+  batchId: 'b1', workItemId: '15194994', sourceKey: 'lark:T:S', sheetUrl: 'u', sheetRow: 5, summary: '登入', space: 'test' as const, ownerEmail: 'me@x', asEmail: '',
   withReview: false,
   description: '【驗證結果】\n- 通過', images: [{ name: 'a.png', path: 'p/a' }], commentText: 'QA 已填寫測試頁',
   videos: [{ name: 'v1.mp4', path: 'p/v1', key: 'a1' }, { name: 'v2.mp4', path: 'p/v2', key: 'b2' }], reviewText: '涵蓋完整',

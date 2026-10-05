@@ -5,6 +5,8 @@ import { MeegleBatchCommentTab } from './MeegleBatchCommentTab'
 import { MeegleBatchStatusTab } from './MeegleBatchStatusTab'
 import { MeegleBatchEditTab } from './MeegleBatchEditTab'
 import { MeegleBackfillTab } from './MeegleBackfillTab'
+import { MeegleSpaceBar } from '../components/MeegleSpace'
+import { DEFAULT_MEEGLE_SPACE, isMeegleSpace, type MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量工具（側邊欄原本的「Jira 批量開單」，Jira 停用後只剩 Meegle 五個分頁——2026-10-02 移除 Jira 第 3 步）。
@@ -28,13 +30,39 @@ type TabKey = typeof TABS[number]['key']
 const LAST_SHEET_KEY = 'meegle-tools-last-sheet'
 const readLastSheet = () => { try { return localStorage.getItem(LAST_SHEET_KEY) ?? '' } catch { return '' } }
 
+/**
+ * 雙空間（v5.10.0，CodeX 2026-10-05）：**每個分頁各自記住**選的空間；沒選過的分頁拿「最後一次選的」當初始值。
+ * 不用全域狀態同步——在 A 分頁切到正式，不能把 B 分頁已經選好的改掉。
+ * 切換空間＝那個分頁整個重來（用 key 重新掛載）：需求、人員、狀態選擇、預覽一起清掉，
+ * 舊空間晚回來的請求也只會落到已經卸載的元件，蓋不到新畫面。
+ */
+type SpaceTab = Exclude<TabKey, 'backfill'>
+const SPACE_KEY = (t: SpaceTab) => `meegle-tools-space-${t}`
+const LAST_SPACE_KEY = 'meegle-tools-space-last'
+function readSpace(key: string): MeegleSpace | null {
+  try { const v = localStorage.getItem(key); return isMeegleSpace(v) ? v : null } catch { return null }
+}
+
 export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account?: AccountInfo | null; isAdmin?: boolean; permissions?: string[] }) {
   const [tab, setTab] = useState<TabKey>(() => {
     try { const t = localStorage.getItem('meegle-tools-tab'); return (TABS.some(x => x.key === t) ? t : 'create') as TabKey } catch { return 'create' }
   })
-  const pick = (t: TabKey) => { setTab(t); try { localStorage.setItem('meegle-tools-tab', t) } catch { /* 無痕視窗等 */ } }
+  const pick = (t: TabKey) => { setTab(t); setBusy(false); try { localStorage.setItem('meegle-tools-tab', t) } catch { /* 無痕視窗等 */ } }
   const [lastSheet, setLastSheet] = useState(readLastSheet)
   const onSheetLoaded = (url: string) => { setLastSheet(url); try { localStorage.setItem(LAST_SHEET_KEY, url) } catch { /* 無痕視窗等 */ } }
+  const [spaces, setSpaces] = useState<Partial<Record<SpaceTab, MeegleSpace>>>(() => {
+    const out: Partial<Record<SpaceTab, MeegleSpace>> = {}
+    for (const t of ['create', 'comment', 'status', 'edit'] as const) { const v = readSpace(SPACE_KEY(t)); if (v) out[t] = v }
+    return out
+  })
+  const [lastSpace, setLastSpace] = useState<MeegleSpace>(() => readSpace(LAST_SPACE_KEY) ?? DEFAULT_MEEGLE_SPACE)
+  const spaceOf = (t: SpaceTab) => spaces[t] ?? lastSpace
+  const pickSpace = (t: SpaceTab, s: MeegleSpace) => {
+    setSpaces(m => ({ ...m, [t]: s })); setLastSpace(s); setBusy(false)
+    try { localStorage.setItem(SPACE_KEY(t), s); localStorage.setItem(LAST_SPACE_KEY, s) } catch { /* 無痕視窗等 */ }
+  }
+  // 分頁送出中 → 不能切空間（切了會把送到一半的畫面整個卸掉）
+  const [busy, setBusy] = useState(false)
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   return (
@@ -54,10 +82,11 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account
           >{t.label}</button>
         ))}
       </div>
-      {tab === 'create' && <MeegleBatchCreateTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
-      {tab === 'comment' && <MeegleBatchCommentTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
-      {tab === 'status' && <MeegleBatchStatusTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
-      {tab === 'edit' && <MeegleBatchEditTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab !== 'backfill' && <MeegleSpaceBar space={spaceOf(tab)} onChange={s => pickSpace(tab, s)} disabled={busy} />}
+      {tab === 'create' && <MeegleBatchCreateTab key={`create:${spaceOf('create')}`} space={spaceOf('create')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'comment' && <MeegleBatchCommentTab key={`comment:${spaceOf('comment')}`} space={spaceOf('comment')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
+      {tab === 'status' && <MeegleBatchStatusTab key={`status:${spaceOf('status')}`} space={spaceOf('status')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'edit' && <MeegleBatchEditTab key={`edit:${spaceOf('edit')}`} space={spaceOf('edit')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {tab === 'backfill' && <MeegleBackfillTab />}
     </div>
   )

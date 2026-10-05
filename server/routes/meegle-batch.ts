@@ -5,6 +5,7 @@
  * 權限：跟 Jira 批量工具同一個 page key（`jira`）。
  * 列規則（能不能送、人員怎麼對）在 shared/meegle-batch-rules.ts，預覽與這裡用同一份。
  * 防重複開單的落地紀錄在 meegle-batch-store.ts。CLI 契約與踩坑在 meegle-workitem.ts 檔頭。
+ * 雙空間（v5.10.0）：新請求必帶 space；重試／補推／查詢結果用紀錄上的 space（server/meegle-space.ts）。
  *
  * 詳細設計：docs/features/28-meegle.md
  */
@@ -23,11 +24,12 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
   adoptTarget, claimRow, expireStaleCreating, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
-  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, writebackStageText, upsertPersonMap, type BatchRow,
+  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
+import { otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import {
   confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
-  bulkVerdict, checkDirectoryLabel, listSpaceRoster, meegleTarget, resolveRoleIds, resolveUsersByEmail, searchUserKey, transitionToState, type CallOutcome, type DirectoryLabel, type UserMatch,
+  bulkVerdict, checkDirectoryLabel, defaultRunner, listSpaceRoster, meegleTarget, resolveRoleIds, resolveUsersByEmail, searchUserKey, transitionToState, type CallOutcome, type DirectoryLabel, type UserMatch,
 } from '../meegle-workitem.js'
 import { matchRoster, type RosterMatch, type RosterPerson } from '../../shared/meegle-people-match.js'
 import { MEEGLE_ROLE_DEFS, normAlias, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
@@ -67,19 +69,22 @@ function requireCtx(req: Request, res: Response): Ctx | null {
 function publicRow(r: BatchRow | undefined) {
   if (!r) return null
   // targetStateKey 一律回紀錄裡的，前端不自己記（CodeX review 4bc4fa9 [P2]）
-  return { batchId: r.batch_id, rowKey: r.row_key, targetStateKey: r.target_state, writebackPhase: r.writeback_phase, writebackMsg: r.writeback_msg, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
+  return { batchId: r.batch_id, rowKey: r.row_key, space: rowSpace(r.space), targetStateKey: r.target_state, writebackPhase: r.writeback_phase, writebackMsg: r.writeback_msg, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
 }
 
-// GET /api/meegle/batch/meta —— 需求清單、可推到的狀態、目標空間
+// GET /api/meegle/batch/meta?space=test|prod —— 需求清單、可推到的狀態、目標空間
 router.get('/api/meegle/batch/meta', async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const [reqs, states] = await Promise.all([listRequirements(ctx.token), listTaskStates(ctx.token)])
+    const space = spaceSchema.parse(req.query.space)
+    const env = spaceEnv(space)
+    const [reqs, states] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env)])
     if (reqs.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀取需求清單失敗：${reqs.message}` })
     res.json({
       ok: true,
-      projectKey: meegleTarget().projectKey,
+      space,
+      projectKey: meegleTarget(env).projectKey,
       requirements: reqs.value,
       // 狀態讀不到不影響開單，只是「開單後推到」選單會是空的
       states: states.kind === 'ok' ? states.value : [],
@@ -100,9 +105,11 @@ router.get('/api/meegle/batch/people', (req, res) => {
 router.post('/api/meegle/batch/previous', (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
-  const { sheetUrl } = z.object({ sheetUrl: z.string().max(2000) }).parse(req.body)
+  const { sheetUrl, space } = z.object({ sheetUrl: z.string().max(2000), space: spaceSchema }).parse(req.body)
+  const key = sheetSourceKey(sheetUrl)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
-  res.json({ ok: true, rows: listRowsFromSheet(db, sheetSourceKey(sheetUrl)).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
+  // otherSpace：這份 Sheet 已在另一個空間開過 → 畫面一讀就提示（送出也會被 claimRow 擋）
+  res.json({ ok: true, otherSpace: otherSpaceOf(db, 'meegle_batch_rows', 'sheet_url', key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // ── 人員名單（② 下拉選人、猜人用）──
@@ -111,13 +118,14 @@ router.post('/api/meegle/batch/previous', (req, res) => {
 const ROSTER_TTL_MS = 10 * 60_000
 const rosterCache = new Map<string, { at: number; users: RosterPerson[] }>()
 const rosterInflight = new Map<string, Promise<CallOutcome<RosterPerson[]>>>()
-async function getRoster(ctx: Ctx, refresh = false): Promise<CallOutcome<{ at: number; users: RosterPerson[] }>> {
-  const key = `${meegleTarget().projectKey}|${ctx.email}`
+async function getRoster(ctx: Ctx, space: MeegleSpace, refresh = false): Promise<CallOutcome<{ at: number; users: RosterPerson[] }>> {
+  const env = spaceEnv(space)
+  const key = `${meegleTarget(env).projectKey}|${ctx.email}`
   const hit = rosterCache.get(key)
   if (hit && !refresh && Date.now() - hit.at < ROSTER_TTL_MS) return { kind: 'ok', value: hit }
   // 同一人同時開兩個請求（進 ② 自動猜人＋下拉）只掃一次
   let p = rosterInflight.get(key)
-  if (!p) { p = listSpaceRoster(ctx.token); rosterInflight.set(key, p); void p.finally(() => rosterInflight.delete(key)) }
+  if (!p) { p = listSpaceRoster(ctx.token, defaultRunner, env); rosterInflight.set(key, p); void p.finally(() => rosterInflight.delete(key)) }
   const r = await p
   if (r.kind !== 'ok') return r
   const entry = { at: Date.now(), users: r.value }
@@ -130,8 +138,8 @@ router.post('/api/meegle/batch/people/roster', async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const { refresh } = z.object({ refresh: z.boolean().optional().default(false) }).parse(req.body ?? {})
-    const r = await getRoster(ctx, refresh)
+    const { refresh, space } = z.object({ refresh: z.boolean().optional().default(false), space: spaceSchema }).parse(req.body ?? {})
+    const r = await getRoster(ctx, space, refresh)
     if (r.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${r.message}` })
     res.json({ ok: true, users: r.value.users, fetchedAt: r.value.at })
   } catch (e) { next(e) }
@@ -142,8 +150,8 @@ router.post('/api/meegle/batch/people/suggest', async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const { aliases } = z.object({ aliases: z.array(z.string().trim().min(1).max(100)).max(200) }).parse(req.body)
-    const roster = await getRoster(ctx)
+    const { aliases, space } = z.object({ aliases: z.array(z.string().trim().min(1).max(100)).max(200), space: spaceSchema }).parse(req.body)
+    const roster = await getRoster(ctx, space)
     if (roster.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${roster.message}` })
     // 同批重複名字合併；已對照的不猜
     const todo = [...new Map(aliases.map(a => [normAlias(a), a])).values()].filter(a => !getPersonMap(db, [a])[normAlias(a)])
@@ -159,7 +167,7 @@ router.post('/api/meegle/batch/people/suggest', async (req, res, next) => {
         // 用 Meegle 上的寫法查（MQL 比對大小寫有別），每個顯示名稱都要唯一
         const checks: Array<{ label: string; result: CallOutcome<DirectoryLabel> }> = []
         for (const label of m.user.names) {
-          const result = await checkDirectoryLabel(ctx.token, label)
+          const result = await checkDirectoryLabel(ctx.token, label, defaultRunner, spaceEnv(space))
           checks.push({ label, result })
           if (result.kind !== 'ok' || result.value.kind !== 'unique') break
         }
@@ -178,13 +186,14 @@ router.post('/api/meegle/batch/people/verify', writeLimiter, async (req, res, ne
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const { alias, email, userKey } = z.object({ alias: z.string().trim().min(1).max(100), email: z.string().trim().email().max(200), userKey: z.string().regex(/^\d+$/).max(40).optional() }).parse(req.body)
+    // space：名單與「從既有單子找人」的退路用哪個空間查（對照表本身是全租戶共用的人，不分空間）
+    const { alias, email, userKey, space } = z.object({ alias: z.string().trim().min(1).max(100), email: z.string().trim().email().max(200), userKey: z.string().regex(/^\d+$/).max(40).optional(), space: spaceSchema }).parse(req.body)
     const want = email.toLowerCase()
     let match: UserMatch | null = null
     if (userKey) {
       // 選的是名單上的人：名單（伺服器 10 分鐘內自己掃的）裡 userKey 與 email 都要對得上；不在名單就用 user search 查這個 userKey
       // 不走名字 MQL——同名的人（Eric）用名字查會卡 3012
-      const roster = await getRoster(ctx)
+      const roster = await getRoster(ctx, space)
       if (roster.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${roster.message}` })
       const inRoster = roster.value.users.find(u => u.userKey === userKey)
       if (inRoster) {
@@ -205,7 +214,7 @@ router.post('/api/meegle/batch/people/verify', writeLimiter, async (req, res, ne
       // server tsconfig 沒開 strictNullChecks，聯集要用 'reason' in 縮小
       if ('reason' in match && match.reason === 'NOT_FOUND') {
         // 退路 1：user search 不是完整名錄（實測 Tim）→ 先看空間角色名單有沒有恰好一個人是這個 email
-        const roster = await getRoster(ctx)
+        const roster = await getRoster(ctx, space)
         const byEmail = roster.kind === 'ok' ? roster.value.users.filter(u => u.email.toLowerCase() === want) : []
         if (byEmail.length === 1) match = { ok: true, userKey: byEmail[0].userKey, email: byEmail[0].email, name: byEmail[0].name }
         else if (byEmail.length > 1) match = { ok: false, reason: 'MULTIPLE', message: `${email} 對到 ${byEmail.length} 個 Meegle 帳號` }
@@ -213,7 +222,7 @@ router.post('/api/meegle/batch/people/verify', writeLimiter, async (req, res, ne
           // 退路 2：名單讀不到時，改從既有單子的參與人找，email 必須完全相同
           const local = email.split('@')[0]
           const candidates = [alias, alias.split(/\s+/)[0], local, local.charAt(0).toUpperCase() + local.slice(1)]
-          const viaItems = await findUserViaParticipants(ctx.token, email, candidates)
+          const viaItems = await findUserViaParticipants(ctx.token, email, candidates, defaultRunner, spaceEnv(space))
           if (viaItems.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${viaItems.message}` })
           match = viaItems.value
         }
@@ -238,11 +247,12 @@ const rowSchema = z.object({
   targetStateKey: z.string().max(100).optional().default(''),
   /** 目標狀態的顯示名稱，只用在回填 Sheet「處理階段」的文字 */
   targetStateName: z.string().max(100).optional().default(''),
+  space: spaceSchema,
 })
 
-async function pushState(ctx: Ctx, batchId: string, rowKey: string, workItemId: string, targetStateKey: string) {
+async function pushState(ctx: Ctx, space: MeegleSpace, batchId: string, rowKey: string, workItemId: string, targetStateKey: string) {
   if (!targetStateKey) return
-  const t = await transitionToState(ctx.token, workItemId, targetStateKey)
+  const t = await transitionToState(ctx.token, workItemId, targetStateKey, defaultRunner, spaceEnv(space))
   if (t.kind === 'ok') finishState(db, batchId, rowKey, 'done', null)
   else finishState(db, batchId, rowKey, t.kind === 'rejected' ? 'failed' : 'unknown', t.message)
 }
@@ -255,7 +265,8 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const body = rowSchema.parse(req.body)
     expireStaleCreating(db, STALE_CREATING_MS)
 
-    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName })
+    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName, space: body.space })
+    if (claim.kind === 'space-mismatch' || claim.kind === 'space-conflict') return res.status(409).json({ ok: false, code: claim.kind === 'space-conflict' ? 'SPACE_CONFLICT' : 'SPACE_MISMATCH', message: spaceGuardMessage(claim, body.space) })
     if (claim.kind === 'source-mismatch') return res.status(409).json({ ok: false, code: 'SOURCE_MISMATCH', message: '這個批次是另一份 Sheet 的，請重新讀取 Sheet 後再送' })
     if (claim.kind === 'not-owner') return res.status(403).json({ ok: false, message: '這一列是別人送出的' })
     if (claim.kind === 'busy') return res.json({ ok: true, row: publicRow(claim.row) })
@@ -270,11 +281,12 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const fail = (message: string) => { finishCreate(db, body.batchId, body.rowKey, { phase: 'failed', message }); return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) }) }
 
     // 送出前再確認需求還在（預覽之後可能被刪掉或搬走）
-    const reqCheck = await confirmRequirement(ctx.token, body.requirementId)
+    const env = spaceEnv(body.space)
+    const reqCheck = await confirmRequirement(ctx.token, body.requirementId, defaultRunner, env)
     if (reqCheck.kind !== 'ok') return fail(`確認關聯需求失敗：${reqCheck.message}`)
     if (!reqCheck.value) return fail('關聯需求已不存在或不在允許的空間')
 
-    const roleIds = await resolveRoleIds(ctx.token)
+    const roleIds = await resolveRoleIds(ctx.token, defaultRunner, env)
     if (roleIds.kind !== 'ok') return fail(roleIds.message)
 
     const map = getPersonMap(db, Object.values(body.roles).flat())
@@ -290,16 +302,16 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
       roles[key] = keys
     }
 
-    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles }, roleIds.value)
+    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles }, roleIds.value, defaultRunner, env)
     if (created.kind === 'rejected') return fail(created.message)
     if (created.kind === 'unknown') {
       finishCreate(db, body.batchId, body.rowKey, { phase: 'unknown', message: created.message })
       return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
     }
     // 網址自己組（空間 simple_name／類型 api_name），CLI 回的 url 點了不會跳到單——見 detailUrlFor
-    finishCreate(db, body.batchId, body.rowKey, { phase: 'created', workItemId: created.value.workItemId, url: await detailUrlFor(ctx.token, created.value.workItemId) })
-    log('ok', getClientIP(req), ctx.email, 'Meegle 開單', `#${created.value.workItemId} ${body.name}${unmapped.length ? `（未對照留空：${[...new Set(unmapped)].join('、')}）` : ''}`)
-    await pushState(ctx, body.batchId, body.rowKey, created.value.workItemId, body.targetStateKey)
+    finishCreate(db, body.batchId, body.rowKey, { phase: 'created', workItemId: created.value.workItemId, url: await detailUrlFor(ctx.token, created.value.workItemId, defaultRunner, env) })
+    log('ok', getClientIP(req), ctx.email, 'Meegle 開單', `${body.space === 'prod' ? '［正式］' : '［測試］'}#${created.value.workItemId} ${body.name}${unmapped.length ? `（未對照留空：${[...new Set(unmapped)].join('、')}）` : ''}`)
+    await pushState(ctx, body.space, body.batchId, body.rowKey, created.value.workItemId, body.targetStateKey)
     // 推完狀態才寫，「處理階段」才寫得對（已推到 X／推到 X 未完成）
     await writeback(body.batchId, body.rowKey)
     res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)), unmapped: [...new Set(unmapped)] })
@@ -317,7 +329,8 @@ router.post('/api/meegle/batch/row/retry-state', writeLimiter, async (req, res, 
     if (row.create_phase !== 'created' || !row.work_item_id) return res.status(409).json({ ok: false, message: '這一列還沒開單成功' })
     const target = adoptTarget(db, body.batchId, body.rowKey, body.targetStateKey, Date.now(), body.targetStateName)
     if (!target) return res.status(400).json({ ok: false, message: '這一列沒有目標狀態，請先在「開單後推到」選一個' })
-    await pushState(ctx, body.batchId, body.rowKey, row.work_item_id, target)
+    // 空間用紀錄上的，不收前端（CodeX）
+    await pushState(ctx, rowSpace(row.space), body.batchId, body.rowKey, row.work_item_id, target)
     await writeback(body.batchId, body.rowKey)
     res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
   } catch (e) { next(e) }
@@ -333,24 +346,26 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
     if (row.create_phase !== 'unknown') {
-      if (needsStatePush(row)) await pushState(ctx, row.batch_id, row.row_key, row.work_item_id!, row.target_state)
+      if (needsStatePush(row)) await pushState(ctx, rowSpace(row.space), row.batch_id, row.row_key, row.work_item_id!, row.target_state)
       if (row.create_phase === 'created') await writeback(body.batchId, body.rowKey)
       return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
     }
 
     // 建立日期只到「日」，往前多抓一天避免跨日／時區
     const since = new Date(row.created_at - 24 * 3600_000).toISOString().slice(0, 10)
-    const found = await findTasksByName(ctx.token, row.name, row.requirement_id, since)
+    const space = rowSpace(row.space)
+    const env = spaceEnv(space)
+    const found = await findTasksByName(ctx.token, row.name, row.requirement_id, since, defaultRunner, env)
     if (found.kind !== 'ok') return res.status(502).json({ ok: false, message: `查詢失敗：${found.message}` })
     // 排除已經記在別列的單號（同一批裡可能有同名的列）
-    const taken = new Set((db.prepare('SELECT work_item_id FROM meegle_batch_rows WHERE work_item_id IS NOT NULL').all() as { work_item_id: string }[]).map(r => r.work_item_id))
+    const taken = takenWorkItemIds(db, space)
     const candidates = found.value.filter(f => !taken.has(f.workItemId))
     if (candidates.length === 1) {
       const id = candidates[0].workItemId
-      resolveUnknown(db, body.batchId, body.rowKey, { workItemId: id, url: await detailUrlFor(ctx.token, id) })
+      resolveUnknown(db, body.batchId, body.rowKey, { workItemId: id, url: await detailUrlFor(ctx.token, id, defaultRunner, env) })
       // 查回來的單還沒推過狀態，照原本送出時的目標補推（CodeX review 999f895 [P2]）
       const after = getBatchRow(db, body.batchId, body.rowKey)
-      if (after && needsStatePush(after)) await pushState(ctx, after.batch_id, after.row_key, after.work_item_id!, after.target_state)
+      if (after && needsStatePush(after)) await pushState(ctx, space, after.batch_id, after.row_key, after.work_item_id!, after.target_state)
       await writeback(body.batchId, body.rowKey)
     } else if (candidates.length === 0) {
       resolveUnknown(db, body.batchId, body.rowKey, null)
@@ -389,11 +404,12 @@ router.post('/api/meegle/batch/finish', writeLimiter, (req, res) => {
   }).parse(req.body)
   const rows = db.prepare('SELECT * FROM meegle_batch_rows WHERE batch_id = ? AND owner_email = ?').all(batchId, account.email.toLowerCase()) as BatchRow[]
   const count = (p: string) => rows.filter(r => r.create_phase === p).length
+  const space = rowSpace(rows[0]?.space)
   addHistory('meegle-batch-create', 'Meegle 批次開單',
-    `開單 ${count('created')} 筆${count('unknown') ? `，待確認 ${count('unknown')} 筆` : ''}${count('failed') ? `，失敗 ${count('failed')} 筆` : ''}`,
+    `［${space === 'prod' ? '正式' : '測試'}］開單 ${count('created')} 筆${count('unknown') ? `，待確認 ${count('unknown')} 筆` : ''}${count('failed') ? `，失敗 ${count('failed')} 筆` : ''}`,
     // 追溯用（使用者要求「看得到從哪一列開成哪張單」）：Sheet 連結＋每列的名稱、單號連結、關聯需求、處理階段、回填結果
     {
-      batchId, sheetUrl,
+      batchId, sheetUrl, space,
       rows: rows.map(r => ({
         row: r.row_key, name: r.name, phase: r.create_phase, workItemId: r.work_item_id, url: r.url,
         requirementId: r.requirement_id, requirementName: requirementNames[r.requirement_id] ?? '',

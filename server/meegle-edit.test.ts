@@ -63,7 +63,7 @@ const newDb = () => { const db = new Database(':memory:'); initMeegleEditSchema(
 let n = 0
 function input(raws: RawEdit[], images: EditPayload['images'] = [], baseline = base(), ctx = CTX) {
   const plan = resolveRow(raws, ctx)
-  return { batchId: `b${++n}`, workItemId: '15190441', sourceKey: 'lark:t:s', sheetUrl: 'u', sheetRow: 3, summary: 's', ownerEmail: 'e@t',
+  return { batchId: `b${++n}`, workItemId: '15190441', sourceKey: 'lark:t:s', sheetUrl: 'u', sheetRow: 3, summary: 's', space: 'test' as const, ownerEmail: 'e@t',
     content: { raws, baseline, planHash: planHash(plan.edits, images), images } }
 }
 const phases = (db: Database.Database, b: string) => Object.fromEntries(getEditSteps(db, b, '15190441').map(s => [s.step, s.phase]))
@@ -181,7 +181,7 @@ const phases = (db: Database.Database, b: string) => Object.fromEntries(getEditS
 // 12. 認領
 {
   const db = newDb()
-  const a = { batchId: 'x1', workItemId: '1', sourceKey: 's', sheetUrl: '', sheetRow: 2, summary: '', ownerEmail: 'e@t', payload: '{}' }
+  const a = { batchId: 'x1', workItemId: '1', sourceKey: 's', sheetUrl: '', sheetRow: 2, summary: '', space: 'test' as const, ownerEmail: 'e@t', payload: '{}' }
   eq('認領 claimed', claimEditRow(db, a).kind, 'claimed')
   beginEditStep(db, 'x1', '1', 'fields')
   eq('同單別批次在跑 → busy', claimEditRow(db, { ...a, batchId: 'x2' }).kind, 'busy')

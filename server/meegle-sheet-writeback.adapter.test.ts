@@ -67,7 +67,7 @@ const cols = { 'Meegle 單號': '#1', '處理階段': '已開單（Meegle）', '
   const { initMeegleBatchSchema, claimRow, finishCreate } = await import('./meegle-batch-store.js')
   const { writebackRow } = await import('./meegle-sheet-writeback.js')
   const db = new Database(':memory:'); initMeegleBatchSchema(db)
-  claimRow(db, { batchId: 'B', rowKey: '5', ownerEmail: 'a@x.tw', sheetUrl: 'lark:TOK:S1', name: '修正登入', requirementId: '1', targetState: '' })
+  claimRow(db, { batchId: 'B', rowKey: '5', space: 'test' as const, ownerEmail: 'a@x.tw', sheetUrl: 'lark:TOK:S1', name: '修正登入', requirementId: '1', targetState: '' })
   finishCreate(db, 'B', '5', { phase: 'created', workItemId: '15191459', url: 'https://meegle/x' })
   let batchBody: { valueRanges?: Array<{ range: string }> } | null = null
   calls.length = 0

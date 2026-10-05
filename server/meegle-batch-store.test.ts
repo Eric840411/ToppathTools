@@ -18,7 +18,7 @@ function eq(name: string, got: unknown, want: unknown) {
 }
 const fresh = () => { const db = new Database(':memory:'); initMeegleBatchSchema(db); return db }
 const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string }> = {}) =>
-  ({ batchId: 'B', rowKey: '3', ownerEmail: 'a@x.tw', name: 'Bug', requirementId: '15170734', targetState: '可本機測試', ...over })
+  ({ batchId: 'B', rowKey: '3', space: 'test' as const, ownerEmail: 'a@x.tw', name: 'Bug', requirementId: '15170734', targetState: '可本機測試', ...over })
 
 {
   const db = fresh()
@@ -81,7 +81,7 @@ const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string
   claimRow(db, { ...row(), sheetUrl: 'S1' }); finishCreate(db, 'B', '3', { phase: 'created', workItemId: '11', url: 'u' })
   claimRow(db, { ...row({ rowKey: '4' }), sheetUrl: 'S1' }); finishCreate(db, 'B', '4', { phase: 'failed', message: 'x' })
   claimRow(db, { ...row({ batchId: 'C' }), sheetUrl: 'S2' }); finishCreate(db, 'C', '3', { phase: 'created', workItemId: '12', url: 'u' })
-  eq('同一份 Sheet 送過的列（跨批次）不含 failed、不混別份 Sheet', listRowsFromSheet(db, 'S1').map(r => r.work_item_id), ['11'])
+  eq('同一份 Sheet 送過的列（跨批次）不含 failed、不混別份 Sheet', listRowsFromSheet(db, 'S1', 'test').map(r => r.work_item_id), ['11'])
 }
 // ── CodeX review 999f895 [P1]：重整後 batchId 換新，不能繞過防重複 ──
 {
@@ -92,7 +92,7 @@ const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string
   eq('回傳的是原批次那筆，前端才接得回去', (claimRow(db, { ...row({ batchId: 'NEW' }), sheetUrl: 'S1' }) as { row: { batch_id: string } }).row.batch_id, 'B')
   eq('新批次沒有被寫進任何紀錄', db.prepare("SELECT COUNT(*) c FROM meegle_batch_rows WHERE batch_id = 'NEW'").get(), { c: 0 })
   eq('別份 Sheet 的同列號不受影響', claimRow(db, { ...row({ batchId: 'X' }), sheetUrl: 'S2' }).kind, 'claimed')
-  eq('待確認的列會出現在 Sheet 歷史裡（前端要接回原批次）', listRowsFromSheet(db, 'S1').map(r => [r.batch_id, r.create_phase]), [['B', 'unknown']])
+  eq('待確認的列會出現在 Sheet 歷史裡（前端要接回原批次）', listRowsFromSheet(db, 'S1', 'test').map(r => [r.batch_id, r.create_phase]), [['B', 'unknown']])
 }
 // ── CodeX review 999f895 [P1]：換 Sheet 不能沿用舊批次 ──
 {

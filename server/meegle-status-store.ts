@@ -8,6 +8,7 @@
  */
 import type Database from 'better-sqlite3'
 import type { DateMode } from '../shared/meegle-status-rules.js'
+import { addSpaceColumn, spaceGuard, type MeegleSpace, type SpaceGuard } from './meegle-space.js'
 
 type DB = Database.Database
 
@@ -18,6 +19,8 @@ export type StatusRow = {
   work_item_id: string; owner_email: string; target_key: string; target_name: string; date_mode: DateMode
   /** 指定日期（set 模式、Sheet 有填才有）；台北當天 00:00 的毫秒 */
   sheet_date: number | null
+  /** 哪個 Meegle 空間（v5.10.0；舊紀錄是 test） */
+  space: MeegleSpace
   created_at: number; updated_at: number
 }
 export type StatusStepRow = { batch_id: string; row_key: string; step: StatusStep; phase: StatusPhase; message: string | null; attempt_at: number | null; updated_at: number; data: string | null }
@@ -42,6 +45,7 @@ export function initMeegleStatusSchema(db: DB) {
       PRIMARY KEY (batch_id, row_key, step)
     );
   `)
+  addSpaceColumn(db, 'meegle_status_rows')
 }
 
 export function getStatusRow(db: DB, batchId: string, rowKey: string): StatusRow | undefined {
@@ -57,6 +61,7 @@ export function dateDataOf(step: Pick<StatusStepRow, 'data'> | undefined): DateD
 export type StatusClaimInput = {
   batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string
   ownerEmail: string; targetKey: string; targetName: string; dateMode: DateMode; sheetDate: number | null
+  space: MeegleSpace
 }
 export type StatusClaimResult =
   | { kind: 'claimed' }
@@ -64,6 +69,7 @@ export type StatusClaimResult =
   | { kind: 'not-owner' }
   | { kind: 'source-mismatch' }
   | { kind: 'target-changed' }
+  | SpaceGuard
 
 /**
  * 認領一列（IMMEDIATE 交易）：同一張單在任何批次有 creating 就不給跑——兩個分頁同時轉同一張單只有一個拿得到。
@@ -75,6 +81,8 @@ export function claimStatusRow(db: DB, input: StatusClaimInput, now = Date.now()
   return db.transaction((): StatusClaimResult => {
     const other = db.prepare('SELECT 1 FROM meegle_status_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)
     if (other) return { kind: 'source-mismatch' }
+    const sg = spaceGuard(db, 'meegle_status_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    if (sg) return sg
     const live = db.prepare(`SELECT s.batch_id, s.step FROM meegle_status_steps s JOIN meegle_status_rows r ON r.batch_id = s.batch_id AND r.row_key = s.row_key
       WHERE r.work_item_id = ? AND s.phase = 'creating' LIMIT 1`).get(R) as { batch_id: string; step: string } | undefined
     if (live) return { kind: 'busy', batchId: live.batch_id, step: live.step }
@@ -88,9 +96,9 @@ export function claimStatusRow(db: DB, input: StatusClaimInput, now = Date.now()
       return { kind: 'claimed' }
     }
     db.prepare(`INSERT INTO meegle_status_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email,
-      target_key, target_name, date_mode, sheet_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      target_key, target_name, date_mode, sheet_date, space, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(input.batchId, R, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, R, owner,
-        input.targetKey, input.targetName, input.dateMode, input.sheetDate, now, now)
+        input.targetKey, input.targetName, input.dateMode, input.sheetDate, input.space, now, now)
     const ins = db.prepare('INSERT INTO meegle_status_steps (batch_id, row_key, step, phase, updated_at) VALUES (?, ?, ?, ?, ?)')
     for (const s of ['state', 'date', 'writeback'] as const) ins.run(input.batchId, R, s, 'none', now)
     return { kind: 'claimed' }
@@ -118,9 +126,9 @@ export function expireStaleStatusSteps(db: DB, olderThanMs: number, now = Date.n
 }
 
 /** 這份 Sheet 之前送過的列（每張單最新一批），讓畫面接回「日期待確認／補寫回」。 */
-export function listPreviousStatusForSource(db: DB, sourceKey: string): Array<StatusRow & { steps: StatusStepRow[] }> {
+export function listPreviousStatusForSource(db: DB, sourceKey: string, space: MeegleSpace): Array<StatusRow & { steps: StatusStepRow[] }> {
   const rows = db.prepare(`SELECT r.* FROM meegle_status_rows r
-    WHERE r.source_key = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_status_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)`)
-    .all(sourceKey) as StatusRow[]
+    WHERE r.source_key = ? AND r.space = ? AND r.created_at = (SELECT MAX(r2.created_at) FROM meegle_status_rows r2 WHERE r2.source_key = r.source_key AND r2.work_item_id = r.work_item_id)`)
+    .all(sourceKey, space) as StatusRow[]
   return rows.map(r => ({ ...r, steps: getStatusSteps(db, r.batch_id, r.row_key) }))
 }

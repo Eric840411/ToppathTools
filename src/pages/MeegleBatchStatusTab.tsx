@@ -9,6 +9,8 @@ import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBatchStatusTab.css'
+import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量更新狀態（Jira 頁「Meegle 狀態」分頁）。取代 Jira 批量更新狀態，Sheet 不變。
@@ -52,7 +54,7 @@ const fmtDay = (ms: number | null | undefined) => (ms == null ? '未設定' : ta
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 const datePending = (steps: StepInfo[]) => steps.some(s => s.step === 'date' && s.phase === 'failed' && s.date?.pending)
 
-export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchStatusTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // 共用：狀態清單、單子網址前綴
@@ -62,6 +64,9 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
 
   // ① 讀取與選列
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
+  // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
+  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
+  const [confirmProd, prodModal] = useProdConfirm(space)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -94,7 +99,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    api<{ states: StateOption[]; detailBase: string }>('/api/meegle/status/meta', {})
+    api<{ states: StateOption[]; detailBase: string }>('/api/meegle/status/meta', { space })
       .then(j => { setStates(j.states); setDetailBase(j.detailBase) })
       .catch(e => setMetaError((e as Error).message))
   }, [])
@@ -119,8 +124,8 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
     setLoading(true); setLoadError('')
     try {
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[] }>('/api/meegle/status/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
-      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/status/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
+      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
       onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
@@ -147,7 +152,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
   async function readCurrent(workItemId: string) {
     setCurrents(c => ({ ...c, [workItemId]: { status: 'loading' } }))
     try {
-      const j = await api<{ stateKey: string; stateName: string; dates: Record<string, number | null> }>('/api/meegle/status/current', { workItemId })
+      const j = await api<{ stateKey: string; stateName: string; dates: Record<string, number | null> }>('/api/meegle/status/current', { workItemId, space })
       setCurrents(c => ({ ...c, [workItemId]: { status: 'ok', stateKey: j.stateKey, stateName: j.stateName, dates: j.dates } }))
     } catch (e) { setCurrents(c => ({ ...c, [workItemId]: { status: 'error', error: (e as Error).message } })) }
   }
@@ -205,9 +210,13 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
   const focusPlan = plans.find(p => p.rowIndex === focus) ?? plans[0]
 
   // ── ④ 送出（同時最多 3 列：每列可能要等自動化 20 秒）──
+  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
+
   async function submit() {
     const list = sendable
-    if (!list.length) return
+    if (!list.length || otherSpace) return
+    // 正式空間：每批送出前確認一次（CodeX）
+    if (!(await confirmProd({ op: 'Meegle 更新狀態', sheet: loadedUrl, count: list.length }))) return
     const id = batchId || newStepId()
     if (!batchId) setBatchId(id)
     setStep(4); setRunning(true); setProgress({ done: 0, total: list.length })
@@ -220,7 +229,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
           try {
             const j = await api<{ claim: { kind: string }; steps: StepInfo[] }>('/api/meegle/status/row', {
               batchId: id, sheetUrl: loadedUrl, sheetRow: p.rowIndex, summary: p.summary, workItemId: p.workItemId,
-              targetKey: t.key, targetName: t.name, dateMode, sheetDate: p.date?.sheetMs ?? null,
+              targetKey: t.key, targetName: t.name, dateMode, sheetDate: p.date?.sheetMs ?? null, space,
             })
             res = { rowIndex: p.rowIndex, workItemId: p.workItemId, summary: p.summary, batchId: id, target: t.name, steps: j.steps, claim: j.claim.kind }
           } catch (e) {
@@ -264,6 +273,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
 
   return (
     <div className="mb-page mc-page ms-page">
+      {prodModal}
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量更新狀態</h2>
@@ -298,6 +308,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
               </button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
+            <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。處理階段已是「{STATUS_STAGE_DONE}」的列預設不勾。</p>
             {records && (
               <>
@@ -459,7 +470,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initi
             <footer className="mb-foot ms-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
               <span className="mb-foot-sum">已選 <b className="ms-n-sel">{checked.size}</b> ／ 可送 <b className="ms-n-ok">{sendable.length}</b> ／ 受阻 <b className="ms-n-bad">{blockedCount}</b></span>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running} onClick={() => void submit()}>前往送出</button>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace} onClick={() => void submit()}>前往送出</button>
             </footer>
           </div>
         )}

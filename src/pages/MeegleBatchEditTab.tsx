@@ -8,6 +8,8 @@ import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBatchStatusTab.css'
 import './MeegleBatchEditTab.css'
+import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量修改（Jira 頁「Meegle 修改」分頁）。取代 Jira 批量修改，Sheet 不變。
@@ -60,7 +62,7 @@ const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.ph
 const splitNames = (s: string) => s.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean)
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
-export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [options, setOptions] = useState<Record<string, Option[]>>({})
   const [people, setPeople] = useState<Person[]>([])
@@ -69,6 +71,9 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
 
   // ① 讀取與選列
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
+  // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
+  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
+  const [confirmProd, prodModal] = useProdConfirm(space)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -103,7 +108,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
   const previewSeq = useRef<Record<number, number>>({})
 
   useEffect(() => {
-    api<{ options: Record<string, Option[]>; people: Person[]; detailBase: string }>('/api/meegle/edit/meta', {})
+    api<{ options: Record<string, Option[]>; people: Person[]; detailBase: string }>('/api/meegle/edit/meta', { space })
       .then(j => { setOptions(j.options); setPeople(j.people); setDetailBase(j.detailBase) })
       .catch(e => setMetaError((e as Error).message))
   }, [])
@@ -125,8 +130,8 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
     setLoading(true); setLoadError('')
     try {
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[] }>('/api/meegle/edit/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
-      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/edit/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
+      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
       onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
@@ -193,7 +198,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
     setPreviews(p => ({ ...p, [rowIndex]: { ...(p[rowIndex] ?? {}), status: 'loading' } }))
     try {
       const images = (imgs ?? atts[rowIndex]?.images ?? []).map(a => ({ cacheId: a.cacheId, name: a.filename }))
-      const j = await api<{ issues: string[]; changes: Change[]; planHash: string; baseline: Record<string, string | string[]> }>('/api/meegle/edit/preview', { workItemId: r.workItemId, raws: rawsFor(r), images })
+      const j = await api<{ issues: string[]; changes: Change[]; planHash: string; baseline: Record<string, string | string[]> }>('/api/meegle/edit/preview', { workItemId: r.workItemId, raws: rawsFor(r), images, space })
       if (previewSeq.current[rowIndex] !== seq) return   // 晚回的舊預覽不蓋新的
       setPreviews(p => ({ ...p, [rowIndex]: { status: 'ok', issues: j.issues, changes: j.changes, planHash: j.planHash, baseline: j.baseline } }))
     } catch (e) {
@@ -244,9 +249,13 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
   }, [overrides])
 
   // ── ④ 送出（同時最多 2 列）──
+  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
+
   async function submit() {
     const list = sendable
-    if (!list.length) return
+    if (!list.length || otherSpace) return
+    // 正式空間：每批送出前確認一次（CodeX）
+    if (!(await confirmProd({ op: 'Meegle 修改', sheet: loadedUrl, count: list.length }))) return
     const id = batchId || newStepId()
     if (!batchId) setBatchId(id)
     setStep(4); setRunning(true); setProgress({ done: 0, total: list.length })
@@ -262,7 +271,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
             const j = await api<{ claim: { kind: string; message?: string }; steps: StepInfo[] }>('/api/meegle/edit/row', {
               batchId: id, sheetUrl: loadedUrl, sheetRow: r.rowIndex, summary: r.summary, workItemId: r.workItemId,
               raws: rawsFor(r), images: (a?.images ?? []).map(x => ({ cacheId: x.cacheId, name: x.filename })),
-              baseline: pv?.baseline ?? {}, planHash: pv?.planHash,
+              baseline: pv?.baseline ?? {}, planHash: pv?.planHash, space,
             })
             res = { rowIndex: r.rowIndex, workItemId: r.workItemId, summary: r.summary, batchId: id, steps: j.steps, claim: j.claim.kind }
           } catch (e) {
@@ -318,6 +327,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
 
   return (
     <div className="mb-page mc-page ms-page me-page">
+      {prodModal}
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量修改</h2>
@@ -348,6 +358,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
               <button type="button" className="mb-btn mb-btn--primary" disabled={loading || !sheetUrl.trim()} onClick={() => void loadSheet()}><Icon name="link" /> {loading ? '讀取中…' : records ? '重新讀取' : '讀取資料'}</button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
+            <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。處理階段已是「{EDIT_STAGE_DONE}」的列預設不勾。</p>
             {records && (
               <>
@@ -536,7 +547,7 @@ export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initial
             <footer className="mb-foot me-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
               {Object.values(overrides).some(o => Object.keys(o).length) && <span className="me-ov-note"><Icon name="check" /> 單列修改已套用</span>}
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running} onClick={() => void submit()}>送出 {sendable.length} 筆</button>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace} onClick={() => void submit()}>送出 {sendable.length} 筆</button>
               {blocked.length > 0 && <span className="mb-muted">受阻列已排除</span>}
             </footer>
           </div>

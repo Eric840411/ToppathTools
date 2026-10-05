@@ -96,7 +96,7 @@ const newDb = () => { const db = new Database(':memory:'); initMeegleStatusSchem
 let n = 0
 const payload = (over: Record<string, unknown> = {}) => ({
   batchId: `b${++n}`, workItemId: '15190441', sourceKey: 'lark:tok:sheet', sheetUrl: 'u', sheetRow: 5, summary: 's',
-  ownerEmail: 'eric.wu@toppath.tw', targetKey: 'rMaPpRVhj', targetName: 'C服', dateMode: 'keep' as const, sheetDate: null as number | null, ...over,
+  space: 'test' as const, ownerEmail: 'eric.wu@toppath.tw', targetKey: 'rMaPpRVhj', targetName: 'C服', dateMode: 'keep' as const, sheetDate: null as number | null, ...over,
 })
 const phases = (db: Database.Database, b: string) => Object.fromEntries(getStatusSteps(db, b, '15190441').map(s => [s.step, s.phase]))
 /** 送完之後再讓時間往前跑 60 秒：還沒觸發的自動化都觸發完，看最後留在 Meegle 上的值 */

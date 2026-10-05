@@ -46,7 +46,7 @@ const person = (page, alias) => page.locator('.mb-person', { has: page.locator('
 
 async function baseRoutes(ctx, recs = records) {
   await ctx.addCookies([{ name: 'toppath_auth', value: sess.sid, domain: HOST, path: '/' }])
-  await ctx.route('**/api/meegle/batch/meta', r => r.fulfill({ json: { ok: true, requirements: [{ id: '900001', name: '假需求' }], states: [], statesError: null } }))
+  await ctx.route('**/api/meegle/batch/meta*', r => r.fulfill({ json: { ok: true, requirements: [{ id: '900001', name: '假需求' }], states: [], statesError: null } }))
   await ctx.route('**/api/meegle/batch/people', r => r.fulfill({ json: { ok: true, people: [] } }))
   await ctx.route('**/api/meegle/batch/previous', r => r.fulfill({ json: { ok: true, rows: [] } }))
   await ctx.route('**/api/lark/sheets/records', async r => r.fulfill({ json: { ok: true, records: typeof recs === 'function' ? await recs(r) : recs } }))
