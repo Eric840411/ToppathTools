@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.3.0'
+export const APP_VERSION = '5.3.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.3.1', date: '2026-10-05', changes: ['style(側欄，普通版)：Meegle 批量工具的圖示字母 J → M、TestCase 生成 L → T（原本沿用 Jira／Lark 的字首，使用者回報）'] },
   { version: '5.3.0', date: '2026-10-05', changes: ['feat(側欄)：**側欄可收起成圖示列**（使用者把工具嵌在 Lark 裡，兩條側欄太擠）。底部「收起側欄」；收起後滑過圖示顯示名稱（修仙版附原功能名），OSM Tools／Game Show 點了在旁邊彈出子選單（選完、點外面、Esc 關閉，鍵盤可操作）。記住你的選擇；沒選過時視窗窄於 1100px 預設收起。普通版、修仙版都有，動畫約 0.2 秒、系統減少動態效果時不播。樣稿使用者確認、行為 CodeX 確認'] },
   { version: '5.2.1', date: '2026-10-05', changes: ['fix(登入 Session)：**登出只清 cookie、session 留在冊直到 7 天過期**（Dashboard 累積到 274 組）→ 登出改成真的刪除', 'feat(登入 Session)：新增 POST /api/auth/sessions/prune-others——清掉自己帳號的其他登入、保留目前這個，只能動自己的帳號（給批次腳本清舊 session 用）', 'fix(登入 Session)：server 與 worker 各有一份記憶體快取，一邊刪了另一邊還認——驗 session 一律再查 DB；Dashboard 計數改讀 DB', 'fix(UAT 排程)：排程借用擁有者的登入 session，跑到一半被登出／清掉時後面幾支會全部失敗 → 每支腳本前重新挑還活著的 session（CodeX review）。注意：擁有者把所有 session 都登出後，排程會停到他重新登入'] },
   { version: '5.2.0', date: '2026-10-05', changes: ['feat(Meegle 開單 ② 人員對照)：**從 Meegle 名單選人＋自動猜人**（使用者要求：Sheet 名字寫法常變、每種都要手打 email）。進 ② 自動讀「空間角色人員」名單（這個空間任務項角色上出現過的人，user search 不是完整名錄所以改掃單子；快取 10 分鐘），email 格可打名字或 email 從名單選。未對照的名字自動猜人並預填（只預填，一定要按確認才寫入）：名字完全相同、名單唯一、Meegle 租戶名錄也唯一（MQL 同名會回 3012）→ 綠色、可「全部確認」；只對到第一個詞／email 前綴、或名錄有同名（如 Eric 有兩個帳號）→ 黃色、逐列確認。從名單選人時伺服器用 user_key 重新核對 email，不相信前端。晚回的建議不蓋手填、換 Sheet 作廢。CodeX 兩輪確認', 'fix(Meegle 人員查詢，潛在)：user search 一次查多個時 `--user-keys a b` 實測只查第一個 → 每個值重複旗標（目前呼叫端都只查一個，之前沒出事）'] },
