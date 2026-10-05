@@ -459,6 +459,7 @@ session 在那個空窗裡看起來就像不存在。
 | 管理模板圖片 | 上傳比對模板圖（模板管理 Tab）|
 | 複製機台配置 | 機台設定列表「複製配置」按鈕，帶入既有機台的所有設定（模板/RTMP/隨機下注等）當新機台的起點，只需重新輸入機台類型（唯一主鍵，不可留空/重複），不用從頭重新填一次 |
 | Agent 下載安裝 | 統一在「Local Agent」頁面下載安裝（Windows install.bat / macOS install-mac.command，含 token），安裝後的 agent 具備 autospin capability |
+| 撤銷其他 token（v5.4.0） | `POST /api/local-agent/tokens/revoke-others {keepId}`：撤掉自己其他所有有效 token、只留 keepId，同時斷掉用那些 token 連進來的 agent，回傳撤了幾把。keepId 不是自己的有效 token → 400、零變更。⚠️ 留的是離線 token 的話，目前連線中的 agent 一樣會斷 |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
 | Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |
 | Discord 定時彙總報告 | 長時間穩定性統計，跟上面即時彙報通知是獨立訊息（每次到間隔另發一則新訊息，不覆蓋前一則）——顯示 errcode 次數/RECOVER 斷線重連次數/kickout 次數/CR checks 與無回應次數/Spin 數/中獎數/總贏分，間隔（分鐘）與顯示欄位皆可在「Discord 通知」設定頁調整，預設關閉 |
@@ -492,3 +493,12 @@ session 在那個空窗裡看起來就像不存在。
 
 
 > **v5.1.0 起**：通知（執行進度卡、定時彙總報告、Live Ledger 告警）可以改發 Lark 或雙發，見 `29-lark-notify.md`。預設仍是 Discord，以下 Discord 相關說明照舊適用。
+
+
+### Local Agent token 的身分（v5.4.0，CodeX review P1）
+發 token（兩個 installer）、列表、單筆／批次撤銷**一律用簽章驗過的登入身分**（`agentTokenOwner()` → `getAuthEmailFromContext()`），沒登入回 401。原本用 `getOperatorFromContext()`——這些路由在 worker 上跑，那個值來自 `x-auth-user` header，worker 綁 0.0.0.0，連得到 port 的人能冒名發 token、看別人的 agent、撤別人的 token。
+- 列表：有效的全部列、已撤銷只列最近 50 把（原本整份 LIMIT 50，批次腳本發太多之後還有效的舊 token 看不到）
+- `/api/machine-test/status` 也一樣改（原本能看到別人的 agent、hostname、進行中的 sessionId）；兩支 status 沒登入回 401
+- 撤銷只關 socket、不先刪 `agentConnections`：worker 的 ws close handler 要靠裡面的 sessionId 收掉進行中的任務。**CLOSING 也不刪**（正在關時又撤一次，刪了 handler 就拿不到 sessionId），只有已 CLOSED 的殘留才刪。規則在 `server/agent-token-disconnect.ts`，測試 `npx tsx server/agent-token-disconnect.test.ts`（10 條；把 CLOSING 也刪會紅）
+- 批次撤銷的 keepId 檢查與 UPDATE 在同一個 transaction
+- 驗證：真伺服器實測偽造 header 打 worker（status／install.bat／撤銷）全擋、跨帳號撤不到、無效 keepId 零變更、超過 50 把時最舊的有效 token 仍列得出、重複撤銷回 0

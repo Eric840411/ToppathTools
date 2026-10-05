@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.3.1'
+export const APP_VERSION = '5.4.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.4.0', date: '2026-10-05', changes: ['feat(Local Agent)：新增 POST /api/local-agent/tokens/revoke-others——撤掉自己其他所有有效 token、只留指定那把，同時斷掉用那些 token 連進來的 agent（批次腳本每次下載 install.bat 都發新 token，累積太多）。指定的不是自己的有效 token 就整個不做', 'fix(Local Agent／機台測試，安全)：發 token、列表、撤銷、機台測試狀態原本認的是 header 身分，在 worker 上可偽造——能冒名發 token、看別人的 agent／進行中的 session、撤別人的 token → 一律改用簽章驗過的登入身分，沒登入回 401（CodeX review P1）', 'fix(Local Agent)：token 列表原本整份只取 50 筆且含已撤銷，有效的舊 token 會看不到 → 有效的全部列、已撤銷只列最近 50 把', 'fix(Local Agent)：撤銷時先從連線表刪掉才關 socket，斷線清理（收掉進行中的機測／UAT／錄製）會漏掉 → 只關 socket，交給原本的斷線處理；連線正在關閉時又撤一次也不刪'] },
   { version: '5.3.1', date: '2026-10-05', changes: ['style(側欄，普通版)：Meegle 批量工具的圖示字母 J → M、TestCase 生成 L → T（原本沿用 Jira／Lark 的字首，使用者回報）'] },
   { version: '5.3.0', date: '2026-10-05', changes: ['feat(側欄)：**側欄可收起成圖示列**（使用者把工具嵌在 Lark 裡，兩條側欄太擠）。底部「收起側欄」；收起後滑過圖示顯示名稱（修仙版附原功能名），OSM Tools／Game Show 點了在旁邊彈出子選單（選完、點外面、Esc 關閉，鍵盤可操作）。記住你的選擇；沒選過時視窗窄於 1100px 預設收起。普通版、修仙版都有，動畫約 0.2 秒、系統減少動態效果時不播。樣稿使用者確認、行為 CodeX 確認'] },
   { version: '5.2.1', date: '2026-10-05', changes: ['fix(登入 Session)：**登出只清 cookie、session 留在冊直到 7 天過期**（Dashboard 累積到 274 組）→ 登出改成真的刪除', 'feat(登入 Session)：新增 POST /api/auth/sessions/prune-others——清掉自己帳號的其他登入、保留目前這個，只能動自己的帳號（給批次腳本清舊 session 用）', 'fix(登入 Session)：server 與 worker 各有一份記憶體快取，一邊刪了另一邊還認——驗 session 一律再查 DB；Dashboard 計數改讀 DB', 'fix(UAT 排程)：排程借用擁有者的登入 session，跑到一半被登出／清掉時後面幾支會全部失敗 → 每支腳本前重新挑還活著的 session（CodeX review）。注意：擁有者把所有 session 都登出後，排程會停到他重新登入'] },

@@ -2074,15 +2074,24 @@ export function verifyLocalAgentToken(token: string, ownerKey: string) {
   }
 }
 
+/**
+ * 列出某人的 token：**有效的全部列**，已撤銷的只列最近 50 把。
+ * 原本整份 LIMIT 50 且含已撤銷的，批次腳本發了一堆 token 之後，50 名外還有效的那些在畫面上看不到、也選不到要留哪把（CodeX review）。
+ */
 export function listLocalAgentTokens(operator: OperatorInfo | undefined) {
   if (!operator?.key) return []
   return db.prepare(`
-    SELECT id, owner_key, owner_name, label, revoked, created_at, last_seen_at
-    FROM local_agent_tokens
-    WHERE owner_key = ?
-    ORDER BY created_at DESC
-    LIMIT 50
-  `).all(operator.key) as {
+    SELECT * FROM (
+      SELECT id, owner_key, owner_name, label, revoked, created_at, last_seen_at
+      FROM local_agent_tokens WHERE owner_key = ? AND revoked = 0
+      UNION ALL
+      SELECT * FROM (
+        SELECT id, owner_key, owner_name, label, revoked, created_at, last_seen_at
+        FROM local_agent_tokens WHERE owner_key = ? AND revoked = 1
+        ORDER BY created_at DESC LIMIT 50
+      )
+    ) ORDER BY revoked ASC, created_at DESC
+  `).all(operator.key, operator.key) as {
     id: string
     owner_key: string
     owner_name: string
@@ -2101,6 +2110,25 @@ export function revokeLocalAgentToken(operator: OperatorInfo | undefined, id: st
     WHERE id = ? AND owner_key = ?
   `).run(id.trim(), operator.key)
   return result.changes > 0
+}
+
+/**
+ * 撤銷某人的其他所有有效 token，只留 keepId（批次腳本每次下載 install.bat 都會發新 token，累積到列表 50 筆都看不完）。
+ * ownerEmail 必須是**簽章驗過的登入身分**（getAuthEmailFromContext），不能用 operator.key——那是 header，worker 上可偽造。
+ * keepId 必須是這個人自己的有效 token，否則整個不做（打錯 id 會把自己也撤掉）。
+ * ⚠️「有效」不等於「正在用」：留的是一把離線的 token，目前連線中的 agent 一樣會被斷掉。
+ */
+export function revokeOtherLocalAgentTokens(ownerEmail: string, keepId: string): { ok: true; revokedIds: string[] } | { ok: false; reason: 'NO_KEEP' } {
+  const owner = ownerEmail.trim()
+  const keep = keepId.trim()
+  if (!owner || !keep) return { ok: false, reason: 'NO_KEEP' }
+  // 驗 keepId 與撤銷放在同一個 transaction：分開做的話，驗完到撤之間 keepId 被撤掉，就會變成「全部撤光」（CodeX review）
+  return db.transaction((): { ok: true; revokedIds: string[] } | { ok: false; reason: 'NO_KEEP' } => {
+    if (!db.prepare('SELECT 1 FROM local_agent_tokens WHERE id = ? AND owner_key = ? AND revoked = 0').get(keep, owner)) return { ok: false, reason: 'NO_KEEP' }
+    const rows = db.prepare('SELECT id FROM local_agent_tokens WHERE owner_key = ? AND revoked = 0 AND id != ?').all(owner, keep) as { id: string }[]
+    db.prepare('UPDATE local_agent_tokens SET revoked = 1 WHERE owner_key = ? AND revoked = 0 AND id != ?').run(owner, keep)
+    return { ok: true, revokedIds: rows.map(r => r.id) }
+  })()
 }
 
 // ─── Machine Profiles Seed ────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import {
   listLocalAgentTokens,
   parseLarkSheetUrl,
   revokeLocalAgentToken,
+  revokeOtherLocalAgentTokens,
   upload,
   verifyLocalAgentToken,
 } from '../shared.js'
@@ -37,7 +38,8 @@ import {
   agentConnections,
 } from '../agent-hub.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
-import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
+import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from '../request-context.js'
+import { disconnectAgentsByToken as disconnectAgentsByTokenIn } from '../agent-token-disconnect.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -1433,7 +1435,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
   const proto = req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http'
   const host  = req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost:3000'
   const serverUrl = process.env.TOPPATH_BASE_URL ?? `${proto}://${host}`
-  const operator = getOperatorFromContext()
+  const operator = agentTokenOwner()
   const agentOwnerKey = operator?.key ?? ''
   const agentOwnerName = operator?.name ?? agentOwnerKey
   const agentToken = createLocalAgentToken(operator, 'Toppath Local Agent')
@@ -1589,7 +1591,7 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
   const proto = req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http'
   const host  = req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost:3000'
   const serverUrl = process.env.TOPPATH_BASE_URL ?? `${proto}://${host}`
-  const operator = getOperatorFromContext()
+  const operator = agentTokenOwner()
   const agentOwnerKey = operator?.key ?? ''
   const agentOwnerName = operator?.name ?? agentOwnerKey
   const agentToken = createLocalAgentToken(operator, 'Toppath Local Agent (macOS)')
@@ -1692,7 +1694,9 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
 
 // GET /api/machine-test/status ??current session and agent status
 router.get('/api/machine-test/status', (_req, res) => {
-  const operator = getOperatorFromContext()
+  // 簽章身分（同 agentTokenOwner 的理由）：原本 header 身分可偽造，能看到別人的 agent、hostname、進行中的 sessionId（CodeX review P1）
+  const operator = agentTokenOwner()
+  if (!operator) return res.status(401).json({ ok: false, message: '請先登入', active: false, sessionId: null, agents: [] })
   const visibleAgents = [...agentConnections.values()].filter(a => {
     if (!operator?.key) return false
     return a.ownerKey === operator.key
@@ -1716,10 +1720,8 @@ router.get('/api/machine-test/status', (_req, res) => {
 })
 
 router.get('/api/local-agent/status', (_req, res) => {
-  const operator = getOperatorFromContext()
-  if (!operator?.key) {
-    return res.json({ ok: true, operator: null, agents: [], tokens: [], counts: { connected: 0, ready: 0, busy: 0, tokens: 0 } })
-  }
+  const operator = agentTokenOwner()
+  if (!operator) return res.status(401).json({ ok: false, message: '請先登入', operator: null, agents: [], tokens: [], counts: { connected: 0, ready: 0, busy: 0, tokens: 0 } })
   // ⚠️ 一定要提到迴圈外算一次。放在 .map 裡等於「每個 agent × 2 次 × 讀 19 個檔案」，
   //    而這支清單是前端會輪詢的。
   const fingerprints = agentSourceFingerprints()
@@ -1793,16 +1795,41 @@ router.get('/api/local-agent/status', (_req, res) => {
 })
 
 router.post('/api/local-agent/tokens/:id/revoke', (req, res) => {
-  const operator = getOperatorFromContext()
+  const operator = agentTokenOwner()
+  if (!operator) return res.status(401).json({ ok: false, message: '請先登入' })
   const ok = revokeLocalAgentToken(operator, req.params.id)
   if (!ok) return res.status(404).json({ ok: false, message: 'token not found' })
-  for (const [agentId, agent] of agentConnections.entries()) {
-    if (agent.tokenId === req.params.id && agent.ws.readyState === agent.ws.OPEN) {
-      agent.ws.close(1008, 'Agent token revoked')
-      agentConnections.delete(agentId)
-    }
-  }
+  disconnectAgentsByToken(new Set([req.params.id]))
   res.json({ ok: true })
+})
+
+/**
+ * Local Agent token 的身分（發、列、撤）**只認簽章驗過的登入身分**。
+ * ⚠️ 不能用 getOperatorFromContext()：這些路由在 worker 上跑，那個值來自 x-auth-user header，
+ *    worker 綁 0.0.0.0，連得到 port 的人都能自己塞——能冒名發 token、看別人的 agent、撤別人的 token（CodeX review P1）。
+ *    顯示名稱仍取 header（只是給人看的標籤，不拿來授權）。
+ */
+function agentTokenOwner(): OperatorInfo | undefined {
+  const email = getAuthEmailFromContext()
+  if (!email) return undefined
+  return { key: email, name: getOperatorFromContext()?.name || email }
+}
+
+/** 斷掉用這些 token 連進來的 agent（規則與為什麼見 agent-token-disconnect.ts） */
+const disconnectAgentsByToken = (tokenIds: Set<string>) => disconnectAgentsByTokenIn(agentConnections, tokenIds)
+
+// POST /api/local-agent/tokens/revoke-others —— 撤銷自己其他所有有效 token，只留 keepId
+// 身分只認簽章的登入身分（不用 getOperatorFromContext：worker 上那是 header，可偽造）
+router.post('/api/local-agent/tokens/revoke-others', (req, res) => {
+  const email = getAuthEmailFromContext()
+  if (!email) return res.status(401).json({ ok: false, message: '請先登入' })
+  const keepId = String((req.body as { keepId?: unknown })?.keepId ?? '').trim()
+  const r = revokeOtherLocalAgentTokens(email, keepId)
+  // server tsconfig 沒開 strictNullChecks，聯集要用 'reason' in 縮小
+  if ('reason' in r) return res.status(400).json({ ok: false, code: r.reason, message: 'keepId 不是你自己的有效 token（為了不把正在用的那把也撤掉，整個沒有執行）' })
+  const disconnected = disconnectAgentsByToken(new Set(r.revokedIds))
+  console.log(`[local-agent] ${email} 撤銷其他 token ${r.revokedIds.length} 把（保留 ${keepId}，斷線 ${disconnected}）`)
+  res.json({ ok: true, revoked: r.revokedIds.length, disconnected })
 })
 
 // ── Agent source-file update ───────────────────────────────────────────────────
