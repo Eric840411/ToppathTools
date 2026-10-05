@@ -125,14 +125,18 @@ async function waitUntilIdle(cookie: string, timeoutMs: number): Promise<boolean
  *    整組中止的話，一支暫時性的失敗會讓當天的 regression 全部沒跑，而且只有一句話可看。
  */
 async function runSchedule(row: ScheduleRow): Promise<string> {
-  const sid = liveSessionFor(row.owner)
-  if (!sid) return `沒有有效登入 session（請 ${row.owner} 重新登入一次，排程才跑得動）`
-  const cookie = `toppath_auth=${sid}`
+  const noSession = `沒有有效登入 session（請 ${row.owner} 重新登入一次，排程才跑得動）`
+  if (!liveSessionFor(row.owner)) return noSession
   const ids = scriptsOf(row)
   if (!ids.length) return '這個排程沒有指定任何腳本'
   const results: string[] = []
   for (const [index, scriptId] of ids.entries()) {
     const label = `${index + 1}/${ids.length}`
+    // 每支腳本前重新挑一次 session：v5.2.1 起登出／「清掉其他登入」會真的刪掉 session，
+    // 跑到一半借用的那個被刪掉時，改用這個人還活著的另一個，不讓後面幾支全部失敗（CodeX review）
+    const sid = liveSessionFor(row.owner)
+    if (!sid) { results.push(`${label} 沒跑（${noSession}）`); continue }
+    const cookie = `toppath_auth=${sid}`
     try {
       const response = await fetch(`${BASE()}/api/osm-uat/run`, {
         method: 'POST',

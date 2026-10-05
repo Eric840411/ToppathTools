@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.2.0'
+export const APP_VERSION = '5.2.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.2.1', date: '2026-10-05', changes: ['fix(登入 Session)：**登出只清 cookie、session 留在冊直到 7 天過期**（Dashboard 累積到 274 組）→ 登出改成真的刪除', 'feat(登入 Session)：新增 POST /api/auth/sessions/prune-others——清掉自己帳號的其他登入、保留目前這個，只能動自己的帳號（給批次腳本清舊 session 用）', 'fix(登入 Session)：server 與 worker 各有一份記憶體快取，一邊刪了另一邊還認——驗 session 一律再查 DB；Dashboard 計數改讀 DB', 'fix(UAT 排程)：排程借用擁有者的登入 session，跑到一半被登出／清掉時後面幾支會全部失敗 → 每支腳本前重新挑還活著的 session（CodeX review）。注意：擁有者把所有 session 都登出後，排程會停到他重新登入'] },
   { version: '5.2.0', date: '2026-10-05', changes: ['feat(Meegle 開單 ② 人員對照)：**從 Meegle 名單選人＋自動猜人**（使用者要求：Sheet 名字寫法常變、每種都要手打 email）。進 ② 自動讀「空間角色人員」名單（這個空間任務項角色上出現過的人，user search 不是完整名錄所以改掃單子；快取 10 分鐘），email 格可打名字或 email 從名單選。未對照的名字自動猜人並預填（只預填，一定要按確認才寫入）：名字完全相同、名單唯一、Meegle 租戶名錄也唯一（MQL 同名會回 3012）→ 綠色、可「全部確認」；只對到第一個詞／email 前綴、或名錄有同名（如 Eric 有兩個帳號）→ 黃色、逐列確認。從名單選人時伺服器用 user_key 重新核對 email，不相信前端。晚回的建議不蓋手填、換 Sheet 作廢。CodeX 兩輪確認', 'fix(Meegle 人員查詢，潛在)：user search 一次查多個時 `--user-keys a b` 實測只查第一個 → 每個值重複旗標（目前呼叫端都只查一個，之前沒出事）'] },
   { version: '5.1.2', date: '2026-10-03', changes: ['fix(Lark 通知補送)：v5.1.0 排進佇列的舊項目沒有 id，成功刪除時用 id 比對會**整批誤刪**、失敗也放不回（CodeX review [P1]）→ 領取前在同一個 transaction 補上唯一 id 並寫回', 'fix(Lark 通知補送)：整批領取時才判期限，前面送得慢的話後面的項目輪到時已過期仍會送出（CodeX [P2]）→ 每筆發送前再判一次'] },
   { version: '5.1.1', date: '2026-10-03', changes: ['fix(週報，既有漏洞)：週報所有 API **後端沒有檢查登入與權限**（CodeX review [P1]）——batch-submit 沒登入也能直接呼叫、用服務端 Lark token 寫入，前端擋頁面擋不了。改成 /api/weekly-report/* 一律先過關卡：登入 → 未停權 → 有週報權限（逐關短路）；新端點自動受管。真伺服器 17 項（拿掉關卡 13 項變紅）', 'fix(Lark 通知補送)：佇列原本「先清空再送」，送到一半 crash／例外會整批遺失（CodeX [P1]）→ 改成持久化租約：領取時標租約、成功才刪、失敗放回，process 死掉租約過期後任一邊會重新領取', 'fix(Lark 通知補送)：超過 24 小時的項目仍會送出——原本先送才檢查期限（CodeX [P2]）→ 改成領取時就判過期、不送直接移除', 'fix(Lark 通知設定)：停權的管理員也擋'] },

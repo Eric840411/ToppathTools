@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { loginLimiter, pinHash, readAccounts } from '../shared.js'
-import { clearAuthSession, createAuthSession, getAuthAccount, publicAccount } from '../auth-session.js'
+import { getClientIP, log, loginLimiter, pinHash, readAccounts } from '../shared.js'
+import { createAuthSession, getAuthAccount, publicAccount, pruneOtherAuthSessions, revokeAuthSession } from '../auth-session.js'
 import {
   getActiveHeavyTasks, getHeavyTaskForRequest, getRecentHeavyTasksForRequest,
   listRunningHeavyLocks, releaseHeavyTaskById,
@@ -37,9 +37,17 @@ router.post('/api/auth/login', loginLimiter, (req, res) => {
   res.json({ ok: true, account: publicAccount(email) })
 })
 
-router.post('/api/auth/logout', (_req, res) => {
-  clearAuthSession(res)
+router.post('/api/auth/logout', (req, res) => {
+  revokeAuthSession(req, res)
   res.json({ ok: true })
+})
+
+// POST /api/auth/sessions/prune-others —— 清掉自己帳號的其他登入（保留目前這個）。只能清自己的
+router.post('/api/auth/sessions/prune-others', (req, res) => {
+  const r = pruneOtherAuthSessions(req)
+  if (!r) return res.status(401).json({ ok: false, message: '請先登入' })
+  log('ok', getClientIP(req), r.email, '登入 Session', `清掉其他 session ${r.removed} 個`)
+  res.json({ ok: true, removed: r.removed })
 })
 
 router.get('/api/heavy-tasks/me', (req, res) => {
