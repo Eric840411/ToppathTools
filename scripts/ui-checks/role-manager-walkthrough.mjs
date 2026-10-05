@@ -6,6 +6,7 @@
  *   4 刪除使用中的角色 → 被擋下並列出 asd、有「前往帳號管理」
  *   5 還原 asd → 刪除角色成功
  *   6 「＋新增」不斷行
+ *   8 名稱沒填就按建立 → 提示「請先填角色名稱」、名稱框標紅、不送出（使用者 10/05：修仙版的灰色鈕看起來能按，按了沒反應）
  *   7 伺服器回的不是 JSON（代理錯誤頁）→ 畫面要顯示錯誤，不能什麼都沒發生（v5.10.2，使用者在 Lark 裡按建立角色沒反應）
  * 跑法：node scripts/ui-checks/role-manager-walkthrough.mjs
  */
@@ -40,6 +41,18 @@ try {
     check('管理員：唯讀、功能全勾、沒有儲存鈕', await rm.getByText('管理員固定擁有所有功能').isVisible() && await rm.locator('input[type=checkbox]:not(:checked)').count() === 0 && await rm.getByRole('button', { name: '儲存' }).count() === 0)
     await rm.getByRole('button', { name: /^QA/ }).click()
     check('內建角色：名稱鎖住、沒有刪除鈕', await rm.locator('input[maxlength="20"]').isDisabled() && await rm.getByRole('button', { name: '刪除角色' }).count() === 0)
+
+    // 8 名稱沒填
+    let posted = 0
+    const countPost = r => { if (r.request().method() === 'POST') posted++; return r.continue() }
+    await page.route('**/api/admin/roles', countPost)
+    await addBtn.click()
+    await rm.getByRole('button', { name: '建立角色' }).click()
+    check('名稱沒填 → 提示、名稱框標紅、沒送出', await rm.getByText('請先填角色名稱').isVisible() && await rm.locator('input[maxlength="20"][aria-invalid="true"]').count() === 1 && posted === 0)
+    await rm.locator('input[maxlength="20"]').fill('x')
+    check('填了名稱 → 提示消失', await rm.getByText('請先填角色名稱').count() === 0)
+    await page.unroute('**/api/admin/roles', countPost)
+    await rm.getByRole('button', { name: '取消' }).click()
 
     // 7 回應不是 JSON：要看得到錯誤（只攔這一次）
     let fake = true

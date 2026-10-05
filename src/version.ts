@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.10.2'
+export const APP_VERSION = '5.10.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.10.3', date: '2026-10-05', changes: ['fix(角色管理)：名稱沒填就按「建立角色」會提示「請先填角色名稱」、名稱框標紅並跳到名稱欄——原本按鈕是停用的，但修仙版看不出灰色，按了像是沒反應（使用者回報）'] },
   { version: '5.10.2', date: '2026-10-05', changes: ['fix(角色管理)：建立／儲存／刪除角色失敗時一定會顯示錯誤（含 HTTP 狀態）——原本伺服器回的不是 JSON 或連不到時，畫面完全沒反應（使用者在 Lark 裡按「建立角色」沒反應）'] },
   { version: '5.10.1', date: '2026-10-05', changes: ['fix(Meegle 雙空間)：同一份 Sheet 的空間綁定改成四種操作合起來看——原本只看自己那種，測試評論過的 Sheet 仍能在正式開單（CodeX review）', 'fix(Meegle 雙空間)：沒手動切過的分頁第一次進來就固定初始空間，不會因為在別頁選了正式就跟著變；單列重試／補寫回／繼續送出進行中也不能切空間（CodeX review）', 'style(Meegle 批量工具)：開單分頁的 Sheet 網址跟讀取鈕改成同一行，跟其他分頁一樣；四個分頁的按鈕名稱統一成「讀取 Sheet」「重新讀取 Sheet」（原本有「讀取清單」「讀取資料」）'] },
   { version: '5.10.0', date: '2026-10-05', changes: ['feat(Meegle 批量工具)：**測試／正式雙空間**——開單、評論、狀態、修改四個分頁上方可以切「測試｜正式」，預設測試，每個分頁各自記住。切到正式送出前會跳確認（空間、操作、Sheet、筆數）；送出中不能切。同一份 Sheet 已在另一個空間送過會直接擋下。重試、補推、補回填一律照當初送出的空間，不看畫面現在選哪個。規則 CodeX 拍板', 'fix(Meegle 評論／狀態／修改，安全)：實測發現 Meegle 不檢查 project key——拿正式的 key 也讀得到、改得到測試空間的單。動到既有單之前一律先核對它真正所屬的空間，對不上就擋'] },

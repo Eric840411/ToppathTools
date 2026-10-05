@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 
 /**
  * 系統管理 →「角色管理」（v5.9.0）。版面：CodeX 線框、使用者看樣稿 mockup-role-management.html 確認。
@@ -40,6 +40,9 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; users?: string[] } | null>(null)
+  // 名稱沒填就按建立：要講出來（使用者 10/05：按了沒反應，原來是沒填名稱——修仙版的灰色鈕看起來跟能按的一樣）
+  const [nameError, setNameError] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
 
   async function load(select?: string) {
     setLoading(true)
@@ -66,7 +69,7 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
   function pick(key: string) {
     if (dirty && !confirm('有尚未儲存的變更，要放棄嗎？')) return
     const r = roles.find(x => x.key === key)
-    setCur(key); setCreating(false); setMsg(null)
+    setCur(key); setCreating(false); setMsg(null); setNameError(false)
     if (r) setDraft({ label: r.label, color: r.color, perms: { ...r.perms } })
   }
   function resetDraft() {
@@ -75,7 +78,7 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
   }
   function startCreate() {
     if (dirty && !confirm('有尚未儲存的變更，要放棄嗎？')) return
-    setCreating(true); setCur(''); setMsg(null)
+    setCreating(true); setCur(''); setMsg(null); setNameError(false)
     setDraft({ label: '', color: COLORS[4], perms: {} })
   }
 
@@ -87,6 +90,11 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
 
   async function save() {
     if (!draft) return
+    if (!draft.label.trim()) {
+      setNameError(true); setMsg({ ok: false, text: '請先填角色名稱' })
+      nameRef.current?.focus()
+      return
+    }
     setBusy(true); setMsg(null)
     try {
       const body = { label: draft.label, color: draft.color, perms: Object.fromEntries(pageMeta.map(p => [p.key, !!draft.perms[p.key]])) }
@@ -163,8 +171,10 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
 
           <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#94a3b8' }}>名稱
-              <input style={{ ...input, width: 220 }} value={draft.label} disabled={!custom} maxLength={20}
-                onChange={e => setDraft(d => d && ({ ...d, label: e.target.value }))} placeholder="例如：測試協力" />
+              <input ref={nameRef} style={{ ...input, width: 220, ...(nameError ? { borderColor: '#f87171', boxShadow: '0 0 0 2px rgba(248,113,113,.25)' } : {}) }} value={draft.label} disabled={!custom} maxLength={20}
+                aria-invalid={nameError || undefined}
+                onChange={e => { const v = e.target.value; setDraft(d => d && ({ ...d, label: v })); if (v.trim()) { setNameError(false); setMsg(m => (m && !m.ok && m.text === '請先填角色名稱' ? null : m)) } }} placeholder="例如：測試協力" />
+              {nameError && <span style={{ color: '#f87171', fontSize: 11.5 }}>名稱必填</span>}
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#94a3b8' }}>顏色
               <div style={{ display: 'flex', gap: 6 }}>
@@ -219,7 +229,7 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
               <span style={{ flex: 1, fontSize: 12, color: '#64748b' }}>{dirty ? '尚未儲存變更' : '設定已是最新'}</span>
               {custom && !creating && <button type="button" style={{ ...btn, color: '#f87171', borderColor: 'rgba(239,68,68,.4)', background: 'rgba(239,68,68,.08)' }} onClick={() => void remove()} disabled={busy}>刪除角色</button>}
               <button type="button" style={btn} disabled={busy || !dirty} onClick={resetDraft}>取消</button>
-              <button type="button" style={btnPrimary} disabled={busy || !dirty || !draft.label.trim()} onClick={() => void save()}>{busy ? '儲存中…' : creating ? '建立角色' : '儲存'}</button>
+              <button type="button" style={btnPrimary} disabled={busy || !dirty} onClick={() => void save()}>{busy ? '儲存中…' : creating ? '建立角色' : '儲存'}</button>
             </div>
           )}
         </div>
