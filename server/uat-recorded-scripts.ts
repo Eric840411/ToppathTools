@@ -175,6 +175,13 @@ export function forceReleaseScriptLock(scriptId: string, expectedSessionId: stri
   return { released: true, holder: cur.holder }
 }
 
+/** 目前的執行鎖（管理員救援用：要知道是哪一輪才能人工解除——force-unlock 必須帶 sessionId） */
+export function getScriptLock(scriptId: string): { holder: string; sessionId: string; since: number } | null {
+  const r = db.prepare('SELECT holder, session_id, acquired_at FROM uat_recorded_script_locks WHERE script_id = ?')
+    .get(scriptId) as { holder: string; session_id: string; acquired_at: number } | undefined
+  return r ? { holder: r.holder, sessionId: r.session_id, since: r.acquired_at } : null
+}
+
 export function isScriptRunning(scriptId: string): boolean {
   const r = db.prepare('SELECT 1 FROM uat_recorded_script_locks WHERE script_id = ?').get(scriptId)
   return !!r
@@ -229,16 +236,24 @@ export function registerRecordedScriptRoutes(router: Router) {
     // 團隊共用：不再依 owner 過濾。軟刪除的不列出。
     const rows = db.prepare('SELECT document, updated_at, revision, owner, updated_by FROM uat_recorded_scripts WHERE deleted_at IS NULL ORDER BY updated_at DESC')
       .all() as { document: string; updated_at: number; revision: number; owner: string; updated_by: string | null }[]
+    // 執行鎖的細節（誰、哪一輪、何時開始）只給管理員：人工解除只有管理員能做，而且要帶 sessionId。
+    // 2026-10-05 正式站有一份腳本被部署重啟打斷、鎖殘留三天，管理員拿不到 sessionId 就解不開（osm-qa-agent 回報）
+    const isAdmin = account.role === 'admin'
     res.json({
       ok: true,
-      scripts: rows.map(r => ({
-        ...JSON.parse(r.document),
-        updatedAt: r.updated_at,
-        revision: r.revision,
-        createdBy: r.owner,
-        updatedBy: r.updated_by,
-        running: isScriptRunning((JSON.parse(r.document) as RecordedScript).id),
-      })),
+      scripts: rows.map(r => {
+        const id = (JSON.parse(r.document) as RecordedScript).id
+        const lock = id ? getScriptLock(id) : null
+        return {
+          ...JSON.parse(r.document),
+          updatedAt: r.updated_at,
+          revision: r.revision,
+          createdBy: r.owner,
+          updatedBy: r.updated_by,
+          running: !!lock,
+          ...(isAdmin && lock ? { lock } : {}),
+        }
+      }),
     })
   })
 

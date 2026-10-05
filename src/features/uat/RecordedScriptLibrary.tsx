@@ -1,15 +1,34 @@
 import { useEffect, useState } from 'react'
 import type { RecordedScript } from './MultiTcRecorder'
 
+/** 列表 API 多回的欄位：running（誰都看得到）、lock（只有管理員拿得到，人工解除要用） */
+type ScriptRow = RecordedScript & { running?: boolean; lock?: { holder: string; sessionId: string; since: number } }
+
 export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds, onSelection, onScripts }: {
   revision: number; disabled: boolean; onOpen: (script?: RecordedScript) => void;
   selectedIds: string[]; onSelection: (ids: string[]) => void; onScripts: (scripts: RecordedScript[]) => void
 }) {
-  const [scripts, setScripts] = useState<RecordedScript[]>([])
+  const [scripts, setScripts] = useState<ScriptRow[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
+  // 管理員人工解除執行鎖（救援用）：先在列上展開確認，再送出那一輪的 sessionId
+  const [unlockAsk, setUnlockAsk] = useState<string | null>(null)
+  const [unlockMsg, setUnlockMsg] = useState<Record<string, string>>({})
+  const [unlocking, setUnlocking] = useState(false)
+  async function forceUnlock(script: ScriptRow) {
+    if (!script.id || !script.lock) return
+    setUnlocking(true)
+    try {
+      const r = await fetch(`/api/osm-uat/recorded-scripts/${encodeURIComponent(script.id)}/force-unlock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: script.lock.sessionId }) })
+      const d = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
+      setUnlockMsg(m => ({ ...m, [script.id!]: d.ok ? `已解除（原本是 ${d.previousHolder}）` : (d.message || d.error || '解除失敗') }))
+      if (d.ok) { setUnlockAsk(null); setRefresh(n => n + 1) }
+    } catch (e) {
+      setUnlockMsg(m => ({ ...m, [script.id!]: `解除失敗：${(e as Error).message}` }))
+    } finally { setUnlocking(false) }
+  }
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true); setError('')
@@ -31,8 +50,20 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     <div className="uat-tc-record-actions"><button className="uat-btn is-quiet" disabled={disabled || loading} onClick={() => onSelection([...new Set([...selectedIds, ...filtered.flatMap(s => s.id ? [s.id] : [])])])}>全選搜尋結果</button><button className="uat-btn is-quiet" disabled={disabled || !selectedIds.length} onClick={() => onSelection([])}>清除選取</button></div>
     <small>已選 {selectedIds.length} 份。勾選一份即單選，多份依中間清單順序執行。</small>
     <div className="uat-backend-tc-list uat-backend-all-tcs">{filtered.map(script => <div className="uat-script-select-row" key={script.id}><input type="checkbox" aria-label={`執行 ${script.title}`} disabled={disabled || !script.id} checked={selectedIds.includes(script.id || '')} onChange={e => onSelection(e.target.checked ? [...selectedIds, script.id!] : selectedIds.filter(id => id !== script.id))} /><button className="uat-backend-tc" disabled={disabled} onClick={() => onOpen(script)}>
-      <span title={script.title}>{script.title}</span><em className="has-steps">{script.bindings.length} TC · {script.steps.filter(s => !s.disabled).length} 步</em>
-    </button></div>)}</div>
+      <span title={script.title}>{script.title}</span><em className="has-steps">{script.bindings.length} TC · {script.steps.filter(s => !s.disabled).length} 步{script.running ? ' · 執行中' : ''}</em>
+    </button>
+      {script.lock && script.id && <div className="uat-script-lock">
+        <small>執行鎖：{script.lock.holder}，{new Date(script.lock.since).toLocaleString('zh-TW', { hour12: false })} 開始</small>
+        {unlockAsk !== script.id
+          ? <button className="uat-btn is-quiet" disabled={unlocking} onClick={() => { setUnlockAsk(script.id!); setUnlockMsg(m => ({ ...m, [script.id!]: '' })) }}>解除執行鎖</button>
+          : <div role="alertdialog" aria-label="確認解除執行鎖" className="uat-script-lock-confirm">
+              <p>請先確認 <strong>{script.lock.holder}</strong> 那台機器上這份腳本<strong>已經沒有在跑</strong>（Agent 斷線不代表已經停止，可能還在回寫 Lark）。解除後別人就能重跑或刪除這份腳本。</p>
+              <button className="uat-btn is-primary" disabled={unlocking} onClick={() => void forceUnlock(script)}>{unlocking ? '解除中…' : '確認沒在跑，解除'}</button>
+              <button className="uat-btn is-quiet" disabled={unlocking} onClick={() => setUnlockAsk(null)}>取消</button>
+            </div>}
+        {unlockMsg[script.id] && <small role="status">{unlockMsg[script.id]}</small>}
+      </div>}
+    </div>)}</div>
     {!loading && !error && !filtered.length && <p>{query ? '沒有符合搜尋條件的腳本。' : '尚無錄製腳本。按「錄製新腳本」，綁定 Lark TC 後開始錄製。'}</p>}
   </>
 }
