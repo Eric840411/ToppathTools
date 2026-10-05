@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.6.0'
+export const APP_VERSION = '5.7.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.7.0', date: '2026-10-05', changes: ['feat(Meegle 補回填)：**待補清單改成依 Sheet 分組**（使用者看樣稿確認）。一份 Sheet 一塊、最近有失敗的排最上面並展開，其他收合；標題列顯示失敗／待回填幾筆、最常見的失敗原因與次數、最近時間，還有「這份全選」。原本的 Sheet 下拉拿掉'] },
   { version: '5.6.0', date: '2026-10-05', changes: ['feat(Meegle 開單 ③ 批量設定)：**人員欄可以選多個人**（使用者要 QA 驗證複選；受托人／RD／回報者／Code Review 也一樣）。從名單選完變成標籤，× 移除，重複的不會多一個。原本是單選輸入框，選第二個人會蓋掉第一個'] },
   { version: '5.5.0', date: '2026-10-05', changes: ['change(通知)：**所有通知改發 Lark**（AutoSpin、Live Ledger、週報提醒），不再有 Discord／雙發可選。「Lark 通知」頁改名「通知設定」', 'change(AutoSpin 通知)：原「Discord 通知」頁改成「AutoSpin 通知」——拿掉 Webhook URL 與 Discord ID 對照表，保留每個帳號自己的通知開關、顯示欄位、標題、頁尾、定時彙總報告（現有設定值照舊）', 'change(週報提醒)：「@全部人」改成所有有週報權限的帳號（原本是 Discord 對照表裡的人）', 'fix(Live Ledger)：告警設定狀態改看 Lark 機器人與群組，不再看 Discord Webhook', '這一版先不刪任何東西、可以退回；Discord 程式與設定值的刪除放下一版（等 CodeX review）'] },
   { version: '5.4.0', date: '2026-10-05', changes: ['feat(Local Agent)：新增 POST /api/local-agent/tokens/revoke-others——撤掉自己其他所有有效 token、只留指定那把，同時斷掉用那些 token 連進來的 agent（批次腳本每次下載 install.bat 都發新 token，累積太多）。指定的不是自己的有效 token 就整個不做', 'fix(Local Agent／機台測試，安全)：發 token、列表、撤銷、機台測試狀態原本認的是 header 身分，在 worker 上可偽造——能冒名發 token、看別人的 agent／進行中的 session、撤別人的 token → 一律改用簽章驗過的登入身分，沒登入回 401（CodeX review P1）', 'fix(Local Agent)：token 列表原本整份只取 50 筆且含已撤銷，有效的舊 token 會看不到 → 有效的全部列、已撤銷只列最近 50 把', 'fix(Local Agent)：撤銷時先從連線表刪掉才關 socket，斷線清理（收掉進行中的機測／UAT／錄製）會漏掉 → 只關 socket，交給原本的斷線處理；連線正在關閉時又撤一次也不刪'] },

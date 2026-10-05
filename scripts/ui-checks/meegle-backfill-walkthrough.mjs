@@ -49,7 +49,7 @@ for (const theme of ['classic', 'xianxia']) {
   await page.getByRole('button', { name: 'Meegle 補回填' }).click()
   await page.locator('.bf-table tbody tr').nth(3).waitFor({ timeout: 30000 })
   check('清單四種來源標籤都在', (await page.locator('.bf-tool').allInnerTexts()).join(',') === '開單,評論,狀態,修改')
-  check('卡住的標「待回填」、失敗的標「失敗」', (await page.locator('.bf-badge-pending').count()) === 1 && (await page.locator('.bf-table .mb-badge--bad').count()) === 3)
+  check('卡住的標「待回填」、失敗的標「失敗」', (await page.locator('.bf-table .bf-badge-pending').count()) === 1 && (await page.locator('.bf-table .mb-badge--bad').count()) === 3)
   await page.locator('.bf-table tbody tr').nth(3).locator('input[type=checkbox]').uncheck()
   check('取消一列 → 補寫回 3 筆', await page.getByRole('button', { name: '補寫回 3 筆' }).isVisible())
   await page.screenshot({ path: `bf-list-${theme}.png`, fullPage: true })
@@ -59,6 +59,46 @@ for (const theme of ['classic', 'xianxia']) {
   check('結果分三類：成功／列已變動不寫／Sheet 失敗', (await page.locator('.bf-result').allInnerTexts()).join(',') === '成功,列已變動不寫,Sheet 失敗')
   check('補完重新讀清單（剩 1 筆）', (await page.locator('.bf-table tbody tr').count()) === 1)
   await page.screenshot({ path: `bf-result-${theme}.png`, fullPage: true })
+  await ctx.close()
+}
+// ── v5.7.0 依 Sheet 分組 ──
+{
+  console.log('== 依 Sheet 分組')
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+  await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
+  const page = await ctx.newPage()
+  const now = Date.now()
+  const mk = (sheet, n, extra) => ({ ...base, sheetLabel: sheet, tool: 'create', toolLabel: '開單', stage: '已開單', batchId: `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`, rowKey: String(n), workItemId: String(15000000 + n), sheetRow: n, phase: 'failed', message: '沒有編輯權限', lastAt: now - 60_000, ...extra })
+  const G = [
+    mk('舊的那份', 1, { lastAt: now - 9e6 }), mk('舊的那份', 2, { lastAt: now - 9e6, message: '逾時' }),
+    mk('最新的那份', 5), mk('最新的那份', 3), mk('最新的那份', 4, { message: '逾時' }), mk('最新的那份', 6, { phase: 'stuck', message: null }),
+  ]
+  const sent = []
+  await page.route('**/api/meegle/backfill/pending**', r => r.fulfill({ json: { ok: true, scope: 'mine', canSeeAll: false, items: G } }))
+  await page.route('**/api/meegle/backfill/retry', async r => { sent.push(...r.request().postDataJSON().items); await r.fulfill({ json: { ok: true, results: [] } }) })
+  await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByRole('button', { name: 'Meegle 補回填' }).click()
+  await page.locator('.bf-group').first().waitFor()
+  const names = await page.locator('.bf-group-name').allInnerTexts()
+  check('一份 Sheet 一塊、最近有動靜的排最上面', JSON.stringify(names) === JSON.stringify(['最新的那份', '舊的那份']), JSON.stringify(names))
+  check('沒有 Sheet 下拉了', await page.locator('select[aria-label="Sheet"]').count() === 0)
+  const head = await page.locator('.bf-group').first().locator('.bf-group-head').innerText()
+  check('標題列：失敗 3、待回填 1、最常見原因與次數', /失敗 3/.test(head) && /待回填 1/.test(head) && /沒有編輯權限.*×2/.test(head), head.replace(/s+/g, ' '))
+  check('預設只展開第一份', await page.locator('.bf-group.is-open').count() === 1 && await page.locator('.bf-group').first().evaluate(e => e.classList.contains('is-open')))
+  const rows = await page.locator('.bf-group.is-open tbody tr td.mb-num').evaluateAll(tds => tds.filter((_, i) => i % 2 === 0).map(td => td.textContent))
+  check('區塊裡依列號排序、表格只留列號', JSON.stringify(rows) === JSON.stringify(['第 3 列', '第 4 列', '第 5 列', '第 6 列']), JSON.stringify(rows))
+  // 這份全選
+  await page.locator('.bf-group').nth(1).getByLabel(/這份全選/).uncheck()
+  check('取消「舊的那份」全選 → 補寫回 4 筆（收合的那份也算得到）', await page.getByRole('button', { name: '補寫回 4 筆' }).isVisible())
+  await page.locator('.bf-group').first().locator('tbody tr').first().locator('input').uncheck()
+  check('取消其中一列 → 那份的全選變成半選', await page.locator('.bf-group').first().getByLabel(/這份全選/).evaluate(e => e.indeterminate && !e.checked))
+  await page.locator('.bf-group').nth(1).locator('.bf-group-toggle').click()
+  check('點標題展開第二份', await page.locator('.bf-group.is-open').count() === 2)
+  await page.getByRole('button', { name: '補寫回 3 筆' }).click()
+  await page.waitForTimeout(500)
+  check('只送勾選的 3 列', sent.length === 3 && sent.every(x => ['4', '5', '6'].includes(x.rowKey)), JSON.stringify(sent.map(x => x.rowKey)))
+  await page.screenshot({ path: 'bf-grouped.png', fullPage: true })
   await ctx.close()
 }
 await browser.close()
