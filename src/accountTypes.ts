@@ -4,6 +4,8 @@ export interface AccountInfo {
   label: string
   role: string   // 'qa' | 'pm' | 'pm,qa' (comma-separated, sorted)
   hasPIN?: boolean
+  /** 角色的顯示名稱（後端算：自建角色顯示名稱，內建維持 QA／PM 等代號）。舊後端沒有這欄 */
+  roleLabel?: string
 }
 
 /** 判斷帳號是否有某個 mode 的權限 */

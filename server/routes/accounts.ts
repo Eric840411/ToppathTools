@@ -34,7 +34,7 @@ import { callLLM } from './gemini.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
 import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
-import { adminTargetError, deleteAccountGuarded, updateAccountGuarded } from '../role-store.js'
+import { adminTargetError, deleteAccountGuarded, listRoles, roleParts, updateAccountGuarded } from '../role-store.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
@@ -58,11 +58,23 @@ const accountAddSchema = z.object({
 })
 
 // GET /api/jira/accounts
+/**
+ * 登入畫面上角色的顯示名稱（v5.10.4）。自建角色的 key 是產生的 r_xxxx，直接顯示會變成「R_MUV0RVWH2KNI」（使用者 10/05 回報）。
+ * 內建與管理員維持原本的大寫代號（QA／PM／OTHER／ADMIN），自建的顯示管理員取的名稱；舊的多角色用「、」接起來
+ */
+function roleDisplay(role: string, names: Map<string, { label: string; builtin: number }>): string {
+  return roleParts(role).map(k => {
+    const r = names.get(k)
+    return k === 'admin' || !r || r.builtin ? k.toUpperCase() : r.label
+  }).join('、')
+}
+
 router.get(['/api/accounts', '/api/jira/accounts'], (_req, res) => {
   const accounts = readAccounts()
+  const names = new Map(listRoles(db).map(r => [r.key, { label: r.label, builtin: r.builtin }]))
   res.json({
     ok: true,
-    accounts: accounts.map(({ email, label, role, pin_hash }) => ({ email, label, role, hasPIN: !!pin_hash })),
+    accounts: accounts.map(({ email, label, role, pin_hash }) => ({ email, label, role, roleLabel: roleDisplay(role, names), hasPIN: !!pin_hash })),
   })
 })
 

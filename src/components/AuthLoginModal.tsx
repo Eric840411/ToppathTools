@@ -229,7 +229,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
                       </span>
                       <span className="auth-login-account-meta">
                         {isSameEmail(lastLoginEmail, account.email) && <span className="auth-login-last-badge" title="Last used">上次</span>}
-                        <span>{account.role.toUpperCase()}</span>
+                        <span>{account.roleLabel ?? account.role.toUpperCase()}</span>
                         {account.hasPIN ? <span className="auth-login-seal" title="PIN protected">鎖</span> : <span className="auth-login-seal auth-login-seal--open" title="No PIN">開</span>}
                         {loginLoadingEmail === account.email && <span>...</span>}
                       </span>

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.10.3'
+export const APP_VERSION = '5.10.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.10.4', date: '2026-10-05', changes: ['fix(登入畫面)：自建角色顯示管理員取的名稱，不再顯示內部代號（例如 R_MUV0RVWH2KNI）；內建角色維持 QA／PM／OTHER／ADMIN（使用者回報）'] },
   { version: '5.10.3', date: '2026-10-05', changes: ['fix(角色管理)：名稱沒填就按「建立角色」會提示「請先填角色名稱」、名稱框標紅並跳到名稱欄——原本按鈕是停用的，但修仙版看不出灰色，按了像是沒反應（使用者回報）'] },
   { version: '5.10.2', date: '2026-10-05', changes: ['fix(角色管理)：建立／儲存／刪除角色失敗時一定會顯示錯誤（含 HTTP 狀態）——原本伺服器回的不是 JSON 或連不到時，畫面完全沒反應（使用者在 Lark 裡按「建立角色」沒反應）'] },
   { version: '5.10.1', date: '2026-10-05', changes: ['fix(Meegle 雙空間)：同一份 Sheet 的空間綁定改成四種操作合起來看——原本只看自己那種，測試評論過的 Sheet 仍能在正式開單（CodeX review）', 'fix(Meegle 雙空間)：沒手動切過的分頁第一次進來就固定初始空間，不會因為在別頁選了正式就跟著變；單列重試／補寫回／繼續送出進行中也不能切空間（CodeX review）', 'style(Meegle 批量工具)：開單分頁的 Sheet 網址跟讀取鈕改成同一行，跟其他分頁一樣；四個分頁的按鈕名稱統一成「讀取 Sheet」「重新讀取 Sheet」（原本有「讀取清單」「讀取資料」）'] },
