@@ -660,6 +660,11 @@
 
 /* ─── Layout ─────────────────────────────────────── */
 .app {
+  /* 側欄寬度只有這一個來源：側欄 width／min-width 與主內容 margin-left 都讀它（CodeX：三處一起改） */
+  --sb-w: 232px;
+  --sb-rail: 64px;
+  --sb-dur: 220ms;
+  --sb-ease: cubic-bezier(.22, .8, .24, 1);
   display: flex;
   flex-direction: row;
   min-height: 100vh;
@@ -668,8 +673,9 @@
 
 /* ─── Sidebar ─────────────────────────────────────── */
 .app-sidebar {
-  width: 232px;
-  min-width: 232px;
+  width: var(--sb-w);
+  min-width: var(--sb-w);
+  transition: width var(--sb-dur) var(--sb-ease), min-width var(--sb-dur) var(--sb-ease);
   background: #0f172a;
   border-right: 1px solid #1e293b;
   display: flex;
@@ -1053,7 +1059,8 @@
 .app-main {
   flex: 1;
   min-width: 0; /* 允許在 flex 容器內縮小，讓內部寬表格的 overflow-x 捲動生效，避免爆版 */
-  margin-left: 232px;
+  margin-left: var(--sb-w);
+  transition: margin-left var(--sb-dur) var(--sb-ease);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -5337,3 +5344,81 @@
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 .osm-dist-empty-sub { color: #5b6b82; font-size: 11px; margin-top: 2px; }
+
+/* ─── 側欄收放（v5.3.0）──────────────────────────────
+   收起＝只留圖示那一欄；文字用寬度＋透明度一起收（不是瞬間 display:none），圖示會順著滑到中間。
+   選擇器帶 .app.app--sb-collapsed，權重高過 xianxia-complete.css 的 214px !important。 */
+.sidebar-collapse-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 10px; margin-bottom: 8px;
+  border-radius: 8px; border: 1px solid #1e293b; background: none; color: #64748b; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden;
+}
+.sidebar-collapse-btn:hover, .sidebar-collapse-btn:focus-visible { color: #cbd5e1; border-color: var(--cr-cyan-border, rgba(34, 211, 238, .4)); }
+.sidebar-collapse-btn svg { flex-shrink: 0; transition: transform var(--sb-dur) var(--sb-ease); }
+.app-sidebar .sidebar-nav-label, .app-sidebar .sidebar-ai-btn-label {
+  transition: opacity calc(var(--sb-dur) * .7) var(--sb-ease), max-width var(--sb-dur) var(--sb-ease);
+  max-width: 200px;
+}
+.app.app--sb-collapsed { --sb-w: var(--sb-rail); }
+.app.app--sb-collapsed .app-sidebar { width: var(--sb-rail) !important; min-width: var(--sb-rail) !important; overflow-x: hidden; }
+.app.app--sb-collapsed .app-main { margin-left: var(--sb-rail) !important; }
+.app.app--sb-collapsed .app-main::before { left: var(--sb-rail) !important; }
+.app.app--sb-collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+.app.app--sb-collapsed .sidebar-nav-label,
+.app.app--sb-collapsed .sidebar-ai-btn-label { opacity: 0; max-width: 0; overflow: hidden; }
+.app.app--sb-collapsed .sidebar-logo-text,
+.app.app--sb-collapsed .sidebar-sub,
+.app.app--sb-collapsed .version-badge,
+.app.app--sb-collapsed .sidebar-section-label,
+.app.app--sb-collapsed .sidebar-expand-arrow,
+.app.app--sb-collapsed .sidebar-realm-switch,
+.app.app--sb-collapsed .sidebar-version-link,
+.app.app--sb-collapsed .sidebar-user-info { display: none !important; }
+.app.app--sb-collapsed .sidebar-logo { padding-left: 8px !important; padding-right: 8px !important; }
+.app.app--sb-collapsed .sidebar-logo-inner { justify-content: center; margin-bottom: 0 !important; }
+.app.app--sb-collapsed .sidebar-nav { padding-left: 8px !important; padding-right: 8px !important; overflow-x: hidden; }
+.app.app--sb-collapsed .sidebar-nav-item,
+.app.app--sb-collapsed .sidebar-ai-btn,
+.app.app--sb-collapsed .sidebar-collapse-btn { justify-content: center; gap: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }
+.app.app--sb-collapsed .sidebar-bottom { padding-left: 8px !important; padding-right: 8px !important; }
+.app.app--sb-collapsed .sidebar-user { justify-content: center; }
+/* 收起時有子頁籤的主頁籤：右下角小三角，提示「點了會彈出」 */
+.app.app--sb-collapsed .sidebar-nav-item[aria-haspopup] { position: relative; }
+.app.app--sb-collapsed .sidebar-nav-item[aria-haspopup]::after {
+  content: ''; position: absolute; right: 5px; bottom: 5px; border: 3px solid transparent; border-right-color: currentColor; border-bottom-color: currentColor; opacity: .55;
+}
+.sidebar-nav-item--menu-open { background: #1e293b; color: #e2e8f0; }
+
+/* 提示框／彈出選單：portal 掛 body，所以用 fixed、自己帶顏色 */
+.sb-tip {
+  position: fixed; z-index: 2000; transform: translateY(-50%); pointer-events: none;
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; white-space: nowrap;
+  background: #020617; border: 1px solid #334155; color: #e2e8f0; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  animation: sb-tip-in 120ms var(--sb-ease, ease) both;
+}
+.sb-tip::before { content: ''; position: absolute; left: -6px; top: 50%; margin-top: -5px; border: 5px solid transparent; border-left: 0; border-right-color: #334155; }
+.sb-tip-sub { color: #64748b; font-size: 11px; }
+@keyframes sb-tip-in { from { opacity: 0; transform: translate(-4px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+.sb-flyout {
+  position: fixed; z-index: 2001; min-width: 210px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px;
+  border-radius: 10px; background: #0b1222; border: 1px solid #1e293b; box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  display: flex; flex-direction: column; gap: 1px; transform-origin: left top; animation: sb-fly-in 160ms cubic-bezier(.22, .8, .24, 1) both;
+}
+.sb-fly-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.sb-fly-label--dual { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.sb-flyout-title { font-size: 11px; letter-spacing: 1px; color: #475569; font-weight: 600; padding: 4px 8px 6px; }
+.sb-flyout .sidebar-subtab-item { font-size: 13px; padding: 7px 10px; color: #cbd5e1; }
+.sb-flyout .sidebar-subtab-item:focus-visible { outline: 2px solid var(--cr-cyan, #22d3ee); outline-offset: -2px; }
+@keyframes sb-fly-in { from { opacity: 0; transform: translateX(-8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+:root[data-theme-mode="xianxia"] .sb-tip { background: #0d1916; border-color: rgba(214, 180, 106, .45); color: #efe6cf; }
+:root[data-theme-mode="xianxia"] .sb-tip::before { border-right-color: rgba(214, 180, 106, .45); }
+:root[data-theme-mode="xianxia"] .sb-tip-sub { color: #9a8f73; }
+:root[data-theme-mode="xianxia"] .sb-flyout { background: #0b1714; border-color: rgba(214, 180, 106, .35); }
+:root[data-theme-mode="xianxia"] .sb-flyout-title { color: #9a8f73; }
+:root[data-theme-mode="xianxia"] .sb-flyout .sidebar-subtab-item { color: #efe6cf; }
+:root[data-theme-mode="xianxia"] .sidebar-collapse-btn { border-color: rgba(214, 180, 106, .28); color: #9a8f73; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app, .app-sidebar, .app-main, .sidebar-nav-label, .sidebar-ai-btn-label, .sidebar-collapse-btn svg { transition: none !important; }
+  .sb-tip, .sb-flyout { animation: none; }
+}

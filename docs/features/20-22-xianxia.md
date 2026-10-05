@@ -65,6 +65,18 @@
 
 ---
 
+### 側欄收放（v5.3.0，兩種版面共用）
+使用者把工具嵌進 Lark（Lark 自己的側欄已佔一條），要求側欄可收起成圖示列；樣稿 `mockup-sidebar-collapse.html` 使用者確認，行為跟 CodeX 對過。
+- **收起＝只留圖示**（64px），圖示照舊（普通版字母方塊、修仙版符咒圖），文字用寬度＋透明度收、約 0.2 秒；系統「減少動態效果」時不播
+- **預設**：localStorage `toppath-sidebar-collapsed` 有值就照它；沒值才看載入當下寬度（< 1100px 收起）。之後視窗變寬變窄不自動切，只有手動收放才寫入；讀寫失敗不影響頁面
+- **收起時**：滑過／focus 主頁籤顯示名稱（修仙版附原功能名）；有子頁籤的（OSM Tools、Game Show）點了**只開選單、不切頁**，選完／再點同一顆／點外面／Esc（焦點還給觸發按鈕）／側欄捲動／resize 關閉；選單自己捲動不關；太靠下會往上推、不超出畫面
+- 寬度只有 `--sb-w` 一個來源（側欄 width／min-width、主內容 margin-left 都讀它）；收起規則用 `.app.app--sb-collapsed`，權重壓過 xianxia-complete.css 的 214px !important
+- 提示與選單 `createPortal` 掛 body（踩坑 #7）。程式：`src/components/SidebarRail.tsx`
+- 收起時版面模式、背景境界、更新日誌、使用者名稱隱藏（要切換請先展開）
+- 驗證：`node scripts/ui-checks/sidebar-collapse.mjs`（兩種主題＋640px 寬；存過的值被忽略、選單不限制位置、Esc 不還焦點、拿掉 key、子選單改回 .sidebar-nav-label 各自注入都會紅）
+- ⚠️ 踩過：選單量尺寸時是 visibility:hidden，那一刻 focus() 會被瀏覽器忽略 → 要等定位完才移焦點；選單沒關就換另一組時元件會沿用，要用 key={groupId} 讓它重建
+- **視窗 ≤ 680px 一律圖示列**（不顯示收放鈕）：修仙版 CSS 在這個寬度本來就壓成 68px、全域隱藏 .sidebar-nav-label，交給狀態控制才不會「按鈕說展開、畫面卻是圖示列」。子選單用自己的 .sb-fly-label，不然 portal 出去的文字也被那條規則藏掉（CodeX review）
+
 ## 22. 每日仙語（design/xianxia 分支）
 
 **路由**：`GET /api/xianxia/quote-of-day`、`GET/POST /api/xianxia/quotes`、`PUT/DELETE /api/xianxia/quotes/:id`、`POST /api/xianxia/quotes/ai-suggest`

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 // 26 個功能頁面原本全部靜態 import，打包成單一 1.35MB 的 entry chunk，不管使用者
 // 開哪個分頁都要整包抓完+parse+執行完才能顯示任何東西。改成 React.lazy 依路由拆
 // chunk，只有 DashboardPage（首頁常駐）維持靜態 import；跟 CodeX 討論後定案先只做
@@ -37,6 +37,7 @@ import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
 import { XianxiaIcon, type XianxiaIconName } from './components/XianxiaIcon'
 import { XianxiaReveal } from './components/XianxiaReveal'
+import { SidebarFlyout, SidebarTooltip, useSidebarCollapsed, useTinyViewport } from './components/SidebarRail'
 import { type AccountInfo } from './accountTypes'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
@@ -371,6 +372,16 @@ function navIconName(id: string, iconClass: string): XianxiaIconName {
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
+  // 側欄收放：收起時有子頁籤的主頁籤點了是「開哪個主頁籤的選單」——獨立狀態，不改目前頁面與高亮（CodeX）
+  const [sbCollapsed, toggleSbCollapsed] = useSidebarCollapsed()
+  const sbTiny = useTinyViewport()
+  // 實際是不是圖示列：使用者收起，或視窗 ≤ 680px（這時收放鈕不顯示）
+  const sbRail = sbCollapsed || sbTiny
+  const [sbFlyout, setSbFlyout] = useState<{ groupId: string; anchor: HTMLElement } | null>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
+  const closeSbFlyout = useCallback((restoreFocus: boolean) => {
+    setSbFlyout(f => { if (f && restoreFocus) f.anchor.focus(); return null })
+  }, [])
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
   const [navQuery, setNavQuery] = useState('')
@@ -650,9 +661,9 @@ function App() {
   }, [globalAccount, currentPageLabel])
 
   return (
-    <div className="app">
+    <div className={`app${sbRail ? ' app--sb-collapsed' : ''}`}>
       {/* ── Sidebar ── */}
-      <nav className="app-sidebar">
+      <nav className="app-sidebar" ref={sidebarRef}>
         {/* Logo */}
         <div className="sidebar-logo">
           <div className="sidebar-logo-inner">
@@ -679,8 +690,18 @@ function App() {
             <div key={group.id}>
               <button
                 type="button"
-                className={`sidebar-nav-item${currentGroup?.id === group.id ? ' sidebar-nav-item--active' : ''}`}
-                onClick={() => handleGroupClick(group)}
+                className={`sidebar-nav-item${currentGroup?.id === group.id ? ' sidebar-nav-item--active' : ''}${sbFlyout?.groupId === group.id ? ' sidebar-nav-item--menu-open' : ''}`}
+                aria-haspopup={sbRail && group.subtabs ? 'menu' : undefined}
+                aria-expanded={sbRail && group.subtabs ? sbFlyout?.groupId === group.id : undefined}
+                onClick={(e) => {
+                  // 收起時：有子頁籤的只開／關選單、不切頁；點另一顆就換成那顆的選單
+                  if (sbRail && group.subtabs) {
+                    const anchor = e.currentTarget
+                    setSbFlyout(f => f?.groupId === group.id ? null : { groupId: group.id, anchor })
+                    return
+                  }
+                  handleGroupClick(group)
+                }}
               >
                 <span className={`tab-icon ${group.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /> : group.icon}</span>
                 <NavLabel group={group} classic={themeMode === 'classic'} />
@@ -691,7 +712,7 @@ function App() {
                 )}
               </button>
               {/* Subtabs — shown when group is active */}
-              {group.subtabs && currentGroup?.id === group.id && (
+              {group.subtabs && currentGroup?.id === group.id && !sbRail && (
                 <div className="sidebar-subtabs">
                   {group.subtabs.map((sub) => (
                     <button
@@ -817,6 +838,16 @@ function App() {
 
         {/* Bottom: user + AI settings */}
         <div className="sidebar-bottom">
+          {!sbTiny && <button
+            type="button"
+            className="sidebar-collapse-btn"
+            aria-label={sbCollapsed ? '展開側欄' : '收起側欄'}
+            aria-expanded={!sbCollapsed}
+            onClick={() => { setSbFlyout(null); toggleSbCollapsed() }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M10 3.5L5.5 8 10 12.5" /></svg>
+            <span className="sidebar-nav-label">{sbCollapsed ? '展開側欄' : '收起側欄'}</span>
+          </button>}
           <div className="sidebar-realm-switch" aria-label="版面模式">
             <span>版面模式</span>
             <div>
@@ -909,6 +940,34 @@ function App() {
           )}
         </div>
       </nav>
+
+      <SidebarTooltip sidebarRef={sidebarRef} enabled={sbRail} suppressed={!!sbFlyout} />
+      {sbRail && sbFlyout && (() => {
+        const group = visibleGroups.find(g => g.id === sbFlyout.groupId)
+        if (!group?.subtabs) return null
+        return (
+          <SidebarFlyout key={group.id} anchor={sbFlyout.anchor} onClose={closeSbFlyout} title={themeMode === 'xianxia' && group.themeLabel ? group.themeLabel : group.label}>
+            {group.subtabs.map(sub => (
+              <button
+                key={sub.id}
+                type="button"
+                role="menuitem"
+                className={`sidebar-subtab-item${currentGroup?.id === group.id && effectiveTab === sub.id ? ' sidebar-subtab-item--active' : ''}`}
+                onClick={() => { setActiveGroup(group.id); setActiveTab(sub.id); setSbFlyout(null) }}
+              >
+                <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /> : sub.icon}</span>
+                {/* 用自己的 class：修仙版 ≤680px 會把所有 .sidebar-nav-label 全域 display:none，portal 出去的選單也會被吃掉 */}
+                {sub.themeLabel && themeMode === 'xianxia' ? (
+                  <span className="sb-fly-label sb-fly-label--dual">
+                    <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
+                    <span className="sidebar-nav-label-sub">{sub.label}</span>
+                  </span>
+                ) : <span className="sb-fly-label">{sub.label}</span>}
+              </button>
+            ))}
+          </SidebarFlyout>
+        )
+      })()}
 
       {/* ── Main area ── */}
       <div className="app-main">
