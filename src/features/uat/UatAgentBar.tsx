@@ -58,12 +58,9 @@ interface Props {
 
 export function UatAgentBar({ tab, themeMode, value, onChange, disabled }: Props) {
   const xianxia = themeMode === 'xianxia'
-  const copy = xianxia
-    ? { title: '外派傀儡', unit: '尊', usable: '可差遣', busy: '閉關中', loading: '感應中…', reload: '重新感應',
-        none: '尚無外派傀儡聽令', anon: '查不到你的身分，請重新登入', fail: '感應失敗',
-        where: '差遣何處', auto: '自動調度', server: '本陣自理（伺服器端）',
-        serverNote: '需本陣有可操持之界面' }
-    : { title: 'Local Agent', unit: '台', usable: '可派工', busy: '忙碌中', loading: '查詢中…', reload: '重新整理',
+  // v5.8.1 使用者：修仙版 UAT 內文用普通版用語 → Agent 列兩版同一套字（xianxia 只影響配色）
+  void xianxia
+  const copy = { title: 'Local Agent', unit: '台', usable: '可派工', busy: '忙碌中', loading: '查詢中…', reload: '重新整理',
         none: '沒有連線中的 Local Agent', anon: '查不到你的登入身分，請重新登入', fail: '查詢失敗',
         where: '執行位置', auto: '自動挑一台', server: '伺服器端',
         serverNote: '需要伺服器有可互動桌面' }

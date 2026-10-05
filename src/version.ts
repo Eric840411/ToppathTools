@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.7.1'
+export const APP_VERSION = '5.7.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.7.2', date: '2026-10-05', changes: ['style(UAT 整合測試，修仙版)：**內文用詞改成跟普通版一樣，標題保留修仙版**（使用者要求）。按鈕、提示、狀態、統計、積木名稱與分類、Agent 列、網路面板內容、錄製時瀏覽器上的控制面板都改用普通版用語；區塊標題、頁面大標、分頁名稱維持修仙名稱，配色不變'] },
   { version: '5.7.1', date: '2026-10-05', changes: ['fix(Meegle 批量工具)：**在一個分頁讀過的 Sheet，切到其他分頁不會自動帶入了**（使用者回報）——v5.0.0 搬出 Jira 時每個分頁都改成空白。補回：任一分頁讀成功的網址，開單／評論／狀態／修改切過去都會帶入，重整頁面也記得'] },
   { version: '5.7.0', date: '2026-10-05', changes: ['feat(Meegle 補回填)：**待補清單改成依 Sheet 分組**（使用者看樣稿確認）。一份 Sheet 一塊、最近有失敗的排最上面並展開，其他收合；標題列顯示失敗／待回填幾筆、最常見的失敗原因與次數、最近時間，還有「這份全選」。原本的 Sheet 下拉拿掉'] },
   { version: '5.6.0', date: '2026-10-05', changes: ['feat(Meegle 開單 ③ 批量設定)：**人員欄可以選多個人**（使用者要 QA 驗證複選；受托人／RD／回報者／Code Review 也一樣）。從名單選完變成標籤，× 移除，重複的不會多一個。原本是單選輸入框，選第二個人會蓋掉第一個'] },

@@ -354,7 +354,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, onRec
       ) : <div className="uat-tc-editor-body">
         <aside className="uat-tc-blocks">
           <h4>
-            {xianxia ? '術式庫' : '積木庫'}
+            {'積木庫'}
             <input className="uat-field uat-tc-block-search" value={blockQuery} placeholder="搜尋…"
               onChange={event => setBlockQuery(event.target.value)} />
           </h4>
@@ -422,7 +422,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, onRec
         </main>
 
         <aside className="uat-tc-inspector">
-          <h4>{xianxia ? '術式參數' : '步驟參數'}</h4>
+          <h4>{'步驟參數'}</h4>
           {current && currentDef ? (
             <>
               <p className="uat-tc-inspector-desc">{currentDef.description}</p>

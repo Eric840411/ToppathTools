@@ -101,7 +101,8 @@ const got = await page.evaluate(() => {
   const net = document.querySelector('.uat-net-panel');
   return {
     logLines: pre ? pre.textContent.trim().split('\n').filter(Boolean).length : 0,
-    netRendered: !!net && !net.textContent.includes('尚未起測'),
+    // v5.8.1 起修仙版的空狀態也是普通版用語（尚未開始量測）；兩種都比，免得換字之後這條永遠判成已顯示
+    netRendered: !!net && !net.textContent.includes('尚未起測') && !net.textContent.includes('尚未開始量測'),
     slowRows: document.querySelectorAll('.uat-net-slow-row, .uat-net-slow tbody tr').length,
   };
 });

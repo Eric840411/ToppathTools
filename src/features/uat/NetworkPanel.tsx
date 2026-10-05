@@ -116,33 +116,30 @@ function dominantHost(urls: string[]): string {
 
 const KIND_LABEL: Record<UatThemeMode, Record<'api' | 'image' | 'other', string>> = {
   classic: { api: 'API', image: '圖檔', other: '其他' },
-  xianxia: { api: '法訊', image: '靈影', other: '其餘' },
+  // v5.8.1 使用者：修仙版 UAT 內文用普通版用語（標題保留）
+  xianxia: { api: 'API', image: '圖檔', other: '其他' },
+}
+
+const CLASSIC_COPY = {
+  kicker: 'NETWORK TELEMETRY', title: '網路監測',
+  timing: '載入時間', slow: '超過門檻的請求', pinus: 'pinus 訊息', apiCalls: '實際呼叫的 API',
+  empty: '尚未開始量測', emptyHint: '執行測試後這裡會即時顯示每支 API 與每張圖的載入時間',
+  allGood: '全部在門檻內', allGoodHint: '目前沒有超過預期的請求',
+  noPinus: '這次沒有攔截到 pinus 訊息',
+  thKind: '類型', thDur: '耗時', thOver: '超出', thUrl: '網址',
+  thRoute: 'route', thTimes: '次數', thRtt: '往返',
+  cached: '疑似快取', redirect: '轉址', preflight: '預檢', failed: '失敗',
+  avg: 'ms 平均', threshold: '門檻', slowest: '最慢', rows: '筆',
+  updated: '更新於', finished: '已完成',
 }
 
 const COPY = {
-  classic: {
-    kicker: 'NETWORK TELEMETRY', title: '網路監測',
-    timing: '載入時間', slow: '超過門檻的請求', pinus: 'pinus 訊息', apiCalls: '實際呼叫的 API',
-    empty: '尚未開始量測', emptyHint: '執行測試後這裡會即時顯示每支 API 與每張圖的載入時間',
-    allGood: '全部在門檻內', allGoodHint: '目前沒有超過預期的請求',
-    noPinus: '這次沒有攔截到 pinus 訊息',
-    thKind: '類型', thDur: '耗時', thOver: '超出', thUrl: '網址',
-    thRoute: 'route', thTimes: '次數', thRtt: '往返',
-    cached: '疑似快取', redirect: '轉址', preflight: '預檢', failed: '失敗',
-    avg: 'ms 平均', threshold: '門檻', slowest: '最慢', rows: '筆',
-    updated: '更新於', finished: '已完成',
-  },
+  classic: CLASSIC_COPY,
+  // v5.8.1 使用者：修仙版只保留標題（眉標、區塊標題、h4 小標題），其餘內文用普通版用語
   xianxia: {
+    ...CLASSIC_COPY,
     kicker: 'SPIRIT FLOW', title: '靈脈流速',
     timing: '流速觀測', slow: '滯澀之訊', pinus: '靈訊往來', apiCalls: '往返之術',
-    empty: '尚未起測', emptyHint: '推演開始後此處即現每道法訊與靈影的往返耗時',
-    allGood: '俱在限內', allGoodHint: '目前沒有逾限的訊息',
-    noPinus: '此次未攔得靈訊',
-    thKind: '類別', thDur: '耗時', thOver: '逾限', thUrl: '訊源',
-    thRoute: '訊道', thTimes: '次數', thRtt: '往返',
-    cached: '疑似留影', redirect: '轉引', preflight: '先探', failed: '失落',
-    avg: 'ms 均值', threshold: '限度', slowest: '最滯', rows: '道',
-    updated: '更新於', finished: '已圓滿',
   },
 } as const
 

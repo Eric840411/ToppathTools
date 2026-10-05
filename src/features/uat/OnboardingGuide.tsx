@@ -57,6 +57,8 @@ const STEPS: Step[] = [
 ]
 
 export function OnboardingGuide({ onClose, xianxia }: { onClose: () => void; xianxia: boolean }) {
+  // v5.8.1：修仙版的指引內文也用普通版用語（使用者要求），參數保留給之後要分版時用
+  void xianxia
   const [index, setIndex] = useState(0)
   const step = STEPS[index]
   const last = index === STEPS.length - 1
@@ -79,10 +81,10 @@ export function OnboardingGuide({ onClose, xianxia }: { onClose: () => void; xia
   }
 
   return (
-    <aside className="uat-guide" role="dialog" aria-modal="false" aria-label={xianxia ? '入門引路' : '新手指引'}>
+    <aside className="uat-guide" role="dialog" aria-modal="false" aria-label={'新手指引'}>
       <div className="uat-guide-head">
-        <span>{xianxia ? '入門引路' : '新手指引'}</span>
-        <button type="button" className="uat-guide-x" onClick={finish} aria-label={xianxia ? '收起引路' : '關閉指引'}>✕</button>
+        <span>{'新手指引'}</span>
+        <button type="button" className="uat-guide-x" onClick={finish} aria-label={'關閉指引'}>✕</button>
       </div>
       <h4>{step.title}</h4>
       <p>{step.body}</p>
@@ -90,11 +92,11 @@ export function OnboardingGuide({ onClose, xianxia }: { onClose: () => void; xia
         {STEPS.map((item, i) => <i key={item.title} className={i === index ? 'is-on' : ''} />)}
       </div>
       <div className="uat-guide-foot">
-        <a href={MANUAL_URL} target="_blank" rel="noreferrer">{xianxia ? '完整典籍' : '完整手冊'}</a>
+        <a href={MANUAL_URL} target="_blank" rel="noreferrer">{'完整手冊'}</a>
         <div>
           <button type="button" className="uat-btn is-quiet" disabled={!index} onClick={() => setIndex(i => i - 1)}>上一步</button>
           {last
-            ? <button type="button" className="uat-btn is-primary" onClick={finish}>{xianxia ? '已然明瞭' : '我知道了'}</button>
+            ? <button type="button" className="uat-btn is-primary" onClick={finish}>{'我知道了'}</button>
             : <button type="button" className="uat-btn is-primary" onClick={() => setIndex(i => i + 1)}>下一步（{index + 1}/{STEPS.length}）</button>}
         </div>
       </div>

@@ -35,11 +35,11 @@ export function OsmUatPage({ themeMode }: { themeMode: UatThemeMode }) {
         <div>
           <span className="uat-kicker">{xianxia ? 'TAIXUAN TRIAL ARRAY' : 'QUALITY AUTOMATION STUDIO'}</span>
           <h1>{xianxia ? '總綱試煉陣盤' : 'UAT 整合測試工作台'}</h1>
-          <p>{xianxia ? '統御後端、H5 與 PC 試煉玉簡；觀照錄術後可拆解術式，歸屬試煉後自會分判並回填玉牒。' : '集中管理 Backend、H5 與 PC 測試流程；錄製後可直接拆成積木，綁上 Lark TC 就會依 TC 判定並回寫。'}</p>
+          <p>{'集中管理 Backend、H5 與 PC 測試流程；錄製後可直接拆成積木，綁上 Lark TC 就會依 TC 判定並回寫。'}</p>
         </div>
         {/* 指引要隨時叫得出來：第一次自動播完之後，忘記某一步的人只能靠這顆 */}
         <button type="button" className="uat-guide-open" onClick={() => setGuideOpen(true)}>
-          {xianxia ? '入門引路' : '新手指引'}
+          {'新手指引'}
         </button>
       </header>
       {/* ⚠️ 這裡原本是一顆**寫死**的「Runner Ready／靈脈穩定」——一台 Agent 都沒有

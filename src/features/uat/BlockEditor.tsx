@@ -94,8 +94,8 @@ function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianx
       {items.length === 0 && (
         <div className="uat-block-empty">
           <XianxiaIcon name="document" size={22} />
-          <strong>{xianxia ? '此處尚無術式' : '這裡還沒有步驟'}</strong>
-          <span>{xianxia ? '由上方「納入術式」選取，或先行觀照錄術' : '用上方的「新增步驟」加入，或先錄一段'}</span>
+          <strong>{'這裡還沒有步驟'}</strong>
+          <span>{'用上方的「新增步驟」加入，或先錄一段'}</span>
         </div>
       )}
       {items.map((step, index) => {
@@ -107,9 +107,9 @@ function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianx
             onClick={event => { event.stopPropagation(); onSelect(step.id) }}
           >
             <div className="uat-step-move">
-              <button type="button" aria-label={xianxia ? '上移術式' : '往上移'} disabled={index === 0}
+              <button type="button" aria-label={'往上移'} disabled={index === 0}
                 onClick={event => { event.stopPropagation(); onChange(nudge(tree, parentId, step.id, -1)) }}>▲</button>
-              <button type="button" aria-label={xianxia ? '下移術式' : '往下移'} disabled={index === items.length - 1}
+              <button type="button" aria-label={'往下移'} disabled={index === items.length - 1}
                 onClick={event => { event.stopPropagation(); onChange(nudge(tree, parentId, step.id, 1)) }}>▼</button>
             </div>
             <span className="uat-step-index">{String(index + 1).padStart(2, '0')}</span>
@@ -122,10 +122,10 @@ function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianx
             {tcLabel ? (
               step.tcId
                 ? <span className="uat-step-tag is-tc">{tcLabel(step.tcId)}</span>
-                : needsTc(step.action) && <span className="uat-step-tag is-danger">{xianxia ? '未歸屬試煉' : '未指定 TC'}</span>
+                : needsTc(step.action) && <span className="uat-step-tag is-danger">{'未指定 TC'}</span>
             ) : null}
             {step.failureMode === 'retry' && <span className="uat-step-tag">重試 {step.retryCount ?? 1}</span>}
-            {isContainer && <span className="uat-step-count">{step.children?.length ?? 0} {xianxia ? '道子術式' : '個子步驟'}</span>}
+            {isContainer && <span className="uat-step-count">{step.children?.length ?? 0} {'個子步驟'}</span>}
             {isContainer && (
               <div className="uat-step-children">
                 <StepList items={step.children ?? []} parentId={step.id} selectedId={selectedId} onSelect={onSelect} onChange={onChange} tree={tree} xianxia={xianxia} labelFor={labelFor} tcLabel={tcLabel} />
@@ -145,8 +145,10 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
     wait: '靜候靈息', screenshot: '留存靈影', assert_visible: '驗證顯形', find_baseline_scroll: '尋影校驗', group: '術式陣組', repeat: '周天循環',
     backend_snippet: '調動後樞',
   }
-  const labelFor = (action: string) => xianxia ? (xianxiaActionLabels[action] ?? actionLabel(action)) : actionLabel(action)
-  const categoryFor = (category: string) => xianxia ? ({ browser: '幻境門', interaction: '御物術', assertion: '校驗術', evidence: '留影術', flow: '陣法控制' }[category] ?? CATEGORY_LABELS[category]) : CATEGORY_LABELS[category]
+  // v5.8.1 使用者：修仙版的 UAT 內文用普通版用語（標題保留修仙版）→ 積木名稱、分類一律用普通版。修仙名稱表留著，之後要改回只要換這兩行
+  void xianxiaActionLabels
+  const labelFor = (action: string) => actionLabel(action)
+  const categoryFor = (category: string) => CATEGORY_LABELS[category]
   const selected = useMemo(() => selectedId ? findStep(steps, selectedId) : null, [steps, selectedId])
   // ⚠️ 找不到不要顯示成空白：那看起來像「沒綁」，但它其實綁了一個已經不在清單裡的 TC
   const tcLabel = bindings.length
@@ -185,7 +187,7 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             onClick={event => event.stopPropagation()}
             onChange={event => { if (event.target.value) addStep(event.target.value) }}
           >
-            <option value="">{xianxia ? '＋ 納入術式' : '＋ 新增步驟'}</option>
+            <option value="">{'＋ 新增步驟'}</option>
             {Object.keys(CATEGORY_LABELS).map(category => {
               const items = STEP_LIBRARY.filter(item => item.category === category)
               if (!items.length) return null
@@ -194,7 +196,7 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
               </optgroup>
             })}
           </select>
-          <small>{steps.length} {xianxia ? '處陣眼' : '個區塊'}</small>
+          <small>{steps.length} {'個區塊'}</small>
         </div>
         <StepList items={steps} parentId={null} selectedId={selectedId} onSelect={onSelectedIdChange} onChange={onChange} tree={steps} xianxia={xianxia} labelFor={labelFor} tcLabel={tcLabel} />
       </section>
@@ -204,26 +206,25 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
           <div><span>{xianxia ? 'ARRAY EYE' : 'INSPECTOR'}</span><h3>{xianxia ? '陣眼設定' : '步驟設定'}</h3></div>
         </div>
         {!selected ? (
-          <div className="uat-inspector-empty"><XianxiaIcon name="settings" size={28} /><strong>{xianxia ? '選取一處陣眼' : '選取一個積木'}</strong><span>{xianxia ? '點選左側陣圖中的術式即可調校' : '點左邊清單裡的步驟就能編輯細節'}</span></div>
+          <div className="uat-inspector-empty"><XianxiaIcon name="settings" size={28} /><strong>{'選取一個積木'}</strong><span>{'點左邊清單裡的步驟就能編輯細節'}</span></div>
         ) : (
           <div className="uat-inspector-form">
-            <label>{xianxia ? '術式名號' : '步驟名稱'}<input className="uat-field" value={selected.name} onChange={event => updateSelected({ name: event.target.value })} /></label>
+            <label>{'步驟名稱'}<input className="uat-field" value={selected.name} onChange={event => updateSelected({ name: event.target.value })} /></label>
             {/* 綁了 TC 才出現。⚠️ 沒綁的腳本硬給一個空選單，會讓人以為自己漏填了 */}
             {!!bindings.length && (
-              <label>{xianxia ? '所屬試煉' : '所屬 TC'}
+              <label>{'所屬 TC'}
                 <select className="uat-field" value={selected.tcId ?? ''} onChange={event => updateSelected({ tcId: event.target.value })}>
-                  <option value="">{xianxia ? '共用前置（不歸屬）' : '共用步驟（不屬於任何 TC）'}</option>
+                  <option value="">{'共用步驟（不屬於任何 TC）'}</option>
                   {bindings.map(item => <option value={item.recordId} key={item.recordId}>{item.number || item.recordId} {item.text}</option>)}
                 </select>
                 {needsTc(selected.action) && !selected.tcId && (
                   <span className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
-                    {xianxia ? '校驗與留影術式必須歸屬某一試煉，否則無法啟陣。'
-                      : '檢查與截圖一定要指定所屬 TC，否則執行會被擋下來——結果不知道要回寫到哪一筆。'}
+                    {'檢查與截圖一定要指定所屬 TC，否則執行會被擋下來——結果不知道要回寫到哪一筆。'}
                   </span>
                 )}
               </label>
             )}
-            <label>{xianxia ? '術式類別' : '動作類型'}<select className="uat-field" value={selected.action} onChange={event => updateSelected({ ...createStep(event.target.value), id: selected.id, name: selected.name })}>{STEP_LIBRARY.map(item => <option value={item.action} key={item.action}>{labelFor(item.action)}</option>)}</select></label>
+            <label>{'動作類型'}<select className="uat-field" value={selected.action} onChange={event => updateSelected({ ...createStep(event.target.value), id: selected.id, name: selected.name })}>{STEP_LIBRARY.map(item => <option value={item.action} key={item.action}>{labelFor(item.action)}</option>)}</select></label>
             {selected.action === 'goto' && <label>網址<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="https://..." /></label>}
             {selected.action === 'goto' && <label>導頁後等待毫秒<input className="uat-field" type="number" min="0" max="30000" value={selected.settleMs ?? 3000} onChange={event => updateSelected({ settleMs: event.target.value === '' ? undefined : Number(event.target.value) })} /><span className="uat-hint">預設 3000。要截載入畫面（例：左下角版本號）填 0，不然截到的會是大廳</span></label>}
             {selected.action === 'popup_watch' && <label>自動關彈窗<select className="uat-field" value={selected.value || 'pause'} onChange={event => updateSelected({ value: event.target.value })}><option value="pause">暫停（要驗彈窗本身時，放在彈窗出現之前）</option><option value="resume">恢復</option></select><span className="uat-hint">執行期間工具每 1.5 秒自動關大廳彈窗；要截圖或點彈窗（例：廣告 JP 彈框）就先暫停</span></label>}
@@ -393,7 +394,7 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             )}
             {selected.action === 'backend_snippet' && (
               <>
-                <label>{xianxia ? '後樞術式' : '後台設定片段'}
+                <label>{'後台設定片段'}
                   <select className="uat-field" value={selected.snippetId ?? ''}
                     onChange={event => updateSelected({ snippetId: event.target.value })}>
                     <option value="">{snippets.length ? '請選擇' : '目前沒有片段'}</option>
@@ -447,11 +448,11 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
               </>
             )}
             {['click_viewport', 'click_xy'].includes(selected.action) && <div className="uat-field-row"><label>X<input className="uat-field" type="number" value={selected.x ?? 0} onChange={event => updateSelected({ x: Number(event.target.value) })} /></label><label>Y<input className="uat-field" type="number" value={selected.y ?? 0} onChange={event => updateSelected({ y: Number(event.target.value) })} /></label></div>}
-            {selected.action === 'wait' && <label>{xianxia ? '靜候毫秒' : '等待毫秒'}<input className="uat-field" type="number" min="0" value={selected.value ?? '1000'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
-            {selected.action === 'repeat' && <label>{xianxia ? '周天次數' : '重複次數'}<input className="uat-field" type="number" min="1" max="50" value={selected.value ?? '2'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
-            {selected.action === 'find_baseline_scroll' && <><label>{xianxia ? '基準靈影' : '基準圖'}<select className="uat-field" value={selected.baselineId ?? ''} onChange={event => updateSelected({ baselineId: event.target.value })}><option value="">{xianxia ? '選取靈影' : '請選擇'}</option>{baselines.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>{xianxia ? '靈紋偏移界線' : '差異門檻'}<input className="uat-field" type="number" step="0.01" min="0" max="1" value={selected.threshold ?? 0.08} onChange={event => updateSelected({ threshold: Number(event.target.value) })} /></label></>}
-            {!CONTAINER_ACTIONS.has(selected.action) && <><label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={selected.failureMode ?? 'inherit'} onChange={event => updateSelected({ failureMode: event.target.value as AutoStep['failureMode'] })}><option value="inherit">{xianxia ? '承襲全陣設定' : '沿用執行設定'}</option><option value="continue">{xianxia ? '續行下一陣眼' : '繼續下一步'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option><option value="retry">{xianxia ? '重演後定奪' : '重試後再判定'}</option></select></label>{selected.failureMode === 'retry' && <label>{xianxia ? '重演次數' : '重試次數'}<input className="uat-field" type="number" min="1" max="10" value={selected.retryCount ?? 1} onChange={event => updateSelected({ retryCount: Number(event.target.value) })} /></label>}</>}
-            <div className="uat-inspector-actions"><button type="button" className="uat-btn is-quiet" onClick={duplicateSelected}>{xianxia ? '拓印術式' : '建立複本'}</button><button type="button" className="uat-btn is-danger" onClick={deleteSelected}>{xianxia ? '撤去陣眼' : '刪除步驟'}</button></div>
+            {selected.action === 'wait' && <label>{'等待毫秒'}<input className="uat-field" type="number" min="0" value={selected.value ?? '1000'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
+            {selected.action === 'repeat' && <label>{'重複次數'}<input className="uat-field" type="number" min="1" max="50" value={selected.value ?? '2'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
+            {selected.action === 'find_baseline_scroll' && <><label>{'基準圖'}<select className="uat-field" value={selected.baselineId ?? ''} onChange={event => updateSelected({ baselineId: event.target.value })}><option value="">{'請選擇'}</option>{baselines.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>{'差異門檻'}<input className="uat-field" type="number" step="0.01" min="0" max="1" value={selected.threshold ?? 0.08} onChange={event => updateSelected({ threshold: Number(event.target.value) })} /></label></>}
+            {!CONTAINER_ACTIONS.has(selected.action) && <><label>{'失敗處理'}<select className="uat-field" value={selected.failureMode ?? 'inherit'} onChange={event => updateSelected({ failureMode: event.target.value as AutoStep['failureMode'] })}><option value="inherit">{'沿用執行設定'}</option><option value="continue">{'繼續下一步'}</option><option value="stop">{'立即停止'}</option><option value="retry">{'重試後再判定'}</option></select></label>{selected.failureMode === 'retry' && <label>{'重試次數'}<input className="uat-field" type="number" min="1" max="10" value={selected.retryCount ?? 1} onChange={event => updateSelected({ retryCount: Number(event.target.value) })} /></label>}</>}
+            <div className="uat-inspector-actions"><button type="button" className="uat-btn is-quiet" onClick={duplicateSelected}>{'建立複本'}</button><button type="button" className="uat-btn is-danger" onClick={deleteSelected}>{'刪除步驟'}</button></div>
           </div>
         )}
       </aside>

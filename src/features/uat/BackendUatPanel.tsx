@@ -635,7 +635,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
     const match = line.match(/通過:\s*(\d+).*需人工:\s*(\d+).*跳過:\s*(\d+).*失敗:\s*(\d+)/)
     return match ? { pass: +match[1], manual: +match[2], skip: +match[3], fail: +match[4] } : result
   }, { pass: 0, manual: 0, skip: 0, fail: 0 })
-  const statusLabel = status === 'idle' ? (xianxia ? '玉簡未啟' : '待機') : status === 'running' ? (xianxia ? '推演中' : '執行中') : status === 'done' ? (xianxia ? '推演完成' : '完成') : (xianxia ? '陣眼失守' : '錯誤')
+  const statusLabel = status === 'idle' ? '待機' : status === 'running' ? '執行中' : status === 'done' ? '完成' : '錯誤'
 
   const targetAgent = selectedAgentId
     ? agents.find(agent => agent.agentId === selectedAgentId)?.hostname ?? selectedAgentId
@@ -644,8 +644,8 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
       : null
   /** ①②③ 要點得下去並帶人到該去的地方（見 focusPanel.ts） */
   const startSteps = [
-    { label: xianxia ? '載入玉簡' : '設定 Lark TC', done: !!config.larkUrl.trim(), focus: 'uat-focus-lark' },
-    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent, focus: 'uat-focus-agent' },
+    { label: '設定 Lark TC', done: !!config.larkUrl.trim(), focus: 'uat-focus-lark' },
+    { label: '選在哪台機器跑', done: !!targetAgent, focus: 'uat-focus-agent' },
     { label: legacyMode ? '執行舊版 TC' : '選擇或錄製腳本', done: false, focus: 'uat-focus-scripts' },
   ]
   const blockedReason = !config.larkUrl
@@ -678,7 +678,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
             <button type="button" className="uat-btn is-quiet" onClick={() => setScheduleOpen(true)}>每日排程</button>
           )}
           {status === 'running' && !batchBusy
-            ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button>
+            ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{'停止執行'}</button>
             : <button type="button" className="uat-btn is-primary is-wide" disabled={batchBusy || !config.larkUrl} onClick={legacyMode ? run : () => openScript()}>{legacyMode ? '執行舊版 TC' : '錄製新腳本'}</button>}
         </div>
       </div>
@@ -689,7 +689,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
           grid 的視覺順序跟著 DOM 走，所以搬 DOM 就夠，不用另外設 order。 */}
       <section className="uat-backend-bottom">
 <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
-<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section>
+<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{'自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{'清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : '等待執行...'}<span ref={logEnd} /></pre></section>
       </section>
 
       <aside className="uat-backend-plan">
@@ -792,14 +792,14 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
         {/* 本次總覽。除了四種結果，補上覆蓋率與這一輪耗時——
             「這次跑了什麼」跟「整體驗到多少」是兩個不同的問題，並排才看得懂。 */}
         <div className="uat-stat-grid">
-          <Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" />
-          <Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" />
-          <Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" />
-          <Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" />
+          <Stat label={'通過'} value={summary.pass} tone="pass" />
+          <Stat label={'需人工'} value={summary.manual} tone="manual" />
+          <Stat label={'跳過'} value={summary.skip} tone="skip" />
+          <Stat label={'失敗'} value={summary.fail} tone="fail" />
           {/* 耗時放進同一排。沒有它就答不出「這次是不是變慢了」——
               而變慢往往是退化最早出現的訊號，比失敗更早。 */}
           <article className="uat-stat is-time">
-            <span>{xianxia ? '推演耗時' : '本次耗時'}</span>
+            <span>{'本次耗時'}</span>
             <strong>{runTiming ? formatDuration(runTiming.durationMs) : '—'}</strong>
             {runTiming?.deltaMs != null && runTiming.deltaMs !== 0 && (
               <em className={runTiming.deltaMs > 0 ? 'is-slower' : 'is-faster'}>
@@ -906,16 +906,16 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
               {credMsg && <span className={`uat-backend-cred-msg${credMsg.tone === 'error' ? ' is-error' : ''}`}>{credMsg.tone === 'ok' ? '✓ ' : ''}{credMsg.text}</span>}
             </div>
             {/* 站台要排在帳密上面：先決定測哪一個後台，才知道要填哪一組帳密 */}
-            <label id="uat-focus-site">{xianxia ? '試煉道場' : '後台站台'}
+            <label id="uat-focus-site">{'後台站台'}
               <select className="uat-field" value={config.site ?? 'cp'} onChange={event => update({ site: event.target.value as 'cp' | 'nc' })}>
                 <option value="cp">CP（uat-cp.osmslot.org）</option>
                 <option value="nc">NC（uat-nc.osmslot.org）</option>
               </select>
               <small>錄製與執行都會用這個站台。⚠️ 兩個站台的登入帳密是分開存的，換站台要確認上面那組帳密也是那個站台的，否則會停在登入頁（症狀是每一步都說找不到元素）。</small>
             </label>
-            <label id="uat-focus-lark">{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
-            <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>
-            {legacyMode && <><label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}
+            <label id="uat-focus-lark">{'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
+            <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : '掃描 Lark TC'}</button>
+            {legacyMode && <><label>{'Subtype 追加篩選'}
               <button type="button" className="uat-field uat-subtype-trigger" onClick={() => setSubtypeModal(true)}>
                 {selectedSubtypes.length
                   ? `已選 ${selectedSubtypes.length} 個子類型`

@@ -179,9 +179,10 @@ const RECORDER_PANEL_THEMES = {
   xianxia: {
     bg: '#0b0a07', line: '#c8a24a', text: '#e8f6f2', dim: '#9aa8a4', quiet: '#141210',
     accent: '#4fd6c9', danger: '#8c2f2a', dangerInk: '#f8e7df',
-    recording: '觀照中', paused: '已暫歇', syncing: '同步中',
-    pause: '暫歇觀照', resume: '續行觀照', stop: '收陣（停止）', stopping: '收陣中…',
-    check: '立驗印', checkOn: '立印之時：點一物即結一印（不觸動原本之法）',
+    // v5.8.1 使用者：修仙版 UAT 的用詞改成跟普通版一樣（只保留配色）
+    recording: '錄製中', paused: '已暫停', syncing: '同步中',
+    pause: '暫停錄製', resume: '繼續錄製', stop: '停止錄製', stopping: '停止中…',
+    check: '加檢查', checkOn: '檢查模式：點一下畫面上的東西＝加一顆檢查（不會觸發原本的操作）',
   },
 };
 

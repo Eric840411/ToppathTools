@@ -298,15 +298,16 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
     '沒接的話主畫面永遠看不到暫停狀態（面板顯示暫停、主畫面顯示錄製中）');
 }
 
-console.log('⑥ 修仙版的用詞不會漏到普通版，反之亦然');
+console.log('⑥ 修仙版的配色不會漏到普通版，反之亦然（v5.8.1 起兩版用詞相同，只比配色）');
 {
   const normal = frontendRecorderScript();
   const xianxia = frontendRecorderScript({ theme: 'xianxia' });
-  const xianxiaOnly = ['收陣', '暫歇', '觀照中', 'c8a24a', '4fd6c9'];
-  const normalOnly = ['停止錄製', '暫停錄製', '繼續錄製', '3fbe8b', '42566f'];
-  check('⑥ 普通版裡找不到修仙版的字串／配色',
+  const xianxiaOnly = ['c8a24a', '4fd6c9'];
+  const normalOnly = ['3fbe8b', '42566f'];
+  check('⑥ 修仙版也用普通版用語（使用者 2026-10-05）', xianxia.includes('停止錄製') && !xianxia.includes('收陣'));
+  check('⑥ 普通版裡找不到修仙版的配色',
     !xianxiaOnly.some(t => normal.includes(t)), xianxiaOnly.filter(t => normal.includes(t)).join('、'));
-  check('⑥ 修仙版裡找不到普通版的字串／配色',
+  check('⑥ 修仙版裡找不到普通版的配色',
     !normalOnly.some(t => xianxia.includes(t)), normalOnly.filter(t => xianxia.includes(t)).join('、'));
   check('⑥ 控制 marker 跟步驟 marker 不同（收指令跟收步驟不能混在一起）',
     FRONTEND_RECORDER_CONTROL_MARKER !== '__TOPPATH_RECORDER__');
