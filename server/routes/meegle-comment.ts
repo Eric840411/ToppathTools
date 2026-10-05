@@ -25,6 +25,7 @@ import {
 } from '../meegle-comment-store.js'
 import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment-run.js'
 import { defaultRunner, resolveDetailUrlBase } from '../meegle-workitem.js'
+import { withWritebackBusy } from '../meegle-writeback-busy.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
@@ -245,7 +246,7 @@ router.post('/api/meegle/comment/row', writeLimiter, async (req, res, next) => {
       space: spaceSchema,
     }).parse(req.body)
     const { batchId, expectedRemoteHash, confirmedRemoteHash, allowRepeat, space, ...content } = body
-    const r = await executeRow(req, ctx, batchId, space, content, { expectedRemoteHash, confirmedRemoteHash, allowRepeat })
+    const r = await withWritebackBusy('comment', batchId, content.workItemId, () => executeRow(req, ctx, batchId, space, content, { expectedRemoteHash, confirmedRemoteHash, allowRepeat }))
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
 })
@@ -265,7 +266,7 @@ router.post('/api/meegle/comment/row/continue', writeLimiter, async (req, res, n
     // allowRepeat 一律 false：同批次接著做不受影響（已評論檢查只看別的批次）；別的批次已經評論完這張單 → 擋下，
     // 不然舊的、沒做完的批次按「繼續送出」會在新批次之後再貼一次評論
     // 空間用紀錄上的（CodeX：重試依紀錄執行，不讀目前切換值）
-    const r = await executeRow(req, ctx, body.batchId, rowSpace(row.space), content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: false })
+    const r = await withWritebackBusy('comment', body.batchId, body.rowKey, () => executeRow(req, ctx, body.batchId, rowSpace(row.space), content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: false }))
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
 })
@@ -326,14 +327,14 @@ router.post('/api/meegle/comment/row/writeback', writeLimiter, async (req, res, 
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
     if (!ownedRow(req, res, ctx, body.batchId, body.rowKey)) return
     const writer = larkWritebackDeps()
-    const steps = await writebackComment({
+    const steps = await withWritebackBusy('comment', body.batchId, body.rowKey, () => writebackComment({
       db, readRowCells: larkReadRowCells, fmtTime,
       writeRow: (key, row, cols) => withSheetLock(key, () => writer.writeRow(key, row, cols)),
       getDescription: async () => ({ kind: 'rejected', message: '補寫回不碰 Meegle' }),
       setDescription: async () => ({ kind: 'rejected', message: '補寫回不碰 Meegle' }),
       uploadFile: async () => ({ kind: 'rejected', message: '補寫回不碰 Meegle' }),
       addComment: async () => ({ kind: 'rejected', message: '補寫回不碰 Meegle' }),
-    }, body.batchId, body.rowKey)
+    }, body.batchId, body.rowKey))
     res.json({ ok: true, steps: publicSteps(steps) })
   } catch (e) { next(e) }
 })

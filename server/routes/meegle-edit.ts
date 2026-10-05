@@ -27,6 +27,7 @@ import {
   expireStaleEditSteps, getEditRow, getEditSteps, initMeegleEditSchema, listPreviousEditForSource, type EditStepRow,
 } from '../meegle-edit-store.js'
 import { continueEditRow, planHash, runEditRow, type EditDeps } from '../meegle-edit-run.js'
+import { withWritebackBusy } from '../meegle-writeback-busy.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
 
@@ -214,7 +215,7 @@ router.post('/api/meegle/edit/row/retry', writeLimiter, async (req, res, next) =
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${row.work_item_id} 所屬空間失敗：${own.message}` })
     expireStaleEditSteps(db, STALE_MS)
-    const steps = await continueEditRow(depsFor(ctx.token, space), b.batchId, b.rowKey, { retry: true })
+    const steps = await withWritebackBusy('edit', b.batchId, b.rowKey, () => continueEditRow(depsFor(ctx.token, space), b.batchId, b.rowKey, { retry: true }))
     log('ok', getClientIP(req), ctx.email, 'Meegle 修改', `#${b.rowKey} 重試`)
     res.json({ ok: true, steps: publicSteps(steps) })
   } catch (e) { next(e) }

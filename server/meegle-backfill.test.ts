@@ -7,6 +7,7 @@ import { initMeegleBatchSchema } from './meegle-batch-store.js'
 import { initMeegleCommentSchema } from './meegle-comment-store.js'
 import { initMeegleStatusSchema } from './meegle-status-store.js'
 import { initMeegleEditSchema } from './meegle-edit-store.js'
+import { isWritebackBusy, withWritebackBusy } from './meegle-writeback-busy.js'
 import { IDLE_MS, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill } from './meegle-backfill.js'
 
 let pass = 0, fail = 0
@@ -94,6 +95,24 @@ stepRow('comment', 'c-old2', '106', { desc: 'done', comment: 'done', review: 'sk
 dismissBackfill(db, [{ tool: 'comment', batchId: 'c-old2', rowKey: '106' }], me, rec)
 stepRow('comment', 'c-new2', '106', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 4)
 eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfill(db, { owner: 'me@t', now: NOW }).filter(i => i.workItemId === '106').map(i => i.batchId), ['c-new2'])
+
+// 開單頁自己的「補寫回」寫到一半 → 移出要擋（各入口共用同一個標記，CodeX review 99ee76a [P2]）
+{
+  let release: () => void = () => {}
+  const inflight = withWritebackBusy('create', B, '4', () => new Promise<void>(r => { release = r }))
+  eq('開單頁補寫途中 → 標記為正在補寫', isWritebackBusy(`create:${B}:4`), true)
+  eq('開單頁補寫途中移出 → 擋下', dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '4' }], me, { now: NOW, busy: isWritebackBusy })[0].message, '這一列正在補寫，結束後再移')
+  // 同一列兩個入口同時寫：一個寫完不能把另一個的標記清掉
+  let release2: () => void = () => {}
+  const second = withWritebackBusy('create', B, '4', () => new Promise<void>(r => { release2 = r }))
+  release(); await inflight
+  eq('兩個入口同時寫，一個寫完另一個還在 → 仍標記', isWritebackBusy(`create:${B}:4`), true)
+  release2(); await second
+  eq('都寫完 → 標記清掉、可以移出', [isWritebackBusy(`create:${B}:4`), dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '4' }], me, { now: NOW, busy: isWritebackBusy })[0].ok], [false, true])
+  // 寫的途中丟例外也要清掉標記
+  await withWritebackBusy('status', 's1', '201', async () => { throw new Error('x') }).catch(() => {})
+  eq('補寫丟例外 → 標記仍會清掉', isWritebackBusy('status:s1:201'), false)
+}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

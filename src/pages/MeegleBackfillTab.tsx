@@ -115,7 +115,13 @@ export function MeegleBackfillTab() {
       await load()
     } catch (e) { setError((e as Error).message) } finally { setRunning(false) }
   }
-  const chosenSheets = [...new Set(chosen.map(i => i.sheetLabel))]
+  // 用完整的 sourceKey 去重（sheetLabel 是截短的，兩份撞名會被算成一份——CodeX review 99ee76a [P2]）；撞名時補尾碼分辨
+  const chosenSheets = (() => {
+    const bySrc = new Map<string, string>()
+    for (const i of chosen) bySrc.set(i.sourceKey || i.sheetLabel, i.sheetLabel)
+    const labels = [...bySrc.values()]
+    return [...bySrc.entries()].map(([src, label]) => labels.filter(l => l === label).length > 1 ? `${label}（${src.replace(/^lark:/, '').slice(0, 24)}）` : label)
+  })()
 
   const tally = { moved: results.filter(r => resultKind(r) === 'moved').length, ok: results.filter(r => resultKind(r) === 'ok').length, skip: results.filter(r => resultKind(r) === 'skip').length, bad: results.filter(r => resultKind(r) === 'bad').length }
 

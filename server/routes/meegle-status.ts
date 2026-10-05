@@ -21,6 +21,7 @@ import {
   expireStaleStatusSteps, getStatusRow, getStatusSteps, initMeegleStatusSchema, listPreviousStatusForSource, dateDataOf, type StatusStepRow,
 } from '../meegle-status-store.js'
 import { continueStatusRow, runStatusRow, type StatusDeps } from '../meegle-status-run.js'
+import { withWritebackBusy } from '../meegle-writeback-busy.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { AUTO_DATE_FIELDS, DATE_MODES } from '../../shared/meegle-status-rules.js'
 
@@ -152,7 +153,7 @@ router.post('/api/meegle/status/row/retry', writeLimiter, async (req, res, next)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${row.work_item_id} 所屬空間失敗：${own.message}` })
     expireStaleStatusSteps(db, STALE_MS)
-    const steps = await continueStatusRow(depsFor(ctx.token, space), b.batchId, b.rowKey)
+    const steps = await withWritebackBusy('status', b.batchId, b.rowKey, () => continueStatusRow(depsFor(ctx.token, space), b.batchId, b.rowKey))
     log('ok', getClientIP(req), ctx.email, 'Meegle 狀態', `#${b.rowKey} 重試`)
     res.json({ ok: true, steps: publicSteps(steps) })
   } catch (e) { next(e) }

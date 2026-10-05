@@ -160,6 +160,23 @@ for (const theme of ['classic', 'xianxia']) {
   check('移出後清單重讀（剩 2 筆）', (await page.locator('.bf-table tbody tr').count()) === 2)
   await ctx.close()
 }
+// 兩份 Sheet 顯示名稱撞名 → 確認框要寫兩份、而且分得出來（CodeX review 99ee76a [P2]）
+{
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+  await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
+  const page = await ctx.newPage()
+  const mk3 = (src, n) => ({ ...base, sheetLabel: 'JjLosM…／1Xp7sf', sourceKey: src, tool: 'create', toolLabel: '開單', stage: '已開單', batchId: `cccccccc-cccc-4ccc-8ccc-${String(n).padStart(12, '0')}`, rowKey: String(n), workItemId: String(17000000 + n), sheetRow: n, phase: 'failed', message: 'x', lastAt: Date.now() - n })
+  await page.route('**/api/meegle/backfill/pending**', r => r.fulfill({ json: { ok: true, scope: 'mine', canSeeAll: false, items: [mk3('lark:AAAAAA/1Xp7sf', 1), mk3('lark:BBBBBB/1Xp7sf', 2)] } }))
+  await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByRole('button', { name: 'Meegle 補回填' }).click()
+  await page.locator('.bf-group').first().waitFor()
+  for (const g of await page.locator('.bf-group').all()) await g.getByLabel(/這份全選/).check()
+  await page.getByRole('button', { name: '我自己處理了，移出清單' }).click()
+  const t = await page.getByRole('alertdialog', { name: '確認移出清單' }).innerText()
+  check('撞名的兩份 Sheet：確認框寫 2 份、各自分得出來', /2 份 Sheet/.test(t) && /AAA\/1Xp7sf/.test(t) && /BBB\/1Xp7sf/.test(t), t.replace(/\s+/g, ' '))
+  await ctx.close()
+}
 await browser.close()
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)

@@ -8,6 +8,7 @@ import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
+import { isWritebackBusy, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { BACKFILL_TOOLS, backfillKey, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill, type BackfillRunners, type PendingItem } from '../meegle-backfill.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock, writebackRow } from '../meegle-sheet-writeback.js'
 import { writebackComment } from '../meegle-comment-run.js'
@@ -31,11 +32,7 @@ function expireAll() {
 export const router = Router()
 initBackfillDismissSchema(db)
 
-/**
- * 正在補寫的列（補寫與移出互斥，CodeX 2026-10-06）。補寫一列前先重查它還在清單、標成忙碌，寫完才放；
- * 移出時遇到忙碌的列就擋。兩條路都在這個程序裡跑（路由只掛在 server），所以用記憶體集合就夠
- */
-const busy = new Set<string>()
+// 補寫與移出互斥：「正在補寫」的標記跟各工具自己的補寫入口共用（server/meegle-writeback-busy.ts，CodeX review 99ee76a [P2]）
 
 type Ctx = { email: string; admin: boolean }
 function requireCtx(req: Request, res: Response): Ctx | null {
@@ -103,13 +100,9 @@ router.post('/api/meegle/backfill/retry', writeLimiter, async (req, res, next) =
       // 每一列執行前才重查：前面幾列在寫的時候，後面的可能已經被另一個分頁移出或補好（CodeX 2026-10-06）
       const hit = listPendingBackfill(db, { owner: ctx.admin ? null : ctx.email }).find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
       if (!hit) { results.push({ ...it, workItemId: '', ok: false, message: '這一列不在待補清單裡（可能已經補好、移出、或不是你送的）' }); continue }
-      const k = backfillKey(it)
-      if (busy.has(k)) { results.push({ ...it, workItemId: hit.workItemId, ok: false, message: '這一列正在另一個請求補寫中' }); continue }
-      busy.add(k)
-      try {
-        const r = await retryBackfill(run, it)
-        results.push({ ...it, workItemId: hit.workItemId, ok: r.ok, message: r.message })
-      } finally { busy.delete(k) }
+      if (isWritebackBusy(backfillKey(it))) { results.push({ ...it, workItemId: hit.workItemId, ok: false, message: '這一列正在另一個請求補寫中' }); continue }
+      const r = await withWritebackBusy(it.tool, it.batchId, it.rowKey, () => retryBackfill(run, it))
+      results.push({ ...it, workItemId: hit.workItemId, ok: r.ok, message: r.message })
     }
     const okN = results.filter(r => r.ok).length
     log(okN === results.length ? 'ok' : 'warn', getClientIP(req), ctx.email, 'Meegle 補回填', `${okN}／${results.length} 筆寫回`)
@@ -125,7 +118,7 @@ router.post('/api/meegle/backfill/dismiss', writeLimiter, (req, res, next) => {
     const { items } = z.object({ items: z.array(z.object({ tool: z.enum(['create', 'comment', 'status', 'edit']), batchId: z.string().uuid(), rowKey: z.string().min(1).max(40) })).min(1).max(200) }).parse(req.body)
     expireAll()
     const results = dismissBackfill(db, items, ctx, {
-      busy: k => busy.has(k),
+      busy: isWritebackBusy,
       // 跟寫入同一個 transaction：有實際移出的列才記，重複請求不重複記
       recordHistory: rows => addHistory('meegle-backfill', 'Meegle 補回填：移出清單', `移出 ${rows.length} 筆（不改 Sheet／Meegle）`, { action: 'dismiss', by: ctx.email, rows }),
     })

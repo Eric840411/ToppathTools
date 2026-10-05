@@ -15,10 +15,14 @@ import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
 import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
 import { larkWritebackDeps, writebackRow } from '../meegle-sheet-writeback.js'
+import { withWritebackBusy } from '../meegle-writeback-busy.js'
 
-/** 回填 Sheet（失敗不影響開單；結果落在 writeback_phase，④ 顯示、可補寫回） */
+/**
+ * 回填 Sheet（失敗不影響開單；結果落在 writeback_phase，④ 顯示、可補寫回）。
+ * 寫的期間標成「正在補寫」：補回填的「移出清單」遇到就擋（所有補寫入口共用，CodeX review 99ee76a [P2]）
+ */
 async function writeback(batchId: string, rowKey: string, force = false) {
-  try { await writebackRow(db, batchId, rowKey, larkWritebackDeps(), { force }) } catch (e) { console.warn('[Meegle] 回填 Sheet 失敗：', e) }
+  try { await withWritebackBusy('create', batchId, rowKey, () => writebackRow(db, batchId, rowKey, larkWritebackDeps(), { force })) } catch (e) { console.warn('[Meegle] 回填 Sheet 失敗：', e) }
 }
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
