@@ -30,3 +30,4 @@ node scripts/machine-test/machine-test-report-i18n.mjs 40   # 翻譯覆蓋率檢
 | `MT_LUCKYLINK_BACKEND_PASSWORD` | `luckyLinkBackendPassword` |
 
 中控登入會沿用 `<MT_HOME>/data/toppath-central-session.txt` 的 cookie，失效才重新登入（避免每跑一次就多一個 7 天的 session）。
+本機 agent 的 token 沿用 `<MT_HOME>/data/machine-test-agent-token.txt`，連不上（例如被撤銷）才重新下載 install.bat 領新的（避免每次啟動都多發一把 Local Agent token）。

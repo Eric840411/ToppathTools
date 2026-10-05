@@ -183,7 +183,7 @@ async function central(p, opts = {}) {
 // 1005 使用者：每次跑都重新登入 → 中控每次多一個 7 天的 session（Dashboard「登入 Session」累積到 274 組）。
 // 改成沿用上次的 cookie（存在 data/，/api/auth/me 驗過還有效就不登入），失效才重新登入並覆寫。
 const SESSION_FILE = path.join(ROOT, 'data', 'toppath-central-session.txt')
-async function login() {
+export async function login() {
   try {
     const saved = fs.readFileSync(SESSION_FILE, 'utf8').trim()
     if (saved) {
@@ -199,17 +199,41 @@ async function login() {
 }
 const status = async () => (await central('/api/machine-test/status')).json
 const myAgent = st => (st?.agents ?? []).find(a => String(a.agentId).startsWith(CFG.agentLabel + '_')) ?? null
-async function startAgent() {
+// 1005 使用者：每次啟動都重新下載 install.bat → 每次都發一把新的 Local Agent token（10/03 一天累積 25 把）。
+// 改成沿用存下來的 token；連不上（例如被撤銷）才換新的並覆寫。
+const AGENT_TOKEN_FILE = path.join(ROOT, 'data', 'machine-test-agent-token.txt')
+function spawnAgent(token) {
+  const out = fs.openSync(path.join(CFG.agentDir, 'agent-claude.out.log'), 'w')
+  const child = spawn('cmd.exe', ['/c', 'npx tsx server/agent-runner.ts'], {
+    cwd: CFG.agentDir, detached: true, stdio: ['ignore', out, out], windowsHide: true,
+    env: { ...process.env, CENTRAL_URL: CFG.central, AGENT_TOKEN: token, AGENT_OWNER_KEY: CFG.email, AGENT_LABEL: CFG.agentLabel },
+  })
+  child.unref()
+  return child
+}
+async function waitAgent(tries) {
+  for (let i = 0; i < tries; i++) { await sleep(3000); const a = myAgent(await status()); if (a) return a }
+  return null
+}
+export async function startAgent() {
   log('本機 agent 不在線，啟動中...')
+  let saved = ''
+  try { saved = fs.readFileSync(AGENT_TOKEN_FILE, 'utf8').trim() } catch { /* 沒存過 */ }
+  if (saved) {
+    const child = spawnAgent(saved)
+    const a = await waitAgent(15)
+    if (a) return a
+    // 存的 token 連不上（多半是被撤銷）：收掉這個程序再換新 token
+    log('存的 agent token 連不上，改領新的')
+    try { execFileSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' }) } catch { /* 已經結束 */ }
+  }
   const bat = (await central('/api/machine-test/agent/install.bat')).txt
   const token = bat.match(/AGENT_TOKEN=([^\s\r]+)/)?.[1]
   if (!token) throw new Error('拿不到 agent token（install.bat 內沒有 AGENT_TOKEN）')
-  const out = fs.openSync(path.join(CFG.agentDir, 'agent-claude.out.log'), 'w')
-  spawn('cmd.exe', ['/c', 'npx tsx server/agent-runner.ts'], {
-    cwd: CFG.agentDir, detached: true, stdio: ['ignore', out, out], windowsHide: true,
-    env: { ...process.env, CENTRAL_URL: CFG.central, AGENT_TOKEN: token, AGENT_OWNER_KEY: CFG.email, AGENT_LABEL: CFG.agentLabel },
-  }).unref()
-  for (let i = 0; i < 30; i++) { await sleep(3000); const a = myAgent(await status()); if (a) return a }
+  try { fs.mkdirSync(path.dirname(AGENT_TOKEN_FILE), { recursive: true }); fs.writeFileSync(AGENT_TOKEN_FILE, token) } catch { /* 存不了就下次再領 */ }
+  spawnAgent(token)
+  const a = await waitAgent(30)
+  if (a) return a
   throw new Error('本機 agent 啟動後 90 秒仍未上線，請看 agent-claude.out.log')
 }
 
