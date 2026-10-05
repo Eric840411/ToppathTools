@@ -108,7 +108,7 @@ router.post('/api/meegle/status/previous', (req, res, next) => {
     expireStaleStatusSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
     const rows = listPreviousStatusForSource(db, key, space)
-    res.json({ ok: true, otherSpace: otherSpaceOf(db, 'meegle_status_rows', 'source_key', key, space), rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), targetKey: r.target_key, targetName: r.target_name, dateMode: r.date_mode, steps: publicSteps(r.steps) })) })
+    res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), targetKey: r.target_key, targetName: r.target_name, dateMode: r.date_mode, steps: publicSteps(r.steps) })) })
   } catch (e) { next(e) }
 })
 

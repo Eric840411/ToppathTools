@@ -6,6 +6,7 @@ import {
 import type { RosterPerson } from '../../shared/meegle-people-match'
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
+import './MeegleBatchCommentTab.css' // .mc-loadbar：網址列＋讀取鈕同一行，跟其他分頁一樣（使用者 10/05）
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
@@ -459,7 +460,9 @@ export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onS
     setStep(4)
     await submit(true)
   }
-  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
+  // 送出中、單列重試／繼續送出中都算忙：這時切空間會卸掉畫面，但後端還在寫（CodeX review 025fe7c [P2]）
+  const anyRowBusy = Object.values(rowBusy).some(Boolean)
+  useEffect(() => { onBusyChange?.(running || anyRowBusy) }, [running, anyRowBusy, onBusyChange])
 
   // ── 畫面 ──
   if (metaError) {
@@ -513,13 +516,13 @@ export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onS
         {step === 1 && (
           <div className="mb-pane mb-pane--narrow">
             <h3 className="mb-pane-title">讀取與整批預設</h3>
-            <label className="mb-field"><span>Sheet URL</span>
-              <input className="mb-input" placeholder="https://xxx.larksuite.com/wiki/…?sheet=…" value={sheetUrl}
+            <div className="mc-loadbar">
+              <input className="mb-input" aria-label="Sheet URL" placeholder="https://xxx.larksuite.com/wiki/…?sheet=…" value={sheetUrl}
                 onChange={e => setSheetUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void loadSheet() }} />
-            </label>
-            <button type="button" className="mb-btn mb-btn--primary mb-btn--block" disabled={sheetLoading || !sheetUrl.trim()} onClick={() => void loadSheet()}>
-              <Icon name="link" /> {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
-            </button>
+              <button type="button" className="mb-btn mb-btn--primary" disabled={sheetLoading || !sheetUrl.trim()} onClick={() => void loadSheet()}>
+                <Icon name="link" /> {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
+              </button>
+            </div>
             {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
             <OtherSpaceNotice other={otherSpace} space={space} />
             {records && <div className="mb-muted mb-loaded">已讀取 {rows.length} 列{unmappedAliases.length ? `・${unmappedAliases.length} 個名字未對照` : '・人員都已對照'}</div>}

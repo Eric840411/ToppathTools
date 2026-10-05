@@ -141,7 +141,7 @@ router.post('/api/meegle/edit/previous', (req, res, next) => {
     const { sheetUrl, space } = z.object({ sheetUrl: z.string().min(1).max(2000), space: spaceSchema }).parse(req.body)
     expireStaleEditSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
-    res.json({ ok: true, otherSpace: otherSpaceOf(db, 'meegle_edit_rows', 'source_key', key, space), rows: listPreviousEditForSource(db, key, space).map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), steps: publicSteps(r.steps) })) })
+    res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listPreviousEditForSource(db, key, space).map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), steps: publicSteps(r.steps) })) })
   } catch (e) { next(e) }
 })
 

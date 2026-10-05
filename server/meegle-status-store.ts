@@ -81,7 +81,7 @@ export function claimStatusRow(db: DB, input: StatusClaimInput, now = Date.now()
   return db.transaction((): StatusClaimResult => {
     const other = db.prepare('SELECT 1 FROM meegle_status_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)
     if (other) return { kind: 'source-mismatch' }
-    const sg = spaceGuard(db, 'meegle_status_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    const sg = spaceGuard(db, 'meegle_status_rows', input.batchId, input.sourceKey, input.space)
     if (sg) return sg
     const live = db.prepare(`SELECT s.batch_id, s.step FROM meegle_status_steps s JOIN meegle_status_rows r ON r.batch_id = s.batch_id AND r.row_key = s.row_key
       WHERE r.work_item_id = ? AND s.phase = 'creating' LIMIT 1`).get(R) as { batch_id: string; step: string } | undefined

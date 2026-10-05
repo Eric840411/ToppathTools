@@ -386,6 +386,12 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 空間的 project key 只在後端：測試 `6abb348976c120f4f43c746a`、正式 `6ac081a48614642b450645c5`（env `MEEGLE_PROJECT_KEY`／`MEEGLE_PROD_PROJECT_KEY` 可覆寫）。任務項類型、欄位、角色 key 兩邊實測相同
 - 程式：`shared/meegle-space.ts`（代號、名稱、預設）、`server/meegle-space.ts`（`spaceEnv` 把 key 一路傳給既有操作、`spaceGuard`、`checkItemSpace`）、`src/components/MeegleSpace.tsx`（切換列、確認彈窗、提示）
 
+### v5.10.1（CodeX review 025fe7c）
+- **Sheet 的空間綁定看四張表合起來**（`SHEET_TABLES`）：原本只看自己那種操作的表，測試評論過的 Sheet 仍能在正式開單。檢查在各自認領的 IMMEDIATE transaction 裡做，四張表同一個 DB
+- **初始值第一次進分頁就固定**：原本沒手動切過的分頁一直跟著「最後一次選的」，在別頁選正式再回來就跟著變
+- **單列重試／補寫回／繼續送出進行中也算忙**（`rowBusy`），不能切空間——切了畫面會卸掉，後端還在寫
+- 介面：開單分頁網址列＋讀取鈕改成同一行（跟其他分頁一樣）；按鈕名稱四頁統一「讀取 Sheet」「重新讀取 Sheet」（使用者 10/05）
+
 ### ⚠️ Meegle 不驗 project key（2026-10-05 實測）
 拿**正式**的 project key 去 `workitem get` **測試空間**的單 #15194995，照樣回 200、內容完整，只有 `owned_project.key` 看得出它其實在測試。
 寫入大概也一樣——所以切錯空間時，評論／狀態／修改會**安安靜靜改到另一個空間的單**。

@@ -49,25 +49,43 @@ export function addSpaceColumn(db: DB, table: string) {
 export type SpaceGuard = { kind: 'space-mismatch' } | { kind: 'space-conflict'; other: MeegleSpace }
 
 /**
- * 認領前的空間檢查（要在認領的同一個 transaction 裡呼叫）：
- * - 這個批次已經有別的空間的列 → space-mismatch（一個批次只屬於一個空間）
- * - 這份 Sheet 已經在別的空間送過 → space-conflict（同一份 Sheet 不會兩邊都開，送過就代表切錯了）
- * table／sourceCol 是程式內固定字串，不是使用者輸入。
+ * 四種操作的紀錄表與各自存「來源 Sheet」的欄位（值都是 sheetSourceKey）。
+ * **Sheet 的空間綁定看四張表合起來**——只看自己那張的話，同一份 Sheet 在測試評論過、正式開單照樣放行（CodeX review 025fe7c [P1]，記憶體 DB 重現）
  */
-export function spaceGuard(db: DB, table: string, sourceCol: string, batchId: string, sourceKey: string, space: MeegleSpace): SpaceGuard | null {
-  if (db.prepare(`SELECT 1 FROM ${table} WHERE batch_id = ? AND space != ? LIMIT 1`).get(batchId, space)) return { kind: 'space-mismatch' }
-  if (sourceKey) {
-    const other = db.prepare(`SELECT space FROM ${table} WHERE ${sourceCol} = ? AND space != ? LIMIT 1`).get(sourceKey, space) as { space: string } | undefined
-    if (other) return { kind: 'space-conflict', other: rowSpace(other.space) }
+const SHEET_TABLES: ReadonlyArray<readonly [string, string]> = [
+  ['meegle_batch_rows', 'sheet_url'],
+  ['meegle_comment_rows', 'source_key'],
+  ['meegle_status_rows', 'source_key'],
+  ['meegle_edit_rows', 'source_key'],
+]
+function sheetSpaceElsewhere(db: DB, sourceKey: string, space: MeegleSpace): MeegleSpace | null {
+  if (!sourceKey) return null
+  for (const [t, col] of SHEET_TABLES) {
+    // 表還沒建（測試只初始化其中幾張、或那個工具從沒用過）就跳過
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) continue
+    const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map(c => c.name)
+    if (!cols.includes('space')) continue
+    const r = db.prepare(`SELECT space FROM ${t} WHERE ${col} = ? AND space != ? LIMIT 1`).get(sourceKey, space) as { space: string } | undefined
+    if (r) return rowSpace(r.space)
   }
   return null
 }
 
-/** 這份 Sheet 在別的空間送過嗎（「之前送過的列」用，讓畫面在讀 Sheet 時就提示，不用等到送出才被擋） */
-export function otherSpaceOf(db: DB, table: string, sourceCol: string, sourceKey: string, space: MeegleSpace): MeegleSpace | null {
-  if (!sourceKey) return null
-  const r = db.prepare(`SELECT space FROM ${table} WHERE ${sourceCol} = ? AND space != ? LIMIT 1`).get(sourceKey, space) as { space: string } | undefined
-  return r ? rowSpace(r.space) : null
+/**
+ * 認領前的空間檢查（要在認領的同一個 IMMEDIATE transaction 裡呼叫——四張表在同一個 DB，拿了寫鎖之後讀到的就是準的）：
+ * - 這個批次已經有別的空間的列 → space-mismatch（一個批次只屬於一個空間）
+ * - 這份 Sheet 在**任何一種操作**已經用別的空間送過 → space-conflict（同一份 Sheet 不會兩邊都用，送過就代表切錯了）
+ * table 是程式內固定字串，不是使用者輸入。
+ */
+export function spaceGuard(db: DB, table: string, batchId: string, sourceKey: string, space: MeegleSpace): SpaceGuard | null {
+  if (db.prepare(`SELECT 1 FROM ${table} WHERE batch_id = ? AND space != ? LIMIT 1`).get(batchId, space)) return { kind: 'space-mismatch' }
+  const other = sheetSpaceElsewhere(db, sourceKey, space)
+  return other ? { kind: 'space-conflict', other } : null
+}
+
+/** 這份 Sheet 在別的空間送過嗎（四種操作合起來看；「之前送過的列」用，讀 Sheet 時就提示，不用等到送出才被擋） */
+export function otherSpaceOf(db: DB, sourceKey: string, space: MeegleSpace): MeegleSpace | null {
+  return sheetSpaceElsewhere(db, sourceKey, space)
 }
 
 export const spaceGuardMessage = (g: SpaceGuard, space: MeegleSpace) => g.kind === 'space-mismatch'

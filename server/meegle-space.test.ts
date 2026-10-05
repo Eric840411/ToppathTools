@@ -34,7 +34,7 @@ eq('新請求沒帶 space／亂帶 → 驗證失敗（不默默當測試）', [s
   eq('開單：別份 Sheet 送正式可以', claimRow(db, row({ batchId: 'B3', sheetUrl: 'lark:T:S2', space: 'prod' })).kind, 'claimed')
   eq('開單：紀錄記下空間', (db.prepare("SELECT space FROM meegle_batch_rows WHERE batch_id = 'B3'").get() as { space: string }).space, 'prod')
   eq('開單：之前送過的列只列同空間', [listRowsFromSheet(db, 'lark:T:S1', 'test').length, listRowsFromSheet(db, 'lark:T:S1', 'prod').length], [1, 0])
-  eq('開單：另一個空間送過要看得到（讀 Sheet 就提示）', [otherSpaceOf(db, 'meegle_batch_rows', 'sheet_url', 'lark:T:S1', 'prod'), otherSpaceOf(db, 'meegle_batch_rows', 'sheet_url', 'lark:T:S1', 'test')], ['test', null])
+  eq('開單：另一個空間送過要看得到（讀 Sheet 就提示）', [otherSpaceOf(db, 'lark:T:S1', 'prod'), otherSpaceOf(db, 'lark:T:S1', 'test')], ['test', null])
   finishCreate(db, 'B1', '3', { phase: 'created', workItemId: '111', url: '' })
   finishCreate(db, 'B3', '3', { phase: 'created', workItemId: '222', url: '' })
   eq('開單：查結果時排除的已用單號只看同空間', [[...takenWorkItemIds(db, 'test')], [...takenWorkItemIds(db, 'prod')]], [['111'], ['222']])
@@ -71,6 +71,17 @@ eq('新請求沒帶 space／亂帶 → 驗證失敗（不默默當測試）', [s
   eq('修改：同批次換正式 → space-mismatch', claimEditRow(db, { ...a, workItemId: '101', space: 'prod' }).kind, 'space-mismatch')
   eq('修改：同 Sheet 新批次送正式 → space-conflict', claimEditRow(db, { ...a, batchId: 'e2', space: 'prod' }), { kind: 'space-conflict', other: 'test' })
   eq('修改：之前送過的列只列同空間', [listPreviousEditForSource(db, 'lark:T:S', 'test').length, listPreviousEditForSource(db, 'lark:T:S', 'prod').length], [1, 0])
+}
+
+// ── 跨操作：同一份 Sheet 不管用哪一種操作送過，另一個空間都不能再用（CodeX review 025fe7c [P1]）──
+{
+  const db = new Database(':memory:'); initMeegleBatchSchema(db); initMeegleCommentSchema(db); initMeegleStatusSchema(db); initMeegleEditSchema(db)
+  eq('跨操作：測試空間評論', claimCommentRow(db, { batchId: 'c1', workItemId: '100', sourceKey: 'lark:T:X', sheetUrl: 'u', sheetRow: 5, summary: '', ownerEmail: 'a@x', asEmail: '', videos: [], withReview: false, space: 'test' }).kind, 'claimed')
+  eq('跨操作：同 Sheet 正式開單 → space-conflict', claimRow(db, { batchId: 'B9', rowKey: '3', ownerEmail: 'a@x', sheetUrl: 'lark:T:X', name: 'n', requirementId: '1', targetState: '', space: 'prod' }), { kind: 'space-conflict', other: 'test' })
+  eq('跨操作：同 Sheet 正式改狀態 → space-conflict', claimStatusRow(db, { batchId: 's9', workItemId: '100', sourceKey: 'lark:T:X', sheetUrl: 'u', sheetRow: 2, summary: '', ownerEmail: 'a@x', targetKey: 'k', targetName: '', dateMode: 'keep', sheetDate: null, space: 'prod' }).kind, 'space-conflict')
+  eq('跨操作：同 Sheet 正式修改 → space-conflict', claimEditRow(db, { batchId: 'e9', workItemId: '100', sourceKey: 'lark:T:X', sheetUrl: '', sheetRow: 2, summary: '', ownerEmail: 'a@x', payload: '{}', space: 'prod' }).kind, 'space-conflict')
+  eq('跨操作：同 Sheet 測試改狀態可以', claimStatusRow(db, { batchId: 's8', workItemId: '100', sourceKey: 'lark:T:X', sheetUrl: 'u', sheetRow: 2, summary: '', ownerEmail: 'a@x', targetKey: 'k', targetName: '', dateMode: 'keep', sheetDate: null, space: 'test' }).kind, 'claimed')
+  eq('跨操作：讀 Sheet 的提示也看四張表', [otherSpaceOf(db, 'lark:T:X', 'prod'), otherSpaceOf(db, 'lark:T:X', 'test')], ['test', null])
 }
 
 // ── 核對單子所屬空間（Meegle 不驗 project key：2026-10-05 拿正式 key 讀測試的單照樣 200）──

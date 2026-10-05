@@ -223,7 +223,7 @@ router.post('/api/meegle/comment/previous', (req, res, next) => {
     expireStaleSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
     const rows = listPreviousForSource(db, key, space)
-    res.json({ ok: true, otherSpace: otherSpaceOf(db, 'meegle_comment_rows', 'source_key', key, space), rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, owner: r.owner_email, mine: r.owner_email === ctx.email, asEmail: r.as_email, hasPayload: !!r.payload, steps: publicSteps(r.steps) })) })
+    res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, owner: r.owner_email, mine: r.owner_email === ctx.email, asEmail: r.as_email, hasPayload: !!r.payload, steps: publicSteps(r.steps) })) })
   } catch (e) { next(e) }
 })
 

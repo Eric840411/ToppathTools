@@ -93,7 +93,7 @@ export function claimCommentRow(db: DB, input: ClaimInput, now = Date.now()): Cl
   return db.transaction((): ClaimResult => {
     const other = db.prepare('SELECT 1 FROM meegle_comment_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)
     if (other) return { kind: 'source-mismatch' }
-    const sg = spaceGuard(db, 'meegle_comment_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    const sg = spaceGuard(db, 'meegle_comment_rows', input.batchId, input.sourceKey, input.space)
     if (sg) return sg
 
     // 跨批次：同一份 Sheet、同一張單

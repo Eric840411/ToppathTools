@@ -37,7 +37,7 @@ for (const theme of ['classic', 'xianxia']) {
   await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
   await page.getByRole('button', { name: 'Meegle 修改' }).click()
   await page.locator('.mc-loadbar .mb-input').fill(SHEET)
-  await page.getByRole('button', { name: /讀取資料/ }).click()
+  await page.getByRole('button', { name: /讀取 Sheet/ }).first().click()
   await page.locator('.mb-table tbody tr').first().waitFor({ timeout: 60000 })
   for (const cb of await page.locator('.mb-table tbody input[type=checkbox]:not([disabled])').all()) if (!(await cb.isChecked())) await cb.check()
   await page.getByRole('button', { name: '下一步' }).click()

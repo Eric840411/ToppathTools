@@ -32,7 +32,7 @@ for (const mode of ['classic', 'xianxia']) {
   await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
   await page.getByRole('button', { name: 'Meegle 評論' }).click()
   await page.locator('.mc-loadbar .mb-input').fill(SHEET)
-  await page.getByRole('button', { name: /讀取 Sheet/ }).click()
+  await page.getByRole('button', { name: /讀取 Sheet/ }).first().click()
   await page.locator('.mb-table tbody tr').first().waitFor({ timeout: 60000 })
   const rowCount = await page.locator('.mb-table tbody tr').count()
   const ids = await page.locator('.mb-table tbody td:nth-child(3)').allInnerTexts()

@@ -249,7 +249,9 @@ export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onShe
   }, [overrides])
 
   // ── ④ 送出（同時最多 2 列）──
-  useEffect(() => { onBusyChange?.(running) }, [running, onBusyChange])
+  // 送出中、單列重試／繼續送出中都算忙：這時切空間會卸掉畫面，但後端還在寫（CodeX review 025fe7c [P2]）
+  const anyRowBusy = Object.values(rowBusy).some(Boolean)
+  useEffect(() => { onBusyChange?.(running || anyRowBusy) }, [running, anyRowBusy, onBusyChange])
 
   async function submit() {
     const list = sendable
@@ -355,7 +357,7 @@ export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onShe
             <h3 className="mb-pane-title">讀取與選列</h3>
             <div className="mc-loadbar">
               <input className="mb-input" placeholder="https://xxx.larksuite.com/wiki/…?sheet=…" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void loadSheet() }} />
-              <button type="button" className="mb-btn mb-btn--primary" disabled={loading || !sheetUrl.trim()} onClick={() => void loadSheet()}><Icon name="link" /> {loading ? '讀取中…' : records ? '重新讀取' : '讀取資料'}</button>
+              <button type="button" className="mb-btn mb-btn--primary" disabled={loading || !sheetUrl.trim()} onClick={() => void loadSheet()}><Icon name="link" /> {loading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}</button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
             <OtherSpaceNotice other={otherSpace} space={space} />
@@ -395,7 +397,7 @@ export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onShe
               </>
             )}
             <div className="mb-pane-actions">
-              <button type="button" className="mb-btn mb-btn--outline" disabled={loading || !records} onClick={() => void loadSheet()}><Icon name="refresh" /> 重新讀取</button>
+              <button type="button" className="mb-btn mb-btn--outline" disabled={loading || !records} onClick={() => void loadSheet()}><Icon name="refresh" /> 重新讀取 Sheet</button>
               <button type="button" className="mb-btn mb-btn--primary" disabled={!chosen.length} onClick={() => setStep(2)}>下一步</button>
             </div>
           </div>

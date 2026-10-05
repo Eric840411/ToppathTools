@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AccountInfo } from '../accountTypes'
 import { MeegleBatchCreateTab } from './MeegleBatchCreateTab'
 import { MeegleBatchCommentTab } from './MeegleBatchCommentTab'
@@ -61,6 +61,14 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account
     setSpaces(m => ({ ...m, [t]: s })); setLastSpace(s); setBusy(false)
     try { localStorage.setItem(SPACE_KEY(t), s); localStorage.setItem(LAST_SPACE_KEY, s) } catch { /* 無痕視窗等 */ }
   }
+  // 第一次進某個分頁就把當下的初始值存成它自己的：不然它一直跟著 lastSpace 走，
+  // 在別頁選正式再回來，這頁沒動過也會變成正式（CodeX review 025fe7c [P2]）
+  useEffect(() => {
+    if (tab === 'backfill' || spaces[tab]) return
+    const s = lastSpace
+    setSpaces(m => (m[tab] ? m : { ...m, [tab]: s }))
+    try { localStorage.setItem(SPACE_KEY(tab), s) } catch { /* 無痕視窗等 */ }
+  }, [tab, spaces, lastSpace])
   // 分頁送出中 → 不能切空間（切了會把送到一半的畫面整個卸掉）
   const [busy, setBusy] = useState(false)
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')

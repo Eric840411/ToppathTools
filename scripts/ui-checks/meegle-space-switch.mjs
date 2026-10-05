@@ -6,6 +6,8 @@
  *   4 送出中不能切空間
  *   5 每頁各自記住：沒選過的分頁拿最後一次選的當初始值；在評論切回測試，不會改到開單的正式
  *   6 這份 Sheet 已在另一個空間送過 → 提示、送出鈕不能按
+ *   7 沒手動切過的分頁，第一次進來就固定初始值：在別頁選正式再回來，這頁不會跟著變（CodeX review 025fe7c）
+ *   8 單列補寫回／重試進行中也不能切空間（CodeX review 025fe7c）
  * 兩種主題各截一張圖。走區網 IP。
  *
  * 跑法：node scripts/ui-checks/meegle-space-switch.mjs
@@ -47,7 +49,12 @@ for (const mode of ['classic', 'xianxia']) {
     const b = r.request().postDataJSON()
     n++; rowSpaces.push(b.space)
     await new Promise(res => setTimeout(res, 700))   // 讓「送出中不能切」看得到
-    await r.fulfill({ json: { ok: true, row: { batchId: b.batchId, rowKey: b.rowKey, space: b.space, createPhase: 'created', workItemId: String(990000 + n), url: null, statePhase: 'none', message: null, writebackPhase: 'done', writebackMsg: null } } })
+    await r.fulfill({ json: { ok: true, row: { batchId: b.batchId, rowKey: b.rowKey, space: b.space, createPhase: 'created', workItemId: String(990000 + n), url: null, statePhase: 'none', message: null, writebackPhase: n === 1 ? 'failed' : 'done', writebackMsg: null } } })
+  })
+  await ctx.route('**/api/meegle/batch/row/writeback', async r => {
+    const b = r.request().postDataJSON()
+    await new Promise(res => setTimeout(res, 1200))
+    await r.fulfill({ json: { ok: true, row: { batchId: b.batchId, rowKey: b.rowKey, space: 'prod', createPhase: 'created', workItemId: '990001', url: null, statePhase: 'none', message: null, writebackPhase: 'done', writebackMsg: null } } })
   })
   await ctx.route('**/api/meegle/batch/finish', r => r.fulfill({ json: { ok: true } }))
   const page = await ctx.newPage()
@@ -60,6 +67,13 @@ for (const mode of ['classic', 'xianxia']) {
   await page.waitForTimeout(400)
   check('預設是測試', await radio('測試').getAttribute('aria-checked') === 'true')
   check('需求清單帶 space=test', metaSpaces.at(-1) === 'test', JSON.stringify(metaSpaces))
+
+  // 7 初始值固定：開單沒動過（測試）→ 去狀態選正式 → 回開單仍是測試
+  await page.getByRole('button', { name: 'Meegle 狀態' }).click()
+  await radio('正式').click()
+  await page.getByRole('button', { name: 'Meegle 開單' }).click()
+  await page.waitForTimeout(300)
+  check('開單沒手動切過：在狀態選正式再回來，開單仍是測試', await radio('測試').getAttribute('aria-checked') === 'true')
 
   await radio('正式').click()
   await page.waitForTimeout(500)
@@ -89,6 +103,12 @@ for (const mode of ['classic', 'xianxia']) {
   await page.locator('.mb-tally', { hasText: '已開單 2' }).waitFor({ timeout: 10000 }).catch(() => {})
   check('確認後送出 2 筆、每筆都帶 space=prod', n === 2 && rowSpaces.every(s => s === 'prod'), JSON.stringify(rowSpaces))
   check('送完可以再切', !(await radio('測試').isDisabled()))
+  // 8 單列補寫回進行中不能切
+  await page.getByRole('button', { name: '補寫回' }).first().click()
+  await page.waitForTimeout(250)
+  check('單列補寫回進行中也不能切空間', await radio('測試').isDisabled())
+  await page.waitForTimeout(1500)
+  check('補寫回完成後可以再切', !(await radio('測試').isDisabled()))
 
   // 每頁各自記住
   await page.getByRole('button', { name: 'Meegle 評論' }).click()

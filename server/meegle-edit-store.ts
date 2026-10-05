@@ -58,7 +58,7 @@ export function claimEditRow(db: DB, input: EditClaimInput, now = Date.now()): E
   const R = input.workItemId
   return db.transaction((): EditClaimResult => {
     if (db.prepare('SELECT 1 FROM meegle_edit_rows WHERE batch_id = ? AND source_key != ? LIMIT 1').get(input.batchId, input.sourceKey)) return { kind: 'source-mismatch' }
-    const sg = spaceGuard(db, 'meegle_edit_rows', 'source_key', input.batchId, input.sourceKey, input.space)
+    const sg = spaceGuard(db, 'meegle_edit_rows', input.batchId, input.sourceKey, input.space)
     if (sg) return sg
     const live = db.prepare(`SELECT s.batch_id, s.step FROM meegle_edit_steps s JOIN meegle_edit_rows r ON r.batch_id = s.batch_id AND r.row_key = s.row_key
       WHERE r.work_item_id = ? AND s.phase = 'creating' LIMIT 1`).get(R) as { batch_id: string; step: string } | undefined

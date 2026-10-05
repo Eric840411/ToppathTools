@@ -134,7 +134,7 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
     const sheetUrl = input.sheetUrl ?? ''
     const other = db.prepare('SELECT sheet_url FROM meegle_batch_rows WHERE batch_id = ? AND sheet_url != ? LIMIT 1').get(input.batchId, sheetUrl)
     if (other) return { kind: 'source-mismatch' }
-    const sg = spaceGuard(db, 'meegle_batch_rows', 'sheet_url', input.batchId, sheetUrl, input.space)
+    const sg = spaceGuard(db, 'meegle_batch_rows', input.batchId, sheetUrl, input.space)
     if (sg) return sg
     if (sheetUrl) {
       const pending = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?

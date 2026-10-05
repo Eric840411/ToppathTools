@@ -109,7 +109,7 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   const key = sheetSourceKey(sheetUrl)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
   // otherSpace：這份 Sheet 已在另一個空間開過 → 畫面一讀就提示（送出也會被 claimRow 擋）
-  res.json({ ok: true, otherSpace: otherSpaceOf(db, 'meegle_batch_rows', 'sheet_url', key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
+  res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // ── 人員名單（② 下拉選人、猜人用）──
