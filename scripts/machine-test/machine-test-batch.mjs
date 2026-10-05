@@ -693,10 +693,22 @@ async function collect(codes, sessionId, onDone, { strict = false } = {}) {
   return { results, errors }
 }
 async function startSession(lobbyUrl, codes, stepList, agentId) {
-  const r = await central('/api/machine-test/start', {
+  const start = () => central('/api/machine-test/start', {
     method: 'POST', headers: { 'x-admin-pin': CFG.adminPin },
     body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId }),
   })
+  let r = await start()
+  // 1004、1005 各發生一次：中控在測試途中重啟（部署）→ session 沒了但鎖還在 → 之後每次都 429，要等 6 小時自癒。
+  // 只在「鎖是自己帳號的 machine-test、而且中控回報目前沒有進行中的 session」時才清，清完重送一次；
+  // 有 active session 代表真的有人在跑，絕不清。
+  if (r.status === 429 && r.json?.code === 'HEAVY_TASK_RUNNING' && r.json?.task?.type === 'machine-test' && r.json.task.id) {
+    const st = await status()
+    if (st && !st.active) {
+      const c = await central(`/api/heavy-tasks/${r.json.task.id}/force-clear`, { method: 'POST' })
+      log(`中控留著孤兒鎖 ${r.json.task.id}（沒有進行中的 session）→ 清除${c.status === 200 ? '成功' : `失敗 ${c.status}`}，重新發動`)
+      if (c.status === 200) r = await start()
+    }
+  }
   if (r.status !== 200 || !r.json?.sessionId) throw new Error(`發動失敗 ${r.status} ${r.txt.slice(0, 200)}`)
   return r.json.sessionId
 }
