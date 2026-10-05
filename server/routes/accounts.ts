@@ -34,7 +34,7 @@ import { callLLM } from './gemini.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
 import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
-import { roleExists } from '../role-store.js'
+import { adminTargetError, withAssignableRole } from '../role-store.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
@@ -104,7 +104,9 @@ router.post(['/api/accounts', '/api/jira/accounts'], writeLimiter, (req, res, ne
         return res.status(403).json({ ok: false, message: '此帳號已存在，只有管理員可以覆蓋' })
       }
     }
-    upsertAccount(body)
+    // 管理員覆蓋既有帳號時，目標若是管理員，角色保持不變（這支只收 qa／pm，照送會把管理員降級——CodeX review P1）
+    const prev = exists ? readAccounts().find((a) => a.email === body.email) : undefined
+    upsertAccount(adminTargetError(prev, { role: body.role }) ? { ...body, role: prev!.role } : body)
     if (body.pin?.trim()) {
       db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(pinHash(body.pin.trim()), body.email)
     }
@@ -127,6 +129,8 @@ router.delete(['/api/accounts/:email', '/api/jira/accounts/:email'], (req, res) 
     return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
   }
   const email = decodeURIComponent(String(req.params.email))
+  const blocked = adminTargetError(readAccounts().find(a => a.email === email), { delete: true })
+  if (blocked) return res.status(400).json({ ok: false, message: blocked })
   deleteAccountByEmail(email)
   log('warn', getClientIP(req), getUser(req), '帳號刪除（管理員）', email)
   res.json({ ok: true })
@@ -145,9 +149,12 @@ router.patch(['/api/accounts/:email/role', '/api/jira/accounts/:email/role'], (r
   const email = decodeURIComponent(String(req.params.email))
   const { roles } = z.object({ roles: z.array(z.string()).length(1) }).parse(req.body)
   const roleStr = roles[0]
-  if (roleStr === 'admin' || !roleExists(db, roleStr)) return res.status(400).json({ ok: false, message: '沒有這個角色' })
-  const result = db.prepare('UPDATE jira_accounts SET role = ? WHERE email = ?').run(roleStr, email)
-  if (result.changes === 0) return res.status(404).json({ ok: false, message: '帳號不存在' })
+  const target = readAccounts().find(a => a.email === email)
+  if (!target) return res.status(404).json({ ok: false, message: '帳號不存在' })
+  const blocked = adminTargetError(target, { role: roleStr })
+  if (blocked) return res.status(400).json({ ok: false, message: blocked })
+  const w = withAssignableRole(db, roleStr, () => db.prepare('UPDATE jira_accounts SET role = ? WHERE email = ?').run(roleStr, email))
+  if ('message' in w) return res.status(400).json({ ok: false, message: w.message })
   log('warn', getClientIP(req), getUser(req), '角色更新（管理員）', `${email} → ${roleStr}`)
   res.json({ ok: true, role: roleStr })
 })

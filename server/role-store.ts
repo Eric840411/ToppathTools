@@ -46,6 +46,33 @@ export const roleExists = (db: DB, key: string): boolean =>
 /** 帳號 role 欄可能是舊的逗號多角色；拆成一個一個 key */
 export const roleParts = (role: string): string[] => String(role ?? '').split(',').map(s => s.trim()).filter(Boolean)
 export const isMultiRole = (role: string) => roleParts(role).length > 1
+/** 帳號是不是管理員（含舊的逗號多角色裡有 admin 的） */
+export const isAdminRole = (role: string | undefined | null) => roleParts(String(role ?? '')).includes(ADMIN_ROLE)
+
+/**
+ * 管理員帳號不能被刪除、改角色、停用（CodeX review v5.9.0 P1：舊 API 與管理頁都只驗呼叫者、沒保護目標，
+ * 操作唯一的管理員會讓整個系統失去管理入口）。回傳錯誤訊息；null＝可以。
+ * next 沒帶的欄位＝不改。
+ */
+export function adminTargetError(current: { role?: string | null; status?: string | null } | undefined, next: { delete?: boolean; role?: string; status?: string }): string | null {
+  if (!current || !isAdminRole(current.role)) return null
+  if (next.delete) return '管理員帳號不能刪除'
+  if (next.role !== undefined && next.role !== current.role) return '管理員帳號的角色不能更改'
+  if (next.status !== undefined && next.status !== (current.status ?? 'active') && next.status !== 'active') return '管理員帳號不能停用'
+  return null
+}
+
+/**
+ * 指派角色：「角色存在」的檢查跟寫入包在同一個 immediate transaction（CodeX review P2）。
+ * 不然另一個 process（server／worker 共用 data.db）可能在檢查完、寫入前把角色刪掉，留下指向不存在角色的帳號。
+ * immediate＝一開始就拿寫鎖，刪除那邊同樣用 immediate，兩邊只能一前一後。
+ */
+export function withAssignableRole<T>(db: DB, role: string, write: () => T): { ok: true; value: T } | { ok: false; message: string } {
+  return db.transaction((): { ok: true; value: T } | { ok: false; message: string } => {
+    if (role === ADMIN_ROLE || !roleExists(db, role)) return { ok: false, message: '沒有這個角色' }
+    return { ok: true, value: write() }
+  }).immediate()
+}
 
 /** 用了這個角色的帳號（含舊的多角色帳號裡有它的） */
 export function usersOfRole(accounts: Array<{ email: string; role: string }>, key: string): string[] {
@@ -88,19 +115,21 @@ export function updateRole(db: DB, key: string, p: { label?: string; color?: str
 }
 
 /** 刪除：使用中的擋下並列出帳號；同時清掉它的權限列（不留孤兒資料） */
-export function deleteRole(db: DB, key: string, accounts: Array<{ email: string; role: string }>): { ok: true } | RoleError {
+export function deleteRole(db: DB, key: string): { ok: true } | RoleError {
   if (key === ADMIN_ROLE) return { ok: false, code: 'ADMIN', message: '管理員固定，不能刪除' }
   const row = db.prepare('SELECT * FROM roles WHERE key = ?').get(key) as RoleRow | undefined
   if (!row) return { ok: false, code: 'NOT_FOUND', message: '找不到這個角色' }
   if (row.builtin) return { ok: false, code: 'BUILTIN', message: '內建角色這一版不能刪除' }
-  // 檢查與刪除在同一個 transaction：查完到刪之間有人被指派這個角色，就會變成帳號指向不存在的角色
+  // 讀帳號、檢查、刪除全在同一個 immediate transaction（CodeX review P2：原本檢查的是外面傳進來的帳號快照，
+  // 讀完到刪之間另一個 process 指派了這個角色，就會留下指向不存在角色的帳號）
   return db.transaction((): { ok: true } | RoleError => {
+    const accounts = db.prepare('SELECT email, role FROM jira_accounts').all() as Array<{ email: string; role: string }>
     const users = usersOfRole(accounts, key)
     if (users.length) return { ok: false, code: 'IN_USE', message: `還有 ${users.length} 個帳號在用這個角色，先把他們改到別的角色`, users }
     db.prepare('DELETE FROM role_permissions WHERE role = ?').run(key)
     db.prepare('DELETE FROM roles WHERE key = ?').run(key)
     return { ok: true }
-  })()
+  }).immediate()
 }
 
 /** 一個角色在每個功能 key 上的開關（沒列到的＝關） */

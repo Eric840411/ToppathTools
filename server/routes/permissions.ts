@@ -12,7 +12,7 @@ import {
   getEffectivePermissions, getAccountPermissionOverrides,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
-import { ADMIN_ROLE, createRole, deleteRole, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from '../role-store.js'
+import { ADMIN_ROLE, adminTargetError, createRole, deleteRole, isMultiRole, withAssignableRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from '../role-store.js'
 
 export const router = Router()
 
@@ -102,7 +102,7 @@ router.post('/api/admin/roles', requireAdmin, writeLimiter, (req, res) => {
   if ('code' in r) return roleErr(res, r)
   if (b.perms) {
     const p = setRolePermissions(db, r.role.key, b.perms, ALL_PAGE_KEYS)
-    if ('code' in p) { deleteRole(db, r.role.key, []); return roleErr(res, p) }
+    if ('code' in p) { deleteRole(db, r.role.key); return roleErr(res, p) }
   }
   log('ok', getClientIP(req), getAuthAccount(req)?.email ?? '-', '角色新增', `${r.role.label}（${r.role.key}）`)
   res.json({ ok: true, role: r.role })
@@ -130,7 +130,7 @@ router.put('/api/admin/roles/:key', requireAdmin, writeLimiter, (req, res) => {
 
 router.delete('/api/admin/roles/:key', requireAdmin, writeLimiter, (req, res) => {
   const key = String(req.params.key)
-  const r = deleteRole(db, key, readAccounts())
+  const r = deleteRole(db, key)
   if ('code' in r) return roleErr(res, r)
   log('warn', getClientIP(req), getAuthAccount(req)?.email ?? '-', '角色刪除', key)
   res.json({ ok: true })
@@ -175,13 +175,14 @@ router.post('/api/admin/accounts', requireAdmin, writeLimiter, (req, res) => {
   const data = createAccountSchema.parse(req.body)
   const existing = readAccounts().find(a => a.email === data.email)
   if (existing) return res.status(409).json({ ok: false, message: '帳號已存在' })
-  upsertAccount({
+  const w = withAssignableRole(db, data.role, () => upsertAccount({
     email: data.email,
     label: data.label,
     role: data.role as AccountRole,
     token: data.token,
     status: data.status,
-  })
+  }))
+  if ('message' in w) return res.status(400).json({ ok: false, message: w.message })
   if (data.pin?.trim()) {
     db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(pinHash(data.pin.trim()), data.email)
   }
@@ -204,6 +205,8 @@ router.put('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) 
   if (!existing) return res.status(404).json({ ok: false, message: '帳號不存在' })
 
   const data = updateAccountSchema.parse(req.body)
+  const blocked = adminTargetError(existing, { role: data.role, status: data.status })
+  if (blocked) return res.status(400).json({ ok: false, message: blocked })
   const updated = {
     ...existing,
     label: data.label ?? existing.label,
@@ -211,7 +214,12 @@ router.put('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) 
     token: data.token ?? existing.token,
     status: data.status ?? existing.status ?? 'active',
   } as typeof existing
-  upsertAccount(updated)
+  if (data.role !== undefined) {
+    const w = withAssignableRole(db, data.role, () => upsertAccount(updated))
+    if ('message' in w) return res.status(400).json({ ok: false, message: w.message })
+  } else {
+    upsertAccount(updated)
+  }
 
   if (data.clearPin) {
     db.prepare('UPDATE jira_accounts SET pin_hash = NULL WHERE email = ?').run(email)
@@ -358,11 +366,9 @@ router.delete('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, re
   const email = decodeURIComponent(req.params.email)
   const accounts = readAccounts()
   if (!accounts.find(a => a.email === email)) return res.status(404).json({ ok: false, message: '帳號不存在' })
-  // Admin account cannot be deleted
-  const target = accounts.find(a => a.email === email)
-  if (target?.role === 'admin') {
-    return res.status(400).json({ ok: false, message: '管理員帳號不可刪除' })
-  }
+  // 管理員不能刪（含舊多角色裡有 admin 的；規則跟舊 API 共用 adminTargetError）
+  const blocked = adminTargetError(accounts.find(a => a.email === email), { delete: true })
+  if (blocked) return res.status(400).json({ ok: false, message: blocked })
   deleteAccountByEmail(email)
   res.json({ ok: true })
 })

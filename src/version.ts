@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.9.0'
+export const APP_VERSION = '5.9.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.9.1', date: '2026-10-05', changes: ['fix(帳號，安全)：管理員帳號不能被刪除、改角色、停用（舊 API、管理頁、自助註冊的管理員覆蓋三條路都擋；原本只驗呼叫者，操作唯一的管理員會讓系統失去管理入口）——CodeX review', 'fix(角色管理)：刪除角色改成在同一個交易裡讀帳號再檢查；指派角色時「角色存在」跟寫入也包在一起，避免另一個程序剛好在中間指派／刪除而留下指向不存在角色的帳號——CodeX review'] },
   { version: '5.9.0', date: '2026-10-05', changes: ['feat(系統管理)：**角色管理**——可以自己建角色（名稱、顏色），勾選每個角色能看的功能，帳號指派角色（一個帳號一個角色）。原本的「功能權限」併進這頁。管理員固定全開；QA／PM／Other 是內建，這版只能改顏色與可見功能；自建角色可改名、刪除，還有人在用的刪不掉並列出是誰。舊的多角色帳號會標出來請管理員選一個（權限照舊不會突然少）。新增帳號時「不是 Email 的識別碼帳號」改成勾選，不再綁在 Other 角色上。版面 CodeX 設計、使用者看樣稿確認', 'fix(帳號，安全)：舊的刪除帳號／改角色 API 只看 ADMIN_PIN 環境變數，沒設的話任何人都能刪帳號、改角色 → 一律要管理員登入'] },
   { version: '5.8.1', date: '2026-10-05', changes: ['fix(通知設定)：按儲存會把舊的通知出口設定覆蓋成全 Lark，退版就回不去原本的選擇 → 儲存不再寫出口（CodeX review）', 'fix(通知補送)：Discord 退場前排進補送佇列的項目照樣會發到 Discord → 一律取消並記 log，不改送 Lark（那則多半已經在 Lark 發過，轉送會重複）', 'fix(Meegle 補回填)：分組用的是截短的 Sheet 名稱，兩份 Sheet 撞名時會合成一組、「這份全選」選到別份 → 改用完整的來源識別分組'] },
   { version: '5.8.0', date: '2026-10-05', changes: ['feat(AutoSpin 定時彙總報告)：**Lark 卡片改成原生版型**（使用者看過預覽確認）。原本整份報告塞成一段文字，現在分成局數與輸贏（本期間／累計左右兩欄）、errcode（每個 code 一列，扣款疑慮紅綠標）、穩定性、SLS、備註、AI 分析；試發送是橘色加「試發送」標籤，正式是藍色。欄位開關照舊決定哪些區塊出現'] },

@@ -1,6 +1,6 @@
 /** 角色管理資料層。跑法：npx tsx server/role-store.test.ts（記憶體 DB，不動 data.db） */
 import Database from 'better-sqlite3'
-import { createRole, deleteRole, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from './role-store.js'
+import { adminTargetError, createRole, deleteRole, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole, withAssignableRole } from './role-store.js'
 
 let pass = 0
 const fails: string[] = []
@@ -11,6 +11,7 @@ function eq(name: string, got: unknown, want: unknown) {
 const db = new Database(':memory:')
 db.exec('CREATE TABLE role_permissions (role TEXT NOT NULL, page_key TEXT NOT NULL, allowed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (role, page_key))')
 db.prepare("INSERT INTO role_permissions VALUES ('qa', 'osm', 1)").run()
+db.exec("CREATE TABLE jira_accounts (email TEXT PRIMARY KEY, role TEXT, status TEXT)")
 initRoles(db); initRoles(db)
 const KEYS = ['osm', 'autospin', 'osm-uat'] as const
 
@@ -37,11 +38,27 @@ eq('admin 的權限不能設', (setRolePermissions(db, 'admin', {}, KEYS) as { c
 
 const accounts = [{ email: 'a@x', role: key }, { email: 'b@x', role: 'pm,' + key }, { email: 'c@x', role: 'qa' }]
 eq('使用中的帳號（含舊的多角色）', usersOfRole(accounts, key), ['a@x', 'b@x'])
-const blocked = deleteRole(db, key, accounts) as { code: string; users: string[] }
+const insAcct = db.prepare('INSERT OR REPLACE INTO jira_accounts (email, role) VALUES (?, ?)')
+for (const a of accounts) insAcct.run(a.email, a.role)
+const blocked = deleteRole(db, key) as { code: string; users: string[] }
 eq('刪除使用中的角色 → 擋下並列出帳號', [blocked.code, blocked.users], ['IN_USE', ['a@x', 'b@x']])
 eq('擋下時角色與權限都還在', [roleExists(db, key), rolePermissionMap(db, key, KEYS).autospin], [true, true])
-eq('內建角色不能刪', (deleteRole(db, 'other', []) as { code: string }).code, 'BUILTIN')
-eq('沒人用就刪掉、權限列一起清', [deleteRole(db, key, [{ email: 'c@x', role: 'qa' }]).ok, roleExists(db, key), (db.prepare('SELECT COUNT(*) n FROM role_permissions WHERE role = ?').get(key) as { n: number }).n], [true, false, 0])
+eq('內建角色不能刪', (deleteRole(db, 'other') as { code: string }).code, 'BUILTIN')
+// 刪除讀的是 DB 裡當下的帳號，不是呼叫端的快照（CodeX review P2）
+db.prepare("UPDATE jira_accounts SET role = 'qa' WHERE email IN ('a@x', 'b@x')").run()
+const assignLater = (r: string) => withAssignableRole(db, r, () => db.prepare('UPDATE jira_accounts SET role = ? WHERE email = ?').run(r, 'c@x'))
+eq('指派存在的角色 → 寫入', [assignLater(key).ok, (db.prepare("SELECT role FROM jira_accounts WHERE email='c@x'").get() as { role: string }).role], [true, key])
+eq('刪除前剛被指派 → 仍擋下（讀 DB 不讀快照）', (deleteRole(db, key) as { code: string; users: string[] }).users, ['c@x'])
+db.prepare("UPDATE jira_accounts SET role = 'qa' WHERE email = 'c@x'").run()
+eq('沒人用就刪掉、權限列一起清', [deleteRole(db, key).ok, roleExists(db, key), (db.prepare('SELECT COUNT(*) n FROM role_permissions WHERE role = ?').get(key) as { n: number }).n], [true, false, 0])
+eq('角色刪掉後再指派 → 擋下、不寫入', [assignLater(key).ok, (db.prepare("SELECT role FROM jira_accounts WHERE email='c@x'").get() as { role: string }).role], [false, 'qa'])
+eq('不能指派成 admin', withAssignableRole(db, 'admin', () => 1).ok, false)
+
+const adm = { role: 'admin', status: 'active' }
+eq('管理員：不能刪、不能改角色、不能停用', [adminTargetError(adm, { delete: true }), adminTargetError(adm, { role: 'qa' }), adminTargetError(adm, { status: 'disabled' })].map(x => !!x), [true, true, true])
+eq('管理員：改名／送一樣的角色與狀態可以', [adminTargetError(adm, {}), adminTargetError(adm, { role: 'admin', status: 'active' })], [null, null])
+eq('舊多角色裡含 admin 也算管理員', !!adminTargetError({ role: 'pm,admin' }, { role: 'pm' }), true)
+eq('一般帳號不受限', adminTargetError({ role: 'qa' }, { delete: true }), null)
 eq('多角色判斷', [isMultiRole('pm,qa'), isMultiRole('qa'), isMultiRole(' qa , ')], [true, false, false])
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

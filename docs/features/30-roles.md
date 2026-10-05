@@ -27,6 +27,11 @@
 ### 一併修的安全問題
 - `DELETE /api/accounts/:email`、`PATCH /api/accounts/:email/role` 原本**只看 `ADMIN_PIN` 環境變數——沒設的話任何人都能刪帳號、改角色**。改成一律要管理員登入（PIN 有設照樣要對）；PATCH 也改成只收單一、存在的角色
 
+### v5.9.1（CodeX review）
+- **管理員帳號不能刪、不能改角色、不能停用**：原本只驗呼叫者是不是管理員、沒保護目標，舊 DELETE／PATCH、管理頁 PUT、自助註冊的管理員覆蓋都能把唯一的管理員弄掉。規則抽成 `adminTargetError`，四條路共用（舊多角色裡含 admin 也算）
+- **刪角色／指派角色不會互相穿插**：刪除在 immediate transaction 裡讀帳號（原本檢查的是傳進來的快照）；指派走 `withAssignableRole`，存在檢查跟寫入包在同一個 immediate transaction。server／worker 共用 data.db，兩邊只能一前一後
+- 突變驗過：改回讀快照、管理員只認完全等於 admin、指派不檢查存在，各自有對應的測試變紅
+
 ### 檔案
 | 檔案 | 內容 |
 |---|---|
