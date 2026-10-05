@@ -24,7 +24,7 @@ const SystemAdminPage = lazy(() => import('./pages/SystemAdminPage').then(m => (
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })))
 const UiScreenshotPage = lazy(() => import('./pages/UiScreenshotPage').then(m => ({ default: m.UiScreenshotPage })))
 const LarkNotifySettingsPage = lazy(() => import('./pages/LarkNotifySettingsPage').then(m => ({ default: m.LarkNotifySettingsPage })))
-const DiscordNotifySettingsPage = lazy(() => import('./pages/DiscordNotifySettingsPage').then(m => ({ default: m.DiscordNotifySettingsPage })))
+const AutoSpinNotifySettingsPage = lazy(() => import('./pages/AutoSpinNotifySettingsPage').then(m => ({ default: m.AutoSpinNotifySettingsPage })))
 const CultivationLeaderboardPage = lazy(() => import('./pages/CultivationLeaderboardPage').then(m => ({ default: m.CultivationLeaderboardPage })))
 const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m => ({ default: m.XianxiaQuotesPage })))
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
@@ -284,22 +284,22 @@ const settingsGroup: Group = {
 
 const discordNotifyGroup: Group = {
   id: 'discord-notify',
-  label: 'Discord 通知',
+  label: 'AutoSpin 通知',
   themeLabel: '靈訊符籙',
-  icon: 'D',
+  icon: 'R',
   iconClass: 'tab-icon--history',
   tab: 'discord-notify',
-  description: '設定 AutoSpin 執行狀態即時彙報用的 Discord Webhook',
+  description: 'AutoSpin 執行狀態即時彙報與定時彙總報告的開關、欄位、格式（發到 Lark，依帳號分開設定）',
 }
 
 const larkNotifyGroup: Group = {
   id: 'lark-notify',
-  label: 'Lark 通知',
+  label: '通知設定',
   themeLabel: '飛書傳訊',
   icon: 'N',
   iconClass: 'tab-icon--history',
   tab: 'lark-notify',
-  description: '設定 Lark 通知機器人、目標群組，以及各功能通知要發到 Discord、Lark 或兩邊',
+  description: '設定 Lark 通知機器人、目標群組與 @人對照（所有通知都發到 Lark）',
 }
 
 const cultivationBoardGroup: Group = {
@@ -1057,7 +1057,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'meter-reconcile' && <MeterReconcilePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
-            {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
+            {currentGroup?.id === 'discord-notify' && <AutoSpinNotifySettingsPage />}
             {currentGroup?.id === 'lark-notify' && <LarkNotifySettingsPage />}
             {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} onPreviewRealm={setBreakthroughLevel} />}
             {currentGroup?.id === 'xianxia-quotes' && <XianxiaQuotesPage />}

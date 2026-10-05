@@ -1,4 +1,14 @@
-## 29. Lark 通知（v5.1.0）
+## 29. Lark 通知（v5.1.0）→ 通知設定（v5.5.0）
+
+> **v5.5.0 Discord 退場第一步（使用者 2026-10-05，CodeX 額度用完期間使用者同意先做可退回的部分）**：
+> - 三個功能**一律發 Lark**（`getOutlets()` 不看存的值；存的 `notify_outlets` 刻意不動，這一版要能退回去）。頁面上不再有 Discord／雙發可選，「Lark 通知」改名「**通知設定**」
+> - 原「Discord 通知」頁改成「**AutoSpin 通知**」：拿掉 Webhook URL 與 Discord ID 對照表，留下每個帳號自己的通知開關／欄位／標題模板／頁尾／定時彙總報告。**頁面權限沿用 `discord-notify`**——通知設定頁只限管理員，AutoSpin 偏好是每個人自己的，不能搬過去（搬了非管理員就改不到自己的）。新 API `/api/autospin/notify-format`（不碰 webhook）
+> - 週報「@全部人」改成**所有有週報權限、沒停用的帳號**（原本是 Discord 對照表裡登記的人）。沒有 contact 權限時照樣只寫名字
+> - Live Ledger 狀態列的「設定好了沒」改看 Lark 憑證＋群組（`larkNotifyConfigured()`）
+> - **還沒刪的**（第二步，等 CodeX review 後做，刪設定退版救不回來）：Discord 頁程式、`discord-webhook.ts`、`weekly-report-bot.ts`＋discord.js、Discord 相關 API、settings 的 `discord_webhook_url`／`autospin_discord_user_map`／`notify_outlets`、`discord_notify_*` 改名
+> - 驗證：`node scripts/ui-checks/lark-notify-walkthrough.mjs`（通知設定＋AutoSpin 通知兩頁、兩種主題）；真伺服器：Live Ledger configured=true、三個出口讀出來都是 lark、AutoSpin 彙總報告試發真的發到 Lark 群
+
+### 原始設計（v5.1.0）
 
 > Discord → Lark 遷移（使用者 2026-10-03）。版面：CodeX 設計稿（普通版／修仙版）。page key：`lark-notify`（只限管理員，後端每支 API 都檢查）。
 > CodeX bridge 仍留在 Discord，不在這次範圍。

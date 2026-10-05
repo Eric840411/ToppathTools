@@ -460,6 +460,23 @@ router.post('/api/autospin/discord-webhook', (req, res) => {
   res.json({ ok: true })
 })
 
+// GET/POST /api/autospin/notify-format —— AutoSpin 通知的開關、顯示欄位（依帳號）、標題模板、頁尾（全域）。
+// 跟 discord-webhook 讀寫的是同一批設定，只是不碰 webhook URL（v5.5.0 Discord 退場，設定搬到「通知設定」頁）。
+// 存的 key 暫時沿用 discord_notify_*，下一版刪 Discord 時再一起改名，這一版要能退回去。
+router.get('/api/autospin/notify-format', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  res.json({ ok: true, enabled: isDiscordNotifyEnabled(userLabel), fields: getDiscordNotifyFields(userLabel), titleTemplate: getDiscordTitleTemplate(), footer: getDiscordFooterText() })
+})
+router.post('/api/autospin/notify-format', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const { enabled, fields, titleTemplate, footer } = req.body as { enabled?: boolean; fields?: Partial<Record<NotifyFieldKey, boolean>>; titleTemplate?: string; footer?: string }
+  if (typeof enabled === 'boolean') upsertNotifyPrefs(userLabel, { notifyEnabled: enabled ? 1 : 0 })
+  if (fields && typeof fields === 'object') upsertNotifyPrefs(userLabel, { notifyFields: JSON.stringify({ ...getDiscordNotifyFields(userLabel), ...fields }) })
+  if (typeof titleTemplate === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_title_template', titleTemplate.slice(0, 200))
+  if (typeof footer === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_footer', footer.slice(0, 500))
+  res.json({ ok: true })
+})
+
 // POST /api/autospin/discord-webhook/test — 送一則測試訊息確認 webhook 設定正確
 router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
   const url = getDiscordWebhookUrl()

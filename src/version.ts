@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.4.0'
+export const APP_VERSION = '5.5.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.5.0', date: '2026-10-05', changes: ['change(通知)：**所有通知改發 Lark**（AutoSpin、Live Ledger、週報提醒），不再有 Discord／雙發可選。「Lark 通知」頁改名「通知設定」', 'change(AutoSpin 通知)：原「Discord 通知」頁改成「AutoSpin 通知」——拿掉 Webhook URL 與 Discord ID 對照表，保留每個帳號自己的通知開關、顯示欄位、標題、頁尾、定時彙總報告（現有設定值照舊）', 'change(週報提醒)：「@全部人」改成所有有週報權限的帳號（原本是 Discord 對照表裡的人）', 'fix(Live Ledger)：告警設定狀態改看 Lark 機器人與群組，不再看 Discord Webhook', '這一版先不刪任何東西、可以退回；Discord 程式與設定值的刪除放下一版（等 CodeX review）'] },
   { version: '5.4.0', date: '2026-10-05', changes: ['feat(Local Agent)：新增 POST /api/local-agent/tokens/revoke-others——撤掉自己其他所有有效 token、只留指定那把，同時斷掉用那些 token 連進來的 agent（批次腳本每次下載 install.bat 都發新 token，累積太多）。指定的不是自己的有效 token 就整個不做', 'fix(Local Agent／機台測試，安全)：發 token、列表、撤銷、機台測試狀態原本認的是 header 身分，在 worker 上可偽造——能冒名發 token、看別人的 agent／進行中的 session、撤別人的 token → 一律改用簽章驗過的登入身分，沒登入回 401（CodeX review P1）', 'fix(Local Agent)：token 列表原本整份只取 50 筆且含已撤銷，有效的舊 token 會看不到 → 有效的全部列、已撤銷只列最近 50 把', 'fix(Local Agent)：撤銷時先從連線表刪掉才關 socket，斷線清理（收掉進行中的機測／UAT／錄製）會漏掉 → 只關 socket，交給原本的斷線處理；連線正在關閉時又撤一次也不刪'] },
   { version: '5.3.1', date: '2026-10-05', changes: ['style(側欄，普通版)：Meegle 批量工具的圖示字母 J → M、TestCase 生成 L → T（原本沿用 Jira／Lark 的字首，使用者回報）'] },
   { version: '5.3.0', date: '2026-10-05', changes: ['feat(側欄)：**側欄可收起成圖示列**（使用者把工具嵌在 Lark 裡，兩條側欄太擠）。底部「收起側欄」；收起後滑過圖示顯示名稱（修仙版附原功能名），OSM Tools／Game Show 點了在旁邊彈出子選單（選完、點外面、Esc 關閉，鍵盤可操作）。記住你的選擇；沒選過時視窗窄於 1100px 預設收起。普通版、修仙版都有，動畫約 0.2 秒、系統減少動態效果時不播。樣稿使用者確認、行為 CodeX 確認'] },

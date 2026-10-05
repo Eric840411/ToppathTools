@@ -1335,7 +1335,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                 </div>
                 {notifySt ? (
                   <div style={{ fontSize: 11, color: C.ink3, lineHeight: 1.75 }}>
-                    {!notifySt.configured && <div style={{ color: C.bad }}>⚠️ 尚未設定 Discord Webhook URL，告警無處可送</div>}
+                    {!notifySt.configured && <div style={{ color: C.bad }}>⚠️ 「通知設定」頁的 Lark 機器人或群組還沒設定好，告警無處可送</div>}
                     {notifySt.configured && !notifySt.enabled && <div style={{ color: C.pending }}>⚠️ 告警已關閉——findings 仍在累積，只是不送出</div>}
                     <div>
                       等著送 <b style={{ color: notifySt.queued ? C.pending : C.ink2 }}>{notifySt.queued}</b> 筆

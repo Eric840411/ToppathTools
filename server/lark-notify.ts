@@ -124,6 +124,8 @@ export async function resolveLarkOpenIds(emails: string[]): Promise<LarkResult<R
 }
 
 export function larkNotifyChatId(): string { return getSetting(K.chatId) }
+/** 發得出去的最低條件：憑證解得開、有選群。只看設定，不打 API（Live Ledger 狀態列會輪詢） */
+export function larkNotifyConfigured(): boolean { return !!storedCreds() && !!getSetting(K.chatId) }
 export function larkToolUrl(): string { return getSetting(K.toolUrl) }
 
 /** 機器人名稱（設定頁標題旁的標籤用）。查不到就回空，不影響其他功能 */

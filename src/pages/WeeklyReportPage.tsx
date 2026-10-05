@@ -898,7 +898,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     try {
       const r = await fetch('/api/weekly-report/reminder/test', { method: 'POST' })
       const d = await r.json() as { ok: boolean; message?: string }
-      setReminderMsg(d.ok ? '已送出一則測試提醒到 Discord' : (d.message || '送出失敗'))
+      setReminderMsg(d.ok ? '已送出一則測試提醒到 Lark' : (d.message || '送出失敗'))
     } catch (e) {
       setReminderMsg(`送出失敗：${e instanceof Error ? e.message : String(e)}`)
     }
@@ -1110,7 +1110,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           <span>定時備稿提醒</span>
           {reminder && (
             <span style={{ fontSize: 11, fontWeight: 500, color: reminder.enabled ? 'var(--cr-cyan)' : '#64748b' }}>
-              {reminder.enabled ? '每' + WEEKDAY_LABELS[reminder.weekday] + ' ' + reminder.time + ' 發 Discord 提醒' : '未啟用'}
+              {reminder.enabled ? '每' + WEEKDAY_LABELS[reminder.weekday] + ' ' + reminder.time + ' 發 Lark 提醒' : '未啟用'}
             </span>
           )}
         </button>
@@ -1118,7 +1118,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         {reminderOpen && (
           <div style={{ padding: '0 16px 14px', borderTop: '1px solid #263345', paddingTop: 12 }}>
             <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.75, marginBottom: 10 }}>
-              到點只發一則 Discord 提醒，<b style={{ color: '#e2e8f0' }}>不會自動送出週報</b>。
+              到點只發一則 Lark 提醒（卡片上是開啟週報頁的連結），<b style={{ color: '#e2e8f0' }}>不會自動送出週報</b>。
               開頁面之後掃描／Jira 撈單／頁籤報表本來就會自己跑完備稿，內容確認過再自己按送出。
             </div>
             {!reminder ? (
@@ -1137,7 +1137,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
                   style={{ padding: '5px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'ui-monospace, monospace' }} />
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
                   <input type="checkbox" checked={reminder.mentionAll} onChange={e => saveReminder({ mentionAll: e.target.checked })} />
-                  <span>@ 對照表裡的所有人</span>
+                  <span>@ 所有有週報權限的人</span>
                 </label>
                 <button onClick={testReminder}
                   style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'transparent', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
@@ -1176,7 +1176,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
                 )}
                 {!reminder.jiraActorEmail && !reminderMeta.effectiveJiraActor && (
                   <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginTop: 7 }}>
-                    還沒有任何身分可用，Discord 那條路不會撈 Jira。
+                    還沒有任何身分可用，定時提醒不會撈單。
                   </div>
                 )}
               </div>
@@ -1190,7 +1190,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
             )}
             {reminder?.enabled && reminderCron && (
               <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 9, fontFamily: 'ui-monospace, monospace' }}>
-                cron：{reminderCron}（Asia/Taipei）｜Webhook 沿用「Discord 通知」設定頁那一組
+                cron：{reminderCron}（Asia/Taipei）｜發到「通知設定」頁設定的 Lark 群組
               </div>
             )}
           </div>

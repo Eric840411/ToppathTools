@@ -26,6 +26,7 @@
  *       「沒有告警」與「告警送不出去」在畫面上長得一模一樣。
  */
 import { db } from './shared.js'
+import { larkNotifyConfigured } from './lark-notify.js'
 import { type ReconEnv, noteSourceHealth, reconSetting } from './live-ledger.js'
 import { getDiscordWebhookUrl, mentionsForUserLabels } from './discord-webhook.js'
 import { deliverNotice, discordWebhookSender, flushNotifyRetries, queueFailedSides, usesDiscord, type DiscordEmbed } from './notify-outlet.js'
@@ -444,7 +445,8 @@ export function notifyStatus(env: ReconEnv, now = Date.now()): {
   const wm = settingOf(env, 'notifyWatermarkTs', 0)
   return {
     enabled: settingOf(env, 'notifyEnabled', 1) === 1,
-    configured: Boolean(getDiscordWebhookUrl()),
+    // v5.5.0 起一律發 Lark：看 Lark 憑證與群組，不看 Discord webhook
+    configured: larkNotifyConfigured(),
     queued,
     held: heldByGrace(env, now),
     lastSentAt: last > 0 ? last : null,

@@ -1,5 +1,5 @@
 /**
- * Lark 通知設定頁走查（普通版＋修仙版）：打真的伺服器、真的設定；試發攔下來不真的送（避免洗群）。
+ * 通知設定頁走查（v5.5.0 起原「Lark 通知」改名「通知設定」、出口固定 Lark；普通版＋修仙版）：打真的伺服器、真的設定；試發攔下來不真的送（避免洗群）。
  * 前提：已跑過 lark-notify-live-check.mjs（憑證已存）。跑法：node scripts/ui-checks/lark-notify-walkthrough.mjs
  */
 import Database from 'better-sqlite3'
@@ -24,7 +24,7 @@ for (const theme of ['classic', 'xianxia']) {
   page.on('request', r => { if (r.url().includes('/api/lark-notify/config') && r.method() === 'PUT') putCalls++ })
 
   await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-  await page.getByText(/^(Lark 通知|飛書傳訊)$/).first().click()
+  await page.getByText(/^(通知設定|飛書傳訊)$/).first().click()
   await page.getByText('機器人憑證').waitFor()
   await page.waitForLoadState('networkidle')
 
@@ -45,12 +45,12 @@ for (const theme of ['classic', 'xianxia']) {
   check('試發成功顯示群名', (await page.locator('.ln-result--ok').textContent()).includes('OSM AI工具'))
   check('換群後提示「要儲存才會改發到這裡」', await page.getByText(/正式通知要按下方「儲存設定」/).isVisible())
 
-  check('週報出口是 Discord 時不顯示工具網址欄', await page.locator('#ln-toolurl').count() === 0)
-  const weeklyRow = page.locator('.ln-table tr', { hasText: '週報提醒' })
-  await weeklyRow.getByRole('radio', { name: 'Lark' }).click()
-  check('週報切 Lark → 出現「開啟工具確認頁」說明與工具網址欄', await page.getByText('週報通知：開啟工具確認頁').isVisible() && await page.locator('#ln-toolurl').isVisible())
-  await page.locator('.ln-table tr', { hasText: 'AutoSpin' }).getByRole('radio', { name: '雙發' }).click()
-  check('有功能雙發 → 標「過渡期雙發」', await page.locator('.ln-chip--warn', { hasText: '過渡期雙發' }).isVisible())
+  // v5.5.0：出口固定 Lark，不能再選 Discord／雙發
+  check('沒有 Discord／雙發可選', await page.getByRole('radio', { name: /Discord|雙發/ }).count() === 0 && await page.getByText('雙發').count() === 0)
+  const rows = await page.locator('.ln-table').first().locator('tbody tr').allInnerTexts()
+  check('三個功能都標「Lark」', rows.length === 3 && rows.every(r => r.includes('Lark')), rows.join(' | '))
+  check('工具網址欄一直都在（週報卡片連結用）', await page.getByText('週報通知：開啟工具確認頁').isVisible() && await page.locator('#ln-toolurl').isVisible())
+  check('有指出 AutoSpin 通知設定在哪', await page.getByText(/側欄「AutoSpin 通知」頁/).isVisible())
   check('有變更 → 尚未儲存變更、儲存鈕可按', await page.getByText('尚未儲存變更').isVisible() && await page.getByRole('button', { name: '儲存設定' }).isEnabled())
 
   await page.getByText('@人對照狀態').scrollIntoViewIfNeeded()
@@ -67,11 +67,36 @@ for (const theme of ['classic', 'xianxia']) {
   check('儲存鈕出現在畫面上時都沒被浮窗蓋住', coveredAt.length === 0, coveredAt.length ? `被蓋住的捲動位置：${coveredAt.join(',')}` : '')
 
   await page.getByRole('button', { name: '取消' }).click()
-  check('取消 → 回到已存的值（群、出口），沒有送出 PUT', await page.locator('.ln-card select').inputValue() === 'oc_8f0b93e81709a99ec176fb8784dd7c7f'
-    && await page.locator('#ln-toolurl').count() === 0 && await page.getByRole('button', { name: '儲存設定' }).isDisabled() && putCalls === 0)
+  check('取消 → 回到已存的值（群），沒有送出 PUT', await page.locator('.ln-card select').inputValue() === 'oc_8f0b93e81709a99ec176fb8784dd7c7f'
+    && await page.getByRole('button', { name: '儲存設定' }).isDisabled() && putCalls === 0)
 
   await page.getByRole('button', { name: '更換 Secret' }).click()
   check('按「更換 Secret」才出現輸入框，且是密碼欄', await page.locator('#ln-secret').getAttribute('type') === 'password')
+  await ctx.close()
+}
+
+// AutoSpin 通知頁（原 Discord 通知頁拿掉 Discord 專屬的部分）
+for (const theme of ['classic', 'xianxia']) {
+  console.log(`== AutoSpin 通知 ${theme}`)
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } })
+  await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
+  await ctx.addInitScript(t => localStorage.setItem('toppath-theme-mode', t), theme)
+  const page = await ctx.newPage()
+  let formatPost = null
+  await page.route('**/api/autospin/notify-format', async r => { if (r.request().method() === 'POST') { formatPost = r.request().postDataJSON(); await r.fulfill({ json: { ok: true } }) } else await r.continue() })
+  await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
+  await page.getByText(/^(AutoSpin 通知|靈訊符籙)$/).first().click()
+  await page.getByText('訊息格式').waitFor()
+  await page.waitForLoadState('networkidle')
+  const text = await page.locator('.discord-notify-page').innerText()
+  check('頁面上沒有 Discord 字樣', !/discord/i.test(text), (text.match(/.{0,12}discord.{0,12}/i) ?? [''])[0])
+  check('沒有 Webhook URL 與 Discord ID 對照', !/Webhook/i.test(text) && !text.includes('Discord Tag'))
+  check('啟用通知開關在、定時彙總報告在', text.includes('啟用通知') && text.includes('定時彙總報告'))
+  await page.getByText('Spin 數', { exact: true }).first().click()
+  await page.getByRole('button', { name: '儲存設定' }).click()
+  await page.waitForTimeout(500)
+  check('儲存走 notify-format，不帶 webhook url', !!formatPost && !('url' in formatPost) && typeof formatPost.fields === 'object', JSON.stringify(formatPost))
+  await page.screenshot({ path: `autospin-notify-${theme}.png`, fullPage: true })
   await ctx.close()
 }
 
@@ -81,7 +106,7 @@ for (const theme of ['classic', 'xianxia']) {
   await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
   const page = await ctx.newPage()
   await page.goto(`http://${HOST}:3000/?page=weekly-report`, { waitUntil: 'networkidle' })
-  check('?page=weekly-report 直接開到週報頁、網址參數清掉', await page.getByText(/週報彙整|行跡呈報/).first().isVisible() && !page.url().includes('page='), page.url())
+  check('?page=weekly-report 直接開到週報頁、網址參數清掉', /週報彙整|行跡呈報/.test(await page.locator('.app-topbar-title').innerText()) && !page.url().includes('page='), page.url())
   await ctx.close()
 }
 

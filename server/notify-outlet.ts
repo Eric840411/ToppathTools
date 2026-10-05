@@ -22,8 +22,10 @@ export function getOutlets(): Record<NotifyFeature, Outlet> {
   const raw = (db.prepare('SELECT value FROM settings WHERE key = ?').get(OUTLETS_KEY) as { value?: string } | undefined)?.value
   let parsed: Record<string, unknown> = {}
   try { parsed = raw ? JSON.parse(raw) : {} } catch { /* 壞掉當沒設 */ }
-  const pick = (v: unknown): Outlet => (v === 'lark' || v === 'both' ? v : 'discord')
-  return Object.fromEntries(NOTIFY_FEATURES.map(f => [f.key, pick(parsed[f.key])])) as Record<NotifyFeature, Outlet>
+  // v5.5.0 起 Discord 退場（使用者 2026-10-05）：一律發 Lark，不看存的值。
+  // 存的 notify_outlets 刻意不改也不刪——這一版要能退回去；刪除放在下一個獨立版本（刪設定退版救不回來）。
+  void parsed
+  return Object.fromEntries(NOTIFY_FEATURES.map(f => [f.key, 'lark' as Outlet])) as Record<NotifyFeature, Outlet>
 }
 export function setOutlets(next: Partial<Record<NotifyFeature, Outlet>>) {
   const merged = { ...getOutlets(), ...next }

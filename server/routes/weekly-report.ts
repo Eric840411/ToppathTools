@@ -1217,11 +1217,13 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
 async function sendWeeklyReminderToLark(embeds: Array<{ title?: string; description?: string; color?: number; fields?: Array<{ name: string; value: string; inline: boolean }>; footer?: { text: string } }>, mentionAll: boolean): Promise<{ ok: boolean; message: string }> {
   const { embedToLarkCard, larkMentionLine } = await import('../notify-outlet.js')
   const { sendLarkCard, larkNotifyChatId, larkToolUrl } = await import('../lark-notify.js')
-  const { getDiscordUserMap } = await import('../discord-webhook.js')
+  const { accountHasPermission, readAccounts } = await import('../shared.js')
   const merged = { ...embeds[0], title: embeds[0]?.title ?? '週報備稿提醒', fields: embeds.flatMap(e => e.fields ?? []), footer: embeds[embeds.length - 1]?.footer, timestamp: new Date().toISOString(),
     description: '開週報彙整頁確認後送出（頁面會重新檢查你的登入與權限）。\n**手動指派與比對不到專案的項目不會被送出**，會列在下面。' }
-  // @ 全部人：沿用通知對照表裡登記過的帳號（跟 Discord 那邊同一批人）
-  const mention = mentionAll ? (await larkMentionLine(getDiscordUserMap().map(e => e.userLabel))).line : ''
+  // @ 全部人：所有有週報權限、沒停用的帳號（v5.5.0 前是 Discord 對照表裡登記的人；Discord 退場後那份表不再維護）。
+  // 用 email 對 Lark 使用者；機器人沒有 contact 權限時 larkMentionLine 會退成「@名字」純文字，不會靜默少人
+  const everyone = readAccounts().filter(a => a.status !== 'disabled' && accountHasPermission(a.email, a.role, 'weekly-report')).map(a => a.email)
+  const mention = mentionAll ? (await larkMentionLine(everyone)).line : ''
   const card = embedToLarkCard(merged, mention ? `${mention} 📋 該備週報了` : '📋 該備週報了') as { elements: object[] }
   const toolUrl = larkToolUrl()
   card.elements.push(toolUrl

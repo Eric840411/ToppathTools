@@ -15,7 +15,6 @@ type Feature = { key: string; label: string }
 type MentionRow = { label: string; email: string; status: 'mapped' | 'not_found' | 'unknown' }
 type Msg = { ok: boolean; text: string } | null
 
-const OUTLET_LABEL: Record<Outlet, string> = { discord: 'Discord', lark: 'Lark', both: '雙發' }
 
 async function api<T>(method: string, url: string, body?: unknown): Promise<T & { ok: boolean; message?: string }> {
   const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
@@ -127,15 +126,13 @@ export function LarkNotifySettingsPage() {
   if (loadError) return <div className="ln-page"><div className="ln-card ln-msg ln-msg--error">{loadError}</div></div>
 
   const cfg = saved!.config
-  const usesLarkSomewhere = features.some(f => outlets[f.key] !== 'discord')
-  const weeklyOutlet = outlets['weekly-reminder'] ?? 'discord'
   const mappedN = mentions?.rows.filter(r => r.status === 'mapped').length ?? 0
   const pendingN = mentions ? mentions.rows.length - mappedN : 0
 
   return (
     <div className="ln-page">
       <div className="ln-head">
-        <p className="ln-sub">集中管理機器人、通知出口與人員對照</p>
+        <p className="ln-sub">集中管理通知機器人、目標群組與人員對照，所有通知都發到 Lark</p>
         <span className="ln-pill" title="工具只用 Lark 的發訊息 API，不接收事件（長連線留給 Claude 的 Lark 外掛）">僅發送通知</span>
       </div>
 
@@ -198,43 +195,31 @@ export function LarkNotifySettingsPage() {
         {chatId !== cfg.chatId && <div className="ln-hint ln-hint--under">試發用的是欄位上的群組；正式通知要按下方「儲存設定」後才會改發到這裡</div>}
       </section>
 
-      {/* ③ 各功能通知出口 */}
+      {/* ③ 通知內容（v5.5.0 Discord 退場：出口固定 Lark，不再有 Discord／雙發可選） */}
       <section className="ln-card">
-        <h2 className="ln-card-title">各功能通知出口{features.some(f => outlets[f.key] === 'both') && <span className="ln-chip ln-chip--warn">過渡期雙發</span>}</h2>
+        <h2 className="ln-card-title">通知內容</h2>
         <table className="ln-table">
-          <thead><tr><th>功能</th><th>通知出口</th></tr></thead>
+          <thead><tr><th>功能</th><th>發到</th></tr></thead>
           <tbody>
             {features.map(f => (
-              <tr key={f.key}>
-                <td>{f.label}</td>
-                <td>
-                  <div className="ln-seg" role="radiogroup" aria-label={`${f.label} 通知出口`}>
-                    {(['discord', 'lark', 'both'] as Outlet[]).map(o => (
-                      <button key={o} type="button" role="radio" aria-checked={outlets[f.key] === o} className={`ln-seg-btn${outlets[f.key] === o ? ' is-on' : ''}`} onClick={() => setOutlets(prev => ({ ...prev, [f.key]: o }))}>{OUTLET_LABEL[o]}</button>
-                    ))}
-                  </div>
-                </td>
-              </tr>
+              <tr key={f.key}><td>{f.label}</td><td><span className="ln-chip ln-chip--ok">Lark</span></td></tr>
             ))}
           </tbody>
         </table>
-        {weeklyOutlet !== 'discord' && (
-          <div className="ln-note">
-            <span className="ln-note-icon">↗</span>
-            <b>週報通知：開啟工具確認頁</b>
-            <span className="ln-hint">Lark 卡片上是連結，登入並確認後才送出（不能在卡片上直接送）</span>
-          </div>
+        <div className="ln-hint ln-hint--under">AutoSpin 通知的開關、顯示欄位、定時彙總報告在側欄「AutoSpin 通知」頁，依帳號分開設定</div>
+        <div className="ln-note">
+          <span className="ln-note-icon">↗</span>
+          <b>週報通知：開啟工具確認頁</b>
+          <span className="ln-hint">Lark 卡片上是連結，登入並確認後才送出（不能在卡片上直接送）</span>
+        </div>
+        <div className="ln-row">
+          <label className="ln-label" htmlFor="ln-toolurl">工具網址</label>
+          <input id="ln-toolurl" className="ln-input" value={toolUrl} onChange={e => setToolUrl(e.target.value)} placeholder="http://工具的網址（週報卡片的連結會指到這裡）" />
+        </div>
+        {(!cfg.hasSecret || !cfg.chatId) && (
+          <div className="ln-msg ln-msg--error">機器人憑證或目標群組還沒存好——所有通知都會發不出去</div>
         )}
-        {weeklyOutlet !== 'discord' && (
-          <div className="ln-row">
-            <label className="ln-label" htmlFor="ln-toolurl">工具網址</label>
-            <input id="ln-toolurl" className="ln-input" value={toolUrl} onChange={e => setToolUrl(e.target.value)} placeholder="http://工具的網址（週報卡片的連結會指到這裡）" />
-          </div>
-        )}
-        {usesLarkSomewhere && (!cfg.hasSecret || !cfg.chatId) && (
-          <div className="ln-msg ln-msg--error">有功能設成發到 Lark，但機器人憑證或目標群組還沒存好——那些通知會發不出去</div>
-        )}
-        {retryQueue > 0 && <div className="ln-hint ln-hint--under">目前有 {retryQueue} 則通知在等補送（雙發時失敗的那一邊）</div>}
+        {retryQueue > 0 && <div className="ln-hint ln-hint--under">目前有 {retryQueue} 則通知在等補送</div>}
       </section>
 
       {/* ④ @人對照狀態 */}
