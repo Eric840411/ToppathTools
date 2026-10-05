@@ -88,6 +88,8 @@ for (const mode of ['classic', 'xianxia']) {
   // 4 往返個人帳號不丟草稿（評論頁：打一半的網址）
   state.code = 'NOT_BOUND'
   await page.getByRole('button', { name: 'Meegle 評論', exact: true }).click()
+  // 先切到正式（切空間會重新掛載分頁，所以網址在切完之後才打）——往返後空間也要還在（CodeX review 90aecdb 補充）
+  await page.locator('.msp-bar').getByRole('radio', { name: '正式' }).click()
   await page.getByRole('region', { name: TITLE.NOT_BOUND }).waitFor()
   const draft = 'https://example.larksuite.com/sheets/DRAFT?sheet=half'
   await page.locator('.mc-loadbar .mb-input').fill(draft)
@@ -98,6 +100,7 @@ for (const mode of ['classic', 'xianxia']) {
   await page.waitForTimeout(500)
   check('回來仍在評論分頁', await page.getByRole('button', { name: 'Meegle 評論', exact: true }).evaluate(e => getComputedStyle(e).color !== '') && await page.locator('.mc-loadbar .mb-input').isVisible())
   check('打一半的 Sheet 網址還在', await page.locator('.mc-loadbar .mb-input').inputValue() === draft)
+  check('往返後空間還是正式', await page.locator('.msp-bar').getByRole('radio', { name: '正式' }).getAttribute('aria-checked') === 'true')
   await ctx.close()
 }
 await browser.close()
