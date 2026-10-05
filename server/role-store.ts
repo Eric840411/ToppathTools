@@ -11,6 +11,7 @@
  * 純函式（傳入 db），測試：npx tsx server/role-store.test.ts
  */
 import type Database from 'better-sqlite3'
+import { upsertAccountIn } from './account-store.js'
 
 type DB = Database.Database
 
@@ -112,6 +113,44 @@ export function updateRole(db: DB, key: string, p: { label?: string; color?: str
   if (p.color !== undefined && !COLOR_RE.test(p.color)) return { ok: false, code: 'BAD_COLOR', message: '顏色格式要是 #rrggbb' }
   db.prepare('UPDATE roles SET label = ?, color = ? WHERE key = ?').run(p.label?.trim() ?? row.label, p.color?.toLowerCase() ?? row.color, key)
   return { ok: true }
+}
+
+type AccountCur = { email: string; token: string; label: string; role: string; status: string | null }
+export type AccountWriteResult = { ok: true } | { ok: false; status: 400 | 404; message: string }
+
+/**
+ * 改既有帳號（名稱／角色／狀態／token）：**讀現況、管理員保護、角色存在檢查、合併、寫入全在同一個 immediate transaction**。
+ * 呼叫端只給 email 跟要改的欄位，拿不到也傳不進「先前讀到的帳號」——
+ * CodeX review v5.9.1 P2：只改名的請求原本把 handler 開頭讀到的舊 role 整筆寫回，中間若有人改派並刪掉那個角色，
+ * 就把已刪的角色寫回去（重現：200 成功、帳號角色不存在）。這個 API 讓那種寫法做不到。
+ */
+export function updateAccountGuarded(db: DB, email: string, patch: { label?: string; role?: string; status?: string; token?: string }): AccountWriteResult {
+  return db.transaction((): AccountWriteResult => {
+    const cur = db.prepare('SELECT email, token, label, role, status FROM jira_accounts WHERE email = ?').get(email) as AccountCur | undefined
+    if (!cur) return { ok: false, status: 404, message: '帳號不存在' }
+    const blocked = adminTargetError(cur, { role: patch.role, status: patch.status })
+    if (blocked) return { ok: false, status: 400, message: blocked }
+    if (patch.role !== undefined && patch.role !== cur.role && (patch.role === ADMIN_ROLE || !roleExists(db, patch.role))) {
+      return { ok: false, status: 400, message: '沒有這個角色' }
+    }
+    upsertAccountIn(db, {
+      email, token: patch.token ?? cur.token, label: patch.label ?? cur.label,
+      role: patch.role ?? cur.role, status: patch.status ?? cur.status ?? 'active',
+    })
+    return { ok: true }
+  }).immediate()
+}
+
+/** 刪帳號：讀現況與管理員保護跟刪除在同一個 transaction（舊 API 與管理頁共用） */
+export function deleteAccountGuarded(db: DB, email: string): AccountWriteResult {
+  return db.transaction((): AccountWriteResult => {
+    const cur = db.prepare('SELECT role, status FROM jira_accounts WHERE email = ?').get(email) as { role: string; status: string | null } | undefined
+    if (!cur) return { ok: false, status: 404, message: '帳號不存在' }
+    const blocked = adminTargetError(cur, { delete: true })
+    if (blocked) return { ok: false, status: 400, message: blocked }
+    db.prepare('DELETE FROM jira_accounts WHERE email = ?').run(email)
+    return { ok: true }
+  }).immediate()
 }
 
 /** 刪除：使用中的擋下並列出帳號；同時清掉它的權限列（不留孤兒資料） */

@@ -12,7 +12,7 @@ import {
   getEffectivePermissions, getAccountPermissionOverrides,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
-import { ADMIN_ROLE, adminTargetError, createRole, deleteRole, isMultiRole, withAssignableRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from '../role-store.js'
+import { ADMIN_ROLE, adminTargetError, createRole, deleteAccountGuarded, deleteRole, updateAccountGuarded, isMultiRole, withAssignableRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole } from '../role-store.js'
 
 export const router = Router()
 
@@ -200,26 +200,10 @@ const updateAccountSchema = z.object({
 
 router.put('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) => {
   const email = decodeURIComponent(req.params.email)
-  const accounts = readAccounts()
-  const existing = accounts.find(a => a.email === email)
-  if (!existing) return res.status(404).json({ ok: false, message: '帳號不存在' })
-
   const data = updateAccountSchema.parse(req.body)
-  const blocked = adminTargetError(existing, { role: data.role, status: data.status })
-  if (blocked) return res.status(400).json({ ok: false, message: blocked })
-  const updated = {
-    ...existing,
-    label: data.label ?? existing.label,
-    role: (data.role ?? existing.role) as AccountRole,
-    token: data.token ?? existing.token,
-    status: data.status ?? existing.status ?? 'active',
-  } as typeof existing
-  if (data.role !== undefined) {
-    const w = withAssignableRole(db, data.role, () => upsertAccount(updated))
-    if ('message' in w) return res.status(400).json({ ok: false, message: w.message })
-  } else {
-    upsertAccount(updated)
-  }
+  // 讀現況、管理員保護、角色檢查、寫入都在 updateAccountGuarded 的同一個 transaction 裡（CodeX review v5.9.1 P2）
+  const w = updateAccountGuarded(db, email, { label: data.label, role: data.role, status: data.status, token: data.token })
+  if ('message' in w) return res.status(w.status).json({ ok: false, message: w.message })
 
   if (data.clearPin) {
     db.prepare('UPDATE jira_accounts SET pin_hash = NULL WHERE email = ?').run(email)
@@ -364,11 +348,8 @@ router.get('/api/admin/cultivation-levels', requireAdmin, (_req, res) => {
 
 router.delete('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) => {
   const email = decodeURIComponent(req.params.email)
-  const accounts = readAccounts()
-  if (!accounts.find(a => a.email === email)) return res.status(404).json({ ok: false, message: '帳號不存在' })
-  // 管理員不能刪（含舊多角色裡有 admin 的；規則跟舊 API 共用 adminTargetError）
-  const blocked = adminTargetError(accounts.find(a => a.email === email), { delete: true })
-  if (blocked) return res.status(400).json({ ok: false, message: blocked })
-  deleteAccountByEmail(email)
+  // 管理員不能刪（含舊多角色裡有 admin 的；跟舊 API 共用 deleteAccountGuarded）
+  const w = deleteAccountGuarded(db, email)
+  if ('message' in w) return res.status(w.status).json({ ok: false, message: w.message })
   res.json({ ok: true })
 })

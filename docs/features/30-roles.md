@@ -28,8 +28,10 @@
 - `DELETE /api/accounts/:email`、`PATCH /api/accounts/:email/role` 原本**只看 `ADMIN_PIN` 環境變數——沒設的話任何人都能刪帳號、改角色**。改成一律要管理員登入（PIN 有設照樣要對）；PATCH 也改成只收單一、存在的角色
 
 ### v5.9.1（CodeX review）
-- **管理員帳號不能刪、不能改角色、不能停用**：原本只驗呼叫者是不是管理員、沒保護目標，舊 DELETE／PATCH、管理頁 PUT、自助註冊的管理員覆蓋都能把唯一的管理員弄掉。規則抽成 `adminTargetError`，四條路共用（舊多角色裡含 admin 也算）
-- **刪角色／指派角色不會互相穿插**：刪除在 immediate transaction 裡讀帳號（原本檢查的是傳進來的快照）；指派走 `withAssignableRole`，存在檢查跟寫入包在同一個 immediate transaction。server／worker 共用 data.db，兩邊只能一前一後
+- **管理員帳號不能刪、不能改角色、不能停用**：原本只驗呼叫者是不是管理員、沒保護目標，舊 DELETE／PATCH、管理頁 PUT／DELETE 都能把唯一的管理員弄掉 → 一律回 400。規則是 `adminTargetError`（舊多角色裡含 admin 也算）
+- **自助註冊被管理員覆蓋**的情況不同：目標是管理員時**角色保持 admin、其他欄位照寫、回成功**（不是 400）
+- **刪角色／改帳號不會互相穿插**：刪除在 immediate transaction 裡讀帳號（原本檢查的是傳進來的快照）。改帳號一律走 `updateAccountGuarded(db, email, patch)`／刪帳號走 `deleteAccountGuarded`：讀現況、保護、角色存在檢查、合併、寫入都在同一個 immediate transaction，**呼叫端拿不到也傳不進「先前讀到的帳號」**——v5.9.1 第一版只把「有帶 role」的包起來，只改名的請求仍把開頭讀到的舊角色整筆寫回（CodeX 重現：中間有人改派並刪掉角色 → 200 成功、帳號角色不存在）。server／worker 共用 data.db，immediate 讓兩邊只能一前一後
+- 新增帳號走 `withAssignableRole`（存在檢查跟寫入同一個 transaction）
 - 突變驗過：改回讀快照、管理員只認完全等於 admin、指派不檢查存在，各自有對應的測試變紅
 
 ### 檔案

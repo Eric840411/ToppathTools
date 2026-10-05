@@ -1,6 +1,6 @@
 /** 角色管理資料層。跑法：npx tsx server/role-store.test.ts（記憶體 DB，不動 data.db） */
 import Database from 'better-sqlite3'
-import { adminTargetError, createRole, deleteRole, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole, withAssignableRole } from './role-store.js'
+import { adminTargetError, createRole, deleteAccountGuarded, deleteRole, updateAccountGuarded, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole, withAssignableRole } from './role-store.js'
 
 let pass = 0
 const fails: string[] = []
@@ -11,7 +11,7 @@ function eq(name: string, got: unknown, want: unknown) {
 const db = new Database(':memory:')
 db.exec('CREATE TABLE role_permissions (role TEXT NOT NULL, page_key TEXT NOT NULL, allowed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (role, page_key))')
 db.prepare("INSERT INTO role_permissions VALUES ('qa', 'osm', 1)").run()
-db.exec("CREATE TABLE jira_accounts (email TEXT PRIMARY KEY, role TEXT, status TEXT)")
+db.exec("CREATE TABLE jira_accounts (email TEXT PRIMARY KEY, token TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '', role TEXT, status TEXT, pin_hash TEXT)")
 initRoles(db); initRoles(db)
 const KEYS = ['osm', 'autospin', 'osm-uat'] as const
 
@@ -59,6 +59,19 @@ eq('管理員：不能刪、不能改角色、不能停用', [adminTargetError(a
 eq('管理員：改名／送一樣的角色與狀態可以', [adminTargetError(adm, {}), adminTargetError(adm, { role: 'admin', status: 'active' })], [null, null])
 eq('舊多角色裡含 admin 也算管理員', !!adminTargetError({ role: 'pm,admin' }, { role: 'pm' }), true)
 eq('一般帳號不受限', adminTargetError({ role: 'qa' }, { delete: true }), null)
+// 帳號更新：一律讀 transaction 裡的現況（CodeX review v5.9.1 P2：只改名卻把舊的已刪角色寫回）
+const r2 = createRole(db, { label: '暫時角色', color: '#123456' })
+const k2 = r2.ok ? r2.role.key : ''
+db.prepare("INSERT OR REPLACE INTO jira_accounts (email, label, role, status, pin_hash) VALUES ('d@x', 'D', ?, 'active', 'h')").run(k2)
+db.prepare("UPDATE jira_accounts SET role = 'qa' WHERE email = 'd@x'").run(); deleteRole(db, k2) // 另一個 process：改派 QA 後刪角色
+const acct = (e: string) => db.prepare('SELECT label, role, status, pin_hash FROM jira_accounts WHERE email = ?').get(e)
+eq('只改名 → 角色是 DB 當下的 qa（不會寫回已刪角色）、PIN 不被洗掉', [updateAccountGuarded(db, 'd@x', { label: 'D2' }).ok, acct('d@x')], [true, { label: 'D2', role: 'qa', status: 'active', pin_hash: 'h' }])
+eq('指派已刪的角色 → 400、不寫入', [updateAccountGuarded(db, 'd@x', { role: k2 }), (acct('d@x') as { role: string }).role], [{ ok: false, status: 400, message: '沒有這個角色' }, 'qa'])
+eq('指派成 admin → 400', (updateAccountGuarded(db, 'd@x', { role: 'admin' }) as { status: number }).status, 400)
+eq('不存在的帳號 → 404', (updateAccountGuarded(db, 'nope@x', { label: 'x' }) as { status: number }).status, 404)
+db.prepare("INSERT OR REPLACE INTO jira_accounts (email, label, role, status) VALUES ('adm@x', 'A', 'admin', 'active')").run()
+eq('管理員：改角色／停用 → 400，改名可以', [updateAccountGuarded(db, 'adm@x', { role: 'qa' }).ok, updateAccountGuarded(db, 'adm@x', { status: 'disabled' }).ok, updateAccountGuarded(db, 'adm@x', { label: 'A2' }).ok, acct('adm@x')], [false, false, true, { label: 'A2', role: 'admin', status: 'active', pin_hash: null }])
+eq('刪帳號：管理員擋、一般帳號可刪、不存在 404', [deleteAccountGuarded(db, 'adm@x').ok, deleteAccountGuarded(db, 'd@x').ok, !!acct('d@x'), (deleteAccountGuarded(db, 'd@x') as { status: number }).status], [false, true, false, 404])
 eq('多角色判斷', [isMultiRole('pm,qa'), isMultiRole('qa'), isMultiRole(' qa , ')], [true, false, false])
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
