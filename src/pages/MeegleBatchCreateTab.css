@@ -147,6 +147,15 @@
 .mb-bulk { padding: 12px 14px; margin-bottom: 10px; border: 1px dashed var(--mb-border-strong); border-radius: 10px; }
 .mb-edit { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .mb-edit .mb-field { flex: 1 1 150px; }
+.mb-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 38px; padding: 4px 6px; border: 1px solid var(--mb-border); border-radius: 8px; background: var(--mb-bg); }
+.mb-picker:focus-within { border-color: var(--mb-primary); }
+.mb-picker-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 6px; background: var(--mb-card2); border: 1px solid var(--mb-border-strong); color: var(--mb-text); font-size: 12.5px; line-height: 1.5; }
+.mb-picker-chip button { background: none; border: 0; color: var(--mb-muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.mb-picker-chip button:hover { color: var(--mb-bad); }
+.mb-picker-input { flex: 1; min-width: 70px; border: 0; outline: 0; background: transparent; color: var(--mb-text); font: inherit; font-size: 13px; padding: 4px 2px; }
+/* 修仙版的全域 input 樣式會在標籤框裡再畫一個框 → 這個輸入框只當標籤框的一部分。
+   選擇器刻意照抄 xianxia-complete.css 那條的形狀（.main-content input:not(...)×5），權重才壓得過 */
+:root[data-theme-mode="xianxia"] .main-content input.mb-picker-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]) { border: 0 !important; background: transparent !important; box-shadow: none !important; padding: 4px 2px !important; min-height: 0 !important; }
 .mb-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 
 .mb-table-wrap { overflow-x: auto; border: 1px solid var(--mb-border); border-radius: 10px; }
