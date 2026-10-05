@@ -349,7 +349,40 @@ export function classify(step) {
   if (step.step === '退出測試' && /未確認|無法確認/.test(m) && !/🛑/.test(m)) return 'check'
   return step.status
 }
-export function judge(result, stepsRun) {
+// ── 機種專屬判定規則（1005 使用者：「這是這個遊戲的特殊處理，不放共同規則」）───────────────
+// 來源 knowledge/games/<機種>/automation/batch-rules.json（只給 batch 判定用，不同步到 agent）。
+// 目前規則：ideckNoRoundIsNoResponse —— iDeck 每顆伺服器都有回應、但「iDeck 開局 0 顆」→ 改判 ideck no response。
+//   ARUZE（FLCL）：PLAY xx Credits 本身就是開局鍵，0323 現場確認按了都不轉；其他機種的 iDeck 多半只是調面額／倍數，沒開局是正常的。
+const gameRulesCache = new Map()
+export function gameRules(type) {
+  if (!type) return {}
+  if (!gameRulesCache.has(type)) {
+    let r = {}
+    try { r = JSON.parse(fs.readFileSync(path.join(gameDir(type), 'batch-rules.json'), 'utf8')) } catch { /* 沒有就是沒有規則 */ }
+    gameRulesCache.set(type, r)
+  }
+  return gameRulesCache.get(type)
+}
+export function applyGameRules(result) {
+  const type = String(result?.machineCode ?? '').split('-')[1]?.toUpperCase()
+  const rules = gameRules(type)
+  if (!Array.isArray(result?.steps) || !(rules.ideckNoRoundIsNoResponse || rules.noMenuGate)) return result
+  return {
+    ...result,
+    steps: result.steps.map(s => {
+      const m = String(s.message ?? '')
+      if (rules.ideckNoRoundIsNoResponse && s.step === 'iDeck 測試' && (s.status === 'pass' || s.status === 'warn') && /iDeck 開局 0 顆/.test(m))
+        return { ...s, status: 'fail', message: `${m}｜判定：no response（${type} 機種規則：會開局的鍵都沒開局）` }
+      // noMenuGate：這個機種沒有選面額選單 → runner 的「選單狀態未知」不構成懷疑理由，
+      // 按了 SPIN、餘額沒變、moneyNtc begin 0 次就是 spin no response（有 begin 的照舊不算）
+      if (rules.noMenuGate && s.step === 'Spin 測試' && /選單狀態未知/.test(m))
+        return { ...s, message: m.replace(/｜?選單狀態未知：[^｜]*/g, `｜（${type} 沒有選面額選單，不視為選單干擾）`) }
+      return s
+    }),
+  }
+}
+export function judge(rawResult, stepsRun) {
+  const result = applyGameRules(rawResult)
   if (result.unboundSession) return { verdict: '結果沒帶 sessionId（舊版 agent），無法證明屬於本批，待確認', J: null }
   const st = (result.steps ?? []).filter(s => STEP_ZH[s.step])
   const entry = st.find(s => s.step === '進入機台')
@@ -375,7 +408,8 @@ export function judge(result, stepsRun) {
 // ideck no response／touchscreen no response／no cctv；規則外的失敗寫 <項目> fail，沒驗到寫 <項目> not verified。
 // ⚠️ 關鍵字靠 runner 訊息字串判斷（跟 classify 一樣耦合），runner 改訊息要同步改這裡並跑 scripts/machine-test-shortline-probe.mjs
 const STEP_EN = { entry: '進入機台', stream: '推流檢測', spin: 'Spin 測試', audio: '音頻檢測', ideck: 'iDeck 測試', touchscreen: '觸屏測試', cctv: 'CCTV 號碼比對', exit: '退出測試' }
-export function shortLine(result, j, orientation, stepsRun = ALL_STEPS) {
+export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
+  const result = applyGameRules(rawResult)
   const steps = (result?.steps ?? []).filter(s => STEP_ZH[s.step])
   const get = n => steps.find(s => s.step === n)
   const msg = s => String(s?.message ?? '')
@@ -401,13 +435,21 @@ export function shortLine(result, j, orientation, stepsRun = ALL_STEPS) {
     const bad = Array.isArray(ld?.noShow) ? [...ld.noShow]
       : Array.isArray(roles) && roles.length ? [...new Set(roles.filter(v => !v.playing).map(v => `${v.role}stream no show`))] : []
     // 使用者 0929：main 推流沒畫面時只寫 mainstream no show（聲音／觸屏沒有意義），但 CCTV 是獨立的，沒畫面照樣寫 no cctv
+    // 1005：NO SIGNAL 測試卡（batch 事後偵測寫進訊息）。main 沒訊號等同主畫面沒了，照 main no show 的規則只寫它＋CCTV
+    const noSig = [...new Set(msg(st).match(/(?:main|pool)?stream no signal/g) ?? [])]
+    if (noSig.includes('mainstream no signal')) {
+      const cc = get('CCTV 號碼比對')
+      const noCctv = cc && ['fail', 'warn'].includes(classify(cc)) && /video|找不到|沒有|無畫面|未播放/.test(msg(cc))
+      return noCctv ? 'mainstream no signal, no cctv' : 'mainstream no signal'
+    }
+    out.push(...noSig)
     if (bad.includes('mainstream no show') || /mainstream no show/.test(msg(st))) {
       const cc = get('CCTV 號碼比對')
       const noCctv = cc && ['fail', 'warn'].includes(classify(cc)) && /video|找不到|沒有|無畫面|未播放/.test(msg(cc))
       return noCctv ? 'mainstream no show, no cctv' : 'mainstream no show'
     }
     if (bad.length) out.push(...bad.sort((a, b) => a.startsWith('main') ? -1 : b.startsWith('main') ? 1 : 0))
-    else if (classify(st) === 'fail') out.push(/no show/.test(msg(st)) ? msg(st).match(/(?:main|pool)stream no show/g).join(', ') : 'stream fail')
+    else if (classify(st) === 'fail' && !noSig.length) out.push(/no show/.test(msg(st)) ? msg(st).match(/(?:main|pool)stream no show/g).join(', ') : 'stream fail')
     else if (classify(st) === 'na') out.push('stream not verified')
   }
   const sp = get('Spin 測試')
@@ -463,7 +505,7 @@ export function shortLine(result, j, orientation, stepsRun = ALL_STEPS) {
   return /只跑部分測項/.test(j?.verdict ?? '') ? 'partial test' : 'not verified'
 }
 
-function larkLine(result, j, date) {
+export function larkLine(result, j, date) {
   const s = (result.steps ?? []).filter(x => STEP_ZH[x.step]).map(x => `${STEP_ZH[x.step]} ${classify(x).toUpperCase()}`).join(' / ')
   const detail = (result.steps ?? []).filter(x => STEP_ZH[x.step] && ['fail', 'check', 'warn'].includes(classify(x))).map(x => `${STEP_ZH[x.step]}: ${String(x.message).slice(0, 90)}`).join('; ')
   // 觸屏 PASS 也要寫出驗了哪幾個座標（FAIL/WARN 已在 detail 裡）
@@ -585,7 +627,33 @@ async function applyLearn(type, snapshot, plan, backupDir, meta) {
 // 畫面方向（影子模式，2026-09-29）：使用者決定**不接 Gemini、由 Claude 看圖判讀**。
 // 腳本只負責把推流區逐塊裁切存檔、標「待人工判讀」；Claude 讀圖後用 --set-orientation 補寫 F 欄與報告。
 // 判讀標準與流程：knowledge/h5-client-interaction.md §9。不影響 J。
-async function orientationFor(result, pngPath, code, outDir) {
+// ── 推流 NO SIGNAL 偵測（1005 使用者：0325／0326 上螢幕是 NO SIGNAL 測試卡，video 照樣「在播」，工具判 PASS 是漏洞）──
+// 做法：把每塊 video 裁切縮成 32×18 RGB，跟參考圖（MT_HOME/knowledge/machine-test/no-signal-ref.png，取自 0325 上螢幕）
+// 算每像素平均絕對差。實測 ARUZE 0321～0326：NO SIGNAL 0.0～0.3，正常遊戲畫面 75～93 → 門檻 20。
+// F 欄關鍵字照使用者指定寫「<role>stream no signal」（不寫 no show）。
+const NO_SIGNAL_REF = path.join(ROOT, 'knowledge', 'machine-test', 'no-signal-ref.png')
+const NO_SIGNAL_MAX_DIFF = 20
+export async function noSignalCheck(orientation) {
+  const videos = orientation?.videos ?? []
+  if (!videos.length || !fs.existsSync(NO_SIGNAL_REF)) return []
+  const { createRequire } = await import('node:module')
+  const sharp = createRequire(path.join(ROOT, 'package.json'))('sharp')
+  const thumb = f => sharp(f).removeAlpha().resize(32, 18, { fit: 'fill' }).raw().toBuffer()
+  const ref = await thumb(NO_SIGNAL_REF)
+  const hits = []
+  for (const v of videos) {
+    try {
+      const t = await thumb(v.file)
+      let d = 0
+      for (let i = 0; i < t.length; i++) d += Math.abs(t[i] - ref[i])
+      const diff = d / t.length
+      if (diff <= NO_SIGNAL_MAX_DIFF) hits.push({ role: v.role ?? 'unknown', diff: Number(diff.toFixed(1)) })
+    } catch { /* 單塊讀不到就跳過，不影響其他塊 */ }
+  }
+  return hits
+}
+
+export async function orientationFor(result, pngPath, code, outDir) {
   if (!pngPath || !fs.existsSync(pngPath)) return { status: 'na', shadow: true, note: '沒有推流截圖，方向未驗', crops: [] }
   try {
     // sharp 裝在資料根目錄（osm-qa-agent）的 node_modules，不在 Toppath repo 裡 → 從 MT_HOME 解析
@@ -598,6 +666,7 @@ async function orientationFor(result, pngPath, code, outDir) {
     const rects = (s?.screens?.length ? s.screens : [{ x: 0, y: 0, w: meta.width / scale, h: meta.height / scale }]).slice().sort((p, q) => p.y - q.y)
     const dir = path.join(outDir, 'orientation'); fs.mkdirSync(dir, { recursive: true })
     const crops = []
+    const videos = []   // 1005：哪一塊是 video、是 main 還是 pool（給 NO SIGNAL 偵測用）
     for (const [i, r] of rects.entries()) {
       const left = Math.max(0, Math.round(r.x * scale)), top = Math.max(0, Math.round(r.y * scale))
       const width = Math.min(meta.width - left, Math.round(r.w * scale)), height = Math.min(meta.height - top, Math.round(r.h * scale))
@@ -605,8 +674,9 @@ async function orientationFor(result, pngPath, code, outDir) {
       const f = path.join(dir, `${code}-screen${i + 1}.png`)
       await sharp(pngPath).extract({ left, top, width, height }).png().toFile(f)
       crops.push(f)
+      if (r.kind === 'video') videos.push({ file: f, role: (s?.videoRoles ?? []).find(v => Math.abs(v.y - r.y) < 3)?.role ?? null })
     }
-    return { status: 'pending', shadow: true, note: `待人工判讀（${crops.length} 塊${s?.screens ? '' : '，舊 agent 沒帶畫面位置，整張'}）`, crops }
+    return { status: 'pending', shadow: true, note: `待人工判讀（${crops.length} 塊${s?.screens ? '' : '，舊 agent 沒帶畫面位置，整張'}）`, crops, videos }
   } catch (e) { return { status: 'na', shadow: true, note: `裁切失敗：${String(e.message ?? e).slice(0, 120)}`, crops: [] } }
 }
 
@@ -1340,6 +1410,17 @@ async function main() {
     chain = chain.then(async () => {
       m.orientation = await orientationFor(result, m.evidence.stream, code, outDir)
       log(`方向 ${code}：${m.orientation.note}${m.orientation.crops.length ? ` → ${m.orientation.crops.join(', ')}` : ''}`)
+      // NO SIGNAL 偵測：命中就把推流改判 FAIL，並在回寫前重算 J／F（跟 AFT 補查同一個做法）
+      const ns = await noSignalCheck(m.orientation).catch(() => [])
+      const st = result.steps?.find(s => s.step === '推流檢測')
+      if (ns.length && st) {
+        const tags = ns.map(h => `${h.role === 'main' ? 'mainstream' : h.role === 'pool' ? 'poolstream' : 'stream'} no signal`)
+        st.status = 'fail'
+        st.message = `${[...new Set(tags)].join('、')}：畫面是 NO SIGNAL 測試卡（與參考圖差 ${ns.map(h => h.diff).join('／')}）｜${st.message}`
+        const j2 = judge(result, stepList)
+        Object.assign(m, { verdict: j2.verdict, J: j2.J, larkLine: shortLine(result, j2, m.orientation, stepList), detailLine: larkLine(result, j2, date.slice(5, 10)) })
+        log(`${code} 推流 NO SIGNAL：${tags.join('、')}`)
+      }
       saveSummary(summaryFile, summary)
     })
     // iDeck 畫面證據（影子模式 2026-09-29）：每顆點完的推流截圖複製到報告資料夾，交給人判讀 BET 值，不影響 J
