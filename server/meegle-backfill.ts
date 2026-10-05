@@ -19,6 +19,57 @@ export const BACKFILL_TOOLS: Array<{ key: BackfillTool; label: string; stage: st
   { key: 'status', label: '狀態', stage: '已切換狀態' },
   { key: 'edit', label: '修改', stage: '已修改欄位' },
 ]
+/**
+ * 「我自己處理了，移出清單」（v5.12.0，使用者 10/05 同意、CodeX 2026-10-06 同意＋必補）：
+ * - **獨立記錄**，四張工具表的 writeback 狀態不動（不偽造成 done——那是假的成功）
+ * - 鍵＝(tool, batch_id, row_key)：重複請求不重複記、不覆蓋第一個移出的人；之後同一列重送又失敗，新批次的 batch_id 不同，會重新出現
+ * - 這版不提供「顯示已移出／復原」，但操作歷史查得到明細
+ */
+export function initBackfillDismissSchema(db: DB) {
+  db.exec(`CREATE TABLE IF NOT EXISTS meegle_backfill_dismissed (
+    tool TEXT NOT NULL, batch_id TEXT NOT NULL, row_key TEXT NOT NULL,
+    dismissed_by TEXT NOT NULL, dismissed_at INTEGER NOT NULL,
+    PRIMARY KEY (tool, batch_id, row_key)
+  )`)
+}
+const isDismissed = (db: DB, it: Pick<PendingItem, 'tool' | 'batchId' | 'rowKey'>): boolean => {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meegle_backfill_dismissed'").get()) return false
+  return !!db.prepare('SELECT 1 FROM meegle_backfill_dismissed WHERE tool = ? AND batch_id = ? AND row_key = ?').get(it.tool, it.batchId, it.rowKey)
+}
+
+export type DismissResult = { tool: BackfillTool; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }
+
+/**
+ * 移出待補清單。一個 IMMEDIATE transaction 裡：重新列一次「這個人看得到的待補清單」、逐列驗證、寫入、記歷史。
+ * - 操作者由呼叫端從登入 session 取；送出的人才能移（admin 可移全部人的）——不信前端給的列
+ * - 已經移出過的：回 ok＋「已經移出過」，不重複記歷史
+ * - busy(key)：那一列正在補寫 → 不准移（補寫與移出互斥）
+ * - recordHistory 在同一個 transaction 裡呼叫：有實際移出的列才記
+ */
+export function dismissBackfill(db: DB, items: Array<Pick<PendingItem, 'tool' | 'batchId' | 'rowKey'>>, actor: { email: string; admin: boolean },
+  opts: { now?: number; busy?: (key: string) => boolean; recordHistory?: (rows: DismissResult[]) => void } = {}): DismissResult[] {
+  const now = opts.now ?? Date.now()
+  return db.transaction((): DismissResult[] => {
+    const visible = listPendingBackfill(db, { owner: actor.admin ? null : actor.email, now })
+    const ins = db.prepare('INSERT OR IGNORE INTO meegle_backfill_dismissed (tool, batch_id, row_key, dismissed_by, dismissed_at) VALUES (?, ?, ?, ?, ?)')
+    const out: DismissResult[] = []
+    for (const it of items) {
+      const base = { tool: it.tool, batchId: it.batchId, rowKey: it.rowKey }
+      if (isDismissed(db, it)) { out.push({ ...base, workItemId: '', ok: true, message: '已經移出過' }); continue }
+      const hit = visible.find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
+      if (!hit) { out.push({ ...base, workItemId: '', ok: false, message: '這一列不在待補清單裡（可能已經補好、或不是你送的）' }); continue }
+      if (opts.busy?.(backfillKey(it))) { out.push({ ...base, workItemId: hit.workItemId, ok: false, message: '這一列正在補寫，結束後再移' }); continue }
+      ins.run(it.tool, it.batchId, it.rowKey, actor.email.toLowerCase(), now)
+      out.push({ ...base, workItemId: hit.workItemId, ok: true, message: '已移出待補清單' })
+    }
+    const done = out.filter(r => r.ok && r.message === '已移出待補清單')
+    if (done.length) opts.recordHistory?.(done)
+    return out
+  }).immediate()
+}
+
+export const backfillKey = (it: Pick<PendingItem, 'tool' | 'batchId' | 'rowKey'>) => `${it.tool}:${it.batchId}:${it.rowKey}`
+
 /** pending／none 超過這麼久沒動靜才算「卡住、要補」；更新的可能還在寫 */
 export const IDLE_MS = 2 * 60_000
 
@@ -86,7 +137,7 @@ export function listPendingBackfill(db: DB, opts: { owner: string | null; now?: 
       WHERE r.work_item_id = ? AND r.source_key = ? AND s.phase = 'done' AND r.created_at > (SELECT created_at FROM ${rowsTable} WHERE batch_id = ? AND row_key = ?) LIMIT 1`)
       .get(it.workItemId, it.sourceKey, it.batchId, it.rowKey)
   }
-  return all.filter(it => !newerDone(it)).sort((a, b) => b.lastAt - a.lastAt)
+  return all.filter(it => !newerDone(it) && !isDismissed(db, it)).sort((a, b) => b.lastAt - a.lastAt)
 }
 
 export type BackfillRunners = Record<BackfillTool, (batchId: string, rowKey: string) => Promise<{ ok: boolean; message: string | null }>>

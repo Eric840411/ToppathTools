@@ -19,7 +19,7 @@ type Item = {
   /** 哪個 Meegle 空間（v5.10.0）。補寫回只寫 Sheet、不碰 Meegle，標出來只是讓人分得出是哪邊的單 */
   space?: 'test' | 'prod'
 }
-type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }
+type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null; action?: 'retry' | 'dismiss' }
 
 const ICON_PATHS = {
   refresh: 'M13 8a5 5 0 11-1.5-3.5M13 2.5v3h-3',
@@ -34,8 +34,8 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
 const key = (i: { tool: string; batchId: string; rowKey: string }) => `${i.tool}:${i.batchId}:${i.rowKey}`
 const fmt = (ms: number) => new Date(ms).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
 /** 結果分三類（設計圖）：成功／列已變動不寫（略過）／Sheet 失敗。列已變動是回填函式的保護，不是錯誤 */
-const resultKind = (r: Result) => r.ok ? 'ok' : /列已變動|不是 #|不在待補清單/.test(r.message ?? '') ? 'skip' : 'bad'
-const RESULT_TEXT = { ok: '成功', skip: '列已變動不寫', bad: 'Sheet 失敗' } as const
+const resultKind = (r: Result) => r.action === 'dismiss' ? (r.ok ? 'moved' : 'skip') : r.ok ? 'ok' : /列已變動|不是 #|不在待補清單|正在/.test(r.message ?? '') ? 'skip' : 'bad'
+const RESULT_TEXT = { ok: '成功', skip: '列已變動不寫', bad: 'Sheet 失敗', moved: '已移出' } as const
 
 type Group = { key: string; label: string; items: Item[]; failed: number; stuck: number; lastAt: number; topReason: { text: string; n: number } | null }
 /** 依 Sheet 分組：最近有動靜的那份排最上面；每份算出最常見的失敗原因（同一份通常是同一個原因，例如權限被拿掉）。
@@ -69,6 +69,8 @@ export function MeegleBackfillTab() {
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Result[]>([])
   const [ranAt, setRanAt] = useState<number | null>(null)
+  // 「我自己處理了，移出清單」：先在頁面內展開確認（v5.12.0，CodeX 2026-10-06）
+  const [askDismiss, setAskDismiss] = useState(false)
 
   async function load(s = scope) {
     setLoading(true); setError('')
@@ -77,7 +79,8 @@ export function MeegleBackfillTab() {
       const j = await r.json()
       if (!r.ok || !j.ok) throw new Error(j.message || `HTTP ${r.status}`)
       setItems(j.items); setCanSeeAll(!!j.canSeeAll)
-      setSelected(new Set((j.items as Item[]).map(key)))
+      // 不預設全選：有了「移出清單」之後，預設全選一按就可能把整批清掉（CodeX 2026-10-06）。只保留還在清單裡的勾選
+      setSelected(prev => new Set((j.items as Item[]).map(key).filter(k => prev.has(k))))
     } catch (e) { setError((e as Error).message) } finally { setLoading(false) }
   }
   useEffect(() => { void load() }, [])   // eslint-disable-line react-hooks/exhaustive-deps
@@ -100,7 +103,21 @@ export function MeegleBackfillTab() {
     } catch (e) { setError((e as Error).message) } finally { setRunning(false) }
   }
 
-  const tally = { ok: results.filter(r => resultKind(r) === 'ok').length, skip: results.filter(r => resultKind(r) === 'skip').length, bad: results.filter(r => resultKind(r) === 'bad').length }
+  async function dismiss() {
+    if (!chosen.length) return
+    setRunning(true); setError('')
+    try {
+      const r = await fetch('/api/meegle/backfill/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: chosen.map(i => ({ tool: i.tool, batchId: i.batchId, rowKey: i.rowKey })) }) })
+      const j = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
+      if (!r.ok || !j.ok) throw new Error(j.message || `HTTP ${r.status}`)
+      setResults((j.results as Result[]).map(x => ({ ...x, action: 'dismiss' as const }))); setRanAt(Date.now())
+      setAskDismiss(false)
+      await load()
+    } catch (e) { setError((e as Error).message) } finally { setRunning(false) }
+  }
+  const chosenSheets = [...new Set(chosen.map(i => i.sheetLabel))]
+
+  const tally = { moved: results.filter(r => resultKind(r) === 'moved').length, ok: results.filter(r => resultKind(r) === 'ok').length, skip: results.filter(r => resultKind(r) === 'skip').length, bad: results.filter(r => resultKind(r) === 'bad').length }
 
   return (
     <div className="mb-page mc-page bf-page">
@@ -124,8 +141,19 @@ export function MeegleBackfillTab() {
         </div>
         <div className="bf-actions">
           <span>已選 <b className="bf-n-sel">{chosen.length}</b> 筆</span>
-          <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!chosen.length || running} onClick={() => void run()}>{running ? '補寫中…' : `補寫回 ${chosen.length} 筆`}</button>
+          <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!chosen.length || running} onClick={() => void run()}>{running ? '處理中…' : `補寫回 ${chosen.length} 筆`}</button>
+          <button type="button" className="mb-btn mb-btn--outline" disabled={!chosen.length || running} onClick={() => setAskDismiss(true)}>我自己處理了，移出清單</button>
         </div>
+        {askDismiss && chosen.length > 0 && (
+          <div className="mb-alert mb-alert--warn" role="alertdialog" aria-label="確認移出清單">
+            <div>要把勾選的 <b>{chosen.length}</b> 筆移出待補清單（{chosenSheets.length} 份 Sheet：{chosenSheets.join('、')}）？</div>
+            <div>僅移出待補清單，<b>不修改 Sheet／Meegle</b>，目前不提供復原。</div>
+            <div className="bf-dismiss-actions">
+              <button type="button" className="mb-btn mb-btn--primary" disabled={running} onClick={() => void dismiss()}>{running ? '移出中…' : `確認移出 ${chosen.length} 筆`}</button>
+              <button type="button" className="mb-btn" disabled={running} onClick={() => setAskDismiss(false)}>取消</button>
+            </div>
+          </div>
+        )}
         {error && <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {error}</div>}
         <p className="mb-hint bf-group-hint"><Icon name="info" /> 依 Sheet 分組，最近有動靜的排最上面；同一份通常是同一個原因，修好後勾「這份全選」一次補</p>
         <div className="bf-groups">
@@ -188,6 +216,7 @@ export function MeegleBackfillTab() {
           <h2 className="mb-shell-title">逐列結果</h2>
           <span className="mb-badge bf-badge-last">上次執行</span>
           <span className="bf-tally">
+            {tally.moved > 0 && <span className="mb-chip is-on">已移出 <b>{tally.moved}</b></span>}
             <span className="mb-chip mb-chip--ok is-on">成功 <b>{tally.ok}</b></span>
             <span className="mb-chip bf-chip-skip is-on">略過 <b>{tally.skip}</b></span>
             <span className="mb-chip mb-chip--blocked is-on">失敗 <b>{tally.bad}</b></span>
@@ -203,7 +232,7 @@ export function MeegleBackfillTab() {
                   <tr key={key(r)}>
                     <td className="mb-num">#{r.workItemId || r.rowKey}</td>
                     <td><span className={`bf-result bf-result--${k}`}>{RESULT_TEXT[k]}</span></td>
-                    <td>{r.ok ? '已補寫處理階段' : r.message}{k === 'bad' ? '，可再補寫' : ''}</td>
+                    <td>{r.action === 'dismiss' ? r.message : r.ok ? '已補寫處理階段' : r.message}{k === 'bad' ? '，可再補寫' : ''}</td>
                   </tr>
                 )
               })}

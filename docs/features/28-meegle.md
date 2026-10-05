@@ -338,6 +338,23 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 驗證：`npx tsx server/meegle-backfill.test.ts`（7，用四個工具真的資料表建資料；拿掉「等 2 分鐘」「新批次已成功不列」「其他步驟要完成」各紅一條）；`node scripts/ui-checks/meegle-backfill-walkthrough.mjs`（真的空清單＋假資料走補寫，兩種主題）
 - ⚠️ 還沒用真的失敗列補寫過一次（本機目前沒有待補的列）；補寫本身走的是各工具已經真跑過的回填函式
 
+### 28f-2. 「我自己處理了，移出清單」（v5.12.0）
+
+> 使用者 2026-10-05 同意；CodeX 2026-10-06 同意＋必補。
+
+| 操作 | 說明 |
+|---|---|
+| 移出 | 勾選列 →「我自己處理了，移出清單」→ 頁面內確認（寫筆數、哪幾份 Sheet、**僅移出待補清單，不修改 Sheet／Meegle，目前不提供復原**）→「確認移出 N 筆」 |
+| 預設不勾選 | 載入清單後**不再預設全選**（有了移出之後，預設全選一按就清掉整批）；重新整理只保留還在清單裡的勾選 |
+
+- 獨立的表 `meegle_backfill_dismissed(tool, batch_id, row_key, dismissed_by, dismissed_at)`，**複合主鍵**；四張工具表的 writeback 狀態不動（不偽造成 done）
+- `dismissBackfill`：一個 IMMEDIATE transaction 裡重新列一次「這個人看得到的待補清單」、逐列驗證（送出的人或 admin）、寫入、記歷史。已移出過的回「已經移出過」、不重複記歷史、不覆蓋第一個移出的人。操作者一律從登入 session 取
+- **補寫與移出互斥**：補寫改成**每一列執行前才重查**是否還在清單（原本迴圈前只讀一次，前面在寫的時候後面的可能已被另一個分頁移出），並把那一列標成忙碌；移出時遇到忙碌的列就擋（記憶體集合，路由只在 server 這個程序）
+- 新批次會重新出現：鍵含 batch_id，同一列之後重送又回填失敗，新批次的 batch_id 不同
+- 這版**不做「顯示已移出／復原」**，但操作歷史查得到明細（`docs/features/10-history.md` 的 `meegle-backfill`）
+- 測試：`npx tsx server/meegle-backfill.test.ts`（越權、重複請求、不偽造狀態、忙碌不准移、舊批次移出新批次仍列出）；`node scripts/ui-checks/meegle-backfill-walkthrough.mjs`（預設不勾選、確認框內容、取消不送、只送勾選的）
+- 突變驗過：清單不排除已移出／拿掉忙碌檢查／改回預設全選，各自有對應的測試變紅。把 OR IGNORE 改成 REPLACE 測試不會紅——那是等價突變：重複請求在寫入前就被「已經移出過」攔下
+
 ## 28g. 移除 Jira（使用者 2026-10-02：Jira 已確定沒人用；CodeX 看過規劃）
 
 **規劃**：① 解綁（行為不變）→ ② 週報、TestCase 改讀 Meegle（使用者選 A＝改、B＝改）→ ③ 刪 Jira 程式（不藏一版；資料表保留）→ ④ 之後再改表名。

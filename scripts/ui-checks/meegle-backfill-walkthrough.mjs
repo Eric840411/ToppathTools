@@ -50,6 +50,9 @@ for (const theme of ['classic', 'xianxia']) {
   await page.locator('.bf-table tbody tr').nth(3).waitFor({ timeout: 30000 })
   check('清單四種來源標籤都在', (await page.locator('.bf-tool').allInnerTexts()).join(',') === '開單,評論,狀態,修改')
   check('卡住的標「待回填」、失敗的標「失敗」', (await page.locator('.bf-table .bf-badge-pending').count()) === 1 && (await page.locator('.bf-table .mb-badge--bad').count()) === 3)
+  check('預設不勾選（補寫回 0 筆、移出鈕停用）', (await page.locator('.bf-table input[type=checkbox]:checked').count()) === 0 && await page.getByRole('button', { name: '我自己處理了，移出清單' }).isDisabled())
+  // v5.12.0 起預設不勾選（CodeX：有了「移出清單」，預設全選容易一按清掉整批）→ 先手動全選
+  for (const g of await page.locator('.bf-group').all()) await g.getByLabel(/這份全選/).check()
   await page.locator('.bf-table tbody tr').nth(3).locator('input[type=checkbox]').uncheck()
   check('取消一列 → 補寫回 3 筆', await page.getByRole('button', { name: '補寫回 3 筆' }).isVisible())
   await page.screenshot({ path: `bf-list-${theme}.png`, fullPage: true })
@@ -89,6 +92,8 @@ for (const theme of ['classic', 'xianxia']) {
   const rows = await page.locator('.bf-group.is-open tbody tr td.mb-num').evaluateAll(tds => tds.filter((_, i) => i % 2 === 0).map(td => td.textContent))
   check('區塊裡依列號排序、表格只留列號', JSON.stringify(rows) === JSON.stringify(['第 3 列', '第 4 列', '第 5 列', '第 6 列']), JSON.stringify(rows))
   // 這份全選
+  // v5.12.0 起預設不勾選（CodeX：有了「移出清單」，預設全選容易一按清掉整批）→ 先手動全選
+  for (const g of await page.locator('.bf-group').all()) await g.getByLabel(/這份全選/).check()
   await page.locator('.bf-group').nth(1).getByLabel(/這份全選/).uncheck()
   check('取消「舊的那份」全選 → 補寫回 4 筆（收合的那份也算得到）', await page.getByRole('button', { name: '補寫回 4 筆' }).isVisible())
   await page.locator('.bf-group').first().locator('tbody tr').first().locator('input').uncheck()
@@ -113,8 +118,46 @@ for (const theme of ['classic', 'xianxia']) {
   await page.getByRole('button', { name: 'Meegle 補回填' }).click()
   await page.locator('.bf-group').first().waitFor()
   check('顯示名稱撞名的兩份 Sheet 仍分成兩組', await page.locator('.bf-group').count() === 2)
+  // v5.12.0 起預設不勾選（CodeX：有了「移出清單」，預設全選容易一按清掉整批）→ 先手動全選
+  for (const g of await page.locator('.bf-group').all()) await g.getByLabel(/這份全選/).check()
   await page.locator('.bf-group').first().getByLabel(/這份全選/).uncheck()
   check('「這份全選」只動自己那組（剩 1 筆）', await page.getByRole('button', { name: '補寫回 1 筆' }).isVisible())
+  await ctx.close()
+}
+// ── v5.12.0 移出清單 ──
+for (const theme of ['classic', 'xianxia']) {
+  console.log(`== 移出清單 ${theme}`)
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } })
+  await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
+  await ctx.addInitScript(t => localStorage.setItem('toppath-theme-mode', t), theme)
+  const page = await ctx.newPage()
+  let moved = false
+  const sentD = []
+  await page.route('**/api/meegle/backfill/pending**', r => r.fulfill({ json: { ok: true, scope: 'mine', canSeeAll: false, items: moved ? ITEMS.slice(2) : ITEMS } }))
+  await page.route('**/api/meegle/backfill/dismiss', async r => {
+    sentD.push(...r.request().postDataJSON().items); moved = true
+    await r.fulfill({ json: { ok: true, results: r.request().postDataJSON().items.map(i => ({ ...i, workItemId: ITEMS.find(x => x.rowKey === i.rowKey).workItemId, ok: true, message: '已移出待補清單' })) } })
+  })
+  await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByRole('button', { name: 'Meegle 補回填' }).click()
+  await page.locator('.bf-table tbody tr').nth(3).waitFor({ timeout: 30000 })
+  await page.locator('.bf-table tbody tr').nth(0).locator('input[type=checkbox]').check()
+  await page.locator('.bf-table tbody tr').nth(1).locator('input[type=checkbox]').check()
+  await page.getByRole('button', { name: '我自己處理了，移出清單' }).click()
+  const dlg = page.getByRole('alertdialog', { name: '確認移出清單' })
+  const t = await dlg.innerText()
+  check('確認框：寫筆數、Sheet、不修改 Sheet／Meegle、不能復原', /2<\/b>|2 筆/.test(t) && /JjLosM/.test(t) && /不修改 Sheet／Meegle/.test(t) && /不提供復原/.test(t), t.replace(/\s+/g, ' '))
+  check('還沒確認前沒有送出', sentD.length === 0)
+  await page.screenshot({ path: `bf-dismiss-${theme}.png`, fullPage: true })
+  await dlg.getByRole('button', { name: '取消' }).click()
+  check('取消 → 沒有送出、確認框關掉', sentD.length === 0 && await page.getByRole('alertdialog', { name: '確認移出清單' }).count() === 0)
+  await page.getByRole('button', { name: '我自己處理了，移出清單' }).click()
+  await page.getByRole('button', { name: '確認移出 2 筆' }).click()
+  await page.locator('.bf-result').first().waitFor({ timeout: 10000 })
+  check('只送勾選的 2 列', sentD.length === 2 && sentD.every(x => ['12', '15194994'].includes(x.rowKey)), JSON.stringify(sentD.map(x => x.rowKey)))
+  check('結果顯示「已移出」', (await page.locator('.bf-result').allInnerTexts()).every(x => x === '已移出'))
+  check('移出後清單重讀（剩 2 筆）', (await page.locator('.bf-table tbody tr').count()) === 2)
   await ctx.close()
 }
 await browser.close()

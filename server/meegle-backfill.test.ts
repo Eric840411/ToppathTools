@@ -7,7 +7,7 @@ import { initMeegleBatchSchema } from './meegle-batch-store.js'
 import { initMeegleCommentSchema } from './meegle-comment-store.js'
 import { initMeegleStatusSchema } from './meegle-status-store.js'
 import { initMeegleEditSchema } from './meegle-edit-store.js'
-import { IDLE_MS, listPendingBackfill, retryBackfill } from './meegle-backfill.js'
+import { IDLE_MS, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill } from './meegle-backfill.js'
 
 let pass = 0, fail = 0
 function eq(name: string, got: unknown, want: unknown) {
@@ -71,6 +71,29 @@ eq('retry：開單交給開單的函式', await retryBackfill(runners, { tool: '
 eq('retry：狀態回報列已變動', await retryBackfill(runners, { tool: 'status', batchId: 's1', rowKey: '201' }), { ok: false, message: '列已變動' })
 eq('retry：丟例外 → 失敗並帶原因，不整批中斷', await retryBackfill(runners, { tool: 'comment', batchId: 'c1', rowKey: '101' }), { ok: false, message: 'Lark 炸了' })
 eq('retry：只呼叫對應工具', called, ['create:2', 'status:201'])
+
+// ── 移出清單（v5.12.0，CodeX 2026-10-06 的驗收範圍）──
+initBackfillDismissSchema(db)
+const B = '11111111-1111-4111-8111-111111111111'
+const hist: number[] = []
+const me = { email: 'me@t', admin: false }
+const rec = { recordHistory: (rows: unknown[]) => { hist.push(rows.length) }, now: NOW }
+eq('越權：不能移別人的列', dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '7' }], me, rec)[0].ok, false)
+eq('越權被擋時不記歷史', hist, [])
+const r1 = dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '2' }, { tool: 'comment', batchId: 'c1', rowKey: '101' }], me, rec)
+eq('移出兩筆 → 都成功、歷史記一次兩筆', [r1.map(r => r.ok), hist], [[true, true], [2]])
+const after = listPendingBackfill(db, { owner: 'me@t', now: NOW }).map(i => `${i.tool}:${i.rowKey}`)
+eq('移出後不在清單', [after.includes('create:2'), after.includes('comment:101')], [false, false])
+eq('原本的 writeback 狀態不動（不偽造成 done）', (db.prepare(`SELECT writeback_phase FROM meegle_batch_rows WHERE batch_id = ? AND row_key = '2'`).get(B) as { writeback_phase: string }).writeback_phase, 'failed')
+const r2 = dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '2' }], { email: 'admin@t', admin: true }, rec)
+eq('重複請求：回已經移出過、不重複記歷史、不覆蓋第一個移出的人', [r2[0].message, hist, (db.prepare(`SELECT dismissed_by FROM meegle_backfill_dismissed WHERE row_key = '2'`).get() as { dismissed_by: string }).dismissed_by], ['已經移出過', [2], 'me@t'])
+eq('admin 可以移別人的', dismissBackfill(db, [{ tool: 'create', batchId: B, rowKey: '7' }], { email: 'admin@t', admin: true }, rec)[0].ok, true)
+eq('正在補寫的列 → 不准移', dismissBackfill(db, [{ tool: 'status', batchId: 's1', rowKey: '201' }], me, { ...rec, busy: k => k === 'status:s1:201' })[0].message, '這一列正在補寫，結束後再移')
+// 舊批次移出、新批次又失敗 → 新的仍要列出
+stepRow('comment', 'c-old2', '106', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 3)
+dismissBackfill(db, [{ tool: 'comment', batchId: 'c-old2', rowKey: '106' }], me, rec)
+stepRow('comment', 'c-new2', '106', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 4)
+eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfill(db, { owner: 'me@t', now: NOW }).filter(i => i.workItemId === '106').map(i => i.batchId), ['c-new2'])
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

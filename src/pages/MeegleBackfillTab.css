@@ -60,3 +60,4 @@
 .bf-group-body { border-top: 1px solid var(--mb-border); border-radius: 0; }
 .bf-empty { border: 1px dashed var(--mb-border); border-radius: 10px; }
 @media (prefers-reduced-motion: reduce) { .bf-caret { transition: none; } }
+.bf-dismiss-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

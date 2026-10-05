@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.11.0'
+export const APP_VERSION = '5.12.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.0', date: '2026-10-06', changes: ['feat(Meegle 補回填)：**「我自己處理了，移出清單」**——自己手動處理好的列可以勾選後移出待補清單，確認框會寫明筆數、哪幾份 Sheet，以及「不修改 Sheet／Meegle、目前不能復原」。只有送出的人或管理員能移，移出會記操作歷史。同一列之後重送又失敗會重新出現', 'change(Meegle 補回填)：清單載入後不再預設全選，要自己勾（避免一按就把整批移出）；補寫回改成每一列執行前才重新確認它還在清單裡，跟移出不會互相撞到'] },
   { version: '5.11.0', date: '2026-10-06', changes: ['feat(Meegle 批量工具)：**綁定引導卡**——開單、評論、狀態、修改四頁在還沒綁定／綁定失效／綁定資料無法讀取時，原本那一行字換成引導卡：三步說明怎麼取得 Token、「前往綁定」直接切到個人帳號頁、「我綁好了，重新檢查」只重新檢查這一頁（檢查中不能連按、成功才收起）。去個人帳號頁的期間 Meegle 工具保持在背景，回來剛剛打到一半的內容都還在；個人帳號頁會出現「回到 Meegle 批量工具」。樣稿使用者確認、行為 CodeX 同意'] },
   { version: '5.10.6', date: '2026-10-06', changes: ['fix(UAT 錄製腳本)：解除執行鎖的確認框綁定展開當下看到的那一輪——確認框開著時重新整理發現鎖已經換到另一輪，就撤銷確認並提示重新確認，不會把新那輪正在跑的鎖解掉（CodeX review）'] },
   { version: '5.10.5', date: '2026-10-05', changes: ['fix(UAT 錄製腳本)：管理員可以人工解除殘留的執行鎖——腳本庫那一列會顯示「執行鎖：誰、何時開始」與「解除執行鎖」，按下先展開確認（要先確認對方機器上沒在跑）。原本解除 API 要帶那一輪的 sessionId，但列表沒回、畫面也沒入口，正式站一份腳本被部署重啟打斷後鎖殘留三天解不開（osm-qa-agent 回報）。鎖的細節只回給管理員'] },

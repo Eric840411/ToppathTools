@@ -8,7 +8,7 @@ import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
-import { BACKFILL_TOOLS, listPendingBackfill, retryBackfill, type BackfillRunners, type PendingItem } from '../meegle-backfill.js'
+import { BACKFILL_TOOLS, backfillKey, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill, type BackfillRunners, type PendingItem } from '../meegle-backfill.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock, writebackRow } from '../meegle-sheet-writeback.js'
 import { writebackComment } from '../meegle-comment-run.js'
 import { writebackStatus } from '../meegle-status-run.js'
@@ -29,6 +29,13 @@ function expireAll() {
 }
 
 export const router = Router()
+initBackfillDismissSchema(db)
+
+/**
+ * 正在補寫的列（補寫與移出互斥，CodeX 2026-10-06）。補寫一列前先重查它還在清單、標成忙碌，寫完才放；
+ * 移出時遇到忙碌的列就擋。兩條路都在這個程序裡跑（路由只掛在 server），所以用記憶體集合就夠
+ */
+const busy = new Set<string>()
 
 type Ctx = { email: string; admin: boolean }
 function requireCtx(req: Request, res: Response): Ctx | null {
@@ -90,18 +97,40 @@ router.post('/api/meegle/backfill/retry', writeLimiter, async (req, res, next) =
     const { items } = z.object({ items: z.array(z.object({ tool: z.enum(['create', 'comment', 'status', 'edit']), batchId: z.string().uuid(), rowKey: z.string().min(1).max(40) })).min(1).max(200) }).parse(req.body)
     // 只能補清單裡看得到的（自己的；admin 可補全部人的）——不信前端給的列
     expireAll()
-    const visible = listPendingBackfill(db, { owner: ctx.admin ? null : ctx.email })
     const run = runners()
     const results: Array<{ tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }> = []
     for (const it of items) {
-      const hit = visible.find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
-      if (!hit) { results.push({ ...it, workItemId: '', ok: false, message: '這一列不在待補清單裡（可能已經補好、或不是你送的）' }); continue }
-      const r = await retryBackfill(run, it)
-      results.push({ ...it, workItemId: hit.workItemId, ok: r.ok, message: r.message })
+      // 每一列執行前才重查：前面幾列在寫的時候，後面的可能已經被另一個分頁移出或補好（CodeX 2026-10-06）
+      const hit = listPendingBackfill(db, { owner: ctx.admin ? null : ctx.email }).find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
+      if (!hit) { results.push({ ...it, workItemId: '', ok: false, message: '這一列不在待補清單裡（可能已經補好、移出、或不是你送的）' }); continue }
+      const k = backfillKey(it)
+      if (busy.has(k)) { results.push({ ...it, workItemId: hit.workItemId, ok: false, message: '這一列正在另一個請求補寫中' }); continue }
+      busy.add(k)
+      try {
+        const r = await retryBackfill(run, it)
+        results.push({ ...it, workItemId: hit.workItemId, ok: r.ok, message: r.message })
+      } finally { busy.delete(k) }
     }
     const okN = results.filter(r => r.ok).length
     log(okN === results.length ? 'ok' : 'warn', getClientIP(req), ctx.email, 'Meegle 補回填', `${okN}／${results.length} 筆寫回`)
     addHistory('meegle-backfill', 'Meegle 補回填', `寫回 ${okN}／${results.length} 筆`, { results })
+    res.json({ ok: true, results })
+  } catch (e) { next(e) }
+})
+
+// POST /api/meegle/backfill/dismiss —— 「我自己處理了，移出清單」（不改 Sheet／Meegle，只從待補清單拿掉；這版不能復原）
+router.post('/api/meegle/backfill/dismiss', writeLimiter, (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res); if (!ctx) return
+    const { items } = z.object({ items: z.array(z.object({ tool: z.enum(['create', 'comment', 'status', 'edit']), batchId: z.string().uuid(), rowKey: z.string().min(1).max(40) })).min(1).max(200) }).parse(req.body)
+    expireAll()
+    const results = dismissBackfill(db, items, ctx, {
+      busy: k => busy.has(k),
+      // 跟寫入同一個 transaction：有實際移出的列才記，重複請求不重複記
+      recordHistory: rows => addHistory('meegle-backfill', 'Meegle 補回填：移出清單', `移出 ${rows.length} 筆（不改 Sheet／Meegle）`, { action: 'dismiss', by: ctx.email, rows }),
+    })
+    const n = results.filter(r => r.ok && r.message === '已移出待補清單').length
+    if (n) log('ok', getClientIP(req), ctx.email, 'Meegle 補回填', `移出清單 ${n} 筆`)
     res.json({ ok: true, results })
   } catch (e) { next(e) }
 })
