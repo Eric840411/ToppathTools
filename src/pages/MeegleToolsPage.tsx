@@ -20,11 +20,21 @@ const TABS = [
 ] as const
 type TabKey = typeof TABS[number]['key']
 
+/**
+ * 各分頁共用「最後讀成功的 Sheet 網址」：在開單讀過一份，切到評論／狀態／修改會自動帶入。
+ * Jira 時代就有這個行為，v5.0.0 搬出 Jira 時每個分頁都改成傳空字串，這個功能就不見了（使用者 2026-10-05 回報）。
+ * 存 localStorage：重整頁面也帶得回來（只是方便，讀不到就空白，不影響功能）。
+ */
+const LAST_SHEET_KEY = 'meegle-tools-last-sheet'
+const readLastSheet = () => { try { return localStorage.getItem(LAST_SHEET_KEY) ?? '' } catch { return '' } }
+
 export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account?: AccountInfo | null; isAdmin?: boolean; permissions?: string[] }) {
   const [tab, setTab] = useState<TabKey>(() => {
     try { const t = localStorage.getItem('meegle-tools-tab'); return (TABS.some(x => x.key === t) ? t : 'create') as TabKey } catch { return 'create' }
   })
   const pick = (t: TabKey) => { setTab(t); try { localStorage.setItem('meegle-tools-tab', t) } catch { /* 無痕視窗等 */ } }
+  const [lastSheet, setLastSheet] = useState(readLastSheet)
+  const onSheetLoaded = (url: string) => { setLastSheet(url); try { localStorage.setItem(LAST_SHEET_KEY, url) } catch { /* 無痕視窗等 */ } }
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   return (
@@ -44,10 +54,10 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account
           >{t.label}</button>
         ))}
       </div>
-      {tab === 'create' && <MeegleBatchCreateTab initialSheetUrl="" />}
-      {tab === 'comment' && <MeegleBatchCommentTab initialSheetUrl="" canAiFormat={canAiFormat} canAiReview={canAiReview} />}
-      {tab === 'status' && <MeegleBatchStatusTab initialSheetUrl="" />}
-      {tab === 'edit' && <MeegleBatchEditTab initialSheetUrl="" />}
+      {tab === 'create' && <MeegleBatchCreateTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'comment' && <MeegleBatchCommentTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
+      {tab === 'status' && <MeegleBatchStatusTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'edit' && <MeegleBatchEditTab initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {tab === 'backfill' && <MeegleBackfillTab />}
     </div>
   )

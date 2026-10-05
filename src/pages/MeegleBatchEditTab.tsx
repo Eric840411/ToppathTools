@@ -60,7 +60,7 @@ const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.ph
 const splitNames = (s: string) => s.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean)
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
-export function MeegleBatchEditTab({ initialSheetUrl }: { initialSheetUrl: string }) {
+export function MeegleBatchEditTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [options, setOptions] = useState<Record<string, Option[]>>({})
   const [people, setPeople] = useState<Person[]>([])
@@ -127,6 +127,7 @@ export function MeegleBatchEditTab({ initialSheetUrl }: { initialSheetUrl: strin
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
       const prev = await api<{ rows: Previous[] }>('/api/meegle/edit/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
       setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
       setBatchId(''); setPreviews({}); setAtts({}); setOverrides({})

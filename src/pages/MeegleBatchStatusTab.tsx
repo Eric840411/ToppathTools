@@ -52,7 +52,7 @@ const fmtDay = (ms: number | null | undefined) => (ms == null ? '未設定' : ta
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 const datePending = (steps: StepInfo[]) => steps.some(s => s.step === 'date' && s.phase === 'failed' && s.date?.pending)
 
-export function MeegleBatchStatusTab({ initialSheetUrl }: { initialSheetUrl: string }) {
+export function MeegleBatchStatusTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // 共用：狀態清單、單子網址前綴
@@ -121,6 +121,7 @@ export function MeegleBatchStatusTab({ initialSheetUrl }: { initialSheetUrl: str
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
       const prev = await api<{ rows: Previous[] }>('/api/meegle/status/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
       setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
       setBatchId(''); setResults([]); setOverrides({}); setCurrents({})

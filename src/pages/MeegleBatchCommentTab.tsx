@@ -84,7 +84,7 @@ function defaultComment(text: string): string {
 
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 
-export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiReview }: { initialSheetUrl: string; canAiFormat: boolean; canAiReview: boolean }) {
+export function MeegleBatchCommentTab({ initialSheetUrl, onSheetLoaded, canAiFormat, canAiReview }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void; canAiFormat: boolean; canAiReview: boolean }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // ① 讀取與選列
@@ -163,6 +163,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
       const prev = await api<{ rows: Previous[] }>('/api/meegle/comment/previous', { sheetUrl: sheetUrl.trim() }).catch(() => ({ rows: [] as Previous[] }))
       setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
+      onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
       // 每次讀 Sheet 換新批次（批次綁來源 Sheet）

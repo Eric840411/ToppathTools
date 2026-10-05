@@ -108,7 +108,7 @@ function resultLabel(r: RowResult): { text: string; tone: 'ok' | 'warn' | 'pendi
   return { text: '開單失敗', tone: 'bad' }
 }
 
-export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: string }) {
+export function MeegleBatchCreateTab({ initialSheetUrl, onSheetLoaded }: { initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
   const [records, setRecords] = useState<SheetRecord[] | null>(null)
   const [loadedUrl, setLoadedUrl] = useState('')
@@ -203,6 +203,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       const j = await api<{ records: SheetRecord[] }>('/api/lark/sheets/records', { sheetUrl: url.trim(), includeCreated: true })
       const prev = await api<{ rows: Previous[] }>('/api/meegle/batch/previous', { sheetUrl: url.trim() }).catch(() => ({ rows: [] as Previous[] }))
       setRecords(j.records); setLoadedUrl(url.trim()); setPrevious(prev.rows)
+      onSheetLoaded?.(url.trim())
       // 每次讀 Sheet 都換新批次——批次綁定來源 Sheet，伺服器也會擋「換 Sheet 沿用舊批次」（CodeX review 999f895 [P1]）
       setBatchId('')
       // 上次送出還沒收尾的列（待確認、或已開單但狀態沒推完）：接回原批次與原目標，才有「查詢結果」「重推狀態」可按

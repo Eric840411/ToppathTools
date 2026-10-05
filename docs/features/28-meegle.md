@@ -88,7 +88,7 @@
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 讀取 Sheet | 貼 Lark Sheet 網址（會帶入其他 Jira 分頁最後用的網址）。只支援 Lark |
+| 讀取 Sheet | 貼 Lark Sheet 網址。**在任一個分頁讀成功過的網址，切到其他分頁（開單／評論／狀態／修改）會自動帶入**，重整頁面也記得（存 localStorage `meegle-tools-last-sheet`）。v5.0.0 搬出 Jira 時這個行為弄丟過，v5.7.1 補回（`node scripts/ui-checks/meegle-tabs-share-sheet.mjs`）。只支援 Lark |
 | 關聯需求預設 | Meegle「任務項」的關聯需求是**必填**。整批選一個；Sheet 有「關聯需求」欄（填名稱或需求 ID）就以那欄為準 |
 | 受托人／Code Review | Sheet 沒有這兩欄，整批選一個（下拉只列已對照過的人），可逐列改 |
 | 開單後推到 | 整批選一個狀態；不選就停在初始狀態。**「進度」欄不使用**（使用者：進度不等於 Meegle 狀態） |
