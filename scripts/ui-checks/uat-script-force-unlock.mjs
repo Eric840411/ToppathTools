@@ -4,6 +4,7 @@
  *   1 列表：管理員拿得到 lock {holder, sessionId, since}；一般帳號只有 running，沒有 lock
  *   2 腳本庫：管理員看到「執行鎖：…」與「解除執行鎖」；按下先展開確認，不會直接解
  *   3 取消 → 鎖還在；確認 → 鎖解掉、列表不再顯示
+ *   4 確認框開著時鎖換到另一輪、按重新整理 → 確認框撤銷、提示重新確認，新那輪的鎖不會被解掉（CodeX review 94cd396 [P2]）
  * 做法：在本機 DB 對一份既有腳本塞一個假鎖，結束一定刪掉。
  * 跑法：node scripts/ui-checks/uat-script-force-unlock.mjs
  */
@@ -50,6 +51,18 @@ try {
   await page.screenshot({ path: 'uat-force-unlock.png' })
   await dlg.getByRole('button', { name: '取消' }).click()
   check('取消 → 鎖還在', !!db.prepare('SELECT 1 FROM uat_recorded_script_locks WHERE script_id = ?').get(row.id))
+  // 4 換輪：A 輪展開確認 → 鎖換成 B 輪 → 重新整理 → 確認框要撤銷
+  await rowEl.getByRole('button', { name: '解除執行鎖' }).click()
+  const SID2 = SID + '-b'
+  db.prepare('UPDATE uat_recorded_script_locks SET session_id = ?, acquired_at = ? WHERE script_id = ?').run(SID2, Date.now(), row.id)
+  await page.locator('#uat-focus-scripts').getByRole('button', { name: '重新整理' }).click()
+  await page.waitForTimeout(1200)
+  check('換輪後重新整理 → 確認框撤銷、提示重新確認', await rowEl.getByRole('alertdialog', { name: '確認解除執行鎖' }).count() === 0 && (await rowEl.innerText()).includes('執行鎖已經換到另一輪了'))
+  check('換輪後新那輪的鎖還在', db.prepare('SELECT session_id FROM uat_recorded_script_locks WHERE script_id = ?').get(row.id)?.session_id === SID2)
+  db.prepare('UPDATE uat_recorded_script_locks SET session_id = ? WHERE script_id = ?').run(SID, row.id)
+  await page.locator('#uat-focus-scripts').getByRole('button', { name: '重新整理' }).click()
+  await page.waitForTimeout(1200)
+
   await rowEl.getByRole('button', { name: '解除執行鎖' }).click()
   await rowEl.getByRole('button', { name: '確認沒在跑，解除' }).click()
   await page.waitForTimeout(1500)
@@ -57,7 +70,7 @@ try {
   check('解除後列表不再顯示執行鎖', !(await page.locator('.uat-script-select-row').filter({ hasText: title }).first().innerText()).includes('執行鎖：'))
   await ctx.close()
 } finally {
-  db.prepare('DELETE FROM uat_recorded_script_locks WHERE script_id = ? AND session_id = ?').run(row.id, SID)
+  db.prepare('DELETE FROM uat_recorded_script_locks WHERE script_id = ? AND session_id IN (?, ?)').run(row.id, SID, SID + '-b')
   await browser.close()
 }
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')

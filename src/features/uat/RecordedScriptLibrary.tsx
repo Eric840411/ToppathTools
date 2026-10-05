@@ -14,14 +14,17 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
   // 管理員人工解除執行鎖（救援用）：先在列上展開確認，再送出那一輪的 sessionId
-  const [unlockAsk, setUnlockAsk] = useState<string | null>(null)
+  // 確認框綁定「展開當下看到的那一輪」：重新整理後換成別輪，就撤銷確認、要求重新確認——
+  // 不然確認框開著時鎖換到新的一輪，按確認會送出新那輪的 sessionId、解掉正在正常執行的鎖（CodeX review 94cd396 [P2]）
+  const [unlockAsk, setUnlockAsk] = useState<{ scriptId: string; sessionId: string } | null>(null)
   const [unlockMsg, setUnlockMsg] = useState<Record<string, string>>({})
   const [unlocking, setUnlocking] = useState(false)
   async function forceUnlock(script: ScriptRow) {
-    if (!script.id || !script.lock) return
+    // 送出的一定是展開確認時記下的那一輪，不是畫面現在的
+    if (!script.id || !unlockAsk || unlockAsk.scriptId !== script.id) return
     setUnlocking(true)
     try {
-      const r = await fetch(`/api/osm-uat/recorded-scripts/${encodeURIComponent(script.id)}/force-unlock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: script.lock.sessionId }) })
+      const r = await fetch(`/api/osm-uat/recorded-scripts/${encodeURIComponent(script.id)}/force-unlock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: unlockAsk.sessionId }) })
       const d = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
       setUnlockMsg(m => ({ ...m, [script.id!]: d.ok ? `已解除（原本是 ${d.previousHolder}）` : (d.message || d.error || '解除失敗') }))
       if (d.ok) { setUnlockAsk(null); setRefresh(n => n + 1) }
@@ -35,7 +38,18 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     void fetch('/api/osm-uat/recorded-scripts', { signal: controller.signal }).then(async response => {
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.message || '載入腳本失敗')
-      if (!controller.signal.aborted) { setScripts(data.scripts || []); onScripts(data.scripts || []) }
+      if (!controller.signal.aborted) {
+        const next: ScriptRow[] = data.scripts || []
+        setScripts(next); onScripts(next)
+        // 重新整理後鎖已經不是確認時那一輪（換輪或已解除）→ 撤銷確認
+        setUnlockAsk(ask => {
+          if (!ask) return ask
+          const now = next.find(x => x.id === ask.scriptId)?.lock
+          if (now?.sessionId === ask.sessionId) return ask
+          setUnlockMsg(m => ({ ...m, [ask.scriptId]: now ? '執行鎖已經換到另一輪了，請重新確認後再解除' : '' }))
+          return null
+        })
+      }
     }).catch(e => { if (!controller.signal.aborted) setError(e.message) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -54,8 +68,8 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     </button>
       {script.lock && script.id && <div className="uat-script-lock">
         <small>執行鎖：{script.lock.holder}，{new Date(script.lock.since).toLocaleString('zh-TW', { hour12: false })} 開始</small>
-        {unlockAsk !== script.id
-          ? <button className="uat-btn is-quiet" disabled={unlocking} onClick={() => { setUnlockAsk(script.id!); setUnlockMsg(m => ({ ...m, [script.id!]: '' })) }}>解除執行鎖</button>
+        {!(unlockAsk && unlockAsk.scriptId === script.id && unlockAsk.sessionId === script.lock.sessionId)
+          ? <button className="uat-btn is-quiet" disabled={unlocking} onClick={() => { setUnlockAsk({ scriptId: script.id!, sessionId: script.lock!.sessionId }); setUnlockMsg(m => ({ ...m, [script.id!]: '' })) }}>解除執行鎖</button>
           : <div role="alertdialog" aria-label="確認解除執行鎖" className="uat-script-lock-confirm">
               <p>請先確認 <strong>{script.lock.holder}</strong> 那台機器上這份腳本<strong>已經沒有在跑</strong>（Agent 斷線不代表已經停止，可能還在回寫 Lark）。解除後別人就能重跑或刪除這份腳本。</p>
               <button className="uat-btn is-primary" disabled={unlocking} onClick={() => void forceUnlock(script)}>{unlocking ? '解除中…' : '確認沒在跑，解除'}</button>

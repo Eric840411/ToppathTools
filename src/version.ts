@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.10.5'
+export const APP_VERSION = '5.10.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.10.6', date: '2026-10-06', changes: ['fix(UAT 錄製腳本)：解除執行鎖的確認框綁定展開當下看到的那一輪——確認框開著時重新整理發現鎖已經換到另一輪，就撤銷確認並提示重新確認，不會把新那輪正在跑的鎖解掉（CodeX review）'] },
   { version: '5.10.5', date: '2026-10-05', changes: ['fix(UAT 錄製腳本)：管理員可以人工解除殘留的執行鎖——腳本庫那一列會顯示「執行鎖：誰、何時開始」與「解除執行鎖」，按下先展開確認（要先確認對方機器上沒在跑）。原本解除 API 要帶那一輪的 sessionId，但列表沒回、畫面也沒入口，正式站一份腳本被部署重啟打斷後鎖殘留三天解不開（osm-qa-agent 回報）。鎖的細節只回給管理員'] },
   { version: '5.10.4', date: '2026-10-05', changes: ['fix(登入畫面)：自建角色顯示管理員取的名稱，不再顯示內部代號（例如 R_MUV0RVWH2KNI）；內建角色維持 QA／PM／OTHER／ADMIN（使用者回報）'] },
   { version: '5.10.3', date: '2026-10-05', changes: ['fix(角色管理)：名稱沒填就按「建立角色」會提示「請先填角色名稱」、名稱框標紅並跳到名稱欄——原本按鈕是停用的，但修仙版看不出灰色，按了像是沒反應（使用者回報）'] },
