@@ -33,3 +33,24 @@
 :root[data-theme-mode="xianxia"] .msp-seg-btn + .msp-seg-btn { border-left-color: rgba(212, 175, 55, .35); }
 :root[data-theme-mode="xianxia"] .msp-seg-btn.is-on.msp-seg-btn--test { background: rgba(212, 175, 55, .2); color: #f3dfa2; }
 :root[data-theme-mode="xianxia"] .msp-modal { background: #17120a; border-color: rgba(253, 186, 116, .5); }
+
+/* Meegle 綁定引導卡（v5.11.0）。按鈕用 .mb-btn（跟分頁同一組），這裡只排版 */
+.mbg-card { border: 1px solid #2d3f55; background: #10182a; border-radius: 12px; padding: 20px 22px; margin: 4px 0 12px; }
+.mbg-title { margin: 0 0 4px; font-size: 17px; color: #f5b73b; }
+.mbg-title--bad { color: #fca5a5; }
+.mbg-sub { margin: 0 0 16px; color: #94a3b8; font-size: 13px; line-height: 1.6; }
+.mbg-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.mbg-step { border: 1px solid #2d3f55; border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.mbg-step-t { font-weight: 600; color: #e2e8f0; }
+.mbg-step-t b { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; align-items: center; justify-content: center; background: #1e3a5f; color: #93c5fd; font-size: 12.5px; margin-right: 6px; }
+.mbg-step p { margin: 6px 0 0; color: #94a3b8; font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.mbg-step code { font-size: 12px; padding: 0 4px; border-radius: 4px; background: rgba(148, 163, 184, .15); }
+.mbg-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.mbg-note { font-size: 12px; color: #94a3b8; }
+@media (max-width: 720px) { .mbg-steps { grid-template-columns: 1fr; } }
+:root[data-theme-mode="xianxia"] .mbg-card { border-color: rgba(212, 175, 55, .3); background: #17120a; }
+:root[data-theme-mode="xianxia"] .mbg-title { color: #f3c969; }
+:root[data-theme-mode="xianxia"] .mbg-sub, :root[data-theme-mode="xianxia"] .mbg-step p, :root[data-theme-mode="xianxia"] .mbg-note { color: #bfae86; }
+:root[data-theme-mode="xianxia"] .mbg-step { border-color: rgba(212, 175, 55, .3); }
+:root[data-theme-mode="xianxia"] .mbg-step-t { color: #f3e6c4; }
+:root[data-theme-mode="xianxia"] .mbg-step-t b { background: rgba(212, 175, 55, .18); color: #f3dfa2; }

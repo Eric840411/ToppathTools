@@ -8,6 +8,7 @@ import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBatchStatusTab.css'
 import './MeegleBatchEditTab.css'
+import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
@@ -62,11 +63,13 @@ const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.ph
 const splitNames = (s: string) => s.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean)
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
-export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; onGoBind?: () => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [options, setOptions] = useState<Record<string, Option[]>>({})
   const [people, setPeople] = useState<Person[]>([])
-  const [metaError, setMetaError] = useState('')
+  // 保留後端的 code：綁定問題要顯示引導卡，其他錯誤照一般錯誤（CodeX 2026-10-06）
+  const [metaError, setMetaError] = useState<{ code?: string; message: string } | null>(null)
+  const [checking, setChecking] = useState(false)
   const [detailBase, setDetailBase] = useState('')
 
   // ① 讀取與選列
@@ -108,10 +111,21 @@ export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onShe
   const previewSeq = useRef<Record<number, number>>({})
 
   useEffect(() => {
-    api<{ options: Record<string, Option[]>; people: Person[]; detailBase: string }>('/api/meegle/edit/meta', { space })
-      .then(j => { setOptions(j.options); setPeople(j.people); setDetailBase(j.detailBase) })
-      .catch(e => setMetaError((e as Error).message))
+    void loadMeta()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  /** 讀 meta；不在一開始清掉錯誤——「重新檢查」時引導卡留著，成功才撤 */
+  async function loadMeta() {
+    try {
+      await api<{ options: Record<string, Option[]>; people: Person[]; detailBase: string }>('/api/meegle/edit/meta', { space }).then(j => { setOptions(j.options); setPeople(j.people); setDetailBase(j.detailBase) })
+      setMetaError(null)
+    } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
+  }
+  async function recheck() {
+    if (checking) return
+    setChecking(true)
+    try { await loadMeta() } finally { setChecking(false) }
+  }
 
   // ── ① ──
   const rows = useMemo(() => {
@@ -349,7 +363,9 @@ export function MeegleBatchEditTab({ space, onBusyChange, initialSheetUrl, onShe
             )
           })}
         </nav>
-        {metaError && <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {metaError}</div>}
+        {metaError && (isBindCode(metaError.code)
+          ? <MeegleBindGuide code={metaError.code} onGoBind={onGoBind} onRecheck={() => void recheck()} checking={checking} />
+          : <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {metaError.message} <button type="button" className="mb-btn mb-btn--small" disabled={checking} onClick={() => void recheck()}>{checking ? '重試中…' : '重試'}</button></div>)}
 
         {/* ── ① 讀取與選列 ── */}
         {step === 1 && (

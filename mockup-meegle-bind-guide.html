@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meegle 綁定引導</title>
+<style>
+  :root { --bg:#0b1220; --card:#10182a; --line:#2d3f55; --text:#e2e8f0; --muted:#94a3b8; --warn:#f5b73b; --warn-bg:rgba(245,183,59,.08); --pri:#3b82f6; --pri-text:#fff; --step:#1e3a5f; --step-text:#93c5fd; }
+  :root[data-mode="xianxia"] { --bg:#0e0c08; --card:#17120a; --line:rgba(212,175,55,.3); --text:#f3e6c4; --muted:#bfae86; --warn:#f3c969; --warn-bg:rgba(243,201,105,.07); --pri:#1fa58a; --pri-text:#f6fff9; --step:rgba(212,175,55,.18); --step-text:#f3dfa2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 "Noto Sans TC", system-ui, sans-serif; padding: 16px; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .switch { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .switch button { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .switch button.on { color: var(--text); border-color: var(--pri); }
+  .label { font-size: 12px; color: var(--muted); margin: 18px 0 6px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .tabs span { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .tabs span.on { color: var(--step-text); background: var(--step); }
+  .bar { border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; margin-bottom: 8px; font-size: 12.5px; color: var(--muted); }
+  .old { border: 1px solid rgba(245,183,59,.35); background: var(--warn-bg); color: #fde68a; border-radius: 9px; padding: 10px 12px; font-size: 13px; }
+  .guide { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 20px 22px; }
+  .guide h3 { margin: 0 0 4px; font-size: 17px; color: var(--warn); }
+  .guide .sub { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .step { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .step b { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; align-items: center; justify-content: center; background: var(--step); color: var(--step-text); font-size: 12.5px; margin-right: 6px; }
+  .step .t { font-weight: 600; }
+  .step p { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+  .step code { font-size: 12px; padding: 0 4px; border-radius: 4px; background: rgba(148,163,184,.15); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  /* 跟 Meegle 分頁一樣的按鈕（照抄 src/pages/MeegleBatchCreateTab.css 的 .mb-btn） */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; padding: 9px 16px; font-size: 13.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    border: 1px solid #2b4d7a; background: rgba(13, 26, 46, .6); color: #cfe0f5; transition: background .15s, border-color .15s; font-family: inherit; }
+  .btn:hover { border-color: #2f7ff0; background: rgba(47, 127, 240, .1); }
+  .btn.pri { background: linear-gradient(180deg, #2f7ff0, #1f63d1); border-color: #2f7ff0; color: #fff; box-shadow: 0 4px 14px rgba(47, 127, 240, .45); }
+  .btn.pri:hover { background: linear-gradient(180deg, #4790f5, #2f7ff0); border-color: #4790f5; }
+  :root[data-mode="xianxia"] .btn { border-color: rgba(217, 181, 106, .75); color: #ecd9a5; background: rgba(13, 26, 23, .6); }
+  :root[data-mode="xianxia"] .btn:hover { border-color: #e6c77f; background: rgba(217, 181, 106, .1); }
+  :root[data-mode="xianxia"] .btn.pri { background: linear-gradient(180deg, #2bc59f, #12896b); border-color: #6fe3c3; color: #06110e; box-shadow: none; }
+  .note { font-size: 12px; color: var(--muted); }
+  .variant { color: #fca5a5; }
+  @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="switch">
+    <button class="on" onclick="mode('classic', this)">普通版</button>
+    <button onclick="mode('xianxia', this)">修仙版</button>
+  </div>
+
+  <div class="label">現在（只有一行字）</div>
+  <div class="old">還沒綁定 Meegle，請先到側欄「個人帳號」（修仙版叫「本命道籍」）綁定</div>
+
+  <div class="label">提案：還沒綁定時，換成引導卡（四個 Meegle 分頁共用同一張）</div>
+  <div class="tabs"><span class="on">Meegle 開單</span><span>Meegle 評論</span><span>Meegle 狀態</span><span>Meegle 修改</span><span>Meegle 補回填</span></div>
+  <div class="bar">Meegle 空間　測試｜正式</div>
+  <div class="guide">
+    <h3 id="g-title">還沒綁定 Meegle</h3>
+    <p class="sub" id="g-sub">批量工具會用<strong>你自己的 Meegle 身分</strong>開單、評論、改狀態。綁定一次就好，大約 1 分鐘。</p>
+    <div class="steps">
+      <div class="step"><span class="t"><b>1</b>複製 Token</span>
+        <p>在 Lark 開啟 Meegle → 首頁「MCP &amp; CLI」卡片 → MCP 設定 → <code>HTTP Header</code> 分頁 → 按「複製 Token」</p></div>
+      <div class="step"><span class="t"><b>2</b>貼到個人帳號</span>
+        <p>按下面「前往綁定」，貼上 Token 後按「綁定」。Token 會加密保存，畫面不會再顯示。</p></div>
+      <div class="step"><span class="t"><b>3</b>回到這裡</span>
+        <p>綁定成功後回到這一頁，按「我綁好了，重新檢查」就能開始用。</p></div>
+    </div>
+    <div class="actions">
+      <button class="btn pri">前往綁定 →</button>
+      <button class="btn">我綁好了，重新檢查</button>
+      <span class="note">Token 等同你的 Meegle 身分，不要貼到聊天室。</span>
+    </div>
+  </div>
+
+  <div class="label">綁定失效時：同一張卡，只換標題與說明</div>
+  <div class="guide">
+    <h3 class="variant">Meegle 綁定已失效</h3>
+    <p class="sub">你的 Token 已經不能用了（可能在 Meegle 按過「重置 Token」）。步驟跟綁定一樣：到 Meegle 複製新的 Token、貼到個人帳號更新，其他設定都會保留。</p>
+    <div class="actions"><button class="btn pri">前往更新綁定 →</button><button class="btn">我更新好了，重新檢查</button></div>
+  </div>
+</div>
+<script>
+function mode(m, el) {
+  document.documentElement.dataset.mode = m
+  document.querySelectorAll('.switch button').forEach(b => b.classList.toggle('on', b === el))
+  document.getElementById('g-sub').innerHTML = '批量工具會用<strong>你自己的 Meegle 身分</strong>開單、評論、改狀態。綁定一次就好，大約 1 分鐘。'
+}
+</script>
+</body>
+</html>

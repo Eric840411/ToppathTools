@@ -9,6 +9,7 @@ import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBatchStatusTab.css'
+import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
@@ -54,12 +55,14 @@ const fmtDay = (ms: number | null | undefined) => (ms == null ? '未設定' : ta
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 const datePending = (steps: StepInfo[]) => steps.some(s => s.step === 'date' && s.phase === 'failed' && s.date?.pending)
 
-export function MeegleBatchStatusTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; onGoBind?: () => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // 共用：狀態清單、單子網址前綴
   const [states, setStates] = useState<StateOption[]>([])
-  const [metaError, setMetaError] = useState('')
+  // 保留後端的 code：綁定問題要顯示引導卡，其他錯誤照一般錯誤（CodeX 2026-10-06）
+  const [metaError, setMetaError] = useState<{ code?: string; message: string } | null>(null)
+  const [checking, setChecking] = useState(false)
   const [detailBase, setDetailBase] = useState('')
 
   // ① 讀取與選列
@@ -99,10 +102,21 @@ export function MeegleBatchStatusTab({ space, onBusyChange, initialSheetUrl, onS
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    api<{ states: StateOption[]; detailBase: string }>('/api/meegle/status/meta', { space })
-      .then(j => { setStates(j.states); setDetailBase(j.detailBase) })
-      .catch(e => setMetaError((e as Error).message))
+    void loadMeta()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  /** 讀 meta；不在一開始清掉錯誤——「重新檢查」時引導卡留著，成功才撤 */
+  async function loadMeta() {
+    try {
+      await api<{ states: StateOption[]; detailBase: string }>('/api/meegle/status/meta', { space }).then(j => { setStates(j.states); setDetailBase(j.detailBase) })
+      setMetaError(null)
+    } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
+  }
+  async function recheck() {
+    if (checking) return
+    setChecking(true)
+    try { await loadMeta() } finally { setChecking(false) }
+  }
 
   const autoFields = useMemo(() => [...new Map(Object.values(AUTO_DATE_FIELDS).map(f => [f.field, f])).values()], [])
 
@@ -296,7 +310,9 @@ export function MeegleBatchStatusTab({ space, onBusyChange, initialSheetUrl, onS
             )
           })}
         </nav>
-        {metaError && <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {metaError}</div>}
+        {metaError && (isBindCode(metaError.code)
+          ? <MeegleBindGuide code={metaError.code} onGoBind={onGoBind} onRecheck={() => void recheck()} checking={checking} />
+          : <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {metaError.message} <button type="button" className="mb-btn mb-btn--small" disabled={checking} onClick={() => void recheck()}>{checking ? '重試中…' : '重試'}</button></div>)}
 
         {/* ── ① 讀取與選列 ── */}
         {step === 1 && (

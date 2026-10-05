@@ -43,7 +43,7 @@ function readSpace(key: string): MeegleSpace | null {
   try { const v = localStorage.getItem(key); return isMeegleSpace(v) ? v : null } catch { return null }
 }
 
-export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account?: AccountInfo | null; isAdmin?: boolean; permissions?: string[] }) {
+export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }: { account?: AccountInfo | null; isAdmin?: boolean; permissions?: string[]; onGoBind?: () => void }) {
   const [tab, setTab] = useState<TabKey>(() => {
     try { const t = localStorage.getItem('meegle-tools-tab'); return (TABS.some(x => x.key === t) ? t : 'create') as TabKey } catch { return 'create' }
   })
@@ -91,10 +91,10 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [] }: { account
         ))}
       </div>
       {tab !== 'backfill' && <MeegleSpaceBar space={spaceOf(tab)} onChange={s => pickSpace(tab, s)} disabled={busy} />}
-      {tab === 'create' && <MeegleBatchCreateTab key={`create:${spaceOf('create')}`} space={spaceOf('create')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
-      {tab === 'comment' && <MeegleBatchCommentTab key={`comment:${spaceOf('comment')}`} space={spaceOf('comment')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
-      {tab === 'status' && <MeegleBatchStatusTab key={`status:${spaceOf('status')}`} space={spaceOf('status')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
-      {tab === 'edit' && <MeegleBatchEditTab key={`edit:${spaceOf('edit')}`} space={spaceOf('edit')} onBusyChange={setBusy} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'create' && <MeegleBatchCreateTab key={`create:${spaceOf('create')}`} space={spaceOf('create')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'comment' && <MeegleBatchCommentTab key={`comment:${spaceOf('comment')}`} space={spaceOf('comment')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
+      {tab === 'status' && <MeegleBatchStatusTab key={`status:${spaceOf('status')}`} space={spaceOf('status')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
+      {tab === 'edit' && <MeegleBatchEditTab key={`edit:${spaceOf('edit')}`} space={spaceOf('edit')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {tab === 'backfill' && <MeegleBackfillTab />}
     </div>
   )

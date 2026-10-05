@@ -20,7 +20,8 @@ const fmtTime = (ts: number | null) => (ts ? new Date(ts).toLocaleString('zh-TW'
 /** 暫時性的驗證失敗（連不上／逾時）——綁定狀態沒變，只是這次沒驗成 */
 const TRANSIENT = new Set(['UNAVAILABLE', 'UNEXPECTED', 'CLI_MISSING'])
 
-export function MeegleAccountPage({ themeMode }: { themeMode?: 'classic' | 'xianxia' }) {
+/** onBack：從 Meegle 批量工具的綁定引導過來時才有，顯示「回到 Meegle 批量工具」（那邊的畫面保持掛載，草稿還在） */
+export function MeegleAccountPage({ themeMode, onBack }: { themeMode?: 'classic' | 'xianxia'; onBack?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [keyConfigured, setKeyConfigured] = useState(true)
@@ -91,6 +92,12 @@ export function MeegleAccountPage({ themeMode }: { themeMode?: 'classic' | 'xian
           {!loading && <span className={`mg-pill mg-pill--${state}`}>{pillText}</span>}
         </div>
 
+        {onBack && (
+          <div className={`mg-alert ${binding?.status === 'valid' ? 'mg-alert--ok' : 'mg-alert--warn'}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>{binding?.status === 'valid' ? '綁定完成，可以回到 Meegle 批量工具繼續了。' : '你是從 Meegle 批量工具過來的，綁定好之後按右邊回去，剛剛的畫面還在。'}</span>
+            <button type="button" className="mg-btn mg-btn--primary" onClick={onBack}>回到 Meegle 批量工具 →</button>
+          </div>
+        )}
         {loading && <p className="mg-mono">讀取中…</p>}
         {loadError && <div className="mg-alert mg-alert--bad">{loadError}</div>}
 

@@ -135,7 +135,8 @@ router.post('/api/meegle/comment/meta', async (req, res, next) => {
     const ctx = requireLogin(req, res); if (!ctx) return
     const { space } = z.object({ space: spaceSchema }).parse(req.body)
     const me = identityFor(ctx.email, '')
-    if ('code' in me) return res.json({ ok: true, detailBase: '', bound: false, message: me.message })
+    // 本人沒綁定仍回 ok：評論頁可以用「填寫人」的身分代送，不能整頁擋掉。但要帶 code，前端才能顯示綁定引導（CodeX 2026-10-06）
+    if ('code' in me) return res.json({ ok: true, detailBase: '', bound: false, code: me.code, message: me.message })
     const base = await resolveDetailUrlBase(me.token, defaultRunner, spaceEnv(space))
     res.json({ ok: true, detailBase: base.kind === 'ok' ? base.value : '', bound: true })
   } catch (e) { next(e) }

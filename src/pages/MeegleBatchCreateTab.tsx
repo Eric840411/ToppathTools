@@ -7,6 +7,7 @@ import type { RosterPerson } from '../../shared/meegle-people-match'
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css' // .mc-loadbar：網址列＋讀取鈕同一行，跟其他分頁一樣（使用者 10/05）
+import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
@@ -111,7 +112,7 @@ function resultLabel(r: RowResult): { text: string; tone: 'ok' | 'warn' | 'pendi
   return { text: '開單失敗', tone: 'bad' }
 }
 
-export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
+export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; onGoBind?: () => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
   // 這份 Sheet 已經在另一個空間開過（伺服器回的）；有的話整頁不能送
   const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
@@ -185,13 +186,20 @@ export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onS
   const [rowNote, setRowNote] = useState<Record<number, string>>({})
 
   // ── 載入 ──
+  // 不在一開始清掉錯誤：「重新檢查」時引導卡要留著，成功才撤（CodeX 2026-10-06）
   const loadMeta = useCallback(async () => {
-    setMetaError(null)
     try {
       const j = await api<Meta & { ok: true }>(`/api/meegle/batch/meta?space=${space}`)
       setMeta({ requirements: j.requirements, states: j.states, statesError: j.statesError })
+      setMetaError(null)
     } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
   }, [space])
+  const [checking, setChecking] = useState(false)
+  async function recheck() {
+    if (checking) return
+    setChecking(true)
+    try { await loadMeta() } finally { setChecking(false) }
+  }
   const loadPeople = useCallback(async () => {
     try {
       const j = await api<{ people: Array<{ alias: string; userKey: string; email: string; name: string }> }>('/api/meegle/batch/people')
@@ -466,13 +474,14 @@ export function MeegleBatchCreateTab({ space, onBusyChange, initialSheetUrl, onS
 
   // ── 畫面 ──
   if (metaError) {
-    const bindIssue = metaError.code === 'NOT_BOUND' || metaError.code === 'BINDING_INVALID' || metaError.code === 'DECRYPT_FAILED'
     return (
       <div className="mb-page">
-        <div className={`mb-alert ${bindIssue ? 'mb-alert--warn' : 'mb-alert--bad'}`}>
-          {metaError.message}
-          {!bindIssue && <button type="button" className="mb-btn mb-btn--small" style={{ marginLeft: 10 }} onClick={() => void loadMeta()}>重試</button>}
-        </div>
+        {isBindCode(metaError.code)
+          ? <MeegleBindGuide code={metaError.code} onGoBind={onGoBind} onRecheck={() => void recheck()} checking={checking} />
+          : <div className="mb-alert mb-alert--bad">
+              {metaError.message}
+              <button type="button" className="mb-btn mb-btn--small" style={{ marginLeft: 10 }} disabled={checking} onClick={() => void recheck()}>{checking ? '重試中…' : '重試'}</button>
+            </div>}
       </div>
     )
   }

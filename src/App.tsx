@@ -371,6 +371,9 @@ function navIconName(id: string, iconClass: string): XianxiaIconName {
 
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
+  // Meegle 綁定引導 →「前往綁定」：去個人帳號頁的期間，Meegle 批量工具保持掛載（只是隱藏），回來草稿、分頁、空間都還在（CodeX 2026-10-06）
+  const [meegleBindTrip, setMeegleBindTrip] = useState(false)
+  useEffect(() => { if (activeGroup !== 'account' && activeGroup !== 'jira') setMeegleBindTrip(false) }, [activeGroup])
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   // 側欄收放：收起時有子頁籤的主頁籤點了是「開哪個主頁籤的選單」——獨立狀態，不改目前頁面與高亮（CodeX）
   const [sbCollapsed, toggleSbCollapsed] = useSidebarCollapsed()
@@ -1041,7 +1044,12 @@ function App() {
         ) : (
           <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
-            {currentGroup?.id === 'jira' && <MeegleToolsPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
+            {(currentGroup?.id === 'jira' || (meegleBindTrip && currentGroup?.id === 'account')) && (
+              <div hidden={currentGroup?.id !== 'jira'}>
+                <MeegleToolsPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions}
+                  onGoBind={() => { setMeegleBindTrip(true); setActiveGroup('account'); setActiveTab('account') }} />
+              </div>
+            )}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
@@ -1063,7 +1071,7 @@ function App() {
             {currentGroup?.id === 'xianxia-quotes' && <XianxiaQuotesPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
-            {currentGroup?.id === 'account' && <MeegleAccountPage themeMode={themeMode} />}
+            {currentGroup?.id === 'account' && <MeegleAccountPage themeMode={themeMode} onBack={meegleBindTrip ? () => { setActiveGroup('jira'); setActiveTab('jira') } : undefined} />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
             {currentGroup?.id === 'knowledge' && <KnowledgePage />}
           </main>

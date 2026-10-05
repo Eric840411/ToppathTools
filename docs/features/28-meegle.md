@@ -404,3 +404,28 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 ### 測試
 - `npx tsx server/meegle-space.test.ts`（31，記憶體 DB＋假 CLI）：四張表的 mismatch／conflict、只列同空間、已用單號分空間、舊資料是測試、`checkItemSpace` 的對／錯／讀不到
 - `node scripts/ui-checks/meegle-space-switch.mjs`（兩種主題，API 全假）：預設測試、帶 space、正式確認（取消不送）、送出中不能切、各頁各自記住、另一空間送過擋下
+
+
+## 28i. 綁定引導卡（v5.11.0）
+
+> 使用者 2026-10-05：還沒綁定時只有一行字，希望有引導。樣稿 `mockup-meegle-bind-guide.html`（按鈕照抄分頁的 `.mb-btn`）使用者確認；行為 CodeX 2026-10-06 同意＋三點必補。
+
+### 使用者可以做的事
+| 操作 | 說明 |
+|---|---|
+| 看引導 | 開單／評論／狀態／修改四頁，後端回 `NOT_BOUND`／`BINDING_INVALID`／`DECRYPT_FAILED` 時顯示引導卡（標題分別是「還沒綁定 Meegle」「Meegle 綁定已失效」「綁定資料無法讀取」） |
+| 前往綁定 | 切到個人帳號頁（不是另開視窗）。上方會出現「回到 Meegle 批量工具 →」 |
+| 回來 | 分頁、空間、打到一半的 Sheet 網址、讀到的內容都還在 |
+| 重新檢查 | 只重打那一頁的 meta；檢查中反灰（連按只打一次）、**成功才收卡**；網路或其他錯誤照一般錯誤顯示，不當成綁定問題 |
+
+### 規則
+- 判斷**只看後端回的 code**，前端不另外查綁定
+- **評論頁本人沒綁仍可用**（能用「填寫人」身分代送），所以 meta 回 `ok:true, bound:false` 時多帶 `code`，前端只顯示引導卡、不擋整頁（原本 code 被丟掉、例外也被吞掉）
+- 狀態、修改頁的 meta 錯誤原本只存文字，改成保留 `{ code, message }`
+- `DECRYPT_FAILED` 不能寫成「Token 過期」：那是本站存的資料解不開（伺服器金鑰換過等），講成過期會讓人去 Meegle 白重置一次（CodeX）
+- **往返不丟草稿**：原本切到個人帳號頁會把 Meegle 工具整個卸載。現在從引導卡過去的那一趟，Meegle 工具保持掛載、只是隱藏（App 的 `meegleBindTrip`）；去別的頁面才結束
+- 程式：`src/components/MeegleBindGuide.tsx`（卡片與三種文字）、各分頁的 `loadMeta()／recheck()`、`App.tsx` 的 `meegleBindTrip`、`MeegleAccountPage` 的 `onBack`
+
+### 測試
+- `node scripts/ui-checks/meegle-bind-guide.mjs`（兩種主題，meta 全假）：四頁 × 三種 code、檢查中反灰、連按只打一次、成功才撤卡、網路錯誤不顯示成綁定、往返個人帳號後 Sheet 網址還在
+- 突變驗過：拿掉保持掛載 → 「網址還在」紅；拿掉防連點 → 「只打一次」「反灰」紅

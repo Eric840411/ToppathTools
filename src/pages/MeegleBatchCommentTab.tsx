@@ -6,6 +6,7 @@ import { isCommentPendingStage, MEEGLE_ID_COLUMN, parseMeegleIdCell } from '../.
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
+import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
@@ -86,7 +87,7 @@ function defaultComment(text: string): string {
 
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
 
-export function MeegleBatchCommentTab({ space, onBusyChange, initialSheetUrl, onSheetLoaded, canAiFormat, canAiReview }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void; canAiFormat: boolean; canAiReview: boolean }) {
+export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSheetUrl, onSheetLoaded, canAiFormat, canAiReview }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; onGoBind?: () => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void; canAiFormat: boolean; canAiReview: boolean }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
   // ① 讀取與選列
@@ -133,13 +134,28 @@ export function MeegleBatchCommentTab({ space, onBusyChange, initialSheetUrl, on
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [progressDismissed, setProgressDismissed] = useState(false)
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({})
+  // 本人的綁定狀態（後端 meta 回的 code）。沒綁仍可用「填寫人」身分代送，所以只顯示引導卡、不擋整頁
+  const [metaError, setMetaError] = useState<{ code?: string; message: string } | null>(null)
+  const [checking, setChecking] = useState(false)
+  async function loadMeta() {
+    try {
+      const j = await api<{ detailBase: string; bound?: boolean; code?: string; message?: string }>('/api/meegle/comment/meta', { space })
+      setDetailBase(j.detailBase)
+      setMetaError(j.bound === false ? { code: j.code, message: j.message ?? '還沒綁定 Meegle' } : null)
+    } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
+  }
+  async function recheck() {
+    if (checking) return
+    setChecking(true)
+    try { await loadMeta() } finally { setChecking(false) }
+  }
   const [candidates, setCandidates] = useState<{ workItemId: string; batchId: string; step: string; list: Array<{ commentId: string; content: string; createdAt: string; fileUrl: string }> | null; error: string } | null>(null)
 
   const itemsRef = useRef(items)
   itemsRef.current = items
 
   useEffect(() => {
-    api<{ detailBase: string }>('/api/meegle/comment/meta', { space }).then(j => setDetailBase(j.detailBase)).catch(() => {})
+    void loadMeta()
     fetch('/api/gemini/prompts').then(r => r.json()).then((d: { prompts?: Array<{ id: string; name: string }> }) => {
       if (d.prompts) setPrompts(d.prompts.map(p => ({ id: p.id, name: p.name })))
     }).catch(() => {})
@@ -517,6 +533,9 @@ export function MeegleBatchCommentTab({ space, onBusyChange, initialSheetUrl, on
               </button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
+            {metaError && (isBindCode(metaError.code)
+              ? <MeegleBindGuide code={metaError.code} onGoBind={onGoBind} onRecheck={() => void recheck()} checking={checking} />
+              : <div className="mb-alert mb-alert--bad">{metaError.message} <button type="button" className="mb-btn mb-btn--small" disabled={checking} onClick={() => void recheck()}>{checking ? '重試中…' : '重試'}</button></div>)}
             <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。只有 Jira 單號的列不送；處理階段已有值、或之前評論過的列預設不勾（勾了＝再送一輪）。</p>
             {records && (
