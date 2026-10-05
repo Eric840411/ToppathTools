@@ -125,6 +125,13 @@ class JobQueue {
     }
   }
 
+  /** 中斷：還沒跑完的（pending／running）一律標成失敗。畫面才不會一直顯示「執行中」 */
+  abortUnfinished(now = Date.now()) {
+    for (const job of this.jobs.values()) {
+      if (job.state === 'pending' || job.state === 'running') { job.state = 'failed'; job.finishedAt = now }
+    }
+  }
+
   isAllDone(): boolean {
     return [...this.jobs.values()].every(j => j.state === 'done' || j.state === 'failed')
   }
@@ -177,6 +184,16 @@ export function getJobStatuses(sessionId: string): JobStatus[] | null {
 
 export function cancelDistSession(sessionId: string) {
   distSessions.delete(sessionId)
+}
+
+/** agent 斷線中斷整個 session：沒跑完的標失敗、刪掉 session，回傳最後狀態（給畫面）。session 不在就回 null */
+export function abortDistSession(sessionId: string): JobStatus[] | null {
+  const s = distSessions.get(sessionId)
+  if (!s) return null
+  s.jobQueue.abortUnfinished()
+  const statuses = s.jobQueue.getStatuses()
+  distSessions.delete(sessionId)
+  return statuses
 }
 
 // ─── UAT Agent Recording Sessions ─────────────────────────────────────────────

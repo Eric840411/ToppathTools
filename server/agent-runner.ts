@@ -2363,6 +2363,12 @@ async function handleAgentCrop(sess: UatRecSession, crop: { x: number; y: number
 /** Promise resolve for the pending claim_job → job_assigned/no_more_jobs round-trip */
 let pendingClaimResolve: ((code: string | null) => void) | null = null
 
+/**
+ * 上一輪機台測試的 claim-loop（含正在跑的那台）。斷線重連後**先等它收尾**才接新派工（CodeX 2026-10-06）：
+ * 斷線不代表 runner 停了——原本只把 currentRunner 設成 null，舊的那台其實還在跑，新連線又派下一台就兩台一起動。
+ */
+let claimLoopDone: Promise<void> | null = null
+
 /** Live OSM machine status — updated in real-time by server pushes */
 const currentOsmMap = new Map<string, number>()
 
@@ -3062,7 +3068,12 @@ function connect() {
 
       console.log(`[Agent:${AGENT_LABEL}] Joined session ${sessionId} — starting claim-loop`)
 
+      const prevLoop = claimLoopDone
       const runClaimLoop = async () => {
+        if (prevLoop) {
+          console.log(`[Agent:${AGENT_LABEL}] 上一輪還在收尾（斷線前那台正在停止），等它結束再開始`)
+          await prevLoop.catch(() => {})
+        }
         while (true) {
           // Request the next available machine from the central queue
           const code = await new Promise<string | null>((resolve) => {
@@ -3116,17 +3127,23 @@ function connect() {
           // Report this machine's result to the central queue
           if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: 'job_done', sessionId, machineCode: code, failed }))
+          } else {
+            // 連線斷了，結果送不出去——伺服器那邊會把整個 session 當成中斷處理（server/agent-lifecycle.ts）
+            console.log(`[Agent:${AGENT_LABEL}] 機台 ${code} 的結果沒送出（連線中斷）`)
           }
         }
 
         // Claim-loop exhausted — signal done and release agent slot
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
+          console.log(`[Agent:${AGENT_LABEL}] No more jobs — session ${sessionId} complete`)
+        } else {
+          // ⚠️ 原本這裡也印「session complete」：迴圈是因為斷線才結束的，不是真的沒工作（正式站 2026-10-06 誤導了排查）
+          console.log(`[Agent:${AGENT_LABEL}] 連線中斷 — session ${sessionId} 這一輪停止（不是跑完）`)
         }
-        console.log(`[Agent:${AGENT_LABEL}] No more jobs — session ${sessionId} complete`)
       }
 
-      runClaimLoop().catch(err => {
+      claimLoopDone = runClaimLoop().catch(err => {
         console.error(`[Agent:${AGENT_LABEL}] Claim loop error:`, err)
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
@@ -3138,7 +3155,12 @@ function connect() {
   ws.on('close', (code, reason) => {
     const detail = reason.toString().trim()
     console.log(`[Agent:${AGENT_LABEL}] Disconnected (code=${code}${detail ? `, reason=${detail}` : ''}), reconnecting in 5s ...`)
-    currentRunner = null
+    // 斷線不代表 runner 停了：要它停下來（原本只設成 null，舊的那台其實繼續跑）。
+    // claim-loop 會在這台收尾後結束；重連後的新派工會先等它（claimLoopDone）
+    if (currentRunner) {
+      console.log(`[Agent:${AGENT_LABEL}] 斷線：停止正在跑的機台測試`)
+      currentRunner.stop()
+    }
     // Abort any in-flight claim
     pendingClaimResolve?.(null)
     pendingClaimResolve = null

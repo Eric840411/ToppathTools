@@ -54,6 +54,7 @@ import {
 const pendingTcPublishFailures = new Map<string, number>()
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
+import { abortMachineTestSession, createAgentLifecycle } from './agent-lifecycle.js'
 import { dropActiveHeavyTask } from './heavy-task-guard.js'
 import {
   handleScriptedBetAgentDisconnect,
@@ -71,6 +72,7 @@ import {
   completeJob,
   getJobStatuses,
   cancelDistSession,
+  abortDistSession,
   broadcastToViewers,
   uatAgentSessions,
   UAT_CONSOLE_KEEP,
@@ -556,6 +558,8 @@ wss.on('connection', (ws, req) => {
 
   if (path === '/ws/agent') {
     let agentId = ''
+    /** 這條 socket 自己的 AgentInfo。收尾、訊息歸屬一律看它，不讀 map（重連後 map 裡是新連線的） */
+    let myInfo: AgentInfo | null = null
 
     // Keepalive ping every 30s to prevent nginx proxy_read_timeout from dropping idle WebSockets
     const pingTimer = setInterval(() => {
@@ -641,7 +645,9 @@ wss.on('connection', (ws, req) => {
           busy: !!uiSsHoldRun,
           sessionId: uiSsHoldRun,
         }
-        agentConnections.set(agentId, info)
+        // 同一個 agentId 還掛著舊連線（斷線但 close 還沒到）→ 先把舊的當斷線收尾，再登記新的
+        agentLifecycle.register(info)
+        myInfo = info
         log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)
         return
       }
@@ -730,6 +736,8 @@ wss.on('connection', (ws, req) => {
       }
 
       if (msg.type === 'claim_job' && msg.sessionId) {
+        // 舊連線（已被重連取代）或不是這個 session 的請求：不派工
+        if (!agentLifecycle.ownsSession(myInfo, msg.sessionId)) { ws.send(JSON.stringify({ type: 'no_more_jobs' })); return }
         const code = claimJob(msg.sessionId, agentId)
         const statuses = getJobStatuses(msg.sessionId)
         if (statuses) broadcastToViewers({ type: 'queue_update', statuses, message: '', ts: new Date().toISOString() })
@@ -739,6 +747,7 @@ wss.on('connection', (ws, req) => {
       }
 
       if (msg.type === 'job_done' && msg.sessionId && msg.machineCode) {
+        if (!agentLifecycle.ownsSession(myInfo, msg.sessionId)) return   // 舊連線晚到的結果不算數
         const allDone = completeJob(msg.sessionId, msg.machineCode, msg.failed ?? false)
         const statuses = getJobStatuses(msg.sessionId)
         if (statuses) broadcastToViewers({ type: 'queue_update', statuses, message: '', ts: new Date().toISOString() })
@@ -750,10 +759,8 @@ wss.on('connection', (ws, req) => {
       }
 
       if (msg.type === 'agent_done' && msg.sessionId) {
-        if (agentId) {
-          const info = agentConnections.get(agentId)
-          if (info) { info.busy = false; info.sessionId = null }
-        }
+        // 只放自己手上這個 session：舊連線晚到的 agent_done 不能清掉新連線的忙碌狀態
+        if (myInfo && agentLifecycle.ownsSession(myInfo, msg.sessionId)) { myInfo.busy = false; myInfo.sessionId = null }
         return
       }
 
@@ -933,36 +940,48 @@ wss.on('connection', (ws, req) => {
     })
 
     ws.on('close', () => {
-      if (agentId) {
-        const info = agentConnections.get(agentId)
-        // Backend UAT 先問過一輪：它的 sessionId 是 UUID，沒有 sb_ 前綴，
-        // 不先攔下來會掉進下面的機測分支去呼叫 cancelDistSession 並廣播機測錯誤
-        // 錄製 session 也要跟著收——瀏覽器在那台 agent 上，它斷了就不可能再錄到東西。
-        // 已經錄到的積木仍然留著讓使用者取回，不要一起丟掉。
-        handleBackendRecordAgentDisconnect(agentId)
-        // H5/PC 這條之前完全沒收：錄製 session 會帶著 done:false 永遠留著，
-        // 執行中的 run 則永遠停在「執行中」。兩個都是安靜的殘骸。
-        handleUatRecordAgentDisconnect(agentId, info?.hostname)
-        handleUatRunAgentDisconnect(agentId, info?.hostname)
-        const handledByBackendUat = handleBackendUatAgentDisconnect(agentId)
-        if (info?.sessionId && !handledByBackendUat) {
-          if (info.sessionId.startsWith('sb_')) {
-            handleScriptedBetAgentDisconnect(info.sessionId, `Agent ${info.hostname} 已斷線`)
-          } else {
-            cancelDistSession(info.sessionId)
-            broadcastToViewers({ type: 'error', message: `Agent ${info.hostname} 已斷線`, ts: new Date().toISOString() })
-            activeRunners.delete(info.sessionId)
-          }
-        }
-        agentConnections.delete(agentId)
-        log('info', '-', '-', `Agent disconnected: ${agentId}`)
-      }
+      // 收尾用這條 socket 自己的 info；map 裡是自己才刪（重連後那是新連線的）
+      if (myInfo) agentLifecycle.closed(myInfo)
     })
     return
   }
 
   ws.close(1008, 'Invalid path')
 })
+/**
+ * Agent 斷線收尾的唯一入口（v5.12.4，CodeX 2026-10-06）：socket close 與「同一個 agentId 重連」都走這裡，每個 AgentInfo 只做一次。
+ * 規則與為什麼在 server/agent-lifecycle.ts 檔頭（正式站 0214 卡 40 分鐘那次）。
+ */
+const agentLifecycle = createAgentLifecycle({
+  connections: agentConnections,
+  onLost: (info, reason) => {
+    const agentId = info.agentId
+    // Backend UAT 先問過一輪：它的 sessionId 是 UUID，沒有 sb_ 前綴，
+    // 不先攔下來會掉進下面的機測分支去呼叫取消並廣播機測錯誤
+    // 錄製 session 也要跟著收——瀏覽器在那台 agent 上，它斷了就不可能再錄到東西。
+    // 已經錄到的積木仍然留著讓使用者取回，不要一起丟掉。
+    handleBackendRecordAgentDisconnect(agentId)
+    // H5/PC 這條之前完全沒收：錄製 session 會帶著 done:false 永遠留著，
+    // 執行中的 run 則永遠停在「執行中」。兩個都是安靜的殘骸。
+    handleUatRecordAgentDisconnect(agentId, info.hostname)
+    handleUatRunAgentDisconnect(agentId, info.hostname)
+    const handledByBackendUat = handleBackendUatAgentDisconnect(agentId)
+    if (info.sessionId && !handledByBackendUat) {
+      if (info.sessionId.startsWith('sb_')) {
+        handleScriptedBetAgentDisconnect(info.sessionId, reason)
+      } else {
+        // 機台測試：整個 session 中斷（停其他 agent、釋放重任務鎖、沒跑完的標失敗、通知畫面）
+        abortMachineTestSession(info.sessionId, reason, {
+          abortQueue: abortDistSession,
+          stopRunner: sid => { const r = activeRunners.get(sid); if (!r) return false; r.stop(); activeRunners.delete(sid); return true },
+          broadcast: ev => broadcastToViewers(ev as Parameters<typeof broadcastToViewers>[0]),
+        })
+      }
+    }
+    log('info', '-', '-', `Agent disconnected: ${agentId}（${reason}）`)
+  },
+})
+
 let isShuttingDown = false
 function shutdown(signal: string) {
   if (isShuttingDown) return

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.3'
+export const APP_VERSION = '5.12.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.4', date: '2026-10-06', changes: ['fix(機台測試)：agent 斷線後幾秒內用同一個 ID 重連時，伺服器會把原本那輪當成中斷處理（停掉其他參與的 agent、釋放鎖、沒跑完的機台標失敗、畫面顯示已中斷）。原本新連線會蓋掉舊連線的紀錄，那一台就一直卡在「執行中」（正式站 0214 卡了 40 分鐘）；舊連線晚到的訊息也不再算數', 'fix(機台測試 agent)：斷線時會停止正在跑的機台，重連後先等它收尾才接新的；斷線結束時印「連線中斷」，不再誤印「session complete」（agent 要更新程式碼才生效）'] },
   { version: '5.12.3', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「正在補寫」改成整個處理流程跑完才放——原本瀏覽器斷線就提早放掉，但伺服器那邊還在跑、之後照樣寫 Sheet，這段期間的移出會被放行（CodeX review）', 'feat(Meegle 補回填)：待補清單會標出「補寫中」的列'] },
   { version: '5.12.2', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「正在補寫」改成請求一進來就標記、回應結束才放——原本只標在最後寫 Sheet 那段，前面核對空間、推狀態等待的期間另一個分頁仍能把那一列移出（CodeX review）'] },
   { version: '5.12.1', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「移出清單」跟各工具自己的補寫入口（開單頁補寫回／重推狀態／查詢結果、評論補寫回／繼續送出、狀態與修改的重試）共用「正在補寫」標記，寫到一半的列不能被移出；確認框改用完整的來源分辨 Sheet，顯示名稱撞名的兩份不會被算成一份（CodeX review）'] },

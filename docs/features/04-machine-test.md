@@ -78,3 +78,27 @@
 | `gmid` | gameid URL 參數，用於設定檔 fallback 比對 |
 
 ---
+
+## Agent 斷線重連後 session 卡在執行中（v5.12.4）
+
+> 2026-10-06 01:05 正式站（osm-qa-agent 回報）：機台 0214 跑到一半 agent 斷線（1006），5 秒後用**同一個 agentId** 重連；伺服器把 0214 一直顯示 running，40 分鐘沒動靜，要手動 `POST /api/machine-test/stop/<session>` 才清掉。
+> agent 端還印了「No more jobs — session complete」，誤導了排查。
+
+### 原因
+1. worker 的 `agent_ready` 直接 `agentConnections.set(agentId, 新 info)` 覆蓋 → 舊連線手上的 sessionId 不見
+2. 舊 socket 的 close 比重連晚到，讀 map 拿到**新** info（沒有 sessionId）→ 不取消 session，還把**新**連線刪掉
+3. agent 端 `job_done` 只在連線開著時送，斷線就丟了；claim-loop 把「連線關了」當成「沒工作」→ 印 session complete
+4. agent 斷線只把 `currentRunner` 設成 null，舊的那台其實繼續跑
+
+### 修法（CodeX 2026-10-06 同意：**這次先取消整個 session**，維持既有斷線語意；只讓那台失敗、其他繼續是另一項行為改動）
+- `server/agent-lifecycle.ts`：每條 socket 持有**自己的** AgentInfo；收尾（onLost）**每個 info 只做一次**——重連與舊 close 走同一個入口；close 只在 map 裡還是自己時才刪；重連時先把舊連線當斷線收尾再登記新的（在 token 驗證成功之後）
+- 舊連線晚到的 `claim_job`／`job_done`／`agent_done` 一律不算數（`ownsSession`）
+- 取消要完整（`abortMachineTestSession`）：沒跑完的機台標失敗並廣播佇列、`activeRunners` 的 stop（停其他參與 agent、釋放重任務鎖）、廣播錯誤與 session 結束。原本只刪佇列，漏了 `finishHeavyTask` 和停其他 agent
+- UAT、AutoSpin 下注等各自的斷線收尾規則照舊，只是改從同一個入口呼叫
+- agent 端：斷線時要求正在跑的 runner 停止；重連後的新派工**先等上一輪收尾**（`claimLoopDone`）；斷線結束的迴圈印「連線中斷」不印 complete；`job_done` 送不出去會記一行
+
+### 測試
+- `npx tsx server/agent-lifecycle.test.ts`（17）：ready 先到／close 先到兩種順序、重複收尾、舊訊息晚到、多 agent 取消
+- 突變驗過：拿掉「只做一次」、close 無條件刪 map、重連不收舊連線，各自有對應的測試變紅
+- ⚠️ 沒有真 agent 斷線的實測：agent 要用真的 token 連線，本機無法偽造。下次真的斷線時看 log 有沒有「Agent disconnected: …（Agent … 重新連線，舊連線已中斷）」與 session 是否自動結束
+- ⚠️ agent 端的修改要 agent「更新程式碼」並重啟才生效
