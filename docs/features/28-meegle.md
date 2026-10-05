@@ -352,6 +352,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - **補寫與移出互斥**：補寫改成**每一列執行前才重查**是否還在清單（原本迴圈前只讀一次，前面在寫的時候後面的可能已被另一個分頁移出），並把那一列標成忙碌；移出時遇到忙碌的列就擋（記憶體集合，路由只在 server 這個程序）
 - v5.12.1（CodeX review 99ee76a [P2]×2）：「正在補寫」標記抽成 `server/meegle-writeback-busy.ts`，**所有補寫入口共用**（開單頁補寫回／重推狀態／查詢結果、評論補寫回／送出／繼續送出、狀態與修改的重試、補回填分頁）；用計數不用布林，兩個入口同時寫同一列時一個寫完不會清掉另一個的標記。確認框改用 `sourceKey` 分辨 Sheet，顯示名稱撞名時補上來源前段
 - v5.12.2→5.12.3（CodeX review 1e123a9／074271b [P2]）：標記改成**包住整個 async handler**（`busyHandler`）：請求一進來就標、handler 跑完（finally）才放。v5.12.2 是 middleware、在回應 close 就放——但瀏覽器斷線不會取消 handler，查詢回來後照樣寫 Sheet。待補清單多回 `busy`（畫面標「補寫中」，並發測試也靠它確認請求已進到 handler）。只包最後寫 Sheet 那段的話，前面核對空間、推狀態的等待期間仍能被移出。掛在：狀態／修改重試、開單 retry-state／confirm／writeback、評論 row／continue／writeback。真 HTTP 並發測試：`node scripts/ui-checks/backfill-dismiss-race.mjs`
+- **實測紀錄（2026-10-06，8e3b1dc，CodeX GATE PASS）**：`backfill-dismiss-race.mjs` 真 HTTP——正常版 11／11 過；突變「拿掉修改重試的 busyHandler」8 條紅（關鍵：請求已進到 handler、前置等待時移出 → 擋下、斷線後仍被擋）；突變「加回 close 就解鎖」2 條紅（只有斷線那段：斷線後仍被擋、handler 真的跑完）；還原後全過
 - 新批次會重新出現：鍵含 batch_id，同一列之後重送又回填失敗，新批次的 batch_id 不同
 - 這版**不做「顯示已移出／復原」**，但操作歷史查得到明細（`docs/features/10-history.md` 的 `meegle-backfill`）
 - 測試：`npx tsx server/meegle-backfill.test.ts`（越權、重複請求、不偽造狀態、忙碌不准移、舊批次移出新批次仍列出）；`node scripts/ui-checks/meegle-backfill-walkthrough.mjs`（預設不勾選、確認框內容、取消不送、只送勾選的）
