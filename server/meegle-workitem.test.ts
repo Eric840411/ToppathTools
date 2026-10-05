@@ -8,7 +8,7 @@
  * - MQL 第 2 頁之後沒有 session_id／count，不能因此停在第 2 頁
  */
 import {
-  buildCreateFields, clearDetailUrlCache, createTask, detailUrlFor, findUserViaParticipants, interpretCli, listRequirements, mqlString, pickUserByEmail,
+  buildCreateFields, clearDetailUrlCache, createTask, detailUrlFor, bulkVerdict, checkDirectoryLabel, findUserViaParticipants, interpretCli, listRequirements, listSpaceRoster, parseSameLabelIds, searchUserKey, mqlString, pickUserByEmail,
   planTransition, queryAll, resolveRoleIds, resolveUsersByEmail, transitionToState, type Runner,
 } from './meegle-workitem.js'
 import { pickRequirement } from '../shared/meegle-batch-rules.js'
@@ -178,6 +178,55 @@ eq('需要表單的轉換不自動做', planTransition('Finished', { ...fromTodo
   eq('名稱不存在(3011)換下一個候選，最後用 email 對到；同一人出現兩次不算多筆', r.kind === 'ok' && r.value.ok ? r.value.userKey : r, '7392032137467281414')
   const wrong = await findUserViaParticipants('t', 'tim2@toppath.tw', ['Tim'], runner, ENV)
   eq('名字對到但 email 不同 → 不認', wrong.kind === 'ok' && wrong.value.ok, false)
+}
+
+// ── 空間人員名單＋租戶名錄同名檢查（2026-10-05 真 CLI 實測的形狀）──
+{
+  const role = (key: string, users: object[]) => ({ key, value: { user_value_list: users } })
+  const tim = { email: 'tim@toppath.tw', name_cn: 'Tim', name_en: 'Tim', user_key: 'k-tim' }
+  const amy = { email: 'amy@toppath.tw', name_cn: 'Amy', name_en: 'Amy', user_key: 'k-amy' }
+  const ghost = { name_cn: 'Ghost', name_en: 'Ghost', user_key: 'k-ghost' }
+  const head = { data: { 1: [{ moql_field_list: [role('__受托人', [tim]), role('__回報者', [amy, tim])] }] }, list: [{ count: 2, group_infos: [{ group_id: 'g' }] }], session_id: 's' }
+  const p2 = { data: { 1: [{ moql_field_list: [role('__QA 驗證人員', [ghost])] }] } }
+  const runner: Runner = async (args) => out(JSON.stringify(args.includes('--session-id') ? p2 : head))
+  const r = await listSpaceRoster('t', runner, ENV)
+  eq('名單＝各角色出現過的人、依 user_key 去重、翻到第 2 頁', r.kind === 'ok' ? r.value.map(u => u.userKey) : r, ['k-amy', 'k-ghost', 'k-tim'])
+  eq('沒 email 的人留著（email 空字串），同名時才算得到人數', r.kind === 'ok' ? r.value.find(u => u.userKey === 'k-ghost')?.email : r, '')
+  const half: Runner = async (args) => args.includes('--session-id') ? out('', true) : out(JSON.stringify(head))
+  eq('掃到一半失敗 → 整份 unknown，不能拿半份名單當完整的', (await listSpaceRoster('t', half, ENV)).kind, 'unknown')
+
+  const msg3012 = "error=ErrMetadataError,message=metadata error,attribute value not unique (Code: 3012) | Context: user 'Eric' is not unique. matches 2 items with the same label: 'Eric<id:7399589791446188037>', 'Eric<id:7612517114682871515>'. pick one, or combine several with IN,retriable=false"
+  eq('3012 訊息解析出所有同名 user_key', parseSameLabelIds(msg3012), ['7399589791446188037', '7612517114682871515'])
+  const dir = (stdout: string): Runner => async () => out(stdout)
+  const multi = await checkDirectoryLabel('t', 'Eric', dir(JSON.stringify({ data: null, error: { message: msg3012 } })), ENV)
+  eq('租戶名錄同名（Eric 兩個帳號）→ multiple', multi.kind === 'ok' ? multi.value : multi, { kind: 'multiple', count: 2 })
+  const missing = await checkDirectoryLabel('t', 'X', dir('{"data":null,"error":{"message":"attribute value not found (Code: 3011) | user does not exist,retriable=false"}}'), ENV)
+  eq('3011 → missing（呼叫端不能當成唯一放行）', missing.kind === 'ok' ? missing.value.kind : missing, 'missing')
+  eq('查詢逾時 → unknown，不是 unique', (await checkDirectoryLabel('t', 'Tim', async () => out('', true), ENV)).kind, 'unknown')
+  const uniq = await checkDirectoryLabel('t', 'Tim', dir(JSON.stringify(head)), ENV)
+  eq('查得到 → unique', uniq.kind === 'ok' ? uniq.value.kind : uniq, 'unique')
+
+  const ok = (v: object) => ({ kind: 'ok' as const, value: v as never })
+  eq('全部確認：每個名稱都唯一 → 放行', bulkVerdict([{ label: 'Tim', result: ok({ kind: 'unique' }) }]).ok, true)
+  eq('全部確認：同名 → 不放行', bulkVerdict([{ label: 'Eric', result: ok({ kind: 'multiple', count: 2 }) }]).ok, false)
+  eq('全部確認：3011 名錄查不到 → 不放行（不是「沒回 3012 就好」）', bulkVerdict([{ label: 'X', result: ok({ kind: 'missing' }) }]).ok, false)
+  eq('全部確認：查詢逾時 → 不放行', bulkVerdict([{ label: 'Tim', result: { kind: 'unknown', message: '逾時' } }]).ok, false)
+  eq('全部確認：第二個名稱同名 → 不放行', bulkVerdict([{ label: 'Tim', result: ok({ kind: 'unique' }) }, { label: '提姆', result: ok({ kind: 'multiple', count: 2 }) }]).ok, false)
+  eq('全部確認：一個都沒查 → 不放行', bulkVerdict([]).ok, false)
+}
+
+// ── user search 要重複旗標（`--user-keys a b` 實測只查第一個）──
+{
+  const calls: string[][] = []
+  await resolveUsersByEmail('t', ['a@x.tw', 'b@x.tw'], async (args) => { calls.push(args); return out('[]') })
+  eq('每個 email 前面都有 --user-keys', calls[0].filter(a => a === '--user-keys').length, 2)
+  const u = { email: 'tim@toppath.tw', name_cn: 'Tim', user_key: 'k-tim', status: 'activated' }
+  const found = await searchUserKey('t', 'k-tim', async () => out(JSON.stringify([u])))
+  eq('用 user_key 查得到', found.kind === 'ok' ? found.value : found, { userKey: 'k-tim', email: 'tim@toppath.tw', name: 'Tim' })
+  const none = await searchUserKey('t', 'k-tim', async () => out('[]'))
+  eq('user search 查不到 → null（不是錯誤）', none.kind === 'ok' ? none.value : none, null)
+  const off = await searchUserKey('t', 'k-tim', async () => out(JSON.stringify([{ ...u, status: 'deactivated' }])))
+  eq('停用帳號 → null，不能選', off.kind === 'ok' ? off.value : off, null)
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

@@ -17,6 +17,7 @@
  */
 import { runMeegle, MeegleCliError, MEEGLE_HOST, type CliResult } from './meegle-cli.js'
 import type { Requirement } from '../shared/meegle-batch-rules.js'
+import type { RosterPerson } from '../shared/meegle-people-match.js'
 
 /** 允許開單的空間與類型。只認這一組，關聯需求也只能指向同一空間的「需求」。 */
 export function meegleTarget(env: NodeJS.ProcessEnv = process.env) {
@@ -121,12 +122,24 @@ export async function resolveUsersByEmail(token: string, emails: string[], runne
   const out: Record<string, UserMatch> = {}
   for (let i = 0; i < uniq.length; i += 20) {
     const chunk = uniq.slice(i, i + 20)
-    const r = await call(runner, ['user', 'search', '--user-keys', ...chunk], token)
+    // ⚠️ 要每個值重複一次旗標：`--user-keys a b` 實測只會查第一個（2026-10-05）
+    const r = await call(runner, ['user', 'search', ...chunk.flatMap(e => ['--user-keys', e])], token)
     if (r.kind !== 'ok') return r
     const list = Array.isArray(r.value) ? r.value as SearchUser[] : []
     for (const email of chunk) out[email] = pickUserByEmail(email, list)
   }
   return { kind: 'ok', value: out }
+}
+
+/** 用 user_key 查一個人（user search 也收 user_key）。查不到回 null——user search 不是完整名錄，查不到不代表不存在。 */
+export async function searchUserKey(token: string, userKey: string, runner: Runner = defaultRunner): Promise<CallOutcome<{ userKey: string; email: string; name: string } | null>> {
+  const r = await call(runner, ['user', 'search', '--user-keys', userKey], token)
+  if (r.kind !== 'ok') return r
+  const u = (Array.isArray(r.value) ? r.value as SearchUser[] : []).find(x => x.user_key === userKey)
+  if (!u) return { kind: 'ok', value: null }
+  if (u.status !== undefined && u.status !== 'activated') return { kind: 'ok', value: null }
+  const name = [u.name_cn, u.name_en].find(v => typeof v === 'string' && v) as string | undefined
+  return { kind: 'ok', value: { userKey, email: typeof u.email === 'string' ? u.email.trim() : '', name: name ?? '' } }
 }
 
 /**
@@ -160,6 +173,70 @@ export async function findUserViaParticipants(token: string, email: string, name
     if (uniq.length) return { kind: 'ok', value: pickUserByEmail(email, uniq.map(u => ({ ...u, status: undefined }))) }
   }
   return { kind: 'ok', value: { ok: false, reason: 'NOT_FOUND', message: `Meegle 查不到 ${email}` } }
+}
+
+/**
+ * 空間的人員名單＝所有任務項 5 個角色上出現過的人（沒 email 的 email 為空字串，不能選但算進同名人數）。
+ * 為什麼不用 Meegle 的名錄：`user search` 不是完整名錄（2026-10-05 實測空間 65 個角色人員只查得到 29 個，Tim 等查不到），
+ * `team list` 回空。掃全部任務項（實測 1452 張、約 16 秒）拿得到全部 65 人、都有 email。
+ * 限制：從沒在這個空間掛過角色的人不在名單裡（仍可手打 email）；租戶裡的同名者也看不到（用 checkDirectoryLabel 補）。
+ */
+export async function listSpaceRoster(token: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<RosterPerson[]>> {
+  const t = meegleTarget(env)
+  const roleCols = MEEGLE_ROLES.map(r => `\`__${r.roleName}\``).join(', ')
+  // 翻頁上限放寬到 200 頁（1 萬張）：預設 40 頁只有 2000 張，空間再長一點就整份讀不到
+  const rows = await queryAll(token, t.projectKey, `SELECT ${roleCols} FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\``, runner, 200)
+  if (rows.kind !== 'ok') return rows
+  const users = new Map<string, RosterPerson>()
+  for (const row of rows.value) for (const f of Object.values(row)) {
+    const list = f.user_value_list
+    if (!Array.isArray(list)) continue
+    for (const u of list as SearchUser[]) {
+      if (typeof u.user_key !== 'string' || !u.user_key) continue
+      // 沒 email 的也留著（email 空字串）：不能選，但同名時要算進「幾個人」，不然兩個人會被當成唯一（CodeX）
+      const email = typeof u.email === 'string' && u.email.includes('@') ? u.email.trim() : ''
+      const names = [...new Set([u.name_cn, u.name_en].filter((v): v is string => typeof v === 'string' && !!v.trim()).map(v => v.trim()))]
+      users.set(u.user_key, { userKey: u.user_key, email, name: names[0] ?? (email || u.user_key), names })
+    }
+  }
+  return { kind: 'ok', value: [...users.values()].sort((a, b) => a.name.localeCompare(b.name)) }
+}
+
+/** 3012 錯誤訊息裡列出的同名帳號：`'Eric<id:7399589791446188037>', 'Eric<id:7612517114682871515>'` */
+export function parseSameLabelIds(message: string): string[] {
+  return [...new Set([...message.matchAll(/<id:(\d+)>/g)].map(m => m[1]))]
+}
+
+export type DirectoryLabel = { kind: 'unique' } | { kind: 'multiple'; count: number } | { kind: 'missing' }
+
+/**
+ * 用租戶名錄檢查這個顯示名稱是不是只有一個人。名單只看得到掛過角色的人，這裡補看不到的同名者。
+ * 原理（2026-10-05 實測）：MQL `all_participate_persons()` 收到名字時 Meegle 先拿整個租戶名錄解析——
+ * 沒有這個名字回 3011；同名不只一人回 3012 並列出所有 user_key（例如 Eric 有兩個帳號，另一個沒掛過任何角色、user search 也查不到）。
+ * 名稱比對大小寫有別，所以要傳 Meegle 上的寫法，不是 Sheet 的寫法。
+ */
+export async function checkDirectoryLabel(token: string, label: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<DirectoryLabel>> {
+  const t = meegleTarget(env)
+  const r = await call(runner, ['workitem', 'query', '--project-key', t.projectKey, '--mql',
+    `SELECT \`work_item_id\` FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\` WHERE array_contains(all_participate_persons(), ${mqlString(label)}) LIMIT 1`], token)
+  if (r.kind === 'rejected' && /Code: 3012/.test(r.message)) return { kind: 'ok', value: { kind: 'multiple', count: Math.max(2, parseSameLabelIds(r.message).length) } }
+  if (r.kind === 'rejected' && /Code: 3011/.test(r.message)) return { kind: 'ok', value: { kind: 'missing' } }
+  if (r.kind !== 'ok') return r
+  return { kind: 'ok', value: { kind: 'unique' } }
+}
+
+/**
+ * 「全部確認」放不放行：每個顯示名稱都要**查詢成功而且唯一**。
+ * 3012（同名）、3011（名錄查不到）、逾時／權限錯誤、一個都沒查——全部降級成逐列確認（CodeX 2026-10-05：不能當成「沒回 3012 就好」）。
+ */
+export function bulkVerdict(checks: Array<{ label: string; result: CallOutcome<DirectoryLabel> }>): { ok: boolean; note: string } {
+  if (!checks.length) return { ok: false, note: '沒有可查的名稱，請逐一確認' }
+  for (const { label, result } of checks) {
+    if (result.kind !== 'ok') return { ok: false, note: `無法確認 Meegle 是否有同名的人（${result.message}），請逐一確認` }
+    if (result.value.kind === 'multiple') return { ok: false, note: `Meegle 有 ${result.value.count} 個叫「${label}」的帳號，請確認是這一位` }
+    if (result.value.kind !== 'unique') return { ok: false, note: `Meegle 名錄查不到「${label}」，請逐一確認` }
+  }
+  return { ok: true, note: '' }
 }
 
 // ─── MQL ────────────────────────────────────────────────────────────────────

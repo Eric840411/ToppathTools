@@ -27,8 +27,9 @@ import {
 } from '../meegle-batch-store.js'
 import {
   confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
-  meegleTarget, resolveRoleIds, resolveUsersByEmail, transitionToState,
+  bulkVerdict, checkDirectoryLabel, listSpaceRoster, meegleTarget, resolveRoleIds, resolveUsersByEmail, searchUserKey, transitionToState, type CallOutcome, type DirectoryLabel, type UserMatch,
 } from '../meegle-workitem.js'
+import { matchRoster, type RosterMatch, type RosterPerson } from '../../shared/meegle-people-match.js'
 import { MEEGLE_ROLE_DEFS, normAlias, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
 
 export const router = Router()
@@ -104,27 +105,123 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   res.json({ ok: true, rows: listRowsFromSheet(db, sheetSourceKey(sheetUrl)).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
 })
 
-// POST /api/meegle/batch/people/verify —— 填 email → 查 Meegle 帳號 → 記住對照
+// ── 人員名單（② 下拉選人、猜人用）──
+// 名單＝空間任務項角色上出現過的人（user search 不是完整名錄，見 listSpaceRoster）。掃一次約 16 秒 → 每個操作者快取 10 分鐘。
+// 依「空間＋操作者」分開快取：名單是用本人 token 查的，別人看得到的單不一定一樣；只有整份讀完才更新（queryAll 沒讀完會回 unknown）。
+const ROSTER_TTL_MS = 10 * 60_000
+const rosterCache = new Map<string, { at: number; users: RosterPerson[] }>()
+const rosterInflight = new Map<string, Promise<CallOutcome<RosterPerson[]>>>()
+async function getRoster(ctx: Ctx, refresh = false): Promise<CallOutcome<{ at: number; users: RosterPerson[] }>> {
+  const key = `${meegleTarget().projectKey}|${ctx.email}`
+  const hit = rosterCache.get(key)
+  if (hit && !refresh && Date.now() - hit.at < ROSTER_TTL_MS) return { kind: 'ok', value: hit }
+  // 同一人同時開兩個請求（進 ② 自動猜人＋下拉）只掃一次
+  let p = rosterInflight.get(key)
+  if (!p) { p = listSpaceRoster(ctx.token); rosterInflight.set(key, p); void p.finally(() => rosterInflight.delete(key)) }
+  const r = await p
+  if (r.kind !== 'ok') return r
+  const entry = { at: Date.now(), users: r.value }
+  rosterCache.set(key, entry)
+  return { kind: 'ok', value: entry }
+}
+
+// POST /api/meegle/batch/people/roster —— 空間人員名單（下拉選人）
+router.post('/api/meegle/batch/people/roster', async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res)
+    if (!ctx) return
+    const { refresh } = z.object({ refresh: z.boolean().optional().default(false) }).parse(req.body ?? {})
+    const r = await getRoster(ctx, refresh)
+    if (r.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${r.message}` })
+    res.json({ ok: true, users: r.value.users, fetchedAt: r.value.at })
+  } catch (e) { next(e) }
+})
+
+// POST /api/meegle/batch/people/suggest —— 用 Sheet 上的名字猜人（只回建議，不寫入對照；寫入仍要使用者確認後走 verify）
+router.post('/api/meegle/batch/people/suggest', async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res)
+    if (!ctx) return
+    const { aliases } = z.object({ aliases: z.array(z.string().trim().min(1).max(100)).max(200) }).parse(req.body)
+    const roster = await getRoster(ctx)
+    if (roster.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${roster.message}` })
+    // 同批重複名字合併；已對照的不猜
+    const todo = [...new Map(aliases.map(a => [normAlias(a), a])).values()].filter(a => !getPersonMap(db, [a])[normAlias(a)])
+    const out = todo.map(alias => ({ alias, match: matchRoster(alias, roster.value.users), bulkOk: false, note: '' }))
+    // 只有「完整名字＋名單內唯一」才再查租戶名錄：名單看不到沒掛過角色的同名者（實測 Eric 有第二個帳號）。
+    // 名錄也唯一才能進「全部確認」；同名或查不成功一律降級成逐列確認（CodeX 2026-10-05）。並行上限 3。
+    const exact = out.filter(o => o.match.status === 'unique' && o.match.confidence === 'exact')
+    let cursor = 0
+    await Promise.all(Array.from({ length: Math.min(3, exact.length) }, async () => {
+      while (cursor < exact.length) {
+        const o = exact[cursor++]
+        const m = o.match as Extract<RosterMatch, { status: 'unique' }>
+        // 用 Meegle 上的寫法查（MQL 比對大小寫有別），每個顯示名稱都要唯一
+        const checks: Array<{ label: string; result: CallOutcome<DirectoryLabel> }> = []
+        for (const label of m.user.names) {
+          const result = await checkDirectoryLabel(ctx.token, label)
+          checks.push({ label, result })
+          if (result.kind !== 'ok' || result.value.kind !== 'unique') break
+        }
+        const v = bulkVerdict(checks)
+        o.bulkOk = v.ok; o.note = v.note
+      }
+    }))
+    for (const o of out) if (!o.note && o.match.status === 'unique' && o.match.confidence === 'partial') o.note = '只有部分名字相同，可能是別人，請確認'
+    res.json({ ok: true, fetchedAt: roster.value.at, suggestions: out.map(o => ({ alias: o.alias, ...o.match, bulkOk: o.bulkOk, note: o.note })) })
+  } catch (e) { next(e) }
+})
+
+// POST /api/meegle/batch/people/verify —— 填 email（或從名單選人）→ 伺服器查證 Meegle 帳號 → 記住對照
+// 從名單選人時前端會帶 userKey，但**不相信前端**：一律由伺服器用名單（自己查的）或 user search 重新核對 userKey 與 email（CodeX 2026-10-05）。
 router.post('/api/meegle/batch/people/verify', writeLimiter, async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const { alias, email } = z.object({ alias: z.string().trim().min(1).max(100), email: z.string().trim().email().max(200) }).parse(req.body)
-    const search = await resolveUsersByEmail(ctx.token, [email])
-    if (search.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${search.message}` })
-    let match = search.value[email.toLowerCase()]
-    // server tsconfig 沒開 strictNullChecks，聯集要用 'reason' in 縮小
-    if ('reason' in match && match.reason === 'NOT_FOUND') {
-      // 退路：user search 不是完整名錄（實測 Tim），改從既有單子的參與人找，email 必須完全相同
-      const local = email.split('@')[0]
-      const candidates = [alias, alias.split(/\s+/)[0], local, local.charAt(0).toUpperCase() + local.slice(1)]
-      const viaItems = await findUserViaParticipants(ctx.token, email, candidates)
-      if (viaItems.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${viaItems.message}` })
-      match = viaItems.value
+    const { alias, email, userKey } = z.object({ alias: z.string().trim().min(1).max(100), email: z.string().trim().email().max(200), userKey: z.string().regex(/^\d+$/).max(40).optional() }).parse(req.body)
+    const want = email.toLowerCase()
+    let match: UserMatch | null = null
+    if (userKey) {
+      // 選的是名單上的人：名單（伺服器 10 分鐘內自己掃的）裡 userKey 與 email 都要對得上；不在名單就用 user search 查這個 userKey
+      // 不走名字 MQL——同名的人（Eric）用名字查會卡 3012
+      const roster = await getRoster(ctx)
+      if (roster.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${roster.message}` })
+      const inRoster = roster.value.users.find(u => u.userKey === userKey)
+      if (inRoster) {
+        match = inRoster.email.toLowerCase() === want
+          ? { ok: true, userKey, email: inRoster.email, name: inRoster.name }
+          : { ok: false, reason: 'NOT_FOUND', message: `選的人（${inRoster.name}）在 Meegle 的 email 是 ${inRoster.email || '（沒有 email）'}，跟 ${email} 不同` }
+      } else {
+        const found = await searchUserKey(ctx.token, userKey)
+        if (found.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${found.message}` })
+        match = !found.value ? { ok: false, reason: 'NOT_FOUND', message: `Meegle 查不到這個帳號（${userKey}）` }
+          : found.value.email.toLowerCase() === want ? { ok: true, ...found.value }
+          : { ok: false, reason: 'NOT_FOUND', message: `這個帳號在 Meegle 的 email 是 ${found.value.email || '（沒有 email）'}，跟 ${email} 不同` }
+      }
+    } else {
+      const search = await resolveUsersByEmail(ctx.token, [email])
+      if (search.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${search.message}` })
+      match = search.value[want]
+      // server tsconfig 沒開 strictNullChecks，聯集要用 'reason' in 縮小
+      if ('reason' in match && match.reason === 'NOT_FOUND') {
+        // 退路 1：user search 不是完整名錄（實測 Tim）→ 先看空間角色名單有沒有恰好一個人是這個 email
+        const roster = await getRoster(ctx)
+        const byEmail = roster.kind === 'ok' ? roster.value.users.filter(u => u.email.toLowerCase() === want) : []
+        if (byEmail.length === 1) match = { ok: true, userKey: byEmail[0].userKey, email: byEmail[0].email, name: byEmail[0].name }
+        else if (byEmail.length > 1) match = { ok: false, reason: 'MULTIPLE', message: `${email} 對到 ${byEmail.length} 個 Meegle 帳號` }
+        else {
+          // 退路 2：名單讀不到時，改從既有單子的參與人找，email 必須完全相同
+          const local = email.split('@')[0]
+          const candidates = [alias, alias.split(/\s+/)[0], local, local.charAt(0).toUpperCase() + local.slice(1)]
+          const viaItems = await findUserViaParticipants(ctx.token, email, candidates)
+          if (viaItems.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `查詢 Meegle 失敗：${viaItems.message}` })
+          match = viaItems.value
+        }
+      }
     }
     if ('reason' in match) return res.status(422).json({ ok: false, code: match.reason, message: match.message })
     upsertPersonMap(db, alias, { userKey: match.userKey, email: match.email, name: match.name }, ctx.email)
-    log('ok', getClientIP(req), ctx.email, 'Meegle 人員對照', `${alias} → ${match.email}`)
+    log('ok', getClientIP(req), ctx.email, 'Meegle 人員對照', `${alias} → ${match.email}${userKey ? '（從名單選）' : ''}`)
     res.json({ ok: true, person: { alias: normAlias(alias), userKey: match.userKey, email: match.email, name: match.name } })
   } catch (e) { next(e) }
 })

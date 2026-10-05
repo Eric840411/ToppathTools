@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MEEGLE_ROLE_DEFS, collectAliases, isRestorablePrevious, normAlias, planRow,
   type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan,
 } from '../../shared/meegle-batch-rules'
+import type { RosterPerson } from '../../shared/meegle-people-match'
 import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 
@@ -20,6 +21,8 @@ type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: st
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
 type Previous = RowResult & { name: string; owner: string }
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>> }
+/** 後端猜人結果（只是建議；寫入一律走 verify）。bulkOk＝完整名字＋名單唯一＋租戶名錄也唯一，才能進「全部確認」 */
+type Suggestion = { alias: string; status: 'unique' | 'ambiguous' | 'none'; confidence?: 'exact' | 'partial'; user?: RosterPerson; users?: RosterPerson[]; bulkOk: boolean; note: string }
 
 /** 目前是普通版還是修仙版：App 切換時會改 <html data-theme-mode>，這裡跟著它（只換文字，樣式交給 CSS） */
 function useThemeMode(): string {
@@ -91,9 +94,36 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const [page, setPage] = useState(1)
 
   const [emailDraft, setEmailDraft] = useState<Record<string, string>>({})
+  // 非同步流程（全部確認、verify／建議晚回）要讀「現在」的值，不能用點下去那一刻的快照（CodeX review [P1]）
+  const draftRef = useRef(emailDraft)
+  draftRef.current = emailDraft
+  // 每列的編輯版本：使用者每動一次 +1。送出前後比對，版本變了＝使用者改過，舊流程不能再動這列
+  const editVer = useRef<Record<string, number>>({})
+  // 使用者親手打過字的列（含打完又清空）：晚回的建議不再預填、也不進全部確認（CodeX review [P2]）
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+  // 這次驗證成功時那列的版本與 email。之後只要版本又變（不管是驗證等回應時、還是驗完才改）＝新填的還沒驗證
+  // → 留在「未對照」顯示，不能因為刷新對照表就被移到「已對照」藏起來（CodeX review 兩輪 [P1]）
+  const [verified, setVerified] = useState<Record<string, { ver: number; email: string }>>({})
+  const needsReverify = (alias: string) => alias in verified && (editVer.current[alias] ?? 0) !== verified[alias].ver
+  const touchedRef = useRef(touched)
+  touchedRef.current = touched
+  /** 使用者改了某列的 email。manual＝親手打字；從建議／候選點選的不算 */
+  function editDraft(alias: string, value: string, manual: boolean) {
+    editVer.current[alias] = (editVer.current[alias] ?? 0) + 1
+    setEmailDraft(d => ({ ...d, [alias]: value }))
+    setTouched(t => { if (manual === t.has(alias)) return t; const n = new Set(t); if (manual) n.add(alias); else n.delete(alias); return n })
+  }
   const [verifying, setVerifying] = useState<Record<string, boolean>>({})
   const [verifyError, setVerifyError] = useState<Record<string, string>>({})
   const [editingAlias, setEditingAlias] = useState<Set<string>>(new Set())
+  // ② 空間角色人員名單（下拉選人）與猜人建議。key 一律用 normAlias
+  const [roster, setRoster] = useState<RosterPerson[] | null>(null)
+  const [rosterState, setRosterState] = useState<{ loading: boolean; error: string; at: number }>({ loading: false, error: '', at: 0 })
+  const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({})
+  const [bulkConfirming, setBulkConfirming] = useState(false)
+  // 晚回保護：每次讀 Sheet／重查都換一個序號，舊的回應回來時序號對不上就丟掉（CodeX 2026-10-05）
+  const suggestSeq = useRef(0)
+  const suggestedFor = useRef(false)
 
   const [batchId, setBatchId] = useState('')
   const [running, setRunning] = useState(false)
@@ -126,6 +156,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
 
   async function loadSheet(url = sheetUrl) {
     if (!url.trim()) return
+    // 一開始讀就作廢舊的建議與進行中的全部確認——不能等新 Sheet 回來才作廢，讀得慢的話舊批次會繼續送（CodeX review [P1]）
+    suggestSeq.current++
     setSheetLoading(true); setSheetError('')
     try {
       const j = await api<{ records: SheetRecord[] }>('/api/lark/sheets/records', { sheetUrl: url.trim(), includeCreated: true })
@@ -138,6 +170,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       // 回填 Sheet 沒完成（失敗／待寫）的也接回來，才有「補寫回」可以按
       for (const p of prev.rows) if (isRestorablePrevious(p) || p.writebackPhase === 'failed' || p.writebackPhase === 'pending') pending[Number(p.rowKey)] = p
       setOverrides({}); setResults(pending); setRowNote({}); setPage(1)
+      // touched 不清：使用者親手打過（含清空）的意圖跨 Sheet 也保留
+      suggestSeq.current++; suggestedFor.current = false; setSuggestions({})
       setSelected(new Set())  // 下面的 effect 依規則重新預選
       setNeedsPreselect(true)
     } catch (e) { setSheetError((e as Error).message) } finally { setSheetLoading(false) }
@@ -208,15 +242,75 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     }).sort((a, b) => Number(!!a.person) - Number(!!b.person) || b.affected - a.affected)
   }, [records, rows, overrides, defaults, personMap])
 
-  async function verifyAlias(alias: string) {
-    const email = (emailDraft[alias] ?? '').trim()
-    if (!email) return
+  /** email 對到名單上恰好一個人 → 帶 userKey 給後端（後端仍會自己重新核對，不相信這個值） */
+  function rosterByEmail(email: string): RosterPerson | null {
+    const hits = (roster ?? []).filter(u => u.email && u.email.toLowerCase() === email.trim().toLowerCase())
+    return hits.length === 1 ? hits[0] : null
+  }
+
+  async function verifyAlias(alias: string, reload = true): Promise<boolean> {
+    const email = (draftRef.current[alias] ?? '').trim()
+    if (!email) return false
+    const ver = editVer.current[alias] ?? 0
     setVerifying(v => ({ ...v, [alias]: true })); setVerifyError(v => ({ ...v, [alias]: '' }))
     try {
-      await api('/api/meegle/batch/people/verify', { alias, email })
-      await loadPeople()
-      setEditingAlias(s => { const n = new Set(s); n.delete(alias); return n })
-    } catch (e) { setVerifyError(v => ({ ...v, [alias]: (e as Error).message })) } finally { setVerifying(v => ({ ...v, [alias]: false })) }
+      const picked = rosterByEmail(email)
+      await api('/api/meegle/batch/people/verify', { alias, email, ...(picked ? { userKey: picked.userKey } : {}) })
+      if (reload) await loadPeople()
+      // 等回應期間使用者又改了這列 → 不收起編輯框，保留他新打的（不然新編輯會被藏到「已對照」裡）
+      setVerified(v => ({ ...v, [alias]: { ver, email } }))
+      // 等回應期間使用者又改了這列 → 不收起編輯框，保留他新打的
+      if ((editVer.current[alias] ?? 0) !== ver) setEditingAlias(s => new Set(s).add(alias))
+      else setEditingAlias(s => { const n = new Set(s); n.delete(alias); return n })
+      return true
+    } catch (e) { setVerifyError(v => ({ ...v, [alias]: (e as Error).message })); return false } finally { setVerifying(v => ({ ...v, [alias]: false })) }
+  }
+
+  // 進 ② 時：讀名單＋猜人。只猜未對照的；建議只預填「還沒手動填過」的格子，不蓋掉使用者打的字
+  async function loadSuggestions(refresh = false) {
+    const aliases = aliasRows.filter(a => !a.person).map(a => a.alias)
+    const seq = ++suggestSeq.current
+    setRosterState(s => ({ ...s, loading: true, error: '' }))
+    try {
+      const r = await api<{ users: RosterPerson[]; fetchedAt: number }>('/api/meegle/batch/people/roster', { refresh })
+      if (seq !== suggestSeq.current) return
+      setRoster(r.users)
+      const j = aliases.length ? await api<{ suggestions: Suggestion[] }>('/api/meegle/batch/people/suggest', { aliases }) : { suggestions: [] }
+      if (seq !== suggestSeq.current) return
+      const m: Record<string, Suggestion> = {}
+      for (const sg of j.suggestions) m[normAlias(sg.alias)] = sg
+      setSuggestions(m)
+      setEmailDraft(d => {
+        const n = { ...d }
+        // 只填「空白而且使用者沒親手碰過」的格子：打完又清空也算碰過，不能被晚回的建議填回去
+        for (const a of aliases) { const sg = m[normAlias(a)]; if (sg?.status === 'unique' && sg.user && !(n[a] ?? '').trim() && !touchedRef.current.has(a)) n[a] = sg.user.email }
+        return n
+      })
+      setRosterState({ loading: false, error: '', at: r.fetchedAt })
+    } catch (e) {
+      if (seq !== suggestSeq.current) return
+      setRosterState(s => ({ ...s, loading: false, error: (e as Error).message }))
+    }
+  }
+
+  /** 全部確認：只確認 bulkOk、使用者沒親手改過、格子裡還是建議那個 email 的列；逐一走 verify */
+  const bulkTargets = aliasRows.filter(a => {
+    if (a.person || touched.has(a.alias)) return false
+    const sg = suggestions[normAlias(a.alias)]
+    return !!sg?.bulkOk && sg.status === 'unique' && !!sg.user && (emailDraft[a.alias] ?? '').trim().toLowerCase() === sg.user.email.toLowerCase()
+  })
+  async function confirmAllSuggested() {
+    // 點下去時記下批次序號與每列的「預期 email＋版本」；每筆送出前重新核對，對不上就跳過（換 Sheet 就整批停）
+    const seq = suggestSeq.current
+    const plan = bulkTargets.map(a => ({ alias: a.alias, email: (draftRef.current[a.alias] ?? '').trim().toLowerCase(), ver: editVer.current[a.alias] ?? 0 }))
+    setBulkConfirming(true)
+    try {
+      for (const t of plan) {
+        if (suggestSeq.current !== seq) break
+        if ((editVer.current[t.alias] ?? 0) !== t.ver || (draftRef.current[t.alias] ?? '').trim().toLowerCase() !== t.email) continue
+        await verifyAlias(t.alias, false)
+      }
+    } finally { await loadPeople(); setBulkConfirming(false) }
   }
 
   // ── 送出 ──
@@ -295,10 +389,18 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
 
   const personOptions = people.map(p => ({ value: p.alias, label: `${p.alias}（${p.name || p.email}）` }))
 
-  const unmappedAliases = aliasRows.filter(a => !a.person)
-  const mappedAliases = aliasRows.filter(a => a.person)
+  const unmappedAliases = aliasRows.filter(a => !a.person || needsReverify(a.alias))
+  const mappedAliases = aliasRows.filter(a => a.person && !needsReverify(a.alias))
 
   /** ① → 下一步：全員已對照就直接進 ③（CodeX 建議），② 仍可從步驟列點回去看 */
+  // 進到 ② 且這次讀的 Sheet 還沒猜過 → 自動讀名單＋猜人（每次讀 Sheet 會把 suggestedFor 清掉，所以會重猜）
+  useEffect(() => {
+    if (step !== 2 || !records || suggestedFor.current) return
+    suggestedFor.current = true
+    void loadSuggestions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, records])
+
   function goNextFromLoad() {
     setStep(unmappedAliases.length ? 2 : 3)
   }
@@ -411,23 +513,64 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               <button type="button" role="tab" className={`mb-tab${peopleTab === 'unmapped' ? ' is-on mb-tab--warn' : ''}`} aria-selected={peopleTab === 'unmapped'} onClick={() => setPeopleTab('unmapped')}>未對照 <b>{unmappedAliases.length}</b></button>
               <button type="button" role="tab" className={`mb-tab${peopleTab === 'mapped' ? ' is-on' : ''}`} aria-selected={peopleTab === 'mapped'} onClick={() => setPeopleTab('mapped')}>已對照 <b>{mappedAliases.length}</b></button>
             </div>
+            <div className="mb-roster-bar">
+              <span className="mb-muted">
+                {rosterState.loading ? '正在讀取空間角色人員、比對名字…（約 20 秒）'
+                  : rosterState.error ? <span className="mb-badge mb-badge--bad">讀不到人員名單：{rosterState.error}（仍可直接輸入 email）</span>
+                  : roster ? `空間角色人員 ${roster.filter(u => u.email).length} 人` : ''}
+              </span>
+              <button type="button" className="mb-btn mb-btn--small" disabled={rosterState.loading} onClick={() => void loadSuggestions(true)}>重新整理名單</button>
+              {peopleTab === 'unmapped' && (
+                <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={bulkConfirming || !bulkTargets.length} onClick={() => void confirmAllSuggested()}
+                  title="只確認名字完全相同、而且 Meegle 上只有一個同名帳號的建議；其他請逐列確認">
+                  {bulkConfirming ? '確認中…' : `全部確認（${bulkTargets.length}）`}
+                </button>
+              )}
+            </div>
+            <datalist id="mb-roster-options">
+              {(roster ?? []).filter(u => u.email).map(u => <option key={u.userKey} value={u.email}>{u.name}</option>)}
+            </datalist>
             <div className="mb-people-list">
               {(peopleTab === 'unmapped' ? unmappedAliases : mappedAliases).map(({ alias, person, affected }) => {
-                const editing = !person || editingAlias.has(alias)
+                const editing = !person || editingAlias.has(alias) || needsReverify(alias)
+                const sg = person ? undefined : suggestions[normAlias(alias)]
+                const draft = (emailDraft[alias] ?? '').trim().toLowerCase()
+                const draftIsSuggested = sg?.status === 'unique' && !!sg.user && draft === sg.user.email.toLowerCase()
+                const picked = draft ? rosterByEmail(draft) : null
                 return (
                   <div key={alias} className="mb-person">
                     <div className="mb-person-row">
                       <span className="mb-person-name">{alias}</span>
                       {editing ? (
-                        <input className="mb-input mb-person-email" type="email" placeholder="輸入 email" value={emailDraft[alias] ?? person?.email ?? ''}
-                          onChange={e => setEmailDraft(d => ({ ...d, [alias]: e.target.value }))}
+                        <input className="mb-input mb-person-email" type="email" list="mb-roster-options" placeholder={roster ? '選人（可打名字或 email 搜尋）或輸入 email' : '輸入 email'} value={emailDraft[alias] ?? person?.email ?? ''}
+                          onChange={e => editDraft(alias, e.target.value, true)}
                           onKeyDown={e => { if (e.key === 'Enter') void verifyAlias(alias) }} />
                       ) : <span className="mb-person-email mb-muted">{person!.name} ・ {person!.email}</span>}
                       {editing
                         ? <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={verifying[alias] || !(emailDraft[alias] ?? '').trim()} onClick={() => void verifyAlias(alias)}>{verifying[alias] ? '驗證中…' : '驗證'}</button>
-                        : <button type="button" className="mb-btn mb-btn--small" onClick={() => { setEditingAlias(s => new Set(s).add(alias)); setEmailDraft(d => ({ ...d, [alias]: person!.email })) }}>修改</button>}
+                        : <button type="button" className="mb-btn mb-btn--small" onClick={() => { setEditingAlias(s => new Set(s).add(alias)); editDraft(alias, person!.email, false) }}>修改</button>}
                     </div>
                     <div className="mb-person-meta">影響 {affected} 列</div>
+                    {editing && !person && (
+                      <div className="mb-suggest">
+                        {picked && !draftIsSuggested && <span className="mb-muted">Meegle：{picked.name}</span>}
+                        {sg?.status === 'unique' && sg.user && (
+                          <span className={`mb-badge ${sg.bulkOk && draftIsSuggested ? 'mb-badge--ok' : 'mb-badge--warn'}`}>
+                            建議{sg.confidence === 'partial' ? '（部分名字相同）' : ''}：{sg.user.name}・{sg.user.email}
+                            {!draftIsSuggested && <> <button type="button" className="mb-link" onClick={() => editDraft(alias, sg.user!.email, false)}>套用</button></>}
+                          </span>
+                        )}
+                        {sg?.status === 'ambiguous' && (
+                          <span className="mb-badge mb-badge--warn">
+                            {sg.users!.length} 個可能的人：
+                            {sg.users!.filter(u => u.email).map(u => <button key={u.userKey} type="button" className="mb-link" onClick={() => editDraft(alias, u.email, false)}>{u.name}（{u.email}）</button>)}
+                            {sg.users!.some(u => !u.email) && <> ・{sg.users!.filter(u => !u.email).length} 人沒有 email</>}
+                          </span>
+                        )}
+                        {sg?.note && <span className="mb-muted">{sg.note}</span>}
+                      </div>
+                    )}
+                    {needsReverify(alias) && <div className="mb-badge mb-badge--warn">已用 {verified[alias].email} 對照；你之後改的 email 還沒驗證，要改成新的請按「驗證」</div>}
                     {verifyError[alias] && <div className="mb-badge mb-badge--bad">{verifyError[alias]}</div>}
                   </div>
                 )
@@ -435,7 +578,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               {peopleTab === 'unmapped' && !unmappedAliases.length && <div className="mb-muted mb-empty">全部都已對照 ✓</div>}
               {peopleTab === 'mapped' && !mappedAliases.length && <div className="mb-muted mb-empty">還沒有對照過的人</div>}
             </div>
-            <p className="mb-hint">ⓘ 未對照角色留空，預覽保留警告。對照用 Sheet 上的完整寫法；email 必須完全相同才算數。</p>
+            <p className="mb-hint">ⓘ 未對照角色留空，預覽保留警告。對照用 Sheet 上的完整寫法；email 必須完全相同才算數。
+              名單是「這個空間任務項上掛過角色的人」，不是完整名錄——找不到的人直接輸入 email。建議只是預填，一定要按「驗證」或「全部確認」才會記住。</p>
             <div className="mb-pane-actions">
               <button type="button" className="mb-btn mb-btn--outline" onClick={() => setStep(1)}>上一步</button>
               <button type="button" className="mb-btn mb-btn--primary" onClick={() => setStep(3)}>前往預覽</button>
