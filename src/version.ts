@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.1'
+export const APP_VERSION = '5.12.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.2', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「正在補寫」改成請求一進來就標記、回應結束才放——原本只標在最後寫 Sheet 那段，前面核對空間、推狀態等待的期間另一個分頁仍能把那一列移出（CodeX review）'] },
   { version: '5.12.1', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「移出清單」跟各工具自己的補寫入口（開單頁補寫回／重推狀態／查詢結果、評論補寫回／繼續送出、狀態與修改的重試）共用「正在補寫」標記，寫到一半的列不能被移出；確認框改用完整的來源分辨 Sheet，顯示名稱撞名的兩份不會被算成一份（CodeX review）'] },
   { version: '5.12.0', date: '2026-10-06', changes: ['feat(Meegle 補回填)：**「我自己處理了，移出清單」**——自己手動處理好的列可以勾選後移出待補清單，確認框會寫明筆數、哪幾份 Sheet，以及「不修改 Sheet／Meegle、目前不能復原」。只有送出的人或管理員能移，移出會記操作歷史。同一列之後重送又失敗會重新出現', 'change(Meegle 補回填)：清單載入後不再預設全選，要自己勾（避免一按就把整批移出）；補寫回改成每一列執行前才重新確認它還在清單裡，跟移出不會互相撞到'] },
   { version: '5.11.0', date: '2026-10-06', changes: ['feat(Meegle 批量工具)：**綁定引導卡**——開單、評論、狀態、修改四頁在還沒綁定／綁定失效／綁定資料無法讀取時，原本那一行字換成引導卡：三步說明怎麼取得 Token、「前往綁定」直接切到個人帳號頁、「我綁好了，重新檢查」只重新檢查這一頁（檢查中不能連按、成功才收起）。去個人帳號頁的期間 Meegle 工具保持在背景，回來剛剛打到一半的內容都還在；個人帳號頁會出現「回到 Meegle 批量工具」。樣稿使用者確認、行為 CodeX 同意'] },

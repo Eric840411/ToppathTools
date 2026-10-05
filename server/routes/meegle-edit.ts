@@ -27,7 +27,7 @@ import {
   expireStaleEditSteps, getEditRow, getEditSteps, initMeegleEditSchema, listPreviousEditForSource, type EditStepRow,
 } from '../meegle-edit-store.js'
 import { continueEditRow, planHash, runEditRow, type EditDeps } from '../meegle-edit-run.js'
-import { withWritebackBusy } from '../meegle-writeback-busy.js'
+import { busyWhileHandling, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
 
@@ -203,7 +203,8 @@ router.post('/api/meegle/edit/row', writeLimiter, async (req, res, next) => {
 })
 
 // POST /api/meegle/edit/row/retry —— 重試失敗的步驟（用上次存的內容；圖片沿用已上傳的網址）
-router.post('/api/meegle/edit/row/retry', writeLimiter, async (req, res, next) => {
+// 整個請求期間都標成「正在補寫」：包含前面核對空間的等待（CodeX review 1e123a9 [P2]）
+router.post('/api/meegle/edit/row/retry', writeLimiter, busyWhileHandling('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireSelf(req, res); if (!ctx) return
     const b = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)

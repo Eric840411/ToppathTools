@@ -25,7 +25,7 @@ import {
 } from '../meegle-comment-store.js'
 import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment-run.js'
 import { defaultRunner, resolveDetailUrlBase } from '../meegle-workitem.js'
-import { withWritebackBusy } from '../meegle-writeback-busy.js'
+import { busyWhileHandling, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
@@ -232,7 +232,8 @@ router.post('/api/meegle/comment/previous', (req, res, next) => {
 const attachmentSchema = z.object({ cacheId: z.string().refine(isCacheId, '附件快取 id 不合法'), name: z.string().min(1).max(300) })
 
 // POST /api/meegle/comment/row —— 送出一列
-router.post('/api/meegle/comment/row', writeLimiter, async (req, res, next) => {
+// 整個請求期間都標成「正在補寫」（評論的 row_key＝單號）：包含身分、核對空間等前置等待（CodeX review 1e123a9 [P2]）
+router.post('/api/meegle/comment/row', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.workItemId })), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({
@@ -253,7 +254,7 @@ router.post('/api/meegle/comment/row', writeLimiter, async (req, res, next) => {
 
 // POST /api/meegle/comment/row/continue —— 接著做還沒做的步驟（用上次存的內容，不靠前端草稿；重整頁面後也能按）
 // 測試說明還沒成功的列不能用這個：要重新預覽（送前要拿最新的遠端版本比對）
-router.post('/api/meegle/comment/row/continue', writeLimiter, async (req, res, next) => {
+router.post('/api/meegle/comment/row/continue', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
@@ -321,7 +322,7 @@ router.post('/api/meegle/comment/row/resolve', writeLimiter, async (req, res, ne
 })
 
 // POST /api/meegle/comment/row/writeback —— 補寫回（只跑 Sheet 回填，不碰 Meegle）
-router.post('/api/meegle/comment/row/writeback', writeLimiter, async (req, res, next) => {
+router.post('/api/meegle/comment/row/writeback', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)

@@ -8,6 +8,7 @@
  * 用計數不用布林：同一列可能同時有兩個入口在寫（例如兩個分頁），一個寫完不能把另一個的標記清掉。
  * 這些路由都掛在 server 同一個程序裡，所以記憶體就夠。
  */
+import type { RequestHandler } from 'express'
 import { backfillKey } from './meegle-backfill.js'
 import type { BackfillTool } from './meegle-backfill.js'
 
@@ -21,5 +22,28 @@ export async function withWritebackBusy<T>(tool: BackfillTool, batchId: string, 
   try { return await fn() } finally {
     const n = (counts.get(k) ?? 1) - 1
     if (n > 0) counts.set(k, n); else counts.delete(k)
+  }
+}
+
+/**
+ * 路由用：**請求一進來就標記**，回應結束（finish／close）才放（CodeX review 1e123a9 [P2]）。
+ * 只在補寫那一段才標記的話，前面的遠端等待（核對空間、推狀態）期間另一個分頁仍能移出，等待結束後照樣寫 Sheet。
+ * 放在路由最前面就沒有「標太晚」這回事。body 不合格（拿不到鍵）就不標，交給後面的驗證回錯。
+ */
+export function busyWhileHandling(tool: BackfillTool, keyOf: (body: Record<string, unknown>) => { batchId: unknown; rowKey: unknown }): RequestHandler {
+  return (req, res, next) => {
+    const { batchId, rowKey } = keyOf((req.body ?? {}) as Record<string, unknown>)
+    if (typeof batchId !== 'string' || typeof rowKey !== 'string' || !batchId || !rowKey) return next()
+    const k = backfillKey({ tool, batchId, rowKey })
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      const n = (counts.get(k) ?? 1) - 1
+      if (n > 0) counts.set(k, n); else counts.delete(k)
+    }
+    res.on('finish', release); res.on('close', release)
+    next()
   }
 }

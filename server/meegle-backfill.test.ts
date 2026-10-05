@@ -7,7 +7,8 @@ import { initMeegleBatchSchema } from './meegle-batch-store.js'
 import { initMeegleCommentSchema } from './meegle-comment-store.js'
 import { initMeegleStatusSchema } from './meegle-status-store.js'
 import { initMeegleEditSchema } from './meegle-edit-store.js'
-import { isWritebackBusy, withWritebackBusy } from './meegle-writeback-busy.js'
+import { EventEmitter } from 'events'
+import { busyWhileHandling, isWritebackBusy, withWritebackBusy } from './meegle-writeback-busy.js'
 import { IDLE_MS, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill } from './meegle-backfill.js'
 
 let pass = 0, fail = 0
@@ -112,6 +113,25 @@ eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfi
   // 寫的途中丟例外也要清掉標記
   await withWritebackBusy('status', 's1', '201', async () => { throw new Error('x') }).catch(() => {})
   eq('補寫丟例外 → 標記仍會清掉', isWritebackBusy('status:s1:201'), false)
+}
+
+// 路由的標記：請求一進來就標、回應結束才放（CodeX review 1e123a9 [P2]：只包補寫那一段的話，前面核對空間的等待期間仍能被移出）
+{
+  const mw = busyWhileHandling('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }))
+  const res = new EventEmitter()
+  let nexted = false
+  mw({ body: { batchId: 'e1', rowKey: '301' } } as never, res as never, (() => { nexted = true }) as never)
+  eq('請求一進來（還沒做任何遠端等待）就標記', [nexted, isWritebackBusy('edit:e1:301')], [true, true])
+  eq('標記期間移出 → 擋下', dismissBackfill(db, [{ tool: 'edit', batchId: 'e1', rowKey: '301' }], me, { now: NOW, busy: isWritebackBusy })[0].message, '這一列正在補寫，結束後再移')
+  res.emit('finish'); res.emit('close')
+  eq('回應結束才放（finish＋close 只放一次）', isWritebackBusy('edit:e1:301'), false)
+  const res2 = new EventEmitter()
+  mw({ body: { batchId: 'e1', rowKey: '301' } } as never, res2 as never, (() => {}) as never)
+  res2.emit('close')
+  eq('連線中斷（只有 close）也會放', isWritebackBusy('edit:e1:301'), false)
+  let n2 = false
+  mw({ body: { batchId: 1 } } as never, new EventEmitter() as never, (() => { n2 = true }) as never)
+  eq('body 拿不到鍵 → 不標、交給後面驗證', [n2, isWritebackBusy('edit:1:undefined')], [true, false])
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -15,7 +15,7 @@ import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
 import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
 import { larkWritebackDeps, writebackRow } from '../meegle-sheet-writeback.js'
-import { withWritebackBusy } from '../meegle-writeback-busy.js'
+import { busyWhileHandling, withWritebackBusy } from '../meegle-writeback-busy.js'
 
 /**
  * 回填 Sheet（失敗不影響開單；結果落在 writeback_phase，④ 顯示、可補寫回）。
@@ -323,7 +323,8 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
 })
 
 // POST /api/meegle/batch/row/retry-state —— 已開單但推狀態失敗：只重推狀態
-router.post('/api/meegle/batch/row/retry-state', writeLimiter, async (req, res, next) => {
+// 這三支整個請求期間都標成「正在補寫」：推狀態、查單這些遠端等待期間也不能被移出（CodeX review 1e123a9 [P2]）
+router.post('/api/meegle/batch/row/retry-state', writeLimiter, busyWhileHandling('create', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
@@ -341,7 +342,7 @@ router.post('/api/meegle/batch/row/retry-state', writeLimiter, async (req, res, 
 })
 
 // POST /api/meegle/batch/row/confirm —— 結果待確認：去 Meegle 查到底有沒有開出來
-router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next) => {
+router.post('/api/meegle/batch/row/confirm', writeLimiter, busyWhileHandling('create', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
@@ -382,7 +383,7 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
 })
 
 // POST /api/meegle/batch/row/writeback —— 補寫回 Sheet（只用已存的單號，不重開單）
-router.post('/api/meegle/batch/row/writeback', writeLimiter, async (req, res, next) => {
+router.post('/api/meegle/batch/row/writeback', writeLimiter, busyWhileHandling('create', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return

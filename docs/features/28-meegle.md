@@ -351,6 +351,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - `dismissBackfill`：一個 IMMEDIATE transaction 裡重新列一次「這個人看得到的待補清單」、逐列驗證（送出的人或 admin）、寫入、記歷史。已移出過的回「已經移出過」、不重複記歷史、不覆蓋第一個移出的人。操作者一律從登入 session 取
 - **補寫與移出互斥**：補寫改成**每一列執行前才重查**是否還在清單（原本迴圈前只讀一次，前面在寫的時候後面的可能已被另一個分頁移出），並把那一列標成忙碌；移出時遇到忙碌的列就擋（記憶體集合，路由只在 server 這個程序）
 - v5.12.1（CodeX review 99ee76a [P2]×2）：「正在補寫」標記抽成 `server/meegle-writeback-busy.ts`，**所有補寫入口共用**（開單頁補寫回／重推狀態／查詢結果、評論補寫回／送出／繼續送出、狀態與修改的重試、補回填分頁）；用計數不用布林，兩個入口同時寫同一列時一個寫完不會清掉另一個的標記。確認框改用 `sourceKey` 分辨 Sheet，顯示名稱撞名時補上來源前段
+- v5.12.2（CodeX review 1e123a9 [P2]）：標記改成**路由 middleware**（`busyWhileHandling`）：請求一進來就標、回應 finish／close 才放。只包最後寫 Sheet 那段的話，前面核對空間、推狀態的等待期間仍能被移出。掛在：狀態／修改重試、開單 retry-state／confirm／writeback、評論 row／continue／writeback。真 HTTP 並發測試：`node scripts/ui-checks/backfill-dismiss-race.mjs`
 - 新批次會重新出現：鍵含 batch_id，同一列之後重送又回填失敗，新批次的 batch_id 不同
 - 這版**不做「顯示已移出／復原」**，但操作歷史查得到明細（`docs/features/10-history.md` 的 `meegle-backfill`）
 - 測試：`npx tsx server/meegle-backfill.test.ts`（越權、重複請求、不偽造狀態、忙碌不准移、舊批次移出新批次仍列出）；`node scripts/ui-checks/meegle-backfill-walkthrough.mjs`（預設不勾選、確認框內容、取消不送、只送勾選的）
