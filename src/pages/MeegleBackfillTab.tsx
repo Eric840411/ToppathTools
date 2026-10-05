@@ -18,6 +18,8 @@ type Item = {
   sheetLabel: string; sourceKey: string; sheetRow: number; summary: string; owner: string; phase: 'failed' | 'stuck'; message: string | null; lastAt: number
   /** 哪個 Meegle 空間（v5.10.0）。補寫回只寫 Sheet、不碰 Meegle，標出來只是讓人分得出是哪邊的單 */
   space?: 'test' | 'prod'
+  /** 這一列正在被某個入口補寫（移出會被擋） */
+  busy?: boolean
 }
 type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null; action?: 'retry' | 'dismiss' }
 
@@ -199,7 +201,7 @@ export function MeegleBackfillTab() {
                             <td><span className={`bf-tool bf-tool--${i.tool}`}>{i.toolLabel}</span><div className="bf-id">#{i.workItemId} {i.space === 'prod' && <SpaceTag space="prod" />}</div></td>
                             <td className="mb-num">第 {i.sheetRow} 列</td>
                             <td>{i.stage}</td>
-                            <td>{i.phase === 'failed' ? <span className="mb-badge mb-badge--bad">失敗</span> : <span className="mb-badge bf-badge-pending" title="超過 2 分鐘沒寫成，可能中斷了">待回填</span>}</td>
+                            <td>{i.busy ? <span className="mb-badge bf-badge-pending" title="另一個分頁或請求正在補寫這一列">補寫中</span> : i.phase === 'failed' ? <span className="mb-badge mb-badge--bad">失敗</span> : <span className="mb-badge bf-badge-pending" title="超過 2 分鐘沒寫成，可能中斷了">待回填</span>}</td>
                             <td className="bf-msg">{i.message || '—'}</td>
                             <td className="mb-num">{fmt(i.lastAt)}</td>
                             {scope === 'all' && <td className="mb-muted">{i.owner}</td>}

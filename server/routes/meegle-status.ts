@@ -21,7 +21,7 @@ import {
   expireStaleStatusSteps, getStatusRow, getStatusSteps, initMeegleStatusSchema, listPreviousStatusForSource, dateDataOf, type StatusStepRow,
 } from '../meegle-status-store.js'
 import { continueStatusRow, runStatusRow, type StatusDeps } from '../meegle-status-run.js'
-import { busyWhileHandling, withWritebackBusy } from '../meegle-writeback-busy.js'
+import { busyHandler, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { AUTO_DATE_FIELDS, DATE_MODES } from '../../shared/meegle-status-rules.js'
 
@@ -141,8 +141,8 @@ router.post('/api/meegle/status/row', writeLimiter, async (req, res, next) => {
 })
 
 // POST /api/meegle/status/row/retry —— 重試失敗的步驟（含「只補日期」：用第一次讀到的原值，不重新讀）
-// 整個請求期間都標成「正在補寫」：包含前面核對空間的等待（CodeX review 1e123a9 [P2]）
-router.post('/api/meegle/status/row/retry', writeLimiter, busyWhileHandling('status', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
+// 整個 handler 期間都標成「正在補寫」：包含前面核對空間的等待；斷線也要等 handler 跑完才放（CodeX review 1e123a9／074271b）
+router.post('/api/meegle/status/row/retry', writeLimiter, busyHandler('status', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async (req, res, next) => {
   try {
     const ctx = requireSelf(req, res); if (!ctx) return
     const b = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
@@ -158,7 +158,7 @@ router.post('/api/meegle/status/row/retry', writeLimiter, busyWhileHandling('sta
     log('ok', getClientIP(req), ctx.email, 'Meegle 狀態', `#${b.rowKey} 重試`)
     res.json({ ok: true, steps: publicSteps(steps) })
   } catch (e) { next(e) }
-})
+}))
 
 // POST /api/meegle/status/finish —— 一批結束寫操作紀錄
 router.post('/api/meegle/status/finish', (req, res, next) => {

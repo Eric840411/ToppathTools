@@ -25,7 +25,7 @@ import {
 } from '../meegle-comment-store.js'
 import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment-run.js'
 import { defaultRunner, resolveDetailUrlBase } from '../meegle-workitem.js'
-import { busyWhileHandling, withWritebackBusy } from '../meegle-writeback-busy.js'
+import { busyHandler, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
@@ -233,7 +233,7 @@ const attachmentSchema = z.object({ cacheId: z.string().refine(isCacheId, '附�
 
 // POST /api/meegle/comment/row —— 送出一列
 // 整個請求期間都標成「正在補寫」（評論的 row_key＝單號）：包含身分、核對空間等前置等待（CodeX review 1e123a9 [P2]）
-router.post('/api/meegle/comment/row', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.workItemId })), async (req, res, next) => {
+router.post('/api/meegle/comment/row', writeLimiter, busyHandler('comment', b => ({ batchId: b.batchId, rowKey: b.workItemId }), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({
@@ -250,11 +250,11 @@ router.post('/api/meegle/comment/row', writeLimiter, busyWhileHandling('comment'
     const r = await withWritebackBusy('comment', batchId, content.workItemId, () => executeRow(req, ctx, batchId, space, content, { expectedRemoteHash, confirmedRemoteHash, allowRepeat }))
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
-})
+}))
 
 // POST /api/meegle/comment/row/continue —— 接著做還沒做的步驟（用上次存的內容，不靠前端草稿；重整頁面後也能按）
 // 測試說明還沒成功的列不能用這個：要重新預覽（送前要拿最新的遠端版本比對）
-router.post('/api/meegle/comment/row/continue', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
+router.post('/api/meegle/comment/row/continue', writeLimiter, busyHandler('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
@@ -270,7 +270,7 @@ router.post('/api/meegle/comment/row/continue', writeLimiter, busyWhileHandling(
     const r = await withWritebackBusy('comment', body.batchId, body.rowKey, () => executeRow(req, ctx, body.batchId, rowSpace(row.space), content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: false }))
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
-})
+}))
 
 function ownedRow(req: Request, res: Response, ctx: Ctx, batchId: string, rowKey: string) {
   const row = getCommentRow(db, batchId, rowKey)
@@ -322,7 +322,7 @@ router.post('/api/meegle/comment/row/resolve', writeLimiter, async (req, res, ne
 })
 
 // POST /api/meegle/comment/row/writeback —— 補寫回（只跑 Sheet 回填，不碰 Meegle）
-router.post('/api/meegle/comment/row/writeback', writeLimiter, busyWhileHandling('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey })), async (req, res, next) => {
+router.post('/api/meegle/comment/row/writeback', writeLimiter, busyHandler('comment', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
@@ -338,7 +338,7 @@ router.post('/api/meegle/comment/row/writeback', writeLimiter, busyWhileHandling
     }, body.batchId, body.rowKey))
     res.json({ ok: true, steps: publicSteps(steps) })
   } catch (e) { next(e) }
-})
+}))
 
 // POST /api/meegle/comment/finish —— 一批結束寫操作紀錄（每列的路徑：單號、各步驟結果）
 router.post('/api/meegle/comment/finish', (req, res, next) => {

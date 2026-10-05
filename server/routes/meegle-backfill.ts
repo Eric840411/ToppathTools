@@ -44,7 +44,7 @@ function requireCtx(req: Request, res: Response): Ctx | null {
 
 function publicItem(it: PendingItem) {
   const [, token = '', sheetId = ''] = it.sourceKey.split(':')
-  return { ...it, tool: it.tool, toolLabel: BACKFILL_TOOLS.find(t => t.key === it.tool)?.label, stage: BACKFILL_TOOLS.find(t => t.key === it.tool)?.stage, sheetLabel: `${token.slice(0, 6)}…／${sheetId}` }
+  return { ...it, busy: isWritebackBusy(backfillKey(it)), tool: it.tool, toolLabel: BACKFILL_TOOLS.find(t => t.key === it.tool)?.label, stage: BACKFILL_TOOLS.find(t => t.key === it.tool)?.stage, sheetLabel: `${token.slice(0, 6)}…／${sheetId}` }
 }
 
 /** 各工具原本的回填：Meegle 那邊的呼叫一律不准（這裡只補 Sheet） */

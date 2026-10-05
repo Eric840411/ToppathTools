@@ -26,24 +26,20 @@ export async function withWritebackBusy<T>(tool: BackfillTool, batchId: string, 
 }
 
 /**
- * 路由用：**請求一進來就標記**，回應結束（finish／close）才放（CodeX review 1e123a9 [P2]）。
- * 只在補寫那一段才標記的話，前面的遠端等待（核對空間、推狀態）期間另一個分頁仍能移出，等待結束後照樣寫 Sheet。
- * 放在路由最前面就沒有「標太晚」這回事。body 不合格（拿不到鍵）就不標，交給後面的驗證回錯。
+ * 路由用：把整個 async handler 包起來——**請求一進來就標記，handler 跑完（finally）才放**。
+ * - 不能只包最後寫 Sheet 那段：前面核對空間、推狀態的等待期間另一個分頁仍能移出（CodeX review 1e123a9 [P2]）
+ * - 也不能在回應 close 就放：瀏覽器斷線不會取消 handler，查詢回來後照樣補寫——那時候標記已經放掉了（CodeX review 074271b [P2]）
+ * body 拿不到鍵就不標，交給 handler 自己的驗證回錯。
  */
-export function busyWhileHandling(tool: BackfillTool, keyOf: (body: Record<string, unknown>) => { batchId: unknown; rowKey: unknown }): RequestHandler {
-  return (req, res, next) => {
+export function busyHandler(tool: BackfillTool, keyOf: (body: Record<string, unknown>) => { batchId: unknown; rowKey: unknown }, handler: RequestHandler): RequestHandler {
+  return async (req, res, next) => {
     const { batchId, rowKey } = keyOf((req.body ?? {}) as Record<string, unknown>)
-    if (typeof batchId !== 'string' || typeof rowKey !== 'string' || !batchId || !rowKey) return next()
+    if (typeof batchId !== 'string' || typeof rowKey !== 'string' || !batchId || !rowKey) return handler(req, res, next)
     const k = backfillKey({ tool, batchId, rowKey })
     counts.set(k, (counts.get(k) ?? 0) + 1)
-    let released = false
-    const release = () => {
-      if (released) return
-      released = true
+    try { await handler(req, res, next) } finally {
       const n = (counts.get(k) ?? 1) - 1
       if (n > 0) counts.set(k, n); else counts.delete(k)
     }
-    res.on('finish', release); res.on('close', release)
-    next()
   }
 }

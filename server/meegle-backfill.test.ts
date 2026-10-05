@@ -8,7 +8,7 @@ import { initMeegleCommentSchema } from './meegle-comment-store.js'
 import { initMeegleStatusSchema } from './meegle-status-store.js'
 import { initMeegleEditSchema } from './meegle-edit-store.js'
 import { EventEmitter } from 'events'
-import { busyWhileHandling, isWritebackBusy, withWritebackBusy } from './meegle-writeback-busy.js'
+import { busyHandler, isWritebackBusy, withWritebackBusy } from './meegle-writeback-busy.js'
 import { IDLE_MS, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill } from './meegle-backfill.js'
 
 let pass = 0, fail = 0
@@ -115,23 +115,31 @@ eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfi
   eq('補寫丟例外 → 標記仍會清掉', isWritebackBusy('status:s1:201'), false)
 }
 
-// 路由的標記：請求一進來就標、回應結束才放（CodeX review 1e123a9 [P2]：只包補寫那一段的話，前面核對空間的等待期間仍能被移出）
+// 路由的標記：整個 handler 期間都標（CodeX review 1e123a9／074271b [P2]）
+// - 只包最後寫 Sheet 那段 → 前面核對空間的等待期間仍能被移出
+// - 在回應 close 就放 → 斷線不會取消 handler，查詢回來後照樣補寫
 {
-  const mw = busyWhileHandling('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }))
+  let releaseQuery: () => void = () => {}
+  let handlerDone = false
+  const wrapped = busyHandler('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async () => {
+    await new Promise<void>(r => { releaseQuery = r })   // 卡在「核對空間」
+    handlerDone = true
+  })
   const res = new EventEmitter()
-  let nexted = false
-  mw({ body: { batchId: 'e1', rowKey: '301' } } as never, res as never, (() => { nexted = true }) as never)
-  eq('請求一進來（還沒做任何遠端等待）就標記', [nexted, isWritebackBusy('edit:e1:301')], [true, true])
-  eq('標記期間移出 → 擋下', dismissBackfill(db, [{ tool: 'edit', batchId: 'e1', rowKey: '301' }], me, { now: NOW, busy: isWritebackBusy })[0].message, '這一列正在補寫，結束後再移')
-  res.emit('finish'); res.emit('close')
-  eq('回應結束才放（finish＋close 只放一次）', isWritebackBusy('edit:e1:301'), false)
-  const res2 = new EventEmitter()
-  mw({ body: { batchId: 'e1', rowKey: '301' } } as never, res2 as never, (() => {}) as never)
-  res2.emit('close')
-  eq('連線中斷（只有 close）也會放', isWritebackBusy('edit:e1:301'), false)
-  let n2 = false
-  mw({ body: { batchId: 1 } } as never, new EventEmitter() as never, (() => { n2 = true }) as never)
-  eq('body 拿不到鍵 → 不標、交給後面驗證', [n2, isWritebackBusy('edit:1:undefined')], [true, false])
+  const run = (wrapped as unknown as (req: unknown, res: unknown, next: unknown) => Promise<void>)({ body: { batchId: 'e1', rowKey: '301' } }, res, () => {})
+  eq('handler 還卡在前置查詢 → 已標記', isWritebackBusy('edit:e1:301'), true)
+  res.emit('close')   // 瀏覽器斷線
+  eq('斷線（close）但 handler 還在跑 → 仍標記', isWritebackBusy('edit:e1:301'), true)
+  eq('斷線後另一分頁移出 → 仍被擋', dismissBackfill(db, [{ tool: 'edit', batchId: 'e1', rowKey: '301' }], me, { now: NOW, busy: isWritebackBusy })[0].message, '這一列正在補寫，結束後再移')
+  releaseQuery(); await run
+  eq('handler 跑完才解鎖', [handlerDone, isWritebackBusy('edit:e1:301')], [true, false])
+  // handler 丟例外也要放
+  const boom = busyHandler('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async () => { throw new Error('x') })
+  await (boom as unknown as (req: unknown, res: unknown, next: unknown) => Promise<void>)({ body: { batchId: 'e1', rowKey: '301' } }, new EventEmitter(), () => {}).catch(() => {})
+  eq('handler 丟例外 → 仍會解鎖', isWritebackBusy('edit:e1:301'), false)
+  let called = false
+  await (busyHandler('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async () => { called = true }) as unknown as (req: unknown, res: unknown, next: unknown) => Promise<void>)({ body: { batchId: 1 } }, new EventEmitter(), () => {})
+  eq('body 拿不到鍵 → 不標、照樣交給 handler 驗證', [called, isWritebackBusy('edit:1:undefined')], [true, false])
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

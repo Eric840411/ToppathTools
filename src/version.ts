@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.2'
+export const APP_VERSION = '5.12.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.3', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「正在補寫」改成整個處理流程跑完才放——原本瀏覽器斷線就提早放掉，但伺服器那邊還在跑、之後照樣寫 Sheet，這段期間的移出會被放行（CodeX review）', 'feat(Meegle 補回填)：待補清單會標出「補寫中」的列'] },
   { version: '5.12.2', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「正在補寫」改成請求一進來就標記、回應結束才放——原本只標在最後寫 Sheet 那段，前面核對空間、推狀態等待的期間另一個分頁仍能把那一列移出（CodeX review）'] },
   { version: '5.12.1', date: '2026-10-06', changes: ['fix(Meegle 補回填)：「移出清單」跟各工具自己的補寫入口（開單頁補寫回／重推狀態／查詢結果、評論補寫回／繼續送出、狀態與修改的重試）共用「正在補寫」標記，寫到一半的列不能被移出；確認框改用完整的來源分辨 Sheet，顯示名稱撞名的兩份不會被算成一份（CodeX review）'] },
   { version: '5.12.0', date: '2026-10-06', changes: ['feat(Meegle 補回填)：**「我自己處理了，移出清單」**——自己手動處理好的列可以勾選後移出待補清單，確認框會寫明筆數、哪幾份 Sheet，以及「不修改 Sheet／Meegle、目前不能復原」。只有送出的人或管理員能移，移出會記操作歷史。同一列之後重送又失敗會重新出現', 'change(Meegle 補回填)：清單載入後不再預設全選，要自己勾（避免一按就把整批移出）；補寫回改成每一列執行前才重新確認它還在清單裡，跟移出不會互相撞到'] },
