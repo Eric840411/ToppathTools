@@ -474,7 +474,9 @@ export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
     // 觸屏畫面判定（0929）訊息也帶「判定：」；舊的盒子 log 判定沒有標記，照舊：非例外的 FAIL＝no response
     const tagged = msg(s).match(/判定：(no response|flow fail)/)?.[1]
     const noResp = tagged ? tagged === 'no response' : n === 'iDeck 測試' ? false : !/^例外/.test(msg(s))
-    if (c === 'fail') out.push(noResp ? `${k} no response` : `${k} fail`)
+    // 1005 使用者：iDeck fail 要寫出是哪一顆按鈕有問題 → 取 runner「未通過：」段落裡的「按鈕名」
+    const badKeys = n === 'iDeck 測試' ? [...new Set([...(msg(s).match(/未通過：([^｜]*)/)?.[1] ?? '').matchAll(/「([^」]+)」/g)].map(x => x[1]))] : []
+    if (c === 'fail') out.push(noResp ? `${k} no response` : badKeys.length ? `${k} fail (${badKeys.join(' / ')})` : `${k} fail`)
     else if (c === 'na') out.push(`${k} not verified`)
   }
   const cc = get('CCTV 號碼比對')
