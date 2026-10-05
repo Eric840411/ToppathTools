@@ -79,6 +79,12 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
     setDraft({ label: '', color: COLORS[4], perms: {} })
   }
 
+  /** 回應一律解成 { ok, message }：不是 JSON（代理錯誤頁、逾時）也要變成看得到的錯誤，不能安靜吞掉（使用者 10/05：按了建立角色什麼都沒發生） */
+  async function readJson<T extends { ok: boolean; message?: string }>(r: Response): Promise<T> {
+    const text = await r.text()
+    try { return JSON.parse(text) as T } catch { return { ok: false, message: `伺服器回應看不懂（HTTP ${r.status}）${text ? '：' + text.slice(0, 120) : ''}` } as T }
+  }
+
   async function save() {
     if (!draft) return
     setBusy(true); setMsg(null)
@@ -87,10 +93,12 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
       const r = creating
         ? await fetch('/api/admin/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch(`/api/admin/roles/${encodeURIComponent(cur)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(role?.builtin ? { color: body.color, perms: body.perms } : body) })
-      const d = await r.json() as { ok: boolean; message?: string; role?: { key: string } }
-      if (!d.ok) { setMsg({ ok: false, text: d.message ?? '儲存失敗' }); return }
+      const d = await readJson<{ ok: boolean; message?: string; role?: { key: string } }>(r)
+      if (!d.ok) { setMsg({ ok: false, text: `${creating ? '建立' : '儲存'}失敗：${d.message ?? `HTTP ${r.status}`}` }); return }
       setMsg({ ok: true, text: creating ? '已新增角色' : '已儲存' })
       await load(creating ? d.role?.key : cur)
+    } catch (e) {
+      setMsg({ ok: false, text: `${creating ? '建立' : '儲存'}失敗（連不到伺服器）：${(e as Error).message}` })
     } finally { setBusy(false) }
   }
 
@@ -99,10 +107,12 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
     setBusy(true); setMsg(null)
     try {
       const r = await fetch(`/api/admin/roles/${encodeURIComponent(role.key)}`, { method: 'DELETE' })
-      const d = await r.json() as { ok: boolean; message?: string; users?: string[] }
-      if (!d.ok) { setMsg({ ok: false, text: d.message ?? '刪除失敗', users: d.users }); return }
+      const d = await readJson<{ ok: boolean; message?: string; users?: string[] }>(r)
+      if (!d.ok) { setMsg({ ok: false, text: d.message ?? `刪除失敗（HTTP ${r.status}）`, users: d.users }); return }
       setMsg({ ok: true, text: `已刪除「${role.label}」` })
       await load(roles.find(x => x.key !== role.key && !x.fixed)?.key)
+    } catch (e) {
+      setMsg({ ok: false, text: `刪除失敗（連不到伺服器）：${(e as Error).message}` })
     } finally { setBusy(false) }
   }
 

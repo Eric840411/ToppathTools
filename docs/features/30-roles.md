@@ -34,6 +34,10 @@
 - 新增帳號走 `withAssignableRole`（存在檢查跟寫入同一個 transaction）
 - 突變驗過：改回讀快照、管理員只認完全等於 admin、指派不檢查存在，各自有對應的測試變紅
 
+### v5.10.2
+- 使用者在 Lark 裡按「建立角色」什麼都沒發生。在 Chromium 走同一個流程是成功的，所以先把**失敗一律顯示**補上：原本 `save()`／`remove()` 只有 try/finally，伺服器回非 JSON（代理錯誤頁、逾時）或 fetch 直接失敗時錯誤被吞掉。現在顯示「建立失敗：…（HTTP xxx）」
+- ⚠️ 伺服器的存取紀錄**不會記 POST /api/admin/roles**（`shouldSkipAccessLog`），走查成功建立的那次也查不到——不能用「紀錄裡沒有 POST」判斷前端沒送出
+
 ### 檔案
 | 檔案 | 內容 |
 |---|---|

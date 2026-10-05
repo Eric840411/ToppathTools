@@ -6,6 +6,7 @@
  *   4 刪除使用中的角色 → 被擋下並列出 asd、有「前往帳號管理」
  *   5 還原 asd → 刪除角色成功
  *   6 「＋新增」不斷行
+ *   7 伺服器回的不是 JSON（代理錯誤頁）→ 畫面要顯示錯誤，不能什麼都沒發生（v5.10.2，使用者在 Lark 裡按建立角色沒反應）
  * 跑法：node scripts/ui-checks/role-manager-walkthrough.mjs
  */
 import { chromium } from 'playwright'
@@ -39,6 +40,17 @@ try {
     check('管理員：唯讀、功能全勾、沒有儲存鈕', await rm.getByText('管理員固定擁有所有功能').isVisible() && await rm.locator('input[type=checkbox]:not(:checked)').count() === 0 && await rm.getByRole('button', { name: '儲存' }).count() === 0)
     await rm.getByRole('button', { name: /^QA/ }).click()
     check('內建角色：名稱鎖住、沒有刪除鈕', await rm.locator('input[maxlength="20"]').isDisabled() && await rm.getByRole('button', { name: '刪除角色' }).count() === 0)
+
+    // 7 回應不是 JSON：要看得到錯誤（只攔這一次）
+    let fake = true
+    await page.route('**/api/admin/roles', r => (fake && r.request().method() === 'POST') ? (fake = false, r.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' })) : r.continue())
+    await addBtn.click()
+    await rm.locator('input[maxlength="20"]').fill(NAME + mode)
+    await rm.getByRole('button', { name: '建立角色' }).click()
+    const errShown = await rm.getByText(/建立失敗：伺服器回應看不懂（HTTP 502）/).waitFor({ timeout: 4000 }).then(() => true, () => false)
+    check('伺服器回非 JSON → 顯示錯誤（不會安靜沒反應）', errShown)
+    await page.unroute('**/api/admin/roles')
+    await rm.getByRole('button', { name: '取消' }).click()
 
     // 新增
     await addBtn.click()
