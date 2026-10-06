@@ -257,3 +257,11 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 探針 `scripts/feature-taps-probe.ts` 27 項。退出迴圈模擬照 runner 的**實際順序**（stepExit → retry／手冊 → 遊戲進行中推進），
   判定函式與 runner 同一支、迴圈膠水照抄——證明的是這個順序下不會繞過，runner 真實行為仍要 0335 真機驗。
   注入：unsure 改回 `retryExit`（804b0e8 的寫法）紅 2 條；觀察期失效紅 3 條。
+
+## 證據上傳的 Lark Drive 資料夾（v5.28.1，2026-10-06 使用者經 claude-osm-3 要求）
+
+- `scripts/machine-test/machine-test-batch.mjs` 的 `uploadDrive()`：`parent_node` 原本是空字串＝應用程式自己的根目錄（畫面上是「Casino Plus x IGO › 自动通知机器人」），改成 `CFG.driveFolder`
+- 設定順序：環境變數 `MT_LARK_DRIVE_FOLDER` ＞ `machine-test-secrets.json` 的 `larkDriveFolder` ＞ 預設 `InhAftoJglxUzjdrYonl6a2bgBd`（使用者指定的資料夾）
+- 實測（machine-test 的 Lark 應用程式）：`upload_all` → code 0（claude-osm-3 測）；**分片**（>20MB，upload_prepare／part×6／finish）21MB → 全部 code 0，tenant_readable 也成功（claude-toppath 測，用的是同一串 API 呼叫的獨立腳本，不是直接呼叫 uploadDrive）
+- 限制：應用程式沒有 `drive:drive`，讀不到資料夾 meta、**刪不掉**資料夾裡的檔案（只能上傳）。測試留下的檔案要人手動刪
+

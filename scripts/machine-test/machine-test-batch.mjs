@@ -49,6 +49,8 @@ const CFG = {
   osmEnv: process.env.MT_OSM_ENV ?? 'prod',
   larkApp: secret('MT_LARK_APP_ID', 'larkApp'), larkSecret: secret('MT_LARK_APP_SECRET', 'larkSecret'),
   larkApi: process.env.MT_LARK_API ?? 'https://open.larksuite.com/open-apis', larkHost: 'https://casinoplus.sg.larksuite.com',
+  // 音檔等證據上傳到哪個 Lark Drive 資料夾（1006 使用者指定；原本 parent_node 空＝應用程式自己的根目錄「自动通知机器人」）
+  driveFolder: process.env.MT_LARK_DRIVE_FOLDER ?? SECRETS.larkDriveFolder ?? 'InhAftoJglxUzjdrYonl6a2bgBd',
 }
 const SAVES = path.join(CFG.agentDir, 'server', 'machine-test')
 const ALL_STEPS = ['entry', 'stream', 'spin', 'audio', 'ideck', 'touchscreen', 'cctv', 'exit']
@@ -149,13 +151,13 @@ async function uploadDrive(file) {
   let ft
   if (buf.length <= 20 * 1024 * 1024) {
     const fd = new FormData()
-    fd.append('file_name', name); fd.append('parent_type', 'explorer'); fd.append('parent_node', ''); fd.append('size', String(buf.length))
+    fd.append('file_name', name); fd.append('parent_type', 'explorer'); fd.append('parent_node', CFG.driveFolder); fd.append('size', String(buf.length))
     fd.append('file', new Blob([buf]), name)
     const r = await lark('/drive/v1/files/upload_all', { method: 'POST', body: fd })
     if (r.code !== 0) throw new Error('upload_all ' + JSON.stringify(r).slice(0, 120))
     ft = r.data.file_token
   } else {
-    const prep = await lark('/drive/v1/files/upload_prepare', { method: 'POST', body: JSON.stringify({ file_name: name, parent_type: 'explorer', parent_node: '', size: buf.length }) })
+    const prep = await lark('/drive/v1/files/upload_prepare', { method: 'POST', body: JSON.stringify({ file_name: name, parent_type: 'explorer', parent_node: CFG.driveFolder, size: buf.length }) })
     if (prep.code !== 0) throw new Error('upload_prepare ' + JSON.stringify(prep).slice(0, 120))
     const { upload_id, block_size, block_num } = prep.data
     for (let i = 0; i < block_num; i++) {
