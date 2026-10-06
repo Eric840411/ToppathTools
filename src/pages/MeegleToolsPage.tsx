@@ -97,7 +97,8 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
       {tab === 'comment' && <MeegleBatchCommentTab key={`comment:${spaceOf('comment')}`} space={spaceOf('comment')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
       {tab === 'status' && <MeegleBatchStatusTab key={`status:${spaceOf('status')}`} space={spaceOf('status')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {tab === 'edit' && <MeegleBatchEditTab key={`edit:${spaceOf('edit')}`} space={spaceOf('edit')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
-      {tab === 'backfill' && <MeegleBackfillTab />}
+      {/* 管理員身分變了（降權）就整頁重掛：已載入的測試空間清單不能留在畫面上（CodeX review 1288024 [P2]） */}
+      {tab === 'backfill' && <MeegleBackfillTab key={`backfill:${isAdmin ? 'admin' : 'user'}`} />}
     </div>
   )
 }

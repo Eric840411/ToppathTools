@@ -501,6 +501,21 @@ function App() {
     return () => { cancelled = true }
   }, [])
 
+  // 角色在後台被改了（例如管理員降權）要跟著變，不能只在進站時讀一次（CodeX review 1288024 [P2]）：
+  // 視窗回到前景、以及每 60 秒重查一次登入帳號；角色變了才更新（會連帶重抓權限、Meegle 空間跟著切）
+  useEffect(() => {
+    if (!globalAccount) return
+    const recheck = () => {
+      fetchAuthAccount().then(acc => {
+        if (acc && acc.email === globalAccount.email && acc.role !== globalAccount.role) { setGlobalAccount(acc); saveGlobalAccount(acc) }
+      }).catch(() => { /* 暫時連不上就下次再查 */ })
+    }
+    const t = window.setInterval(recheck, 60_000)
+    const onFocus = () => recheck()
+    window.addEventListener('focus', onFocus)
+    return () => { window.clearInterval(t); window.removeEventListener('focus', onFocus) }
+  }, [globalAccount])
+
   // Fetch permissions whenever globalAccount changes; redirect to first accessible group
   useEffect(() => {
     if (globalAccount) {

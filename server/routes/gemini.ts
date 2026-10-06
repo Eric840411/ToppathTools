@@ -4,6 +4,7 @@
  */
 import { Router } from 'express'
 import { isAdminRole } from '../role-store.js'
+import { filterMeegleHistoryForNonAdmin } from '../meegle-history-filter.js'
 import { z } from 'zod'
 import { Agent, fetch as undiciFetch } from 'undici'
 import Bottleneck from 'bottleneck'
@@ -1032,8 +1033,9 @@ router.get('/api/history', (req, res) => {
   const rows = feature
     ? db.prepare('SELECT * FROM operation_history WHERE feature = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 200').all(feature, since)
     : db.prepare('SELECT * FROM operation_history WHERE created_at >= ? ORDER BY created_at DESC LIMIT 200').all(since)
-  // 測試空間只給管理員（v5.12.6）：非管理員看不到測試空間的 Meegle 操作紀錄
+  // 測試空間只給管理員：非管理員看不到測試空間的 Meegle 操作紀錄——用 detail 裡的批次回 DB 查空間，
+  // 不能只比對 "space":"test"（舊批次、補回填、移出清單的歷史都沒寫 space，CodeX review 1288024 [P1]）
   const admin = isAdminRole(getAuthAccount(req)?.role)
-  const visible = admin ? rows : (rows as Array<{ feature: string; detail: string | null }>).filter(r => !(r.feature.startsWith('meegle-') && /"space":"test"/.test(r.detail ?? '')))
+  const visible = admin ? rows : filterMeegleHistoryForNonAdmin(db, rows as Array<{ feature: string; detail: string | null }>)
   res.json({ ok: true, records: visible })
 })

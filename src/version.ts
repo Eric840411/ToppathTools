@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.6'
+export const APP_VERSION = '5.12.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.7', date: '2026-10-06', changes: ['fix(Meegle 測試空間只給管理員)：操作歷史改成回資料庫查那一批的空間來判斷（舊批次、補回填、移出清單的紀錄沒寫空間也擋得到；補回填混合的紀錄只留正式空間那幾列）；角色在後台被改了，畫面回到前景或每 60 秒會跟著更新，補回填清單也會重新讀（CodeX review）'] },
   { version: '5.12.6', date: '2026-10-06', changes: ['change(Meegle 批量工具)：**測試空間只給管理員**——其他角色看不到空間切換，一律用正式空間；伺服器也會擋（非管理員送測試空間、或去動測試空間的舊紀錄，一律拒絕），補回填清單與操作歷史也看不到測試空間的紀錄（使用者要求，CodeX 同意）'] },
   { version: '5.12.5', date: '2026-10-06', changes: ['fix(機台測試)：已經被取消的那一輪，其他 agent 晚到的進度結果不再轉給畫面（不會混進新的一輪）；那一輪早就收尾時，晚到的斷線不再廣播「結束」（不會把新一輪的監看關掉）（CodeX review）'] },
   { version: '5.12.4', date: '2026-10-06', changes: ['fix(機台測試)：agent 斷線後幾秒內用同一個 ID 重連時，伺服器會把原本那輪當成中斷處理（停掉其他參與的 agent、釋放鎖、沒跑完的機台標失敗、畫面顯示已中斷）。原本新連線會蓋掉舊連線的紀錄，那一台就一直卡在「執行中」（正式站 0214 卡了 40 分鐘）；舊連線晚到的訊息也不再算數', 'fix(機台測試 agent)：斷線時會停止正在跑的機台，重連後先等它收尾才接新的；斷線結束時印「連線中斷」，不再誤印「session complete」（agent 要更新程式碼才生效）'] },
