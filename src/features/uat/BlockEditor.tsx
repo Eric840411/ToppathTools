@@ -259,6 +259,10 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <label>存成變數名
                   <input className="uat-field uat-code-field" value={selected.as ?? ''} onChange={event => updateSelected({ as: event.target.value })} placeholder="beforeBalance" />
                 </label>
+                <label>只取一段（選填，正規式）
+                  <input className="uat-field uat-code-field" value={selected.pattern ?? ''} onChange={event => updateSelected({ pattern: event.target.value || undefined })} placeholder="less than ([\d,]*\d)" />
+                  <span className="uat-hint">用括號包住要存的那段，存第 1 組（取數字用 <code>([\d,]*\d)</code>，結尾限定數字才不會吃到後面的逗號）；對不到會讓這步失敗並顯示讀到的整句，不會存空值。留空＝存整段文字</span>
+                </label>
                 <label className="uat-checkline">
                   <input type="checkbox" checked={selected.overwrite === true} onChange={event => updateSelected({ overwrite: event.target.checked })} />
                   允許覆寫同名變數

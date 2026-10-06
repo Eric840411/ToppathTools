@@ -82,6 +82,23 @@ export const FRONTEND_ACTIONS = Object.freeze([
  *    模組層存的話上一支的值會留到下一支——而且只有在「剛好同名」時才出錯，
  *    查起來像是讀到了幽靈資料。
  */
+/**
+ * `read_value` 的 `pattern`（v5.27.5，claude-osm-2 為 T-008 要的）：一句話裡只取一段存起來，例如
+ * 「…is less than 300, the VIP level will be downgraded.」配 `less than ([\\d,]+)` → 存 `300`，才能跟後台表格的金額比。
+ * - 正規式要有**至少一個擷取群組**，存第 1 組
+ * - **對不到就失敗、訊息寫出讀到的整句**；對到但第 1 組是空的也失敗——絕不存空字串（存了後面比對會變成「空＝空」假通過）
+ */
+export function extractByPattern(text, pattern) {
+  let re;
+  try { re = new RegExp(pattern); } catch (e) { throw new Error(`擷取規則不是合法的正規式：${e.message}`); }
+  if (new RegExp(`${pattern}|`).exec('').length < 2) throw new Error(`擷取規則「${pattern}」沒有擷取群組——用括號包住要存的那段，例如 less than ([\\d,]+)`);
+  const m = re.exec(text);
+  if (!m) throw new Error(`擷取規則「${pattern}」對不到讀到的文字：「${text.slice(0, 200)}」`);
+  const got = (m[1] ?? '').trim();
+  if (!got) throw new Error(`擷取規則「${pattern}」對到了，但第 1 組是空的（讀到「${text.slice(0, 200)}」）——不存空值`);
+  return got;
+}
+
 function frontendVars(ctx) {
   if (!ctx.state) throw new Error('這顆積木需要執行狀態（host 沒給 ctx.state）');
   if (!ctx.state.vars) ctx.state.vars = {};
@@ -733,7 +750,8 @@ export async function runFrontendStep(step, ctx) {
       if (text === null) throw new Error(`場景樹裡找不到「${nodeName}」`);
       value = text;
     }
-    vars[name] = String(value).replace(/\s+/g, ' ').trim();
+    const text = String(value).replace(/\s+/g, ' ').trim();
+    vars[name] = step.pattern ? extractByPattern(text, step.pattern) : text;
     await log(`✅ ${idx} ${label}（${name} = ${String(vars[name]).slice(0, 40)}）`);
     return { shots };
   }

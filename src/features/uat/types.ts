@@ -69,6 +69,8 @@ export interface AutoStep {
   as?: string
   /** `read_value`：同名變數是否允許覆寫（預設不允許，避免後面引用到哪一次讀的看不出來） */
   overwrite?: boolean
+  /** `read_value`：擷取規則（正規式，存第 1 個擷取群組）；對不到就失敗，不存空值 */
+  pattern?: string
   /** `assert_compare`：右邊的算式（左邊用 `value`） */
   expect?: string
   /** `assert_compare`：容差 */
