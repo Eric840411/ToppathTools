@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.29.0'
+export const APP_VERSION = '5.29.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.29.1', date: '2026-10-07', changes: ['fix(機台測試 疑似特殊遊戲)：CodeX 審 2d513b6 三個 P1＋一個 P2——普通局畫面「PRESS PLAY TO SPIN」不再算特殊遊戲證據（要有 FREE GAMES／SPINS REMAINING／BONUS／FEATURE／JACKPOT 等字樣才按 SPIN）；觸屏改逐格點、每一格前重讀 moneyNtc 與停止狀態；拿掉卡住救援（它會按普通局的 SPIN）；stalled／Handpay／停止後後續步驟與退出一律不做、交人工；動作上限改算實際點擊次數'] },
   { version: '5.29.0', date: '2026-10-07', changes: ['fix(機台測試)：**機台餘額只用機台內的值**（0330 少 315 億的根因）——注入的 coin 追蹤不分路由，退出時大廳錢包把機台餘額蓋掉。改成只收 moneyNtc 推播（另有 Tips「Cash out credit」），Spin 前後、盲推扣款關卡、退出紀錄都改用它；Spin 前還沒有機台餘額時改用本次 begin／end 確認開局、餘額標未驗；盲推加合理性：一次少掉超過單把×次數×2 → 停手待核對（派彩變多不擋）', 'feat(機台測試)：**未監控機台「開局後沒結束」＝疑似特殊遊戲**——不在 OSMWatcher（或狀態 0）的機台，moneyNtc begin 超過 35 秒沒 end（1354 局正常最長 28 秒），走跟特殊遊戲同一套推進（關 Tips／面額 → 點位清單 → bonusAction → 卡住救援），收到 end 就停；步驟之間與 iDeck 都會處理，iDeck 收到 end 後繼續測下一顆。按 SPIN 要畫面 OCR 確認在特殊遊戲中＋距上一則 moneyNtc 8 秒以上，每一下前重查；沒有 moneyNtc 訊號不啟動。規則 claude-osm-3 規格、CodeX 定案'] },
   { version: '5.28.6', date: '2026-10-06', changes: ['ui(Jackpot 監控)：門檻來源「從未取得」時顯示原因（例如「OSM_WATCH_URL 未設定」並提示要設的環境變數）；原本只有「更新失敗」才顯示原因，正式站一直顯示從未取得卻看不出為什麼'] },
   { version: '5.28.5', date: '2026-10-06', changes: ['fix(UAT 後台 站台警告彈窗)：CodeX 596f4df [P2]——判斷「還有其他對話框開著、遮罩要留著」時只看 el-dialog，漏了 MessageBox 確認框與 drawer；站台警告＋MessageBox 同時開著會把確認框的遮罩拿掉。補上兩者與回歸測試'] },

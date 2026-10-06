@@ -12,6 +12,7 @@ type Sim = {
   feature?: Array<'progress' | 'none' | 'giveUp'>
   stopAt?: number
   maxActs?: number
+  touchesPerRound?: number
 }
 async function sim(o: Sim) {
   let t = 0, ended = false, presses = 0, touches = 0, pressAfterEnd = 0, ftCalls = 0
@@ -21,11 +22,11 @@ async function sim(o: Sim) {
     lastMoneyAgo: async () => o.lastMoneyAgo ?? 60_000,
     stop: () => o.stopAt !== undefined && t >= o.stopAt,
     closeOverlays: async () => { if (o.endDuringOverlay) ended = true },
-    featureTaps: o.feature ? async () => o.feature![Math.min(ftCalls++, o.feature!.length - 1)] : undefined,
+    featureTaps: o.feature ? async () => { const k = o.feature![Math.min(ftCalls++, o.feature!.length - 1)]; return { kind: k, taps: k === 'progress' ? 1 : 0 } } : undefined,
     action: o.action ?? 'spin',
     screen: async () => { if (o.endDuringScreen) ended = true; return o.screen ?? 'spin' },
     pressSpin: async () => { if (ended) pressAfterEnd++; presses++; return true },
-    touch: async () => { if (ended) pressAfterEnd++; touches++; return true },
+    touch: async (budget: number) => { const n = Math.min(o.touchesPerRound ?? 1, budget); for (let i = 0; i < n; i++) { if (ended) pressAfterEnd++; touches++ } return n },
     now: () => t, sleep: async ms => { t += ms },
     maxMs: 300_000, maxActs: o.maxActs ?? 40, quietMs: 8_000, pollMs: 5_000, stallMs: 120_000,
   })
@@ -45,6 +46,7 @@ const cases: Array<[string, () => Promise<string>, string]> = [
   ['點位清單放棄（沒確認是選擇畫面）→ 退回 bonusAction（有證據才按）', async () => { const r = await sim({ feature: ['giveUp'], endAt: 12_000 }); return `${r.result}/${r.presses > 0}` }, 'done/true'],
   ['bonusAction=touchscreen：收到 end 之後不再點', async () => { const r = await sim({ action: 'touchscreen', endAt: 12_000 }); return `${r.result}/${r.pressAfterEnd}` }, 'done/0'],
   ['bonusAction=touchscreen：關遮罩途中收到 end → 一下都不點', async () => { const r = await sim({ action: 'touchscreen', endDuringOverlay: true }); return `${r.result}/${r.touches}/${r.pressAfterEnd}` }, 'done/0/0'],
+  ['[P2] 一輪觸屏點 5 格、上限 12 → 實際點擊不超過 12 下', async () => { const r = await sim({ action: 'touchscreen', touchesPerRound: 5, maxActs: 12 }); return `${r.result}/${r.touches}` }, 'stalled/12'],
   ['auto_wait → 只等', async () => { const r = await sim({ action: 'auto_wait', endAt: 40_000 }); return `${r.result}/${r.presses}/${r.touches}` }, 'done/0/0'],
   // 啟動條件
   ['觸發：沒有任何 begin → 不啟動', async () => JSON.stringify(openRoundTrigger({ log: [], sinceSeq: 0, now: 100_000, osmStatus: undefined })), '{"start":false,"why":"noSignal"}'],

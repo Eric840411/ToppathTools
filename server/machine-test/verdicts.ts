@@ -472,13 +472,14 @@ export async function superviseOpenRound(d: {
   lastMoneyAgo: () => Promise<number>
   stop: () => boolean
   closeOverlays: () => Promise<void>
-  /** 有機種點位清單才給：一輪點選（內部每一下前也會查 ended）；回 progress／none／giveUp */
-  featureTaps?: () => Promise<'progress' | 'none' | 'giveUp'>
+  /** 有機種點位清單才給：一輪點選（內部每一下前也會查 ended）；budget＝還能點幾下，回傳實際點了幾下 */
+  featureTaps?: (budget: number) => Promise<{ kind: 'progress' | 'none' | 'giveUp'; taps: number }>
   action: 'spin' | 'touchscreen' | 'takewin' | 'auto_wait'
   /** 截圖 OCR 判斷畫面：spin＝畫面叫你按 SPIN／PLAY（特殊遊戲中）、touch、wait、unknown；截圖／OCR 失敗回 fail */
   screen: () => Promise<'spin' | 'touch' | 'wait' | 'unknown' | 'fail'>
   pressSpin: () => Promise<boolean>
-  touch: () => Promise<boolean>
+  /** 逐格點 touchPoints（每一格前自己重查 end／停止），最多 budget 下，回傳實際點了幾下 */
+  touch: (budget: number) => Promise<number>
   /** 卡住救援（只做一次）：回傳學到的動作 */
   rescue?: () => Promise<'spin' | 'touchscreen' | null>
   now: () => number
@@ -500,13 +501,16 @@ export async function superviseOpenRound(d: {
     if (acts >= d.maxActs) { await d.sleep(d.pollMs); continue }   // 點擊上限：只被動等 end
     await d.closeOverlays()
     if (await d.ended()) return out('done')   // 關遮罩途中收到 end
+    // 動作上限算**實際點擊次數**（CodeX 2d513b6 [P2]：一輪點位原本只算一次）
     if (ftOn && d.featureTaps) {
-      const r = await d.featureTaps()
-      if (r === 'progress') { acts++; lastProgress = d.now(); how.push('featureTaps') }
-      if (r === 'giveUp') ftOn = false
+      const r = await d.featureTaps(d.maxActs - acts)
+      acts += r.taps
+      if (r.kind === 'progress') { lastProgress = d.now(); how.push('featureTaps') }
+      if (r.kind === 'giveUp') ftOn = false
     } else if (action === 'touchscreen') {
       if (await d.ended() || d.stop()) continue
-      if (await d.touch()) { acts++; how.push('touch') }
+      const n = await d.touch(d.maxActs - acts)
+      if (n > 0) { acts += n; how.push('touch') }
     } else if (action === 'spin' || action === 'takewin') {
       const s = await d.screen()
       // OCR 之後、真的按之前再查一次（CodeX）

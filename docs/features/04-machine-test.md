@@ -284,5 +284,11 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 安全：每一下實際點擊前重查 end（關遮罩後、OCR 後都查）；沒有 begin 不啟動；上限 8 分鐘／60 次操作，到了 stalled；停止／Handpay 即停。CodeX：N 秒只能節流不能保證，所以 SPIN 另外要畫面證據，沒有就等
 - 掛的位置：`checkOsm()`（每個步驟之前，含退出前）——未監控時先看有沒有開著的局，處理完記一筆「特殊遊戲等待」；iDeck 開局 45 秒沒結束時（未監控）改走處理器，收到 end 後該顆記「有開局（觸發特殊遊戲）」、繼續下一顆（原本 spinTimeout 整段中止）。OSMWatcher 有監控的機台照舊
 - 驗證：`npx tsx scripts/open-round-probe.ts`（19 條：關遮罩／OCR 途中收到 end、畫面回普通局不按、節流、上限、點位、觸發條件…）；突變「拿掉 SPIN 前 end 重查」「拿掉關遮罩後與觸屏前重查」「拿掉沒訊號不啟動」各自紅
+- **CodeX 審 2d513b6（v5.29.1 修）**：
+  - [P1] `classifyBonusText` 把普通局的「PRESS PLAY TO SPIN」判成 spin → end 漏送時會再下注。改用 `openRoundScreen`：除了 spin 指示還要有特殊遊戲字樣（FREE GAMES／FREE SPINS／SPINS REMAINING／RE-SPIN／BONUS／FEATURE／JACKPOT），沒有就當看不出來、不按
+  - [P1] 內層點擊缺即時防護：`doTouchPoints` 一次點完整串、救援只看快取。改成觸屏逐格點、每一格前 `endedNow()` 重讀流水＋停止狀態；按 SPIN 前最後再重讀一次；同步檢查（featureTapRound）用背景每 250ms 重讀的旗標。**拿掉卡住救援**（`bonusStallRescue` 用 classifyBonusText 決定按 SPIN，普通局也會按），卡住就 stalled 交人工
+  - [P1] stalled／Handpay／停止只記 warn、後面照跑。改成 `stepGate`：之後每一步（含退出）都不做、記「未執行：疑似特殊遊戲未結束，已停止所有自動操作」，設 `_haltReason`（batch 換帳號／停批，同退出卡住）；同一局再問直接回快取結果，不重跑 8 分鐘
+  - [P2] 60 次算實際點擊：featureTaps 用 onTapped 逐下計、觸屏逐格計，一輪多下都算
+  - 實際 runner 路徑探針 `npx tsx scripts/open-round-runner-probe.ts`（跑真的 `makeOpenRoundHandler`，只換假 Page）：普通局畫面不按且 stalled、同一局再問直接回、特殊遊戲畫面按到 end 為止且 end 後 0 下、逐格觸屏第 1 格後收到 end 第 2 格不點、上限 3 只點 3 下、沒 moneyNtc 不啟動。突變「改回 classifyBonusText」「觸屏不逐格重查」各自紅
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
 

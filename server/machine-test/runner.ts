@@ -1204,11 +1204,31 @@ const BONUS_OCR_PROMPT = 'This is a screenshot of a slot machine screen during a
  * 回傳 null＝不需要處理（沒有開著的局／沒有 moneyNtc 訊號／OSMWatcher 有監控交給原流程）。
  */
 export type OpenRoundHandler = (where: string) => Promise<{ result: 'done' | 'stalled' | 'stopped'; note: string } | null>
-function makeOpenRoundHandler(o: {
+
+/**
+ * 疑似特殊遊戲時，畫面上的 SPIN 指示算不算「特殊遊戲中」的證據（CodeX 2d513b6 [P1]）。
+ * classifyBonusText 會把普通局的「PRESS PLAY TO SPIN」也判成 spin——end 漏送時照它按就是付費下注。
+ * 所以這裡另外要有**特殊遊戲字樣**（FREE GAMES／FREE SPINS／SPINS REMAINING／RE-SPIN／BONUS／FEATURE／JACKPOT），沒有就當看不出來。
+ */
+export function openRoundScreen(raw: string): 'spin' | 'touch' | 'wait' | 'unknown' {
+  const k = classifyBonusText(raw)
+  if (k !== 'spin') return k
+  const t = String(raw ?? '').toLowerCase().replace(/\s+/g, ' ')
+  return /free ?(game|spin)s?|spins? (remaining|left)|re-?spins?|bonus|feature|jackpot/.test(t) ? 'spin' : 'unknown'
+}
+
+export function makeOpenRoundHandler(o: {
   page: Page; emit: (msg: string) => void; machineCode: string; getProfile: () => MachineProfile | undefined
   sinceSeq: number; osmStatus: () => number | undefined; stopped: () => boolean; filePrefix: string
+  /** 測試用：換掉截圖 OCR（預設走 Gemini 代理） */
+  ocr?: (png: Buffer) => Promise<string>
+  /** 測試用：換掉每輪間隔／點擊間隔 */
+  timing?: { pollMs?: number; quietMs?: number; maxMs?: number; maxActs?: number; tickMs?: number }
 }): OpenRoundHandler {
   const { page, emit, machineCode } = o
+  const ocr = o.ocr ?? (async (png: Buffer) => callGeminiVisionViaProxy(BONUS_OCR_PROMPT, png.toString('base64')))
+  // 同一局已經判過 stalled／stopped → 之後再問直接回同一個結果，不重跑 8 分鐘（呼叫端據此停手交人工）
+  let failed: { beginSeq: number; result: 'stalled' | 'stopped'; note: string } | null = null
   return async (where: string) => {
     let trg = openRoundTrigger({ log: await readMoneyLog(page), sinceSeq: o.sinceSeq, now: Date.now(), osmStatus: o.osmStatus() })
     // 局還年輕（< 35 秒）：等到滿門檻或收到 end 再判斷——正常局最長 28 秒
@@ -1219,51 +1239,74 @@ function makeOpenRoundHandler(o: {
     }
     if (trg.start === false) return null
     const beginSeq = trg.beginSeq
-    let endedFlag = false, handpay = false
-    const ended = async () => { if (!endedFlag) endedFlag = (await readMoneyLog(page)).some(e => e.seq > beginSeq && e.reason === 'end'); return endedFlag }
+    if (failed && failed.beginSeq === beginSeq) return { result: failed.result, note: failed.note }
+    const maxActs = o.timing?.maxActs ?? 60
+    let handpay = false, taps = 0
+    // 每一下點擊前都**重讀** moneyNtc 流水（CodeX 2d513b6 [P1]：不能只看快取）
+    const endedNow = async () => (await readMoneyLog(page)).some(e => e.seq > beginSeq && e.reason === 'end')
+    // 同步版只給「內層同步檢查」用（featureTapRound 的 ended／stop）：背景每 tickMs 重讀一次；我們自己的迴圈一律用 endedNow
+    let endedFlag = false
+    const ticker = setInterval(() => { void endedNow().then(v => { if (v) endedFlag = true }).catch(() => {}) }, o.timing?.tickMs ?? 250)
+    const ended = async () => { if (await endedNow()) endedFlag = true; return endedFlag }
     const stop = () => o.stopped() || handpay
     const profile = o.getProfile()
     const action = profile?.bonusAction ?? 'spin'
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
     const ft = featureTapsConfig(machineCode)
     let ftCursor = 0
-    let learnedPoints: string[] | undefined
-    const r = await superviseOpenRound({
-      ended, stop,
-      lastMoneyAgo: async () => { const l = await readMoneyLog(page); return l.length ? Date.now() - l[l.length - 1].ts : Number.POSITIVE_INFINITY },
-      closeOverlays: async () => {
-        await dismissGameTips(page, emit)
-        await dismissDenomOverlay(page, emit, '疑似特殊遊戲')
-        handpay = /hand\s*-?\s*pay/i.test(await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''))
-        if (handpay) emit('⚠️ 畫面出現 Handpay → 停止推進，需人工處理')
-      },
-      featureTaps: ft ? async () => {
-        const fr = await featureTapRound(page, emit, ft, ftCursor, () => endedFlag, stop, `${where} 疑似特殊遊戲（可能卡在 JP／FG 選擇畫面）`)
-        ftCursor = fr.cursor
-        return fr.result === 'screen' || fr.result === 'done' ? 'progress' : fr.result === 'stopped' ? 'none' : 'giveUp'
-      } : undefined,
-      action,
-      screen: async () => {
-        const shot = await page.screenshot({ type: 'png' }).catch(() => null)
-        if (!shot) return 'fail'
-        try { return classifyBonusText(await callGeminiVisionViaProxy(BONUS_OCR_PROMPT, shot.toString('base64'))) } catch { return 'fail' }
-      },
-      pressSpin: async () => (await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])) !== null,
-      touch: async () => doTouchPoints(page, learnedPoints ? { ...(profile ?? ({} as MachineProfile)), touchPoints: learnedPoints } : profile, emit),
-      rescue: async () => {
-        const rr = await bonusStallRescue(page, emit, machineCode, () => !endedFlag, `${o.filePrefix}${machineCode}-open-${Date.now()}`)
-        emit(`🧩 疑似特殊遊戲救援：${rr.note}`)
-        if (!rr.learn) return null
-        if (rr.learn.action === 'touchscreen' && rr.learn.touchPoints?.length) learnedPoints = rr.learn.touchPoints
-        return rr.learn.action
-      },
-      now: Date.now, sleep: async ms => { await sleep(ms) },
-      maxMs: 8 * 60_000, maxActs: 60, quietMs: 8_000, pollMs: 8_000, stallMs: BONUS_STALL_MS,
-    })
-    const ways = [...new Set(r.how.map(h => h.replace(/\(.*\)$/, '')))].join('、') || '只等待'
-    const note = `疑似特殊遊戲（未監控，依 moneyNtc 判斷）：處理方式 ${ways}，操作 ${r.acts} 次，耗時 ${(r.ms / 1000).toFixed(0)} 秒，結果 ${r.result === 'done' ? 'done（收到 end）' : r.result}`
-    emit(`${r.result === 'done' ? '✅' : '⚠️'} ${where}：${note}`)
-    return { result: r.result, note }
+    try {
+      const r = await superviseOpenRound({
+        ended, stop,
+        lastMoneyAgo: async () => { const l = await readMoneyLog(page); return l.length ? Date.now() - l[l.length - 1].ts : Number.POSITIVE_INFINITY },
+        closeOverlays: async () => {
+          await dismissGameTips(page, emit)
+          await dismissDenomOverlay(page, emit, '疑似特殊遊戲')
+          handpay = /hand\s*-?\s*pay/i.test(await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''))
+          if (handpay) emit('⚠️ 畫面出現 Handpay → 停止推進，需人工處理')
+        },
+        featureTaps: ft ? async (budget: number) => {
+          let n = 0
+          const fr = await featureTapRound(page, emit, ft, ftCursor, () => endedFlag, () => stop() || n >= budget, `${where} 疑似特殊遊戲（可能卡在 JP／FG 選擇畫面）`, () => { n++ })
+          ftCursor = fr.cursor; taps += n
+          return { kind: fr.result === 'screen' || fr.result === 'done' ? 'progress' : fr.result === 'stopped' ? 'none' : 'giveUp', taps: n }
+        } : undefined,
+        action,
+        screen: async () => {
+          const shot = await page.screenshot({ type: 'png' }).catch(() => null)
+          if (!shot) return 'fail'
+          try { return openRoundScreen(await ocr(shot)) } catch { return 'fail' }
+        },
+        pressSpin: async () => {
+          // 按之前最後一次重讀（supervisor 已查過，這裡是真的點下去前的那一刻）
+          if (await endedNow() || stop()) return false
+          const ok = (await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])) !== null
+          if (ok) taps++
+          return ok
+        },
+        // 逐格點：每一格點之前都重讀流水與停止狀態（doTouchPoints 一次點完整串，中間不會停）
+        touch: async (budget: number) => {
+          let n = 0
+          for (const pt of profile?.touchPoints ?? []) {
+            if (n >= budget || stop() || await endedNow()) break
+            if (await clickTouchCell(page, pt)) { n++; emit(`（疑似特殊遊戲：觸屏點擊 "${pt}"）`) }
+            await sleep(800)
+          }
+          taps += n
+          return n
+        },
+        // ⚠️ 不接卡住救援（bonusStallRescue）：它用 classifyBonusText 判斷要不要按 SPIN，普通局畫面也會被判成 spin，
+        //    內層點擊也沒有逐下重讀 end。卡住就 stalled、交人工（CodeX 2d513b6 [P1]）
+        now: Date.now, sleep: async ms => { await sleep(ms) },
+        maxMs: o.timing?.maxMs ?? 8 * 60_000, maxActs, quietMs: o.timing?.quietMs ?? 8_000, pollMs: o.timing?.pollMs ?? 8_000, stallMs: BONUS_STALL_MS,
+      })
+      const ways = [...new Set(r.how.map(h => h.replace(/\(.*\)$/, '')))].join('、') || '只等待'
+      const note = `疑似特殊遊戲（未監控，依 moneyNtc 判斷）：處理方式 ${ways}，實際點擊 ${taps} 下，耗時 ${(r.ms / 1000).toFixed(0)} 秒，結果 ${r.result === 'done' ? 'done（收到 end）' : `${r.result}${handpay ? '（Handpay）' : ''}——已停止自動操作，請人工處理`}`
+      emit(`${r.result === 'done' ? '✅' : '🆘'} ${where}：${note}`)
+      if (r.result !== 'done') failed = { beginSeq, result: r.result, note }
+      return { result: r.result, note }
+    } finally {
+      clearInterval(ticker)
+    }
   }
 }
 
@@ -4991,12 +5034,19 @@ export class MachineTestRunner extends EventEmitter {
             page, emit, machineCode, getProfile: () => profile, sinceSeq: moneySeqAtEntry,
             osmStatus: () => this.osmStatus.get(machineCode), stopped: () => this.stopped, filePrefix: this.sessionPrefix,
           })
+          // 疑似特殊遊戲 stalled／Handpay／停止 → 後續步驟（含退出）一律不做、交人工（CodeX 2d513b6 [P1]：只記 warn 的話後面照跑 Spin／iDeck）
+          let openRoundHalt: string | null = null
           const checkOsm = async () => {
             if (this.stopped) return
             const s = this.osmStatus.get(machineCode)
             if (s === undefined || s === 0) {
               const orr = await openRound('步驟之間')
-              if (orr) stepResults.push({ step: '特殊遊戲等待', status: orr.result === 'done' ? 'pass' : 'warn', message: orr.note, durationMs: 0 })
+              if (!orr) return
+              stepResults.push({ step: '特殊遊戲等待', status: orr.result === 'done' ? 'pass' : 'fail', message: orr.note, durationMs: 0 })
+              if (orr.result !== 'done' && !this.stopped) {
+                openRoundHalt = orr.note
+                this._haltReason = `${machineCode} 疑似特殊遊戲未結束（帳號可能卡在這台）：${orr.note}｜⚠️ 額度可能還在機台上`
+              }
               return
             }
             const bonusWait = await waitForNormalStatus(this.osmStatus, machineCode, page, profile, emit, () => this.stopped, stallRescue)
@@ -5004,6 +5054,15 @@ export class MachineTestRunner extends EventEmitter {
               stepResults.push({ step: '特殊遊戲等待', status: 'pass', message: `偵測到「${bonusWait.label}」，等待 ${(bonusWait.waited / 1000).toFixed(0)}s 後完成`, durationMs: bonusWait.waited })
               this.log(`${workerTag} [PASS] 特殊遊戲等待完成: ${bonusWait.label}`, machineCode)
             }
+          }
+
+          /** 每個步驟之前：照舊看特殊狀態；疑似特殊遊戲已判 stalled 就不做這一步（退出也不做——帳號留在機台，交人工） */
+          const stepGate = async (name: string): Promise<boolean> => {
+            if (!openRoundHalt) await checkOsm()
+            if (!openRoundHalt) return true
+            const isExit = name === '退出測試'
+            stepResults.push({ step: name, status: isExit ? 'fail' : 'skip', message: `${isExit ? '🆘 ' : ''}未執行：疑似特殊遊戲未結束，已停止所有自動操作，請人工處理（${openRoundHalt}）`, durationMs: 0 })
+            return false
           }
 
           // ── 退出：一定要確認回到大廳才換下一台 ──────────────────────────────
@@ -5218,8 +5277,7 @@ export class MachineTestRunner extends EventEmitter {
             if (sessionRec) emit(`🎙 整段錄音已開始（進機台 → 退出）`)
           }
 
-          if (steps.stream) {
-            await checkOsm()
+          if (steps.stream && await stepGate('推流檢測')) {
             const r2 = await stepStream(page, emit, profile, machineCode, this.sessionPrefix)
             stepResults.push(r2)
             this.log(`${workerTag} [${r2.status.toUpperCase()}] 推流: ${r2.message}`, machineCode)
@@ -5228,8 +5286,7 @@ export class MachineTestRunner extends EventEmitter {
           const spinAudioRef: SpinAudioRef = { data: null }
           // 0930 使用者：機台停在選面額選單時 SPIN 本來就無效 → Spin 前先過選單閘門（verdicts.ts runMenuGate，探針 scripts/menu-gate-probe.ts）
           let menuGateTouchFail: string | null = null
-          if (steps.spin) {
-            await checkOsm()
+          if (steps.spin && await stepGate('Spin 測試')) {
             const gate = await spinMenuGate(page, emit, machineCode, profile, () => this.stopped)
             if (gate.state === 'touchNoResponse') {
               menuGateTouchFail = gate.note
@@ -5248,15 +5305,13 @@ export class MachineTestRunner extends EventEmitter {
             }
           }
 
-          if (steps.audio) {
-            await checkOsm()
+          if (steps.audio && await stepGate('音頻檢測')) {
             const r4 = await stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig)
             stepResults.push(r4)
             this.log(`${workerTag} [${r4.status.toUpperCase()}] 音頻: ${r4.message}`, machineCode)
           }
 
-          if (steps.ideck) {
-            await checkOsm()
+          if (steps.ideck && await stepGate('iDeck 測試')) {
             const ideckXpaths = (profile?.ideckXpaths ?? []).length > 0 ? profile!.ideckXpaths! : this.betRandomConfig[machineCode]
             const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix, openRound)
             stepResults.push(r6)
@@ -5268,15 +5323,13 @@ export class MachineTestRunner extends EventEmitter {
             const r7: StepResult = { step: '觸屏測試', status: 'fail', message: `【Spin 前選單閘門】${menuGateTouchFail}｜判定：no response`, durationMs: 0 }
             stepResults.push(r7)
             this.log(`${workerTag} [FAIL] 觸屏: ${r7.message}`, machineCode)
-          } else if (steps.touchscreen) {
-            await checkOsm()
+          } else if (steps.touchscreen && await stepGate('觸屏測試')) {
             const r7 = await stepTouchscreen(page, emit, machineCode, profile, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix)
             stepResults.push(r7)
             this.log(`${workerTag} [${r7.status.toUpperCase()}] 觸屏: ${r7.message}`, machineCode)
           }
 
-          if (steps.cctv) {
-            await checkOsm()
+          if (steps.cctv && await stepGate('CCTV 號碼比對')) {
             const r8 = await stepCctv(page, emit, machineCode, this.sessionPrefix)
             stepResults.push(r8)
             this.log(`${workerTag} [${r8.status.toUpperCase()}] CCTV: ${r8.message}`, machineCode)
@@ -5304,8 +5357,7 @@ export class MachineTestRunner extends EventEmitter {
             }
           }
 
-          if (steps.exit) {
-            await checkOsm()
+          if (steps.exit && await stepGate('退出測試')) {
             const r5raw = await exitUntilLobby()
             const r5ex = { ...(r5raw.extraData ?? {}), ...(exitShotsAll.length ? { exitShots: JSON.stringify(exitShotsAll) } : {}), ...(bonusLearned ? { bonusLearn: JSON.stringify(bonusLearned) } : {}) }
             const r5 = Object.keys(r5ex).length ? { ...r5raw, extraData: r5ex } : r5raw
