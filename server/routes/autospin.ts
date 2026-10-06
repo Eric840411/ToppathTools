@@ -4,11 +4,7 @@
  */
 import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
 import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-ledger-query.js'
-// ⚠️ webhook URL 與帳號↔Discord ID 對照**只有一份**，在 discord-webhook.ts。
-//    這裡原本各留了一份 private getter，Live Ledger 的告警要用同一組設定時
-//    複製第三份出去就會開始各發各的——見該檔檔頭。
-import { getDiscordWebhookUrl, getDiscordUserMap, mentionForUserLabel } from '../discord-webhook.js'
-import { deliverNotice, discordWebhookSender, queueFailedSides, usesDiscord, usesLark } from '../notify-outlet.js'
+import { deliverNotice, queueFailedSides } from '../notify-outlet.js'
 
 /**
  * 連續幾筆觀測落庫失敗。⚠️ fire-and-forget 不代表不留痕——
@@ -416,98 +412,27 @@ router.get('/api/autospin/captures-list', async (_req, res) => {
   res.json({ ok: true, files: result.slice(0, 50) })
 })
 
-// ─── Discord Webhook 通知設定 ──────────────────────────────────────────────────
-// URL / 標題模板 / 頁尾文字仍是全域共用（存在 settings 表，同一個頻道大家共用）；
-// 通知啟用開關、顯示欄位、定時彙總報告設定改成依帳號分開（存在 autospin_notify_prefs，
-// 見下方 getNotifyPrefsRow() 等 helper）——每個帳號自己決定自己派工的 session 要不要
-// 通知、要顯示哪些欄位，不會互相影響。
-
-// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL（全域）+ 啟用開關 + 訊息格式設定（依帳號）
-router.get('/api/autospin/discord-webhook', (req, res) => {
-  const userLabel = (req.headers['x-user-label'] as string) || ''
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
-  res.json({
-    ok: true,
-    url: row?.value ?? '',
-    enabled: isDiscordNotifyEnabled(userLabel),
-    fields: getDiscordNotifyFields(userLabel),
-    titleTemplate: getDiscordTitleTemplate(),
-    footer: getDiscordFooterText(),
-  })
-})
-
-// POST /api/autospin/discord-webhook — url/titleTemplate/footer 寫全域設定；enabled/fields 寫該帳號自己的設定
-router.post('/api/autospin/discord-webhook', (req, res) => {
-  const userLabel = (req.headers['x-user-label'] as string) || ''
-  const { url, enabled, fields, titleTemplate, footer } = req.body as {
-    url?: string; enabled?: boolean; fields?: Partial<Record<NotifyFieldKey, boolean>>
-    titleTemplate?: string; footer?: string
-  }
-  if (typeof url !== 'string') return res.status(400).json({ ok: false, message: 'url required' })
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_webhook_url', url)
-  if (typeof enabled === 'boolean') {
-    upsertNotifyPrefs(userLabel, { notifyEnabled: enabled ? 1 : 0 })
-  }
-  if (fields && typeof fields === 'object') {
-    const merged = { ...getDiscordNotifyFields(userLabel), ...fields }
-    upsertNotifyPrefs(userLabel, { notifyFields: JSON.stringify(merged) })
-  }
-  if (typeof titleTemplate === 'string') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_title_template', titleTemplate)
-  }
-  if (typeof footer === 'string') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_footer', footer)
-  }
-  res.json({ ok: true })
-})
-
-// GET/POST /api/autospin/notify-format —— AutoSpin 通知的開關、顯示欄位（依帳號）、標題模板、頁尾（全域）。
-// 跟 discord-webhook 讀寫的是同一批設定，只是不碰 webhook URL（v5.5.0 Discord 退場，設定搬到「通知設定」頁）。
-// 存的 key 暫時沿用 discord_notify_*，下一版刪 Discord 時再一起改名，這一版要能退回去。
+// ─── AutoSpin 通知格式 ────────────────────────────────────────────────────────
+// 通知啟用開關、顯示欄位、定時彙總報告依帳號分開（autospin_notify_prefs）；標題模板與頁尾全域共用（settings）。
+// v5.13.0 Discord 退場：全域 key 從 discord_notify_* 改名為 autospin_notify_*（migration：server/discord-retire-migration.ts）
+// GET/POST /api/autospin/notify-format
 router.get('/api/autospin/notify-format', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
-  res.json({ ok: true, enabled: isDiscordNotifyEnabled(userLabel), fields: getDiscordNotifyFields(userLabel), titleTemplate: getDiscordTitleTemplate(), footer: getDiscordFooterText() })
+  res.json({ ok: true, enabled: isAutoSpinNotifyEnabled(userLabel), fields: getAutoSpinNotifyFields(userLabel), titleTemplate: getAutoSpinTitleTemplate(), footer: getAutoSpinFooterText() })
 })
 router.post('/api/autospin/notify-format', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
   const { enabled, fields, titleTemplate, footer } = req.body as { enabled?: boolean; fields?: Partial<Record<NotifyFieldKey, boolean>>; titleTemplate?: string; footer?: string }
   if (typeof enabled === 'boolean') upsertNotifyPrefs(userLabel, { notifyEnabled: enabled ? 1 : 0 })
-  if (fields && typeof fields === 'object') upsertNotifyPrefs(userLabel, { notifyFields: JSON.stringify({ ...getDiscordNotifyFields(userLabel), ...fields }) })
-  if (typeof titleTemplate === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_title_template', titleTemplate.slice(0, 200))
-  if (typeof footer === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_footer', footer.slice(0, 500))
+  if (fields && typeof fields === 'object') upsertNotifyPrefs(userLabel, { notifyFields: JSON.stringify({ ...getAutoSpinNotifyFields(userLabel), ...fields }) })
+  if (typeof titleTemplate === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_notify_title_template', titleTemplate.slice(0, 200))
+  if (typeof footer === 'string') db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_notify_footer', footer.slice(0, 500))
   res.json({ ok: true })
 })
 
-// POST /api/autospin/discord-webhook/test — 送一則測試訊息確認 webhook 設定正確
-router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
-  const url = getDiscordWebhookUrl()
-  if (!url) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
-  try {
-    const r = await fetch(`${url}?wait=true`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [{
-          title: '✅ Toppath Tools 測試訊息',
-          description: '這是一則測試訊息，確認 Discord Webhook 設定正確。',
-          color: 0x22c55e,
-          timestamp: new Date().toISOString(),
-        }],
-      }),
-    })
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '')
-      return res.status(400).json({ ok: false, message: `Discord API 錯誤 ${r.status}: ${txt.slice(0, 200)}` })
-    }
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(500).json({ ok: false, message: `送出失敗: ${e}` })
-  }
-})
-
 // ─── 帳號各自的通知偏好（autospin_notify_prefs）───────────────────────────────
-// 通知啟用開關/顯示欄位/定時彙總報告設定依帳號分開；Webhook URL/標題模板/頁尾文字
-// 仍是全域（見上方 discord-webhook 路由）。尚未存過偏好的帳號，getter 會 fallback
+// 通知啟用開關/顯示欄位/定時彙總報告設定依帳號分開；標題模板/頁尾文字
+// 仍是全域（見上方 notify-format 路由）。尚未存過偏好的帳號，getter 會 fallback
 // 讀取舊版全域 settings 值（2026-07-31 前的行為），避免改版當下所有帳號的通知/報告
 // 設定突然被重置成程式內建預設值。
 interface NotifyPrefsRow {
@@ -839,11 +764,10 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     cumulative?: StatusReportStats; period?: StatusReportStats; uptimeMinutes?: number
   }
   if (!machineType || !cumulative || !period) return res.status(400).json({ ok: false, message: 'machineType/cumulative/period 為必填' })
-  res.json({ ok: true })  // 先回應，Discord 發送不擋 Python 端
+  res.json({ ok: true })  // 先回應，通知發送不擋 Python 端
 
-  const webhookUrl = getDiscordWebhookUrl()
   const userLabel = s?.userLabel ?? ''
-  if ((!webhookUrl && !usesLark('autospin')) || !isDiscordNotifyEnabled(userLabel) || !getStatusReportEnabled(userLabel)) return
+  if (!isAutoSpinNotifyEnabled(userLabel) || !getStatusReportEnabled(userLabel)) return
 
   const aiAnalysis = getStatusReportAiEnabled(userLabel)
     ? await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
@@ -887,17 +811,15 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 
   // 定時報告失敗不排補送：下一期本來就會再來一份（累計數字也包含在內），補送舊的只會讓頻道多一則過期資料
   try {
-    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(reportOpts, m), discordContent: mentionForUserLabel(userLabel), mentionLabels: userLabel ? [userLabel] : [] }, discordWebhookSender(webhookUrl))
-    for (const side of ['discord', 'lark'] as const) if (r[side] && !r[side]!.ok) console.warn(`[autospin] 定時彙總報告 ${side} 發送失敗：${r[side]!.message}`)
+    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(reportOpts, m), mentionLabels: userLabel ? [userLabel] : [] })
+    if (!r.lark.ok) console.warn(`[autospin] 定時彙總報告 Lark 發送失敗：${r.lark.message}`)
   } catch (e) {
     console.warn('[autospin] 定時彙總報告發送失敗:', e)
   }
 })
 
-// POST /api/autospin/status-report-test — 用假資料試發送一則彙總報告，確認格式與 webhook 是否正常（不受啟用開關影響）
+// POST /api/autospin/status-report-test — 用假資料試發送一則彙總報告，確認格式與 Lark 通知是否正常（不受啟用開關影響）
 router.post('/api/autospin/status-report-test', async (req, res) => {
-  const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl && usesDiscord('autospin')) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
   const userLabel = (req.headers['x-user-label'] as string) || ''
 
   const now = Date.now()
@@ -930,7 +852,6 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
   const aiAnalysis = getStatusReportAiEnabled(userLabel)
     ? await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(userLabel), sample.cumulative, sample.period, 125)
     : null
-  const mention = mentionForUserLabel(userLabel || getOperatorFromContext()?.name)
 
   const testOpts: StatusReportOpts = {
     machineType: 'TEST',
@@ -964,47 +885,23 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
   }
   const embed = buildStatusReportEmbed(testOpts)
 
-  // 試發照「AutoSpin」的出口設定送（設成 Lark 就試 Lark、兩邊就兩邊），哪邊失敗講哪邊
   try {
     const opLabel = userLabel || getOperatorFromContext()?.name || ''
     // 試發送也走 Lark 原生卡片（v5.8.0），才測得到正式報告長怎樣
-    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(testOpts, m), discordContent: mention, mentionLabels: opLabel ? [opLabel] : [] }, discordWebhookSender(webhookUrl))
-    const bad = (['discord', 'lark'] as const).filter(k => r[k] && !r[k]!.ok).map(k => `${k === 'lark' ? 'Lark' : 'Discord'}：${r[k]!.message}`)
-    if (bad.length) return res.status(400).json({ ok: false, message: bad.join('；') })
+    const r = await deliverNotice({ feature: 'autospin', embed, larkCard: m => buildStatusReportLarkCard(testOpts, m), mentionLabels: opLabel ? [opLabel] : [] })
+    if (!r.lark.ok) return res.status(400).json({ ok: false, message: `Lark：${r.lark.message}` })
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ ok: false, message: `送出失敗: ${e}` })
   }
 })
 
-// ─── 帳號 → Discord User ID 對照（通知 tag 發起人用）───────────────────────────
-// 使用者自己維護「哪個帳號對應哪個 Discord User ID」，AutoSpin 通知（即時彙報 + 定時
-// 彙總報告）依 session 是哪個帳號派工啟動的，找得到對照就在訊息 content（不是塞在
-// embed 裡，那樣不會真的觸發 Discord 通知/ping）開頭 tag 那個人。
-//
-// ⚠️ getter 本體搬到 `server/discord-webhook.ts`（見檔頭 import）——Live Ledger 的
-//    告警要用同一組設定，留在這裡就得被複製第二份。下面的路由仍然是這份設定的入口。
-
-// GET /api/autospin/discord-user-map
-router.get('/api/autospin/discord-user-map', (_req, res) => {
-  res.json({ ok: true, map: getDiscordUserMap() })
-})
-
-// POST /api/autospin/discord-user-map — 整份覆蓋儲存
-router.post('/api/autospin/discord-user-map', (req, res) => {
-  const body = z.object({
-    map: z.array(z.object({ userLabel: z.string().min(1), discordUserId: z.string().min(1) })),
-  }).parse(req.body)
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_discord_user_map', JSON.stringify(body.map))
-  res.json({ ok: true })
-})
-
 /** 預設啟用（尚未設定過開關時，維持既有行為：只要有填 URL 就會發送）。依帳號分開，
  * 尚未存過個人設定的帳號 fallback 讀舊版全域值。 */
-function isDiscordNotifyEnabled(userLabel: string): boolean {
+function isAutoSpinNotifyEnabled(userLabel: string): boolean {
   const row = getNotifyPrefsRow(userLabel)
   if (row) return row.notifyEnabled !== 0
-  return legacySetting('discord_notify_enabled') !== '0'
+  return legacySetting('autospin_notify_enabled') !== '0'
 }
 
 type NotifyFieldKey = 'gameUrl' | 'spinCount' | 'errorSummary'
@@ -1013,9 +910,9 @@ const DEFAULT_NOTIFY_FIELDS: Record<NotifyFieldKey, boolean> = {
 }
 
 /** 哪些欄位要顯示在通知卡片上（狀態欄固定顯示，不受此設定影響）。依帳號分開。 */
-function getDiscordNotifyFields(userLabel: string): Record<NotifyFieldKey, boolean> {
+function getAutoSpinNotifyFields(userLabel: string): Record<NotifyFieldKey, boolean> {
   const row = getNotifyPrefsRow(userLabel)
-  const raw = row ? row.notifyFields : legacySetting('discord_notify_fields')
+  const raw = row ? row.notifyFields : legacySetting('autospin_notify_fields')
   if (!raw) return { ...DEFAULT_NOTIFY_FIELDS }
   try {
     return { ...DEFAULT_NOTIFY_FIELDS, ...JSON.parse(raw) }
@@ -1027,15 +924,15 @@ function getDiscordNotifyFields(userLabel: string): Record<NotifyFieldKey, boole
 const DEFAULT_TITLE_TEMPLATE = 'AutoSpin — {machineType}'
 
 /** 訊息標題模板，{machineType} 會被實際機台代碼取代。 */
-function getDiscordTitleTemplate(): string {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_title_template') as { value: string } | undefined
+function getAutoSpinTitleTemplate(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_notify_title_template') as { value: string } | undefined
   const tpl = row?.value?.trim()
   return tpl || DEFAULT_TITLE_TEMPLATE
 }
 
 /** 自訂頁尾文字（選填，例如公司代號），空字串＝不顯示。 */
-function getDiscordFooterText(): string {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_footer') as { value: string } | undefined
+function getAutoSpinFooterText(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_notify_footer') as { value: string } | undefined
   return row?.value ?? ''
 }
 
@@ -1358,16 +1255,16 @@ const NOTIFY_STATUS_META: Record<NotifyStatus, { label: string; color: number; e
   failed: { label: '失敗', color: 0xef4444, emoji: '❌' },
   stopped: { label: '已停止', color: 0x9ca3af, emoji: '⏹️' },
 }
-/** messageId＝Discord 那則（沒有就是空字串）、larkMessageId＝Lark 那則 */
-const discordNotifyState = new Map<string, { messageId: string; larkMessageId?: string; status: NotifyStatus }>()
+/** 每台機台目前那則 Lark 通知（之後的狀態更新改同一則） */
+const machineNotifyState = new Map<string, { larkMessageId?: string; status: NotifyStatus }>()
 
-function buildDiscordEmbed(
+function buildMachineStatusEmbed(
   status: NotifyStatus, machineType: string,
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string },
   userLabel: string,
 ) {
   const meta = NOTIFY_STATUS_META[status]
-  const enabledFields = getDiscordNotifyFields(userLabel)
+  const enabledFields = getAutoSpinNotifyFields(userLabel)
   const fields: { name: string; value: string; inline?: boolean }[] = [
     { name: '狀態', value: `${meta.emoji} ${meta.label}`, inline: true },
   ]
@@ -1375,8 +1272,8 @@ function buildDiscordEmbed(
   if (enabledFields.gameUrl && opts.gameUrl) fields.push({ name: 'Game URL', value: opts.gameUrl.length > 300 ? opts.gameUrl.slice(0, 300) + '…' : opts.gameUrl })
   if (enabledFields.errorSummary && opts.errorSummary) fields.push({ name: '錯誤摘要', value: opts.errorSummary.slice(0, 500) })
 
-  const title = `${meta.emoji} ${getDiscordTitleTemplate().replace(/\{machineType\}/g, machineType)}`
-  const footer = getDiscordFooterText()
+  const title = `${meta.emoji} ${getAutoSpinTitleTemplate().replace(/\{machineType\}/g, machineType)}`
+  const footer = getAutoSpinFooterText()
   return {
     title,
     color: meta.color,
@@ -1388,10 +1285,10 @@ function buildDiscordEmbed(
 
 /** Session 結束時，對這個 session 底下每台機台送出最終狀態（success/failed，依是否曾有異常記錄判斷）。 */
 async function finalizeSessionNotifications(sessionId: string) {
-  const keys = [...discordNotifyState.keys()].filter(k => k.startsWith(`${sessionId}:`))
+  const keys = [...machineNotifyState.keys()].filter(k => k.startsWith(`${sessionId}:`))
   const session = agentSessions.get(sessionId)
   for (const key of keys) {
-    const state = discordNotifyState.get(key)
+    const state = machineNotifyState.get(key)
     if (!state || state.status === 'success' || state.status === 'failed' || state.status === 'stopped') continue
     const machineType = key.slice(sessionId.length + 1)
     const anomalyRow = db.prepare(
@@ -1401,44 +1298,37 @@ async function finalizeSessionNotifications(sessionId: string) {
       'SELECT spinCount FROM autospin_history WHERE sessionId = ? AND machineType = ? ORDER BY id DESC LIMIT 1'
     ).get(sessionId, machineType) as { spinCount: number } | undefined
     const status: NotifyStatus = (anomalyRow?.cnt ?? 0) > 0 ? 'failed' : 'success'
-    await notifyDiscord(sessionId, machineType, status, {
+    await notifyMachineStatus(sessionId, machineType, status, {
       spinCount: lastRow?.spinCount ?? 0,
     }).catch(() => {})
   }
 }
 
 /**
- * 建立或更新（同一則訊息）指定機台的通知。出口（Discord／Lark／兩邊）看「Lark 通知設定」頁，預設 Discord。
- * 兩邊各記各的 message id、各自更新；某一邊改不動（訊息被刪）就只在那一邊重發一則，另一邊照常改原本那則。
- * 最終狀態（完成／失敗／停止）送不出去的那一邊排進補送佇列——中途狀態不排，下一次狀態更新自然會再試。
+ * 建立或更新（同一則訊息）指定機台的 Lark 通知。改不動（訊息被刪）就重發一則。
+ * 最終狀態（完成／失敗／停止）送不出去就排進補送佇列——中途狀態不排，下一次狀態更新自然會再試。
  */
-async function notifyDiscord(
+async function notifyMachineStatus(
   sessionId: string, machineType: string, status: NotifyStatus,
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string } = {},
 ) {
-  const webhookUrl = getDiscordWebhookUrl()
   const userLabel = agentSessions.get(sessionId)?.userLabel ?? ''
-  if (!isDiscordNotifyEnabled(userLabel)) return
-  if (!webhookUrl && !usesLark('autospin')) return
+  if (!isAutoSpinNotifyEnabled(userLabel)) return
   const key = `${sessionId}:${machineType}`
-  const existing = discordNotifyState.get(key)
+  const existing = machineNotifyState.get(key)
   const input = {
     feature: 'autospin' as const,
-    embed: buildDiscordEmbed(status, machineType, opts, userLabel),
-    discordContent: mentionForUserLabel(userLabel),
+    embed: buildMachineStatusEmbed(status, machineType, opts, userLabel),
     mentionLabels: userLabel ? [userLabel] : [],
   }
   try {
-    const r = await deliverNotice({ ...input, update: { discordMessageId: existing?.messageId, larkMessageId: existing?.larkMessageId } }, discordWebhookSender(webhookUrl))
-    // 改不動的那邊（訊息可能被刪）→ 只在那邊發新的一則
-    const redo: Array<'discord' | 'lark'> = []
-    if (existing?.messageId && r.discord && !r.discord.ok && !r.discord.skipped) redo.push('discord')
-    if (existing?.larkMessageId && r.lark && !r.lark.ok && !r.lark.skipped) redo.push('lark')
-    if (redo.length) Object.assign(r, await deliverNotice({ ...input, only: redo }, discordWebhookSender(webhookUrl)))
-    const next = { messageId: r.discord?.ok ? r.discord.messageId ?? '' : existing?.messageId ?? '', larkMessageId: r.lark?.ok ? r.lark.messageId : existing?.larkMessageId, status }
-    if (next.messageId || next.larkMessageId) discordNotifyState.set(key, next)
+    let r = await deliverNotice({ ...input, update: { larkMessageId: existing?.larkMessageId } })
+    // 改不動（訊息可能被刪）→ 發新的一則
+    if (existing?.larkMessageId && !r.lark.ok && !r.lark.skipped) r = await deliverNotice(input)
+    const larkMessageId = r.lark.ok ? r.lark.messageId : existing?.larkMessageId
+    if (larkMessageId) machineNotifyState.set(key, { larkMessageId, status })
     if (status === 'success' || status === 'failed' || status === 'stopped') queueFailedSides(input, r)
-    for (const side of ['discord', 'lark'] as const) if (r[side] && !r[side]!.ok && !r[side]!.skipped) console.warn(`[autospin] ${side} 通知失敗：${r[side]!.message}`)
+    if (!r.lark.ok && !r.lark.skipped) console.warn(`[autospin] Lark 通知失敗：${r.lark.message}`)
   } catch (e) {
     console.warn('[autospin] 通知失敗:', e)
   }
@@ -1464,8 +1354,8 @@ setInterval(() => {
       agentSseClients.get(id)?.forEach(r => { try { r.end() } catch { /* ignore */ } })
       agentSseClients.delete(id)
       // 同步清掉這個 session 底下所有機台的 Discord 通知狀態
-      for (const key of discordNotifyState.keys()) {
-        if (key.startsWith(`${id}:`)) discordNotifyState.delete(key)
+      for (const key of machineNotifyState.keys()) {
+        if (key.startsWith(`${id}:`)) machineNotifyState.delete(key)
       }
     }
   }
@@ -1741,7 +1631,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
   // session 才發；重連加入既有 session 時機台可能早就在跑了，不能把通知蓋回「排隊中」。
   if (isNewSession) {
     for (const c of merged) {
-      if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
+      if (c.enabled) notifyMachineStatus(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
     }
   }
   res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
@@ -2842,7 +2732,7 @@ router.post('/api/autospin/agent/:id/history', (req, res) => {
   // 之後每筆 history 更新同一則訊息的 spin 數；低餘額等異常事件附上摘要
   const cfg = readConfigs(s.userLabel).find(c => c.machineType === body.machineType)
   const errorSummary = body.event === 'low_balance' || isAnomaly ? body.note || '偵測到餘額異常' : undefined
-  notifyDiscord(s.id, body.machineType, 'running', {
+  notifyMachineStatus(s.id, body.machineType, 'running', {
     gameUrl: cfg?.gameUrl,
     spinCount: body.spinCount,
     errorSummary,

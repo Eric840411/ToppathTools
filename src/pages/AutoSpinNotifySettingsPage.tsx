@@ -5,7 +5,7 @@ import { loadGlobalAccount } from '../authSession'
  * AutoSpin 通知設定（v5.5.0：原本的「Discord 通知」頁拿掉 Discord 專屬的 Webhook URL 與 Discord ID 對照表）。
  * 通知一律發 Lark——機器人、群組、@人在「通知設定」頁（只限管理員）；這頁是每個帳號自己的 AutoSpin 通知偏好，
  * 所以沿用原本的頁面權限（discord-notify），非管理員也能改自己的。
- * 版面、樣式 class 沿用原頁，下一版刪 Discord 時再一起改名。
+ * 版面、樣式 class（discord-notify-*）沿用原頁；v5.13.0 刪 Discord 時刻意不改名（權限 key discord-notify 也保留，改了既有角色的權限會失效）。
  */
 
 /** 通知啟用開關/顯示欄位/定時彙總報告設定依帳號分開，這裡取目前選擇的帳號當 x-user-label。 */

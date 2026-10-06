@@ -10,8 +10,7 @@ import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { addHistory, readAccounts, writeLimiter } from '../shared.js'
 import { larkBotName, larkTenantToken, listBotChats, readLarkNotifyConfig, resolveLarkOpenIds, sendLarkCard, writeLarkNotifyConfig, larkNotifyChatId } from '../lark-notify.js'
-import { NOTIFY_FEATURES, embedToLarkCard, flushNotifyRetries, getOutlets, retryQueueSize, setOutlets, type Outlet } from '../notify-outlet.js'
-import { getDiscordWebhookUrl } from '../discord-webhook.js'
+import { NOTIFY_FEATURES, embedToLarkCard, flushNotifyRetries, retryQueueSize } from '../notify-outlet.js'
 
 export const router = Router()
 
@@ -27,10 +26,9 @@ router.get('/api/lark-notify/config', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const config = readLarkNotifyConfig()
   const botName = config.appId && config.hasSecret ? await larkBotName() : ''
-  res.json({ ok: true, config, botName, outlets: getOutlets(), features: NOTIFY_FEATURES, retryQueue: retryQueueSize(), discordConfigured: !!getDiscordWebhookUrl() })
+  res.json({ ok: true, config, botName, features: NOTIFY_FEATURES, retryQueue: retryQueueSize() })
 })
 
-const outletSchema = z.enum(['discord', 'lark', 'both'])
 router.put('/api/lark-notify/config', writeLimiter, (req, res) => {
   if (!requireAdmin(req, res)) return
   const parsed = z.object({
@@ -38,23 +36,18 @@ router.put('/api/lark-notify/config', writeLimiter, (req, res) => {
     secret: z.string().max(200).optional(),
     chatId: z.string().max(100).optional(),
     toolUrl: z.string().max(300).optional(),
-    outlets: z.record(z.string(), outletSchema).optional(),
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ ok: false, message: '格式不對' })
   const b = parsed.data
   if (b.toolUrl && !/^https?:\/\//i.test(b.toolUrl.trim())) return res.status(400).json({ ok: false, message: '工具網址要以 http:// 或 https:// 開頭' })
   const w = writeLarkNotifyConfig({ appId: b.appId, secret: b.secret || undefined, chatId: b.chatId, toolUrl: b.toolUrl })
   if (!w.ok) return res.status(400).json(w)
-  if (b.outlets) {
-    const keys = new Set<string>(NOTIFY_FEATURES.map(f => f.key))
-    setOutlets(Object.fromEntries(Object.entries(b.outlets).filter(([k]) => keys.has(k))) as Record<string, Outlet>)
-  }
   // 歷史紀錄只記「改了什麼」，不記 Secret 內容
   addHistory('lark-notify', 'Lark 通知設定', [
     b.appId !== undefined ? 'App ID' : '', b.secret ? 'Secret（已更換）' : '', b.chatId !== undefined ? '目標群' : '',
-    b.toolUrl !== undefined ? '工具網址' : '', b.outlets ? '通知出口' : '',
-  ].filter(Boolean).join('、') || '沒有變更', { appId: b.appId, chatId: b.chatId, toolUrl: b.toolUrl, outlets: b.outlets, secretChanged: !!b.secret })
-  res.json({ ok: true, config: readLarkNotifyConfig(), outlets: getOutlets() })
+    b.toolUrl !== undefined ? '工具網址' : '',
+  ].filter(Boolean).join('、') || '沒有變更', { appId: b.appId, chatId: b.chatId, toolUrl: b.toolUrl, secretChanged: !!b.secret })
+  res.json({ ok: true, config: readLarkNotifyConfig() })
 })
 
 /** 驗證憑證：有填就驗填的（還沒存），Secret 留空就用已存的。不寫入、不快取 */
@@ -105,4 +98,4 @@ router.get('/api/lark-notify/mentions', async (req, res) => {
 })
 
 // server 這個 process 的補送（AutoSpin 雙發時失敗的那一邊）。Live Ledger 在自己的週期裡也會 flush，佇列有搶占所以不會重送
-setInterval(() => { flushNotifyRetries(getDiscordWebhookUrl).catch(e => console.warn('[notify] 補送失敗', e)) }, 2 * 60_000).unref()
+setInterval(() => { flushNotifyRetries().catch(e => console.warn('[notify] 補送失敗', e)) }, 2 * 60_000).unref()

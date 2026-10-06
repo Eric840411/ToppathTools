@@ -1125,95 +1125,26 @@ async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; v
 }
 
 /**
- * 送出提醒。出口看「Lark 通知設定」頁（預設 Discord）：
- *  - Discord：webhook URL 沿用 AutoSpin 那組全域設定；有週報 bot 就帶「確認送出」按鈕
- *  - Lark：一張卡片＋「開啟週報頁確認送出」連結按鈕。**不做卡片上直接送出**——工具不接 Lark 事件
- *    （OSM QA 應用的長連線被 Claude 佔著，搶事件會隨機漏），而且開頁面送出會重新走登入與權限檢查
+ * 送出提醒（v5.13.0 起只發 Lark）：一張卡片＋「開啟週報頁確認送出」連結按鈕。
+ * **不做卡片上直接送出**——工具不接 Lark 事件（OSM QA 應用的長連線被 Claude 佔著，搶事件會隨機漏），
+ * 而且開頁面送出會重新走登入與權限檢查
  */
 async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }> {
-  const { usesDiscord, usesLark } = await import('../notify-outlet.js')
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
-  const webhookUrl = row?.value ?? ''
-  const toDiscord = usesDiscord('weekly-reminder'), toLark = usesLark('weekly-reminder')
-  if (toDiscord && !toLark && !webhookUrl) return { sent: false, message: '尚未設定 Discord Webhook URL（在「Discord 通知」設定頁）' }
-
   const cfg = getReminderConfig()
   const { startLabel, endLabel } = getFridayAnchoredWeekRange()
   const preview = await buildReminderPreview()
-
-  // mention 一定要放 content，塞在 embed 裡不會真的觸發 Discord 通知/ping（AutoSpin 那邊踩過）
-  let content = '📋 該備週報了'
-  if (cfg.mentionAll) {
-    try {
-      const mapRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_discord_user_map') as { value: string } | undefined
-      const map = mapRow?.value ? JSON.parse(mapRow.value) as Array<{ discordUserId?: string }> : []
-      const mentions = (Array.isArray(map) ? map : [])
-        .map(e => e.discordUserId).filter((id): id is string => !!id)
-        .map(id => `<@${id}>`).join(' ')
-      if (mentions) content = `${mentions} ${content}`
-    } catch { /* 對照表壞掉不該擋住提醒本身 */ }
-  }
-
-  // Discord 一個 embed 最多 25 個欄位、總長 6000 字元，超過整包被拒、訊息完全發不出去。
-  // 逐筆完整列出之後欄位數會隨人數成長，所以要切成多個 embed（一則訊息最多 10 個）。
-  // **切的是容器不是內容**——不會因為切而少列任何一筆。
-  const EMBED_FIELD_MAX = 25
-  const EMBED_CHAR_MAX = 5500  // 留餘裕給 title/description/footer
-  const fieldChunks: Array<Array<{ name: string; value: string; inline: boolean }>> = []
-  {
-    let cur: Array<{ name: string; value: string; inline: boolean }> = []
-    let len = 0
-    for (const f of [{ name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false }, ...preview.fields]) {
-      const size = f.name.length + f.value.length
-      if (cur.length >= EMBED_FIELD_MAX || (cur.length > 0 && len + size > EMBED_CHAR_MAX)) {
-        fieldChunks.push(cur); cur = []; len = 0
-      }
-      cur.push(f); len += size
-    }
-    if (cur.length > 0) fieldChunks.push(cur)
-  }
-
-  const embeds = fieldChunks.map((chunk, i) => ({
-    // 只有第一個 embed 帶標題與說明，後面的是續頁——每個都重複一次會很吵
-    ...(i === 0 ? {
-      title: '週報備稿提醒',
-      description: [
-        '按下面的按鈕直接送出，或開週報彙整頁自己確認。',
-        '**手動指派與比對不到專案的項目不會被送出**，會列在下面。',
-      ].join('\n'),
-    } : { title: `週報備稿提醒（續 ${i + 1}）` }),
+  // 逐筆完整列出，不截斷（Lark 卡片沒有 Discord embed 25 欄的上限）
+  const embed = {
+    title: '週報備稿提醒',
     color: 0x62C6A5,
-    fields: chunk,
-    ...(i === fieldChunks.length - 1 ? { footer: { text: preview.footer }, timestamp: new Date().toISOString() } : {}),
-  }))
-
-
-  const results: string[] = []
-  let anySent = false
-  if (toLark) {
-    const r = await sendWeeklyReminderToLark(embeds, cfg.mentionAll)
-    results.push(r.ok ? 'Lark 已送出' : `Lark 沒送出：${r.message}`)
-    anySent ||= r.ok
+    fields: [{ name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false }, ...preview.fields],
+    footer: { text: preview.footer },
   }
-  if (toDiscord) {
-    if (!webhookUrl) results.push('Discord 沒送出：尚未設定 Webhook URL')
-    else {
-      // 優先用 bot 發——只有 application 發的訊息才帶得動按鈕（webhook 送 components 會被
-      // Discord 靜默丟掉，已實測）。bot 沒設定或還沒連上就退回 webhook：**沒有按鈕總比
-      // 整則提醒都不見了好**。
-      const { sendWeeklyReminderWithButton } = await import('../weekly-report-bot.js')
-      if (await sendWeeklyReminderWithButton({ content, embeds })) { results.push('Discord 已送出（帶按鈕）'); anySent = true }
-      else {
-        const r = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, embeds }) }).catch(e => e as Error)
-        if (r instanceof Response && r.ok) { results.push('Discord 已送出'); anySent = true }
-        else results.push(`Discord 沒送出：${r instanceof Response ? `webhook 回 ${r.status}` : r.message}`)
-      }
-    }
-  }
-  return { sent: anySent, message: results.join('；') }
+  const r = await sendWeeklyReminderToLark([embed], cfg.mentionAll)
+  return { sent: r.ok, message: r.ok ? 'Lark 已送出' : `Lark 沒送出：${r.message}` }
 }
 
-/** 週報提醒的 Lark 版：所有續頁欄位併成一張卡片，最後放「開啟週報頁」連結 */
+/** 週報提醒：欄位併成一張卡片，最後放「開啟週報頁」連結 */
 async function sendWeeklyReminderToLark(embeds: Array<{ title?: string; description?: string; color?: number; fields?: Array<{ name: string; value: string; inline: boolean }>; footer?: { text: string } }>, mentionAll: boolean): Promise<{ ok: boolean; message: string }> {
   const { embedToLarkCard, larkMentionLine } = await import('../notify-outlet.js')
   const { sendLarkCard, larkNotifyChatId, larkToolUrl } = await import('../lark-notify.js')

@@ -1,5 +1,5 @@
 /**
- * server/live-ledger-notify.ts — 把 `recon_finding` 送到 Discord。
+ * server/live-ledger-notify.ts — 把 `recon_finding` 送到 Lark（v5.13.0 前是 Discord）。
  *
  * 🚨 **這是整個對帳工具在 2026-09-17 體檢時唯一的真空。**
  *    `recon_finding.notifiedAt` 這個欄位當時只存在於 `shared.ts` 的建表語句裡——
@@ -20,18 +20,16 @@
  *
  * ③ **合批**：一次一則訊息帶整批，不是一筆一則。
  *
- * ④ **送不出去要留下紀錄，不能靜默 return。**沒設 webhook、被關掉、送失敗，
+ * ④ **送不出去要留下紀錄，不能靜默 return。**沒設定 Lark 通知、被關掉、送失敗，
  *    都寫進 `recon_source_health` 的 `notify` 那一列，健康燈看得見。
- *    ⚠️ `if (!webhookUrl) return` 這種寫法就是這份規格一直在防的免除條款：
+ *    ⚠️ `if (!configured) return` 這種寫法就是這份規格一直在防的免除條款：
  *       「沒有告警」與「告警送不出去」在畫面上長得一模一樣。
  */
 import { db } from './shared.js'
-import { larkNotifyConfigured } from './lark-notify.js'
 import { type ReconEnv, noteSourceHealth, reconSetting } from './live-ledger.js'
-import { getDiscordWebhookUrl, mentionsForUserLabels } from './discord-webhook.js'
-import { deliverNotice, discordWebhookSender, flushNotifyRetries, queueFailedSides, usesDiscord, type DiscordEmbed } from './notify-outlet.js'
+import { deliverNotice, flushNotifyRetries, notifyConfigured, type DiscordEmbed } from './notify-outlet.js'
 
-/** 一則訊息最多列幾筆明細（其餘只給總數）。Discord 單一 embed field 有 1024 字元上限。 */
+/** 一則訊息最多列幾筆明細（其餘只給總數）。單一欄位控制在 1024 字元內（卡片太長在 Lark 上很難讀）。 */
 const MAX_EXAMPLES_PER_GROUP = 4
 /** 一輪最多處理幾筆，避免累積太多時一次組出超長訊息。剩下的下一輪繼續。 */
 const MAX_PER_BATCH = 60
@@ -76,7 +74,7 @@ const LINE_HINT: Record<string, string> = {
 }
 
 const SEVERITY_RANK: Record<string, number> = { critical: 0, warn: 1, info: 2 }
-/** Discord embed 左側色條。critical 紅、warn 琥珀、其餘灰。 */
+/** 卡片顏色（轉成 Lark 卡片標題色）。critical 紅、warn 琥珀、其餘灰。 */
 const SEVERITY_COLOR: Record<string, number> = { critical: 0xA32A35, warn: 0xB07A1E, info: 0x6F7D79 }
 
 function settingOf(env: ReconEnv, key: string, dflt: number): number {
@@ -198,17 +196,13 @@ function describe(f: PendingFinding, now: number): string {
 }
 
 export interface NotifyBatch {
-  content: string
   embed: Record<string, unknown>
   ids: number[]
-  unmapped: string[]
 }
 
 /**
- * 把一批 finding 組成一則 Discord 訊息。
- *
- * ⚠️ mention 放在 `content`、不是 embed 裡——embed 裡的 `<@id>` 不會真的觸發通知，
- *    這個坑 AutoSpin 那邊註解已經寫過一次了。
+ * 把一批 finding 組成一則通知（v5.13.0 起只發 Lark；@人 由 notify-outlet 用帳號 email 查 Lark open_id，
+ * 查不到的只寫名字、不 @——那部分在送的時候處理，這裡不管）。
  */
 export function buildBatch(env: ReconEnv, rows: PendingFinding[], now = Date.now()): NotifyBatch {
   const groups = new Map<string, PendingFinding[]>()
@@ -241,7 +235,6 @@ export function buildBatch(env: ReconEnv, rows: PendingFinding[], now = Date.now
     }
   })
 
-  const { mention, unmapped } = mentionsForUserLabels(rows.map(r => r.userLabel).filter(Boolean))
   const critical = rows.filter(r => r.severity === 'critical').length
   /**
    * 這一批涉及哪幾台。
@@ -251,7 +244,6 @@ export function buildBatch(env: ReconEnv, rows: PendingFinding[], now = Date.now
   const machines = [...new Set(rows.map(r => r.machineType).filter((m): m is string => !!m))]
 
   return {
-    content: mention || '',
     embed: {
       title: `對帳告警 · ${env.toUpperCase()} · ${rows.length} 筆`
         + (machines.length ? ` · ${machines.length === 1 ? machines[0] : `${machines.length} 台`}` : ''),
@@ -260,17 +252,10 @@ export function buildBatch(env: ReconEnv, rows: PendingFinding[], now = Date.now
         : `已靜置 ${settingOf(env, 'notifyGraceSec', 120)} 秒仍未自行收斂。`,
       color: SEVERITY_COLOR[worst] ?? SEVERITY_COLOR.info,
       fields,
-      footer: {
-        text: unmapped.length
-          // ⚠️ 對不到 Discord ID 的人要說出來——不然那些人的告警等於沒有收件人，
-          //    而畫面上看起來一切正常。
-          ? `⚠️ 這批有 ${unmapped.length} 個帳號沒有對應的 Discord ID（${unmapped.join('、')}），沒有人被 tag 到`
-          : 'Live Ledger 即時對帳',
-      },
+      footer: { text: 'Live Ledger 即時對帳' },
       timestamp: new Date(now).toISOString(),
     },
     ids: rows.map(r => r.id),
-    unmapped,
   }
 }
 
@@ -288,16 +273,6 @@ export interface NotifyResult {
  */
 export async function runNotifyCycle(
   env: ReconEnv, now = Date.now(),
-  /**
-   * 測試用的縫。⚠️ **只給 webhook URL 一個 override，不開放繞過開關與節流**——
-   * 那兩個正是要被驗的行為，能繞過就等於沒驗。
-   *
-   * 存在的理由：`scripts/ui-checks/live-ledger-notify.mjs` 跑在**正式的 data.db** 上
-   * （這個 repo 的 ui-checks 都是這個慣例），若要測送出成功就得把全域的
-   * `discord_webhook_url` 改指向本機假伺服器——那段期間正在跑的 worker 真的要發的
-   * 告警就會被發到假伺服器然後消失。給一個參數比改全域設定安全。
-   */
-  opts: { webhookUrl?: string } = {},
 ): Promise<NotifyResult> {
   const source = 'notify'
 
@@ -307,18 +282,16 @@ export async function runNotifyCycle(
     return { sent: 0, skipped: 'disabled' }
   }
 
-  const webhookUrl = opts.webhookUrl ?? getDiscordWebhookUrl()
-  // 出口設成只發 Lark 時不需要 webhook；Lark 沒設定會在送出時回失敗（skipped）並記在健康列
-  if (!webhookUrl && usesDiscord('live-ledger')) {
+  if (!notifyConfigured()) {
     noteSourceHealth(env, source, false, 'not_configured',
-      '尚未設定 Discord Webhook URL（AutoSpin 的通知設定頁），對帳告警無處可送')
+      '尚未設定 Lark 通知（系統管理的「通知設定」頁），對帳告警無處可送')
     return { sent: 0, skipped: 'not_configured' }
   }
 
-  // 上一輪雙發時失敗的那一邊，先補送（只補那一邊，成功的那邊不重發）
-  await flushNotifyRetries(() => opts.webhookUrl ?? getDiscordWebhookUrl()).catch(e => console.warn('[live-ledger] 補送失敗', e))
+  // 之前送失敗排進補送佇列的，先補送
+  await flushNotifyRetries().catch(e => console.warn('[live-ledger] 補送失敗', e))
 
-  // 水位線要在這裡先建立：webhook 設好之前累積的 finding 不補送。
+  // 水位線要在這裡先建立：通知設好之前累積的 finding 不補送。
   notifyWatermark(env, now)
 
   const minIntervalMs = Math.max(settingOf(env, 'notifyIntervalSec', 180), 30) * 1000
@@ -334,21 +307,14 @@ export async function runNotifyCycle(
 
   const batch = buildBatch(env, rows, now)
   try {
-    const input = { feature: 'live-ledger' as const, embed: batch.embed as DiscordEmbed, discordContent: batch.content, mentionLabels: [...new Set(rows.map(r => r.userLabel).filter(Boolean))] }
-    const r = await deliverNotice(input, discordWebhookSender(webhookUrl))
-    // ⚠️ 每一邊都要看 ok——fetch 不會對 4xx/5xx 拋錯，少了這段 webhook 被撤銷（404）時
-    //    每一筆都會被標成「已通知」，而且完全沒有徵兆。
-    //    雙發時：兩邊都失敗＝這批不標記、下一輪整批重送；只有一邊失敗＝標記已通知、失敗那邊排補送
-    const sides = (['discord', 'lark'] as const).filter(k => r[k])
-    const failed = sides.filter(k => !r[k]!.ok)
-    if (sides.length && failed.length === sides.length) {
-      const msg = failed.map(k => `${k === 'lark' ? 'Lark' : 'webhook'}：${r[k]!.message ?? ''}`).join('；')
+    const input = { feature: 'live-ledger' as const, embed: batch.embed as DiscordEmbed, mentionLabels: [...new Set(rows.map(r => r.userLabel).filter(Boolean))] }
+    const r = await deliverNotice(input)
+    // ⚠️ 一定要看 ok——送失敗時每一筆都被標成「已通知」的話，完全沒有徵兆。
+    //    失敗＝這批不標記、下一輪整批重送（不排補送佇列，否則下一輪又會再送一次）
+    if (!r.lark.ok) {
+      const msg = `Lark：${r.lark.message ?? ''}`
       noteSourceHealth(env, source, false, 'send_failed', msg)
       return { sent: 0, skipped: null, failed: msg }
-    }
-    if (failed.length) {
-      queueFailedSides(input, r)
-      console.warn(`[live-ledger] ${env} 告警有一邊沒送出、已排補送：${failed.map(k => `${k} ${r[k]!.message ?? ''}`).join('；')}`)
     }
   } catch (e) {
     const msg = `送出失敗：${String(e).slice(0, 200)}`
@@ -361,24 +327,22 @@ export async function runNotifyCycle(
   markAll(batch.ids)
   putSetting(env, 'notifyLastSentTs', now)
   noteSourceHealth(env, source, true)
-  console.log(`[live-ledger] ${env} 告警已送出 ${batch.ids.length} 筆`
-    + (batch.unmapped.length ? `（${batch.unmapped.length} 個帳號沒有 Discord ID 對照）` : ''))
+  console.log(`[live-ledger] ${env} 告警已送出 ${batch.ids.length} 筆`)
   return { sent: batch.ids.length, skipped: null }
 }
 
 /**
  * 試發一則。**不受啟用開關與節流限制**，也**不會**寫 `notifiedAt`——
- * 它的用途是確認 webhook 通不通，不是真的處理告警。
+ * 它的用途是確認 Lark 通知通不通，不是真的處理告警。
  *
  * 沒有待送的 finding 時送一則明講是測試的假訊息，這樣「設定對不對」永遠測得出來，
  * 不必等真的出事。
  */
 export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{ ok: boolean; message: string }> {
-  const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl && usesDiscord('live-ledger')) return { ok: false, message: '尚未設定 Discord Webhook URL' }
+  if (!notifyConfigured()) return { ok: false, message: '尚未設定 Lark 通知（系統管理的「通知設定」頁）' }
 
   // ⚠️ join 條件跟 `pendingFindings()` 必須一致——測試發送長得跟真的不一樣的話，
-  //    測試通過只證明「webhook 通」，證明不了真正的告警長什麼樣（這裡就曾經兩邊不同）。
+  //    測試通過只證明「通知通」，證明不了真正的告警長什麼樣（這裡就曾經兩邊不同）。
   const rows = db.prepare(`
     SELECT f.id, f.line, f.severity, f.refId, f.refType, f.amountDelta, f.detectedAt, f.note, f.userLabel,
            -- ⚠️ 兩邊的機台名稱要**統一**：spin 那側是 machineType（BIGFULINK），
@@ -406,10 +370,10 @@ export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{
   const batch = rows.length
     ? buildBatch(env, rows, now)
     : {
-      content: '', ids: [], unmapped: [],
+      ids: [],
       embed: {
         title: `對帳告警 · ${env.toUpperCase()} · 測試`,
-        description: '目前沒有未解決的告警，這是一則測試訊息——收得到就代表 webhook 設定正確。',
+        description: '目前沒有未解決的告警，這是一則測試訊息——收得到就代表通知設定正確。',
         color: SEVERITY_COLOR.info,
         footer: { text: 'Live Ledger 即時對帳 · 測試發送' },
         timestamp: new Date(now).toISOString(),
@@ -419,10 +383,9 @@ export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{
   const embed = { ...(batch.embed as Record<string, unknown>) }
   embed.title = `${String(embed.title)}（測試發送，未標記為已通知）`
   try {
-    // 照 Live Ledger 的出口設定送；測試不 @ 人（跟原本一樣）
-    const r = await deliverNotice({ feature: 'live-ledger', embed: embed as DiscordEmbed }, discordWebhookSender(webhookUrl))
-    const bad = (['discord', 'lark'] as const).filter(k => r[k] && !r[k]!.ok).map(k => `${k === 'lark' ? 'Lark' : 'webhook'}：${r[k]!.message ?? ''}`)
-    if (bad.length) return { ok: false, message: bad.join('；') }
+    // 測試不 @ 人（跟原本一樣）
+    const r = await deliverNotice({ feature: 'live-ledger', embed: embed as DiscordEmbed })
+    if (!r.lark.ok) return { ok: false, message: `Lark：${r.lark.message ?? ''}` }
     return { ok: true, message: rows.length ? `已送出（取最近 ${rows.length} 筆未解決告警當樣本）` : '已送出測試訊息' }
   } catch (e) {
     return { ok: false, message: `送出失敗：${String(e).slice(0, 200)}` }
@@ -445,8 +408,8 @@ export function notifyStatus(env: ReconEnv, now = Date.now()): {
   const wm = settingOf(env, 'notifyWatermarkTs', 0)
   return {
     enabled: settingOf(env, 'notifyEnabled', 1) === 1,
-    // v5.5.0 起一律發 Lark：看 Lark 憑證與群組，不看 Discord webhook
-    configured: larkNotifyConfigured(),
+    // 看 Lark 憑證與群組（v5.13.0 起只有 Lark）
+    configured: notifyConfigured(),
     queued,
     held: heldByGrace(env, now),
     lastSentAt: last > 0 ? last : null,

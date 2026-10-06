@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.8'
+export const APP_VERSION = '5.13.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.13.0', date: '2026-10-06', changes: ['change(通知)：**Discord 全部刪除**——AutoSpin、Live Ledger 對帳告警、週報提醒只發 Lark；Discord Webhook／Discord ID 對照／週報 Discord 按鈕 bot 的程式與設定都移除。舊設定在啟動時自動搬遷：AutoSpin 通知的開關（含「關閉」）、欄位、標題、頁尾搬到新名稱，其餘 Discord 設定刪除前先備份（退版還原步驟見 docs/features/29-lark-notify.md）；補送佇列裡的 Discord 項目丟掉（使用者要求，範圍 CodeX 同意）'] },
   { version: '5.12.8', date: '2026-10-06', changes: ['fix(登入)：角色重查還沒回來就登出或換帳號時，晚回來的結果不會再把畫面身分改回前一個帳號（CodeX review）'] },
   { version: '5.12.7', date: '2026-10-06', changes: ['fix(Meegle 測試空間只給管理員)：操作歷史改成回資料庫查那一批的空間來判斷（舊批次、補回填、移出清單的紀錄沒寫空間也擋得到；補回填混合的紀錄只留正式空間那幾列）；角色在後台被改了，畫面回到前景或每 60 秒會跟著更新，補回填清單也會重新讀（CodeX review）'] },
   { version: '5.12.6', date: '2026-10-06', changes: ['change(Meegle 批量工具)：**測試空間只給管理員**——其他角色看不到空間切換，一律用正式空間；伺服器也會擋（非管理員送測試空間、或去動測試空間的舊紀錄，一律拒絕），補回填清單與操作歷史也看不到測試空間的紀錄（使用者要求，CodeX 同意）'] },

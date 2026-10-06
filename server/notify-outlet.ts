@@ -1,15 +1,18 @@
 /**
- * 通知出口（Discord → Lark 遷移，使用者 2026-10-03；架構 CodeX 同意）。
- * 各功能只管「這則通知長什麼樣（沿用原本的 Discord embed）、要 @ 誰」，走哪邊由設定決定：discord／lark／both。
- *  - 預設 discord：沒切換的功能行為完全不變
- *  - both（過渡期雙發）：兩邊各自送、各自記結果；**失敗只重試失敗那一邊**（CodeX），不重發成功的
- *  - Lark 卡片由 Discord embed 轉出來（同一份內容，不各寫一份）
- *  - @人：Discord 用原本的對照表；Lark 用帳號 email 查 open_id，查不到或沒權限就只寫名字、不 @
+ * 通知出口：一律發 **Lark**（v5.13.0 Discord 退場第二步，使用者 2026-10-06 確認刪除；CodeX 同意範圍）。
+ *
+ * 歷史：v5.1.0 加了 discord／lark／both 三種出口（Discord → Lark 遷移）；v5.5.0 第一步改成一律 Lark 但保留設定可退回；
+ * 這一版把 Discord 的發送、出口設定、webhook 全部刪掉。
+ *
+ * 各功能只管「這則通知長什麼樣、要 @ 誰」：
+ *  - 內容仍用 `DiscordEmbed` 這個形狀描述（標題、描述、欄位、顏色…）再轉成 Lark 卡片——名字是歷史包袱，
+ *    它現在只是「通知內容」的格式，之後再改名（CodeX：這次不動，避免範圍擴大）
+ *  - @人：用帳號 email 查 Lark open_id，查不到或沒權限就只寫名字、不 @
+ *  - 失敗（不是沒設定）排進補送佇列，之後重送
  */
 import { db, readAccounts } from './shared.js'
-import { larkNotifyChatId, resolveLarkOpenIds, sendLarkCard, updateLarkCard, type LarkResult } from './lark-notify.js'
+import { larkNotifyChatId, larkNotifyConfigured, resolveLarkOpenIds, sendLarkCard, updateLarkCard, type LarkResult } from './lark-notify.js'
 
-export type Outlet = 'discord' | 'lark' | 'both'
 export const NOTIFY_FEATURES = [
   { key: 'autospin', label: 'AutoSpin' },
   { key: 'live-ledger', label: 'Live Ledger' },
@@ -17,49 +20,33 @@ export const NOTIFY_FEATURES = [
 ] as const
 export type NotifyFeature = typeof NOTIFY_FEATURES[number]['key']
 
-const OUTLETS_KEY = 'notify_outlets'
-export function getOutlets(): Record<NotifyFeature, Outlet> {
-  const raw = (db.prepare('SELECT value FROM settings WHERE key = ?').get(OUTLETS_KEY) as { value?: string } | undefined)?.value
-  let parsed: Record<string, unknown> = {}
-  try { parsed = raw ? JSON.parse(raw) : {} } catch { /* 壞掉當沒設 */ }
-  // v5.5.0 起 Discord 退場（使用者 2026-10-05）：一律發 Lark，不看存的值。
-  // 存的 notify_outlets 刻意不改也不刪——這一版要能退回去；刪除放在下一個獨立版本（刪設定退版救不回來）。
-  void parsed
-  return Object.fromEntries(NOTIFY_FEATURES.map(f => [f.key, 'lark' as Outlet])) as Record<NotifyFeature, Outlet>
-}
-export function setOutlets(next: Partial<Record<NotifyFeature, Outlet>>) {
-  const merged = { ...getOutlets(), ...next }
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(OUTLETS_KEY, JSON.stringify(merged))
-}
 /**
- * 測試縫：換掉 Lark 發送、出口設定與重試佇列的儲存。
- * ⚠️ 檢查腳本若直接寫 data.db 的 settings，正在跑的 server／worker 會讀到假的出口設定，把真的通知送錯地方——所以給縫，不寫正式設定
+ * 測試縫：換掉 Lark 發送與重試佇列的儲存。
+ * ⚠️ 檢查腳本若直接寫 data.db 的 settings，正在跑的 server／worker 會讀到假的設定，把真的通知送錯地方——所以給縫，不寫正式設定
  */
 const deps = {
-  outlets: (): Record<NotifyFeature, Outlet> => getOutlets(),
   sendLark: (chatId: string, card: object) => sendLarkCard(chatId, card),
   updateLark: (id: string, card: object) => updateLarkCard(id, card),
+  configured: () => larkNotifyConfigured(),
   chatId: () => larkNotifyChatId(),
   mention: (labels: string[]) => larkMentionLine(labels),
   readQueue: (): RetryItem[] => readQueueDb(),
   writeQueue: (q: RetryItem[]) => writeQueueDb(q),
   tx: <T>(fn: () => T): T => db.transaction(fn)(),
-  discordSender: (url: string) => discordWebhookSender(url),
 }
 export const __notifyTestSeam = { deps, original: { ...deps } }
+/** Lark 通知有沒有設定（憑證＋目標群）。經過測試縫，檢查腳本才能模擬「沒設定」而不用改正式設定 */
+export const notifyConfigured = () => deps.configured()
 
-export const outletOf = (f: NotifyFeature): Outlet => deps.outlets()[f]
-export const usesDiscord = (f: NotifyFeature) => outletOf(f) !== 'lark'
-export const usesLark = (f: NotifyFeature) => outletOf(f) !== 'discord'
-
-// ─── Discord embed → Lark 卡片 ──────────────────────────────────────────────
+// ─── 通知內容 → Lark 卡片 ───────────────────────────────────────────────────
+/** 通知內容的形狀（名字沿用 Discord embed，內容就是標題／描述／欄位／顏色；見檔頭） */
 export type DiscordEmbed = {
   title?: string; description?: string; url?: string; color?: number
   fields?: Array<{ name: string; value: string; inline?: boolean }>
   footer?: { text?: string }; timestamp?: string; image?: { url?: string }; thumbnail?: { url?: string }
 }
 
-/** Discord 顏色 → Lark 卡片標題顏色（只有固定幾種，取最接近的色系） */
+/** 顏色 → Lark 卡片標題顏色（只有固定幾種，取最接近的色系） */
 export function larkTemplateFor(color?: number): string {
   if (color == null) return 'blue'
   const r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255
@@ -72,7 +59,7 @@ export function larkTemplateFor(color?: number): string {
   return 'blue'
 }
 
-/** Discord 專用的 mention（<@123>）與時間戳（<t:…>）在 Lark 沒有意義，轉掉 */
+/** 舊內容裡可能殘留 Discord 的 mention（<@123>）與時間戳（<t:…>），在 Lark 沒有意義，轉掉 */
 const cleanText = (s: string) => s.replace(/<@!?\d+>/g, '').replace(/<t:(\d+)(?::[a-zA-Z])?>/g, (_m, t) => new Date(Number(t) * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }))
 
 export function embedToLarkCard(embed: DiscordEmbed, mentionLine = ''): object {
@@ -113,55 +100,38 @@ export async function larkMentionLine(labels: string[]): Promise<{ line: string;
 
 // ─── 發送 ────────────────────────────────────────────────────────────────────
 export type SideResult = { ok: boolean; messageId?: string; message?: string; skipped?: boolean }
-export type DeliverResult = { discord?: SideResult; lark?: SideResult }
+export type DeliverResult = { lark: SideResult }
 
 export type DeliverInput = {
   feature: NotifyFeature
   embed: DiscordEmbed
-  /** Discord 那邊的 content（通常是 <@id> mention） */
-  discordContent?: string
-  /** 要 @ 的帳號名稱（Lark 用 email 查人） */
+  /** 要 @ 的帳號名稱（用 email 查人） */
   mentionLabels?: string[]
-  /** 已發過、要改同一則（各邊各自的 message id） */
-  update?: { discordMessageId?: string; larkMessageId?: string }
+  /** 已發過、要改同一則（Lark message id） */
+  update?: { larkMessageId?: string }
   /** Lark 專用卡片（拿 @人 那行組好）；不給就用 embedToLarkCard 從 embed 轉。目前只有 AutoSpin 定時彙總報告用（v5.8.0）。
    *  ⚠️ 補送佇列不存這個——它只存 embed，補送會退回轉換版；定時彙總報告本來就不排補送 */
   larkCard?: (mentionLine: string) => object
-  /** 只送這幾邊（重試失敗那一邊用）；不給＝依設定 */
-  only?: Array<'discord' | 'lark'>
-  /** 補送／試發用：不看功能的出口設定，only 指定哪邊就送哪邊 */
-  ignoreOutlet?: boolean
 }
 
-export async function deliverNotice(p: DeliverInput, sendDiscord: (body: object, update?: string) => Promise<SideResult>): Promise<DeliverResult> {
-  const out: DeliverResult = {}
-  const wantDiscord = (!p.only || p.only.includes('discord')) && (p.ignoreOutlet || usesDiscord(p.feature))
-  const wantLark = (!p.only || p.only.includes('lark')) && (p.ignoreOutlet || usesLark(p.feature))
-  const tasks: Promise<void>[] = []
-  if (wantDiscord) tasks.push((async () => {
-    out.discord = await sendDiscord({ content: p.discordContent || undefined, embeds: [p.embed] }, p.update?.discordMessageId)
-  })())
-  if (wantLark) tasks.push((async () => {
-    const m = await deps.mention(p.mentionLabels ?? [])
-    const card = p.larkCard ? p.larkCard(m.line) : embedToLarkCard(p.embed, m.line)
-    const r = p.update?.larkMessageId ? await deps.updateLark(p.update.larkMessageId, card) : await deps.sendLark(deps.chatId(), card)
-    // 沒設定（沒憑證／沒選群）不是暫時性失敗，排重試也不會好；照樣回失敗讓呼叫端記下來，但標 skipped 不進佇列
-    out.lark = r.ok ? { ok: true, messageId: p.update?.larkMessageId ?? (r.value as string) }
-      : { ok: false, message: r.message, skipped: r.code === 'NOT_CONFIGURED' || r.code === 'NO_CHAT' }
-    if (!r.ok) console.warn(`[notify:${p.feature}] Lark 發送失敗：${r.message}`)
-  })())
-  await Promise.all(tasks)
-  return out
+export async function deliverNotice(p: DeliverInput): Promise<DeliverResult> {
+  const m = await deps.mention(p.mentionLabels ?? [])
+  const card = p.larkCard ? p.larkCard(m.line) : embedToLarkCard(p.embed, m.line)
+  const r = p.update?.larkMessageId ? await deps.updateLark(p.update.larkMessageId, card) : await deps.sendLark(deps.chatId(), card)
+  // 沒設定（沒憑證／沒選群）不是暫時性失敗，排重試也不會好；照樣回失敗讓呼叫端記下來，但標 skipped 不進佇列
+  const lark: SideResult = r.ok ? { ok: true, messageId: p.update?.larkMessageId ?? (r.value as string) }
+    : { ok: false, message: r.message, skipped: r.code === 'NOT_CONFIGURED' || r.code === 'NO_CHAT' }
+  if (!r.ok) console.warn(`[notify:${p.feature}] Lark 發送失敗：${r.message}`)
+  return { lark }
 }
 
-// ─── 只重試失敗那一邊（CodeX）────────────────────────────────────────────────
-// 雙發時一邊成功一邊失敗：成功那邊不能重發（會重複），失敗那邊排進佇列，之後只往那邊補送。
+// ─── 補送佇列 ────────────────────────────────────────────────────────────────
 // 存在 settings（server 與 worker 兩個 process 都會發通知，記憶體佇列重啟就沒了、也看不到對方的）。
-// 領取用**持久化租約**（CodeX review 2afdaeb [P1]）：原本「讀出＋清空再送」，送到一半 crash／例外，
-// 還沒送的整批消失。現在領取＝在 transaction 裡標 leaseUntil，**成功才刪、失敗才放回**；
+// 領取用**持久化租約**（CodeX review 2afdaeb [P1]）：在 transaction 裡標 leaseUntil，**成功才刪、失敗才放回**；
 // process 中途死掉的話租約過期，下一次 flush（任一個 process）會重新領取。代價是極少數情況會重送一次（至少一次，不會漏）。
-// 期限在**發送前**檢查（CodeX [P2]：原本先送才檢查，25 小時的項目仍會送出）。
-export type RetryItem = { id: string; feature: NotifyFeature; side: 'discord' | 'lark'; embed: DiscordEmbed; discordContent?: string; mentionLabels?: string[]; firstAt: number; tries: number; lastError?: string; leaseUntil?: number }
+// 期限在**發送前**檢查（CodeX [P2]）。
+// side：舊版本排進來的項目可能是 'discord'——一律丟掉、不改送 Lark（那則多半已經在 Lark 發過，轉送會重複；CodeX）
+export type RetryItem = { id: string; feature: NotifyFeature; side: 'discord' | 'lark'; embed: DiscordEmbed; mentionLabels?: string[]; firstAt: number; tries: number; lastError?: string; leaseUntil?: number }
 const RETRY_KEY = 'notify_retry_queue'
 const RETRY_MAX_TRIES = 10
 const RETRY_MAX_AGE_MS = 24 * 3600_000
@@ -175,22 +145,19 @@ const readQueue = () => deps.readQueue()
 const writeQueue = (q: RetryItem[]) => deps.writeQueue(q)
 
 const newRetryId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-export function enqueueRetry(item: Omit<RetryItem, 'id' | 'firstAt' | 'tries' | 'leaseUntil'>) {
-  deps.tx(() => { const q = readQueue(); q.push({ ...item, id: newRetryId(), firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
+export function enqueueRetry(item: Omit<RetryItem, 'id' | 'firstAt' | 'tries' | 'leaseUntil' | 'side'>) {
+  deps.tx(() => { const q = readQueue(); q.push({ ...item, side: 'lark', id: newRetryId(), firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
 }
 export function retryQueueSize(): number { return readQueue().length }
 
-/** 把結果裡失敗的那一邊排進重試（skipped＝那邊根本沒設定，不排） */
+/** 失敗就排補送（skipped＝根本沒設定，不排） */
 export function queueFailedSides(p: DeliverInput, r: DeliverResult) {
-  for (const side of ['discord', 'lark'] as const) {
-    const s = r[side]
-    if (s && !s.ok && !s.skipped) enqueueRetry({ feature: p.feature, side, embed: p.embed, discordContent: p.discordContent, mentionLabels: p.mentionLabels, lastError: s.message })
-  }
+  if (!r.lark.ok && !r.lark.skipped) enqueueRetry({ feature: p.feature, embed: p.embed, mentionLabels: p.mentionLabels, lastError: r.lark.message })
 }
 
 let flushing = false
 const expired = (it: RetryItem, now: number) => it.tries >= RETRY_MAX_TRIES || now - it.firstAt > RETRY_MAX_AGE_MS
-export async function flushNotifyRetries(getWebhookUrl: () => string, now = () => Date.now()): Promise<{ sent: number; dropped: number; left: number }> {
+export async function flushNotifyRetries(now = () => Date.now()): Promise<{ sent: number; dropped: number; left: number }> {
   if (flushing) return { sent: 0, dropped: 0, left: 0 }
   flushing = true
   try {
@@ -204,9 +171,7 @@ export async function flushNotifyRetries(getWebhookUrl: () => string, now = () =
       const q = readQueue().map(it => { if (it.id) return it; patched = true; return { ...it, id: newRetryId() } })
       for (const it of q) {
         if (expired(it, t)) { dead.push(it); continue }
-        // v5.5.0 Discord 退場：退場前排進來的 Discord 補送一律丟掉（補送有 ignoreOutlet，不擋的話會照樣發到 Discord；CodeX review）。
-        // 不改送 Lark：那則多半已經在 Lark 發過（雙發時只有失敗那邊才排補送），轉送會重複
-        if (it.side === 'discord') { dead.push({ ...it, lastError: 'Discord 已停用，補送取消' }); continue }
+        if (it.side === 'discord') { dead.push({ ...it, lastError: 'Discord 已移除，補送取消' }); continue }
         if (!it.leaseUntil || it.leaseUntil <= t) { const leased = { ...it, leaseUntil: t + RETRY_LEASE_MS }; mine.push(leased); rest.push(leased) }
         else rest.push(it)
       }
@@ -220,15 +185,14 @@ export async function flushNotifyRetries(getWebhookUrl: () => string, now = () =
       if (expired(it, now())) {
         deps.tx(() => writeQueue(readQueue().filter(x => x.id !== it.id)))
         dead.push(it)
-        console.warn(`[notify:${it.feature}] ${it.side} 補送放棄（輪到時已過期）：${it.embed.title ?? ''}`)
+        console.warn(`[notify:${it.feature}] 補送放棄（輪到時已過期）：${it.embed.title ?? ''}`)
         continue
       }
       let s: SideResult | undefined
       try {
-        const r = await deliverNotice({ feature: it.feature, embed: it.embed, discordContent: it.discordContent, mentionLabels: it.mentionLabels, only: [it.side], ignoreOutlet: true }, deps.discordSender(getWebhookUrl()))
-        s = r[it.side]
+        s = (await deliverNotice({ feature: it.feature, embed: it.embed, mentionLabels: it.mentionLabels })).lark
       } catch (e) { s = { ok: false, message: (e as Error).message } }
-      // 成功＝刪；失敗＝放回（次數 +1、解除租約），下一輪再領。下一輪領取時才判過期，所以不會「先送才檢查」
+      // 成功＝刪；失敗＝放回（次數 +1、解除租約），下一輪再領
       deps.tx(() => {
         const q = readQueue()
         writeQueue(s?.ok ? q.filter(x => x.id !== it.id) : q.map(x => x.id === it.id ? { ...x, tries: x.tries + 1, lastError: s?.message, leaseUntil: undefined } : x))
@@ -237,19 +201,4 @@ export async function flushNotifyRetries(getWebhookUrl: () => string, now = () =
     }
     return { sent, dropped: dead.length, left: readQueue().length }
   } finally { flushing = false }
-}
-
-/** 一般的 Discord webhook 發送（大部分功能用這個；要改同一則時帶 messageId） */
-export function discordWebhookSender(webhookUrl: string) {
-  return async (body: object, updateId?: string): Promise<SideResult> => {
-    if (!webhookUrl) return { ok: false, skipped: true, message: '沒有設定 Discord Webhook' }
-    try {
-      const r = updateId
-        ? await fetch(`${webhookUrl}/messages/${updateId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        : await fetch(`${webhookUrl}?wait=true`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (!r.ok) return { ok: false, message: `Discord ${r.status}：${(await r.text().catch(() => '')).slice(0, 200)}` }
-      const j = await r.json().catch(() => ({})) as { id?: string }
-      return { ok: true, messageId: updateId ?? j.id }
-    } catch (e) { return { ok: false, message: `Discord 送出失敗：${(e as Error).message}` } }
-  }
 }

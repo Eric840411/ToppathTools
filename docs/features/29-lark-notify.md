@@ -1,4 +1,29 @@
-## 29. Lark 通知（v5.1.0）→ 通知設定（v5.5.0）
+## 29. Lark 通知（v5.1.0）→ 通知設定（v5.5.0）→ Discord 刪除（v5.13.0）
+
+> **v5.13.0 Discord 退場第二步：程式與設定全部刪除**（使用者 2026-10-05「Dc可以刪除」；範圍與 migration 規則 CodeX 審過）
+> - **刪掉的**：`server/discord-webhook.ts`、`server/weekly-report-bot.ts`＋`discord.js` 套件、`src/pages/DiscordNotifySettingsPage.tsx`、
+>   API `/api/autospin/discord-webhook`（GET/POST）、`/discord-webhook/test`、`/discord-user-map`（GET/POST）、通知設定的 `outlets`（GET/PUT 不再回傳／接受）、
+>   `notify-outlet.ts` 的出口概念（`Outlet`／`getOutlets`／`usesDiscord`／`usesLark`／`discordWebhookSender`）。`deliverNotice()` 只回 `{ lark }`
+> - **刻意保留**：頁面權限 key `discord-notify`（改名會讓既有角色的權限失效）、`DiscordEmbed` 型別名（就是通知內容的形狀）、`discord-notify-*` CSS class、CodeX bridge（不在工具裡）
+> - **設定搬遷**（`server/discord-retire-migration.ts`，server 啟動時跑，**同一個 transaction、重跑無副作用**）：
+>   1. 舊 key 原值備份到 `settings.discord_retire_backup`（JSON：`{ takenAt, keys: {...} }`；之後再跑一次是**合併**，不會整份蓋掉）
+>   2. `discord_notify_enabled／fields／title_template／footer` → `autospin_notify_*`：**新 key 不存在才複製**，`'0'`（關閉）與空字串照樣搬
+>   3. 刪掉 `discord_webhook_url`、`autospin_discord_user_map`、`notify_outlets`、`discord_notify_*`
+>   4. 補送佇列 `notify_retry_queue` 裡 `side:'discord'` 的項目丟掉（不改送 Lark：那則多半已經在 Lark 發過）
+>   失敗不擋開機（transaction 失敗＝什麼都沒動，下次啟動再試），log 會印 `[migration] Discord 退場`
+> - **部署順序**：停舊 server／worker → 換新版 → 啟動 server（migration 在這裡跑）→ 啟動 worker。不要讓舊版 worker 跟新版 server 同時跑（舊 worker 會讀已刪掉的設定）
+> - **退版**（回到 v5.12.x）：程式碼退回去之後，settings 裡的舊 key 已經不在了。要還原：
+>   ```sql
+>   -- 把備份裡的每個 key 寫回去（sqlite3 server/data.db）
+>   INSERT OR REPLACE INTO settings (key, value)
+>     SELECT j.key, j.value FROM settings s, json_each(s.value, '$.keys') j WHERE s.key = 'discord_retire_backup';
+>   ```
+>   `autospin_notify_*` 留著無害（舊版不讀）。補送佇列丟掉的 Discord 項目救不回來（最多 24 小時內的補送）
+> - Live Ledger、AutoSpin 彙總報告／試發、週報提醒的「沒設定」判斷都看 Lark 憑證＋群組（`notifyConfigured()`，經過 notify-outlet 的測試縫）
+> - 週報提醒：不再切成多個 embed（那是 Discord 25 欄／6000 字的限制），全部欄位一張卡片
+> - 驗證：`npx tsx server/discord-retire-migration.test.ts`（0／空字串保留、重跑不變、新 key 不覆蓋、備份合併、中途失敗全退回；三個突變都會紅）、
+>   `npx tsx server/notify-outlet.test.ts`、`node scripts/ui-checks/live-ledger-notify.mjs`（改走 `__notifyTestSeam`，不再起假 webhook；拿掉失敗檢查／沒設定檢查都會紅）、
+>   在本機 DB 副本上跑 migration 兩次（第二次全部是 0）
 
 > **v5.5.0 Discord 退場第一步（使用者 2026-10-05，CodeX 額度用完期間使用者同意先做可退回的部分）**：
 > - 三個功能**一律發 Lark**（`getOutlets()` 不看存的值；存的 `notify_outlets` 刻意不動，這一版要能退回去）。頁面上不再有 Discord／雙發可選，「Lark 通知」改名「**通知設定**」

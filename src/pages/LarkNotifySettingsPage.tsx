@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './LarkNotifySettingsPage.css'
 
-type Outlet = 'discord' | 'lark' | 'both'
 type Config = { appId: string; hasSecret: boolean; secretTail: string; keyConfigured: boolean; chatId: string; toolUrl: string }
 type Feature = { key: string; label: string }
 type MentionRow = { label: string; email: string; status: 'mapped' | 'not_found' | 'unknown' }
@@ -25,7 +24,7 @@ async function api<T>(method: string, url: string, body?: unknown): Promise<T & 
 export function LarkNotifySettingsPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [saved, setSaved] = useState<{ config: Config; outlets: Record<string, Outlet> } | null>(null)
+  const [saved, setSaved] = useState<{ config: Config } | null>(null)
   const [features, setFeatures] = useState<Feature[]>([])
   const [botName, setBotName] = useState('')
   const [retryQueue, setRetryQueue] = useState(0)
@@ -36,7 +35,6 @@ export function LarkNotifySettingsPage() {
   const [editingSecret, setEditingSecret] = useState(false)
   const [chatId, setChatId] = useState('')
   const [toolUrl, setToolUrl] = useState('')
-  const [outlets, setOutlets] = useState<Record<string, Outlet>>({})
 
   const [verifyMsg, setVerifyMsg] = useState<Msg>(null)
   const [verified, setVerified] = useState<boolean | null>(null)
@@ -51,17 +49,17 @@ export function LarkNotifySettingsPage() {
   const [chatsLoading, setChatsLoading] = useState(false)
   const [mentionsLoading, setMentionsLoading] = useState(false)
 
-  const resetToSaved = (s: { config: Config; outlets: Record<string, Outlet> }) => {
+  const resetToSaved = (s: { config: Config }) => {
     setAppId(s.config.appId); setSecret(''); setEditingSecret(!s.config.hasSecret)
-    setChatId(s.config.chatId); setToolUrl(s.config.toolUrl); setOutlets(s.outlets)
+    setChatId(s.config.chatId); setToolUrl(s.config.toolUrl)
   }
 
   const load = async () => {
     setLoading(true); setLoadError('')
-    const j = await api<{ config: Config; outlets: Record<string, Outlet>; features: Feature[]; botName: string; retryQueue: number }>('GET', '/api/lark-notify/config')
+    const j = await api<{ config: Config; features: Feature[]; botName: string; retryQueue: number }>('GET', '/api/lark-notify/config')
     setLoading(false)
     if (!j.ok) { setLoadError(j.message ?? '讀取失敗'); return }
-    const s = { config: j.config, outlets: j.outlets }
+    const s = { config: j.config }
     setSaved(s); setFeatures(j.features); setBotName(j.botName); setRetryQueue(j.retryQueue); resetToSaved(s)
     if (j.config.appId && j.config.hasSecret) { setVerified(!!j.botName || null); void loadChats(); void loadMentions() }
   }
@@ -86,8 +84,7 @@ export function LarkNotifySettingsPage() {
   const dirty = useMemo(() => {
     if (!saved) return false
     return appId !== saved.config.appId || !!secret || chatId !== saved.config.chatId || toolUrl !== saved.config.toolUrl
-      || features.some(f => outlets[f.key] !== saved.outlets[f.key])
-  }, [saved, appId, secret, chatId, toolUrl, outlets, features])
+  }, [saved, appId, secret, chatId, toolUrl])
 
   const verify = async () => {
     setBusy('verify'); setVerifyMsg(null)
@@ -111,13 +108,12 @@ export function LarkNotifySettingsPage() {
 
   const save = async () => {
     setBusy('save'); setSaveMsg(null)
-    const j = await api<{ config: Config; outlets: Record<string, Outlet> }>('PUT', '/api/lark-notify/config', {
-      // 不送 outlets：v5.5.0 起出口固定 Lark，存的舊選擇留給退版用，這裡寫進去會把它覆蓋成全 Lark（CodeX review）
+    const j = await api<{ config: Config }>('PUT', '/api/lark-notify/config', {
       appId, secret: secret || undefined, chatId, toolUrl,
     })
     setBusy('')
     if (!j.ok) { setSaveMsg({ ok: false, text: j.message ?? '儲存失敗' }); return }
-    const s = { config: j.config, outlets: j.outlets }
+    const s = { config: j.config }
     setSaved(s); resetToSaved(s)
     setSaveMsg({ ok: true, text: '已儲存' })
     if (j.config.appId && j.config.hasSecret) { void loadChats(); void loadMentions() }
@@ -196,7 +192,7 @@ export function LarkNotifySettingsPage() {
         {chatId !== cfg.chatId && <div className="ln-hint ln-hint--under">試發用的是欄位上的群組；正式通知要按下方「儲存設定」後才會改發到這裡</div>}
       </section>
 
-      {/* ③ 通知內容（v5.5.0 Discord 退場：出口固定 Lark，不再有 Discord／雙發可選） */}
+      {/* ③ 通知內容（v5.13.0 起 Discord 已刪除，全部只發 Lark） */}
       <section className="ln-card">
         <h2 className="ln-card-title">通知內容</h2>
         <table className="ln-table">

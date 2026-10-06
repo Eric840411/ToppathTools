@@ -44,6 +44,7 @@ import { getAuthAccount } from './auth-session.js'
 
 // Shared logger
 import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
+import { BACKUP_KEY, runDiscordRetireMigration } from './discord-retire-migration.js'
 
 dotenv.config()
 
@@ -56,6 +57,13 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[CRASH] unhandledRejection:', reason)
 })
+
+// ─── 一次性設定搬遷（v5.13.0 Discord 退場；重跑無副作用，見該檔檔頭）──────────────────
+// 失敗不擋開機：整段在 transaction 裡，失敗就是全部沒動，舊設定原樣留著，下次啟動再試
+try {
+  const r = runDiscordRetireMigration(db)
+  if (r.removed.length || r.droppedRetries) console.log(`[migration] Discord 退場：搬 ${r.copied.length} 個、刪 ${r.removed.length} 個設定（已備份到 ${BACKUP_KEY}）、丟 ${r.droppedRetries} 筆 Discord 補送`)
+} catch (e) { console.error('[migration] Discord 退場搬遷失敗（設定未變動）：', e) }
 
 // ─── Express App ──────────────────────────────────────────────────────────────
 
@@ -459,16 +467,7 @@ server.listen(port, '0.0.0.0', () => {
   // 啟動定時告警
   restartCron()
 
-  // 「工具人Ryan」Discord 遠端指令 bot（!run 執行 PowerShell 等）已停用並刪除（使用者 2026-10-03：用不到；
-  // 能在主機跑任意指令風險高，Claude 已經在 Lark 上）。週報那支 Discord bot 是另一支，下面照舊
-
-  // 啟動週報 Discord Bot（跟上面那支是不同的機器人、不同 token，刻意分開避免動到既有行為）。
-  // 沒設 token 就不啟動——這是選配功能，不該讓 server 起不來。
-  if (process.env.WEEKLY_DISCORD_BOT_TOKEN) {
-    import('./weekly-report-bot.js')
-      .then(({ startWeeklyReportBot }) => startWeeklyReportBot())
-      .catch((error) => console.error('[WeeklyBot] lazy load failed:', error))
-  }
+  // Discord bot（「工具人Ryan」遠端指令、週報按鈕 bot）都已刪除：v5.13.0 通知全面改 Lark（使用者 2026-10-05「Dc可以刪除」）
 })
 
 
