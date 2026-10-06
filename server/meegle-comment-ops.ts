@@ -37,11 +37,27 @@ export async function setDescription(token: string, workItemId: string, markdown
 
 export type Uploaded = { fileToken: string; fileUrl: string }
 
+/**
+ * 檔名副檔名 → MIME。CLI `+upload` 的類型是**看本機檔案路徑的副檔名**判斷，沒有就是 application/octet-stream；
+ * 我們傳的是附件快取檔（server/attachment-cache/<uuid>，沒有副檔名），所以影片一律被當一般檔案、
+ * Meegle 顯示「不支援線上預覽」只能下載（使用者 2026-10-06 回報）。改成用原始檔名判斷、明確帶 --content-type
+ */
+const MIME_BY_EXT: Record<string, string> = {
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+}
+export function mimeOfFilename(filename: string): string | null {
+  const ext = /\.([a-z0-9]+)$/i.exec(filename.trim())?.[1]?.toLowerCase()
+  return ext ? MIME_BY_EXT[ext] ?? null : null
+}
+
 /** 上傳檔案。kind=image → 測試說明的富文本圖片（16）；kind=comment → 評論附件（13）。 */
 export async function uploadFile(token: string, workItemId: string, path: string, filename: string, kind: 'image' | 'comment', runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<Uploaded>> {
   const t = meegleTarget(env)
   const args = ['attachment', '+upload', path, '--resource-type', kind === 'image' ? '16' : '13', '--project-key', t.projectKey, '--work-item-id', workItemId, '--filename', filename]
   if (kind === 'image') args.push('--field-key', DESC_FIELD)
+  const mime = mimeOfFilename(filename)
+  if (mime) args.push('--content-type', mime)
   const r = await call(runner, args, token)
   if (r.kind !== 'ok') return r
   const v = r.value as { file_token?: unknown; file_url?: unknown }

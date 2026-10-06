@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.27.3'
+export const APP_VERSION = '5.27.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.27.4', date: '2026-10-06', changes: ['fix(Meegle 批量評論)：**影片在 Meegle 不能線上播放、只能下載**——上傳時 CLI 用本機檔案的副檔名判斷類型，我們傳的是附件快取檔（沒有副檔名），一律被標成 application/octet-stream。改成依原始檔名明確帶 --content-type（video/mp4、image/png…）。實測：同一個無副檔名檔案，不帶回 octet-stream、帶了回 video/mp4。已經上傳的舊影片不會變，要重送才會'] },
   { version: '5.27.3', date: '2026-10-06', changes: ['docs(Meegle 開單使用說明)：頁面內建說明還寫「在①選整批預設需求／受托人」（v5.23.0 已移到③批量設定）——改成③批量設定、補「任務類型」欄與 AI 產生任務名稱；另做一份附截圖的操作手冊（docs/manual-meegle/，截圖腳本 scripts/ui-checks/meegle-manual-shots.mjs，寫入一律假掉）'] },
   { version: '5.27.2', date: '2026-10-06', changes: ['fix(操作歷史)：Meegle 狀態／修改／補回填／綁定，以及 AutoSpin、Live Ledger、週報、Lark 通知、Meter／Egm DayCount 對帳的紀錄顯示成原始代號（meegle-batch-status…）、也沒有篩選按鈕——篩選按鈕改成直接用名稱表產生，補齊名稱；build 多一道檢查：server 有寫的歷史 key 頁面一定要有名稱'] },
   { version: '5.27.1', date: '2026-10-06', changes: ['fix(Dashboard)：在線使用者列表的「角色」顯示自建角色的 key（r_muv0r…），改成顯示角色名稱；跟登入畫面共用同一個顯示規則（搬到 server/role-store.ts 的 roleDisplay）'] },

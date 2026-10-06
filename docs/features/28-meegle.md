@@ -617,3 +617,13 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 - 截圖：`node scripts/ui-checks/meegle-manual-shots.mjs [create|comment|status|edit|backfill]`，普通版、真 Sheet、真讀 Meegle；**所有寫入請求一律假掉**，結束時列出每個非 GET 請求標「真／假」供核對
 - 同時修正頁面內建「使用說明」：①已沒有整批預設需求／受托人（v5.23.0 移到③批量設定），補任務類型欄與 AI 產生任務名稱
 - 功能改了版面要重拍，不然手冊會跟畫面對不上
+
+## 評論影片不能線上播放（v5.27.4，2026-10-06 使用者回報）
+
+- 症狀：評論裡的 mp4 點開顯示「Online preview is not supported for this type of file」，只能下載；Meegle 網頁手動上傳的影片（#15229244）可以播
+- 原因：`meegle attachment +upload` 的 MIME「default: detected from extension, fallback application/octet-stream」——看的是**本機路徑**的副檔名，`--filename` 只改顯示名稱。我們傳附件快取檔 `server/attachment-cache/<uuid>`（沒有副檔名）→ 一律 octet-stream
+- 實測（測試空間 #15245523，只上傳不發評論）：同一個無副檔名檔案、`--filename clip.mp4`，不帶 → `mime_type: application/octet-stream`；帶 `--content-type video/mp4` → `video/mp4`
+- 修法：`uploadFile` 依**原始檔名**查 `mimeOfFilename`（影片 mp4/m4v/mov/webm/avi/mkv、圖片 png/jpg/jpeg/gif/webp/bmp），有就帶 `--content-type`；認不得的不帶、交給 CLI
+- 原本的測試 fixture 用 `C:/a.mp4`（有副檔名）——跟正式環境的快取路徑不一樣，所以一直綠著。改用 uuid 路徑
+- ⚠️ 還沒驗證 Meegle 拿到 video/mp4 後真的能播（也可能有編碼問題，例如 H.265）；舊的影片要重送
+

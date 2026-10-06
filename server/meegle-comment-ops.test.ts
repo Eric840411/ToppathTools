@@ -108,6 +108,13 @@ eq('太早之前的同文字不算', commentCandidates(cs, { creator: 'u1', sinc
   await uploadFile('t', '1', 'C:/a.mp4', 'a.mp4', 'comment', r, ENV)
   eq('評論附件用 13、不帶 field-key', seen.includes('13') && !seen.includes('--field-key'), true)
   eq('回應沒有 token → unknown', (await uploadFile('t', '1', 'p', 'n', 'image', async () => out('{}'), ENV)).kind, 'unknown')
+  // 真的路徑是附件快取檔（uuid、沒有副檔名）——類型要從原始檔名來，不然 CLI 會標成 octet-stream、Meegle 不給線上播放（10/06）
+  await uploadFile('t', '1', 'C:/srv/attachment-cache/6f1c2a7e-0b1d-4c3a-9e2f-1a2b3c4d5e6f', '873-JJBX-0004_69B97A80999.MP4', 'comment', r, ENV)
+  eq('影片：路徑沒副檔名也帶 --content-type video/mp4', seen[seen.indexOf('--content-type') + 1], 'video/mp4')
+  await uploadFile('t', '1', 'C:/srv/attachment-cache/x', 'shot.jpeg', 'image', r, ENV)
+  eq('圖片：帶 image/jpeg', seen[seen.indexOf('--content-type') + 1], 'image/jpeg')
+  await uploadFile('t', '1', 'C:/srv/attachment-cache/x', 'log.txt', 'comment', r, ENV)
+  eq('認不得的副檔名 → 不帶，交給 CLI', seen.includes('--content-type'), false)
 }
 {
   let seen: string[] = []
