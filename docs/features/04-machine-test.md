@@ -72,6 +72,7 @@
 - 改成：API 查不到 → `status: 'skip'`，訊息開頭 `未驗：機台 log API 查不到 <gmid>（<原因>）`。觸屏的前端觀察（`onTouchScreen` 收下幾次、`dealGMActionReq` 送出幾次）照樣附在訊息裡。
 - 批次工具（`machine-test-batch.mjs` 的 `judge()`）把 skip 當「未驗」，QA 確認狀態（J 欄）不填。
   - 「不填」＝把 J 欄**清成 null**（v5.16.1）。J 是下拉欄，寫空字串 Lark 會標「資料無效／請選擇下拉式清單中的選項」紅角、畫面卻看起來是空的。
+  - J 欄規則（v5.17.0，使用者 1006）：有任一項 FAIL **或待人工確認**（CCTV 編號不符、退出未確認…）→「驗證未過」（verdict 仍寫「待人工確認：…」）；全過 →「驗證通過」；不填只剩舊 agent／已在遊戲內／只跑部分／必驗未驗／少結果。探針 `osm-qa-agent/scripts/machine-test-judge-probe.mjs`。
 - 要真正驗到盒子端，該渠道的機台必須先在 CMDB 登記（4186 渠道目前沒有）。
 
 **2. iDeck 自動偵測改抓 `btn_bet` ＋ `btn_play`**
