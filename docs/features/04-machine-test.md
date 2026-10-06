@@ -295,5 +295,10 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - [P1] `nativeClick` 原生 click 逾時期間收到 end，接著 force 仍點。改用 `guardedClick`：原生／force／滑鼠每一種之前都 await `mustStop()`（重讀流水＋停止）；`featureTapRound` 加選填 `mustStop`，每一下點之前 await，拿掉 250ms 背景旗標
   - [P1] 停止時 gate 放行。抽成 `verdicts.ts stepGateBlock`：halt（疑似特殊遊戲沒結束）→ 全擋含退出；使用者停止 → 測試步驟擋、**退出照舊試**（沒有開著的特殊遊戲時，exitUntilLobby 依停止狀態收尾，不然帳號留在機台）；停止造成的 openRound 'stopped' 也設 halt
   - 探針：open-round 31 條（含關卡 5 條、畫面證據 6 條）、runner 路徑 9 條（含 JACKPOT 看板、結算畫面、原生 click 逾時期間收到 end）。突變「重試前不重查」「證據回到寬鬆」「拿掉停止擋」各自紅
+- **CodeX 審 4c320d4（v5.29.3 修）**：
+  - [P1] 計數器接受「0 SPINS REMAINING」→ 按了。改成取出計數器的數字，**至少一個 > 0** 才算局中；全是 0 → wait
+  - [P1] 重查之後還隔著非同步查詢：取 `boundingBox` 期間、觸屏 `frame.$$` 查元素期間收到 end，仍點下去。`guardedClick` 改成只有一種點法：取座標 → `mustStop()` → 立刻 `page.mouse.click`（原生 click 有自動等待、無法在中間重查，拿掉）；`clickTouchCell` 加選填 `mustStop`，找到元素後、點之前重查
+  - 停止：CodeX 接受「停止後只試退出、不再推進」；halt 仍全擋。停止會立刻關瀏覽器，退出可能沒做完——沿用既有「使用者中止：未確認已離機」的結果
+  - 探針：open-round 33、runner 路徑 11（含 0 SPINS REMAINING、取座標期間 end、查元素期間 end）；突變「取座標後不重查」「觸屏查到後不重查」「0 次也算」各自紅
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
 

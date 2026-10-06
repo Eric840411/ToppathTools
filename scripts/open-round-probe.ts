@@ -68,6 +68,8 @@ const cases: Array<[string, () => Promise<string>, string]> = [
   ['畫面：「FEATURE」「BONUS」字樣但沒計數器 → 不算', async () => openRoundScreen('BONUS FEATURE  PRESS SPIN'), 'unknown'],
   ['畫面：「FREE GAMES 3 / PRESS SPIN」→ spin', async () => openRoundScreen('FREE GAMES 3  PRESS SPIN TO CONTINUE'), 'spin'],
   ['畫面：「5 SPINS REMAINING」→ spin', async () => openRoundScreen('5 SPINS REMAINING  PRESS SPIN'), 'spin'],
+  ['畫面：「0 SPINS REMAINING」→ wait（剩 0 次不是局中）', async () => openRoundScreen('0 SPINS REMAINING  PRESS PLAY TO SPIN'), 'wait'],
+  ['畫面：「FREE GAMES 0 / 3 SPINS LEFT」有一個 > 0 → spin', async () => openRoundScreen('FREE GAMES 0  3 SPINS LEFT  PRESS SPIN'), 'spin'],
   ['畫面：「RE-SPINS: 2」→ spin', async () => openRoundScreen('RE-SPINS: 2  PRESS PLAY'), 'spin'],
 ]
 

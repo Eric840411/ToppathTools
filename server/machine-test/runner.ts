@@ -1096,11 +1096,15 @@ function featureTapsConfig(machineCode: string): FeatureTapsCfg | null {
   } catch { return null }
 }
 /** 點一個「欄,列」觸屏格（.screen-touch 裡的透明 span，跟 doTouchPoints 同一種點法）；找不到回 false */
-async function clickTouchCell(page: Page, pt: string): Promise<boolean> {
+async function clickTouchCell(page: Page, pt: string, mustStop?: () => Promise<boolean>): Promise<boolean> {
   for (const frame of page.frames()) {
     try {
       const els = await frame.$$(`//span[normalize-space(text())='${pt}']`)
-      if (els.length) { await els[0].evaluate((e: Element) => (e as HTMLElement).click()); return true }
+      if (!els.length) continue
+      // 1007 CodeX 4c320d4 [P1]：查元素是非同步的，查的期間可能收到 end——找到之後、真的點之前再重查
+      if (mustStop && await mustStop()) return false
+      await els[0].evaluate((e: Element) => (e as HTMLElement).click())
+      return true
     } catch { /* frame detached */ }
   }
   return false
@@ -1152,7 +1156,7 @@ async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: Fea
         if (!pre) return 'unsure'
         if (halt()) return 'stop'   // CodeX 1006：真的點下去之前再查一次結束／停止／時限
         if (mustStop && await mustStop()) return 'stop'   // 1007 CodeX 35d17c9：疑似特殊遊戲路徑逐下 await 重讀流水，不靠快取
-        const ok = await clickTouchCell(page, pt)
+        const ok = await clickTouchCell(page, pt, mustStop)
         if (ok) onTapped?.()
         return ok ? 'ok' : 'noElement'
       },
@@ -1219,8 +1223,11 @@ export function openRoundScreen(raw: string): 'spin' | 'touch' | 'wait' | 'unkno
   if (k !== 'spin') return k
   // 局中證據要是**計數器**（FREE GAMES 3／3 SPINS REMAINING／RE-SPINS: 2／SPINS LEFT 5）——
   // JACKPOT／BONUS／FEATURE 這種字普通局也常駐在畫面上（獎池看板、按鈕），不能當證據
-  const counter = /(free ?(games?|spins?)|re-?spins?)\s*[:：x×]?\s*\d+|\d+\s*(free ?)?(games?|spins?|re-?spins?)\s*(remaining|left)|(games?|spins?) (remaining|left)\s*[:：]?\s*\d+/
-  return counter.test(t) ? 'spin' : 'unknown'
+  const counter = /(?:free ?(?:games?|spins?)|re-?spins?)\s*[:：x×]?\s*(\d+)|(\d+)\s*(?:free ?)?(?:games?|spins?|re-?spins?)\s*(?:remaining|left)|(?:games?|spins?) (?:remaining|left)\s*[:：]?\s*(\d+)/g
+  const counts = [...t.matchAll(counter)].map(m => Number(m[1] ?? m[2] ?? m[3]))
+  if (!counts.length) return 'unknown'
+  // 剩 0 次＝已經跑完、等結算，不是局中證據（CodeX 4c320d4 [P1]：「0 SPINS REMAINING PRESS PLAY TO SPIN」會按下去）
+  return counts.some(n => n > 0) ? 'spin' : 'wait'
 }
 
 /**
@@ -1228,20 +1235,17 @@ export function openRoundScreen(raw: string): 'spin' | 'touch' | 'wait' | 'unkno
  * nativeClick 第一次等待逾時期間收到 end，接著 force click 仍點下去）。回 'stopped'＝重查判定不能點，'none'＝找不到可見元素
  */
 async function guardedClick(page: Page, selectors: string[], mustStop: () => Promise<boolean>): Promise<'clicked' | 'stopped' | 'none'> {
+  // CodeX 4c320d4 [P1]：重查之後只要還隔著任何非同步查詢（boundingBox、Playwright click 的自動等待），end 都可能在中間到。
+  // 所以只用一種點法：先取座標 → 重查 → 立刻一次真滑鼠點（9/24 DragonLaw FG 證實真滑鼠點得動 SPIN）；不做原生／force 的重試鏈
   for (const sel of selectors) {
     let els: ElementHandle[] = []
     try { els = await page.$$(sel) } catch { continue }
     for (const el of els) {
-      try { if (!await el.isVisible()) continue } catch { continue }
+      let box: { x: number; y: number; width: number; height: number } | null = null
+      try { if (!await el.isVisible()) continue; box = await el.boundingBox() } catch { continue }
+      if (!box || box.width < 1 || box.height < 1) continue
       if (await mustStop()) return 'stopped'
-      try { await el.click({ timeout: 3000 }); return 'clicked' } catch { /* 下一種 */ }
-      if (await mustStop()) return 'stopped'
-      try { await el.click({ force: true, timeout: 3000 }); return 'clicked' } catch { /* 下一種 */ }
-      if (await mustStop()) return 'stopped'
-      try {
-        const box = await el.boundingBox()
-        if (box) { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'clicked' }
-      } catch { /* 放棄這個元素 */ }
+      try { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'clicked' } catch { return 'none' }
     }
   }
   return 'none'
@@ -1316,7 +1320,7 @@ export function makeOpenRoundHandler(o: {
           let n = 0
           for (const pt of profile?.touchPoints ?? []) {
             if (n >= budget || await mustStop()) break
-            if (await clickTouchCell(page, pt)) { n++; emit(`（疑似特殊遊戲：觸屏點擊 "${pt}"）`) }
+            if (await clickTouchCell(page, pt, mustStop)) { n++; emit(`（疑似特殊遊戲：觸屏點擊 "${pt}"）`) }
             await sleep(800)
           }
           taps += n
