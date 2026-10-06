@@ -337,11 +337,76 @@ export async function resolveRoleIds(token: string, runner: Runner = defaultRunn
 
 // ─── 開單 ───────────────────────────────────────────────────────────────────
 
+/**
+ * 建立任務項時 Meegle 要求的欄位（2026-10-06：兩個空間都把「任務類型」改成建立必填，field_key 兩邊不同——
+ * 測試 field_ef5b10、正式 field_ee72d7，option_id 也不同）。規則跟 CodeX 定案：
+ *  - 必填清單只信 `meta-create-fields`（`meta-fields` 沒有必填資訊，實測）
+ *  - 任務類型用 field_name **精確且唯一**比對（key 跨空間不同，沒有別的穩定識別）；零筆／多筆／不是 select 都擋
+ *  - 選項名稱也要唯一（不然名稱對不到唯一的 option_id）
+ *  - 工具認得的必填：name、關聯需求、任務類型；`template` 是**已驗證的例外**（一直沒送也開得成），只限這組空間＋任務項類型
+ *  - 其他必填工具不認得 → 整批擋、列欄名（不靠 default_appear 猜它有預設）
+ */
+export const TASK_TYPE_FIELD_NAME = '任務類型'
+export type CreateMeta = {
+  taskType: { fieldKey: string; required: boolean; options: Array<{ id: string; name: string }> } | null
+  unknownRequired: string[]   // 工具不認得、也不是已驗證例外的必填欄（顯示用欄名）
+}
+type CreateFieldConf = { field_key?: string; field_name?: string; field_type_key?: string; is_required?: number }
+/** 純函式：meta-create-fields 的清單＋任務類型選項 → CreateMeta；有問題回錯誤訊息 */
+export function interpretCreateMeta(conf: CreateFieldConf[], allFields: Array<{ field_key?: string; field_name?: string; field_type?: string }>, options: Array<{ option_id?: string; option_name?: string }> | null, env: NodeJS.ProcessEnv = process.env): CreateMeta | string {
+  const t = meegleTarget(env)
+  const named = allFields.filter(f => f.field_name === TASK_TYPE_FIELD_NAME)
+  if (named.length > 1) return `Meegle 有 ${named.length} 個欄位都叫「${TASK_TYPE_FIELD_NAME}」，工具無法判斷要填哪一個`
+  const ttField = named[0]
+  if (ttField && ttField.field_type !== 'select') return `Meegle 的「${TASK_TYPE_FIELD_NAME}」不是單選欄位（${ttField.field_type}），工具不支援`
+  let taskType: CreateMeta['taskType'] = null
+  if (ttField?.field_key) {
+    const opts = (options ?? []).filter(o => o.option_id && o.option_name).map(o => ({ id: String(o.option_id), name: String(o.option_name) }))
+    const names = opts.map(o => o.name.trim().toLowerCase())
+    const dup = names.filter((n, i) => names.indexOf(n) !== i)
+    if (dup.length) return `「${TASK_TYPE_FIELD_NAME}」有重複的選項名稱（${[...new Set(dup)].join('、')}），工具無法判斷要送哪一個`
+    taskType = { fieldKey: ttField.field_key, required: conf.some(c => c.field_key === ttField.field_key && c.is_required === 1), options: opts }
+    if (taskType.required && !opts.length) return `「${TASK_TYPE_FIELD_NAME}」是必填，但讀不到任何選項`
+  }
+  const known = new Set(['name', t.requirementFieldKey, ...(taskType ? [taskType.fieldKey] : [])])
+  const VERIFIED_OMIT = new Set(['template'])   // 已驗證可省略（只限這組空間＋任務項類型）
+  const unknownRequired = conf
+    .filter(c => c.is_required === 1 && c.field_key && !known.has(c.field_key) && !VERIFIED_OMIT.has(c.field_key))
+    .map(c => `${c.field_name || c.field_key}（${c.field_key}）`)
+  // 工具認得、卻在必填清單裡沒找到的「任務類型」以外欄位，不影響；但 meta-create 說必填的任務類型找不到欄位定義＝設定異常
+  const ttRequiredButMissing = conf.find(c => c.is_required === 1 && c.field_name === TASK_TYPE_FIELD_NAME && !taskType)
+  if (ttRequiredButMissing) return `「${TASK_TYPE_FIELD_NAME}」是建立必填，但欄位清單裡找不到它的設定`
+  return { taskType, unknownRequired }
+}
+/** 每次要用時重讀（不快取）：預覽後 Meegle 設定可能改過 */
+export async function loadCreateMeta(token: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<CreateMeta>> {
+  const t = meegleTarget(env)
+  const base = ['--project-key', t.projectKey, '--work-item-type', t.taskTypeKey]
+  const [mc, mf] = await Promise.all([call(runner, ['workitem', 'meta-create-fields', ...base], token), call(runner, ['workitem', 'meta-fields', ...base], token)])
+  if (mc.kind !== 'ok') return mc
+  if (mf.kind !== 'ok') return mf
+  const conf = (mc.value as { FieldConfList?: CreateFieldConf[] }).FieldConfList
+  if (!Array.isArray(conf)) return { kind: 'unknown', message: 'Meegle 建立欄位設定格式不對（沒有 FieldConfList）' }
+  const all = (mf.value as { list?: Array<{ field_key?: string; field_name?: string; field_type?: string }> }).list ?? []
+  const tt = all.filter(f => f.field_name === TASK_TYPE_FIELD_NAME)
+  let options: Array<{ option_id?: string; option_name?: string }> | null = null
+  if (tt.length === 1 && tt[0].field_key) {
+    // meta-fields 不帶 --field-keys 時不回 option（實測）
+    const o = await call(runner, ['workitem', 'meta-fields', ...base, '--field-keys', tt[0].field_key], token)
+    if (o.kind !== 'ok') return o
+    options = ((o.value as { list?: Array<{ field_key?: string; option?: Array<{ option_id?: string; option_name?: string }> }> }).list ?? []).find(x => x.field_key === tt[0].field_key)?.option ?? []
+  }
+  const m = interpretCreateMeta(conf, all, options, env)
+  return typeof m === 'string' ? { kind: 'rejected', message: m } : { kind: 'ok', value: m }
+}
+
 export type CreateInput = {
   name: string
   description?: string
   requirementId: string
   roles: Partial<Record<MeegleRoleKey, string[]>> // 值是 user_key
+  /** 任務類型：欄位 key（依空間）＋option_id。select 寫 option_id 字串（同 update，見 meegle-edit-ops） */
+  taskType?: { fieldKey: string; optionId: string } | null
 }
 
 /** 組 `workitem create --fields` 的內容。純函式。所有 field_value 都是字串（見檔頭契約 1）。 */
@@ -352,6 +417,7 @@ export function buildCreateFields(input: CreateInput, roleIds: Record<MeegleRole
     { field_key: t.requirementFieldKey, field_value: input.requirementId },
   ]
   if (input.description?.trim()) fields.push({ field_key: 'description', field_value: input.description })
+  if (input.taskType) fields.push({ field_key: input.taskType.fieldKey, field_value: input.taskType.optionId })
   const roleOwners = MEEGLE_ROLES
     .map(r => ({ role: roleIds[r.key], owners: (input.roles[r.key] ?? []).filter(Boolean) }))
     .filter(r => r.owners.length > 0)

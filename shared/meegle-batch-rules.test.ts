@@ -113,5 +113,25 @@ eq('已開單、沒有目標狀態 → 不接回', isRestorablePrevious({ create
   eq('摘要欄＝「摘要」→ 一定是標題列', planRow({ record: { 摘要: '摘要', RD: 'RD', 描述: '真的內容', 填寫人: 'felix', 類別: '前端' } }, defaults, reqs, map).blocks, ['這列是重複的標題列，不是資料'])
 }
 
+// ── 任務類型（2026-10-06：兩空間都改建立必填；CodeX 定案：逐列 → Sheet → 整批預設，有填但無效就擋、不退回預設）──
+{
+  const tt = { required: true, options: ['需求', 'BUG'] }
+  const plan = (input: Record<string, unknown>, over?: string, def?: string, meta: typeof tt | null = tt) =>
+    planRow({ record: { ...rec, ...input }, taskTypeOverride: over }, { ...defaults, taskType: def }, reqs, map, meta)
+  eq('必填、哪裡都沒填 → 擋', plan({}).blocks, ['沒有任務類型（Meegle 必填；請選整批預設，或在這列／Sheet 指定）'])
+  eq('整批預設 BUG → 帶 BUG', [plan({}, undefined, 'BUG').taskType, plan({}, undefined, 'BUG').blocks], ['BUG', []])
+  eq('Sheet 欄優先於整批預設', plan({ 任務類型: '需求' }, undefined, 'BUG').taskType, '需求')
+  eq('逐列覆寫優先於 Sheet', plan({ 任務類型: '需求' }, 'BUG', '需求').taskType, 'BUG')
+  eq('大小寫／空白不拘，帶正式寫法', plan({ 任務類型: '  bug ' }).taskType, 'BUG')
+  const bad = plan({ 任務類型: '缺陷' }, undefined, 'BUG')
+  eq('Sheet 填了無效選項 → 擋，**不退回整批預設**', [bad.taskType, bad.blocks], [null, ['Sheet「任務類型」「缺陷」不是 Meegle 的選項（可選：需求、BUG）']])
+  eq('整批預設的選項被刪 → 擋', plan({}, undefined, 'Story').blocks.length, 1)
+  eq('非必填、沒填 → 可送、不帶', [plan({}, undefined, undefined, { required: false, options: ['BUG'] }).taskType, plan({}, undefined, undefined, { required: false, options: ['BUG'] }).blocks], [null, []])
+  eq('非必填、填了無效 → 仍然擋', plan({ 任務類型: 'X' }, undefined, undefined, { required: false, options: ['BUG'] }).blocks.length, 1)
+  const none = plan({ 任務類型: 'BUG' }, undefined, undefined, null)
+  eq('空間沒有這欄位 → 不帶、只警告', [none.taskType, none.blocks, none.warnings.length], [null, [], 1])
+  eq('舊呼叫（沒給 meta）→ 行為不變', planRow({ record: rec }, defaults, reqs, map).blocks, [])
+}
+
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

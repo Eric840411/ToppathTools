@@ -157,7 +157,7 @@
 5. **MQL 一頁 50 筆，第 2 頁之後 `session_id`／`list` 是 null**——要記第一頁的，每頁重讀會停在第 2 頁
 6. **`user search` 不是完整名錄**：Tim 掛在既有單子的角色上，但用名字、email、user_key 都查不到
 7. **MQL 的人名比對大小寫有別**（`'Tim'` 查得到、`'tim'` 回 3011）
-8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）
+8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）（⚠️ 這是**狀態流轉**必填；**建立**必填另外看 `meta-create-fields`——2026-10-06 兩空間都多了「任務類型」，見下方「任務類型」一節）
 
 ### 驗證
 - `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（40）、`npx tsx shared/meegle-batch-rules.test.ts`（38）
@@ -480,3 +480,31 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 ### 驗證
 `node scripts/ui-checks/meegle-guide.mjs`（兩種主題＋非管理員＋手機寬 390）：在分頁操作下方、跟著分頁切、補回填不顯示、收起重整後仍收起、沒有 emoji、修仙版只顯示美術圖且每張真的載入、普通版只顯示線條圖示、非管理員看不到空間那條、390 寬沒有橫向溢出。
 注入驗過：放回一個 emoji、拿掉管理員判斷、不記收起狀態、不跟分頁走、圖檔不存在——各自紅在對應那條
+
+## 開單帶「任務類型」（v5.19.0，2026-10-06）
+
+**事件**：後台測試使用者用批量開單，第 5 列被 Meegle 擋 `ErrFieldRequired 任務類型(field_ef5b10) 必填`，預覽卻顯示「可送出」。
+原因：`buildCreateFields` 只送名稱／關聯需求／描述／人員，**從沒送過任務類型**；Meegle 兩個空間後來都把它改成**建立必填**（正式也是，正式開單同樣會失敗）。
+
+**實查（主機登入、唯讀）**：
+- `meta-fields` **沒有**必填資訊；建立必填只有 `meta-create-fields` 有（`is_required`、`default_value.default_appear`）
+- 兩空間的建立必填都是：name、template、關聯需求（field_eab776）、任務類型
+- **任務類型的 field_key 兩空間不同**：測試 `field_ef5b10`、正式 `field_ee72d7`；選項名稱都是「需求／BUG」，option_id 不同（測試 BUG＝`97y2igrb3`、正式 BUG＝`h_mb402w7`）
+- 回應原文存成 fixture：`server/fixtures/meegle/*.20261006.json`
+
+**規則（跟 CodeX 定案）**：
+- 任務類型：**逐列覆寫 → Sheet「任務類型」欄 → 整批預設**；有填但不是選項就擋，**不退回預設**（同關聯需求）。非必填時沒填可送；空間沒這欄就不帶、Sheet 有填只警告
+- 欄位用 field_name「任務類型」**精確且唯一**比對（key 跨空間不同）；零筆／多筆／不是 select／選項名稱重複 → 擋
+- `template` 是**已驗證例外**（一直沒送也開得成，實開會自動帶「一般流程」）；其他工具不認得的建立必填 → **整批擋並列欄名**，不靠 `default_appear` 猜它有預設
+- metadata 每次即時讀、依空間：`/meta` 給預覽；**按送出時再讀一次並重驗所有要送的列**，有變就停下來讓人看；伺服器**每一列開單前也重讀**（讀不到＝不開）
+- 送出時伺服器只收選項**名稱**，自己換成該空間的 option_id（select 寫 option_id 字串，同 update）
+
+**使用者操作**：
+- 「讀取與整批預設」多一個「任務類型」下拉（必填時標「（必填）」）
+- 「批量設定」可以替勾選的列改任務類型
+- Sheet 有「任務類型」欄就以該欄為準；預覽的「關聯需求」欄下方會顯示「類型 BUG」
+- Meegle 出現工具不認得的必填時，送出鈕旁出現紅字並整批不能送
+
+**驗證**：
+- `npx tsx shared/meegle-batch-rules.test.ts`（52 項）、`npx tsx server/meegle-workitem.test.ts`（86 項，含兩空間 fixture、預覽後多必填、選項被刪、metadata 讀取失敗）
+- 實開：`npx tsx scripts/meegle-tasktype-live-check.ts`（主機登入、只准測試空間）→ #15244721，回讀任務類型＝BUG、template 自動帶「一般流程」。**正式空間沒有實開過**（只用 fixture 驗 key／option_id）

@@ -37,6 +37,19 @@ export function roleColumn(def: typeof MEEGLE_ROLE_DEFS[number], record: Record<
 export type MeegleRoleKey = typeof MEEGLE_ROLE_DEFS[number]['key']
 
 export const SHEET_REQUIREMENT_COLUMN = '關聯需求'
+export const SHEET_TASK_TYPE_COLUMN = '任務類型'
+
+/**
+ * 這個空間「任務類型」欄位的現況（2026-10-06：兩個空間都改成建立必填，field_key 兩邊不同）。
+ * 由伺服器每次讀 meta-create-fields／meta-fields 給，**不寫死**。null＝這個空間沒有這個欄位。
+ */
+export type TaskTypeMeta = { required: boolean; options: string[] }
+
+/** 選項名稱比對（去頭尾空白、不分大小寫）。對到回選項的正式寫法，對不到回 null */
+export function pickTaskType(text: string, options: string[]): string | null {
+  const want = text.trim().toLowerCase()
+  return options.find(o => o.trim().toLowerCase() === want) ?? null
+}
 
 /** 人名正規化：去頭尾空白、多個空白併成一個、不分大小寫。對照表的鍵就是這個。 */
 export function normAlias(s: string): string {
@@ -76,17 +89,20 @@ export type RowInput = {
   record: Record<string, unknown>                          // Sheet 原始列
   requirementOverride?: string                              // 畫面上逐列覆寫（需求 ID）
   roleOverrides?: Partial<Record<MeegleRoleKey, string[]>>  // 畫面上逐列覆寫（人名）
+  taskTypeOverride?: string                                 // 畫面上逐列覆寫（任務類型選項名稱）
 }
 
 export type BatchDefaults = {
   requirementId: string                                     // 整批預設需求 ID，可空
   roles: Partial<Record<MeegleRoleKey, string[]>>           // 受托人／Code Review 的整批預設（人名）
+  taskType?: string                                         // 整批預設任務類型（選項名稱），可空
 }
 
 export type RowPlan = {
   name: string
   description: string
   requirement: Requirement | null
+  taskType: string | null   // 選項名稱（正式寫法）；null＝不帶
   roles: Record<MeegleRoleKey, { aliases: string[]; people: MappedPerson[]; unmapped: string[] }>
   blocks: string[]    // 有任何一條 → 這列不送
   warnings: string[]  // 會送，但要讓人看到（例如人員未對照、角色會留空）
@@ -120,7 +136,25 @@ function sheetPeople(def: typeof MEEGLE_ROLE_DEFS[number], rec: Record<string, u
   return col ? splitPeople(str(rec[col])) : []
 }
 
-export function planRow(input: RowInput, defaults: BatchDefaults, requirements: Requirement[], personMap: Record<string, MappedPerson>): RowPlan {
+/**
+ * 任務類型（2026-10-06，CodeX 定案）：逐列覆寫 → Sheet「任務類型」欄 → 整批預設。
+ * **有填但不是選項就擋，不退回預設**（跟關聯需求同一條理由）。
+ * meta＝null：這個空間沒有這個欄位 → 不帶；Sheet 有填就警告一聲（不擋）。
+ * meta.required＝false：沒填可以送；有填照樣要是合法選項。
+ */
+export function planTaskType(input: RowInput, defaults: BatchDefaults, meta: TaskTypeMeta | null): { taskType: string | null; block?: string; warning?: string } {
+  const override = (input.taskTypeOverride ?? '').trim()
+  const sheet = str(input.record[SHEET_TASK_TYPE_COLUMN]).trim()
+  const def = (defaults.taskType ?? '').trim()
+  if (!meta) return { taskType: null, ...(override || sheet ? { warning: `這個 Meegle 空間沒有「任務類型」欄位，填的「${override || sheet}」不會帶入` } : {}) }
+  const [raw, from] = override ? [override, '逐列指定的任務類型'] : sheet ? [sheet, `Sheet「${SHEET_TASK_TYPE_COLUMN}」`] : def ? [def, '整批預設任務類型'] : ['', '']
+  if (!raw) return meta.required ? { taskType: null, block: '沒有任務類型（Meegle 必填；請選整批預設，或在這列／Sheet 指定）' } : { taskType: null }
+  const hit = pickTaskType(raw, meta.options)
+  if (!hit) return { taskType: null, block: `${from}「${raw}」不是 Meegle 的選項（可選：${meta.options.join('、') || '無'}）` }
+  return { taskType: hit }
+}
+
+export function planRow(input: RowInput, defaults: BatchDefaults, requirements: Requirement[], personMap: Record<string, MappedPerson>, taskTypeMeta: TaskTypeMeta | null = null): RowPlan {
   const rec = input.record
   const blocks: string[] = []
   const warnings: string[] = []
@@ -149,6 +183,10 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
     blocks.push('沒有關聯需求（請選整批預設，或在這列指定）')
   }
 
+  const tt = planTaskType(input, defaults, taskTypeMeta)
+  if (tt.block) blocks.push(tt.block)
+  if (tt.warning) warnings.push(tt.warning)
+
   const roles = {} as RowPlan['roles']
   for (const def of MEEGLE_ROLE_DEFS) {
     const rowOverride = input.roleOverrides?.[def.key]
@@ -166,7 +204,7 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
     roles[def.key] = { aliases, people, unmapped }
   }
 
-  return { name, description, requirement, roles, blocks, warnings }
+  return { name, description, requirement, taskType: tt.taskType, roles, blocks, warnings }
 }
 
 /** 一批裡所有出現過的人名（去重、保留第一次出現的寫法），給「人員對照」那塊用。 */

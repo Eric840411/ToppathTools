@@ -9,10 +9,13 @@
  */
 import {
   buildCreateFields, clearDetailUrlCache, createTask, detailUrlFor, bulkVerdict, checkDirectoryLabel, findUserViaParticipants, interpretCli, listRequirements, listSpaceRoster, parseSameLabelIds, searchUserKey, mqlString, pickUserByEmail,
-  planTransition, queryAll, resolveRoleIds, resolveUsersByEmail, transitionToState, type Runner,
+  planTransition, queryAll, resolveRoleIds, resolveUsersByEmail, transitionToState, loadCreateMeta, interpretCreateMeta, type Runner,
 } from './meegle-workitem.js'
 import { pickRequirement } from '../shared/meegle-batch-rules.js'
 import type { CliResult } from './meegle-cli.js'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 let pass = 0
 const fails: string[] = []
@@ -227,6 +230,43 @@ eq('需要表單的轉換不自動做', planTransition('Finished', { ...fromTodo
   eq('user search 查不到 → null（不是錯誤）', none.kind === 'ok' ? none.value : none, null)
   const off = await searchUserKey('t', 'k-tim', async () => out(JSON.stringify([{ ...u, status: 'deactivated' }])))
   eq('停用帳號 → null，不能選', off.kind === 'ok' ? off.value : off, null)
+}
+
+// ── 建立必填（2026-10-06 任務類型）：fixture 是兩個空間當天實際的 CLI 回應 ─────────────
+{
+  const fx = (f: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'meegle', f), 'utf8')
+  const space = (s: 'test' | 'prod') => ({
+    mcf: fx(`meta-create-fields.${s}-space.20261006.json`), mf: fx(`meta-fields.${s}-space.20261006.json`), tt: fx(`meta-fields-tasktype.${s}-space.20261006.json`),
+  })
+  const fake = (d: { mcf: string; mf: string; tt: string }): Runner => async (args) =>
+    out(args[1] === 'meta-create-fields' ? d.mcf : args.includes('--field-keys') ? d.tt : d.mf)
+  for (const [s, key, bugId] of [['test', 'field_ef5b10', '97y2igrb3'], ['prod', 'field_ee72d7', 'h_mb402w7']] as const) {
+    const m = await loadCreateMeta('t', fake(space(s)), ENV)
+    eq(`${s}：任務類型用名稱找到該空間的 key、必填、選項含 BUG 的 id`,
+      m.kind === 'ok' ? [m.value.taskType?.fieldKey, m.value.taskType?.required, m.value.taskType?.options.find(o => o.name === 'BUG')?.id, m.value.unknownRequired] : m,
+      [key, true, bugId, []])
+  }
+  // CodeX：template 是已驗證例外；其他工具不認得的必填 → 列欄名（不靠 default_appear 猜）
+  const conf = JSON.parse(space('test').mcf).FieldConfList
+  const all = JSON.parse(space('test').mf).list
+  const opts = JSON.parse(space('test').tt).list[0].option
+  const extra = [...conf, { field_key: 'field_new', field_name: '新必填', field_type_key: 'select', is_required: 1, default_value: { default_appear: 1 } }]
+  const r1 = interpretCreateMeta(extra, all, opts, ENV)
+  eq('預覽後多了一個必填（就算 default_appear=1）→ 列出來', typeof r1 === 'string' ? r1 : r1.unknownRequired, ['新必填（field_new）'])
+  eq('template 必填但是已驗證例外 → 不列', typeof r1 === 'string' ? r1 : r1.unknownRequired.some(x => x.includes('template')), false)
+  eq('同名「任務類型」兩個欄位 → 擋', typeof interpretCreateMeta(conf, [...all, { field_key: 'field_x', field_name: '任務類型', field_type: 'select' }], opts, ENV), 'string')
+  eq('任務類型不是 select → 擋', typeof interpretCreateMeta(conf, all.map((f: { field_name: string }) => f.field_name === '任務類型' ? { ...f, field_type: 'text' } : f), opts, ENV), 'string')
+  eq('選項名稱重複 → 擋', typeof interpretCreateMeta(conf, all, [...opts, { option_id: 'dup', option_name: 'bug' }], ENV), 'string')
+  eq('必填但選項被刪光 → 擋', typeof interpretCreateMeta(conf, all, [], ENV), 'string')
+  const opt = interpretCreateMeta(conf.map((c: { field_key: string }) => c.field_key === 'field_ef5b10' ? { ...c, is_required: 0 } : c), all, opts, ENV)
+  eq('改回非必填 → required=false', typeof opt === 'string' ? opt : opt.taskType?.required, false)
+  eq('空間沒有任務類型欄位 → taskType=null', (() => { const r = interpretCreateMeta(conf.filter((c: { field_key: string }) => c.field_key !== 'field_ef5b10'), all.filter((f: { field_name: string }) => f.field_name !== '任務類型'), null, ENV); return typeof r === 'string' ? r : r.taskType })(), null)
+  const failed = await loadCreateMeta('t', async () => ({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false }), ENV)
+  eq('metadata 讀取失敗 → 不是 ok（呼叫端整批擋）', failed.kind !== 'ok', true)
+  // 送出的欄位：select 寫 option_id 字串
+  const f = buildCreateFields({ name: 'n', requirementId: '1', roles: {}, taskType: { fieldKey: 'field_ee72d7', optionId: 'h_mb402w7' } }, {} as never, ENV)
+  eq('開單欄位帶任務類型（該空間的 key＋option_id）', f.find(x => x.field_key === 'field_ee72d7')?.field_value, 'h_mb402w7')
+  eq('沒有任務類型 → 只帶名稱與關聯需求', buildCreateFields({ name: 'n', requirementId: '1', roles: {} }, {} as never, ENV).map(x => x.field_key), ['name', 'field_eab776'])
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

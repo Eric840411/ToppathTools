@@ -1,0 +1,25 @@
+{
+  "list": [
+    {
+      "field_key": "field_ee72d7",
+      "field_name": "任務類型",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "s_ymayp0d",
+          "option_name": "需求"
+        },
+        {
+          "option_id": "h_mb402w7",
+          "option_name": "BUG"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "has_more": false,
+    "page_num": 1,
+    "page_size": 50,
+    "total": 1
+  }
+}

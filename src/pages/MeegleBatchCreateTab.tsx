@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MEEGLE_ROLE_DEFS, collectAliases, isRestorablePrevious, normAlias, planRow,
-  type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan,
+  type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan, type TaskTypeMeta,
 } from '../../shared/meegle-batch-rules'
 import type { RosterPerson } from '../../shared/meegle-people-match'
 import { newStepId } from '../features/uat/step-model'
@@ -20,11 +20,12 @@ import type { MeegleSpace } from '../../shared/meegle-space'
 
 type SheetRecord = Record<string, unknown> & { _rowIndex: number }
 type Person = MappedPerson & { alias: string }
-type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null }
+// taskType／unknownRequired／createMetaError：Meegle 建立必填（2026-10-06 任務類型），伺服器每次即時讀
+type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null; taskType: TaskTypeMeta | null; unknownRequired: string[]; createMetaError: string | null }
 // targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
 type Previous = RowResult & { name: string; owner: string }
-type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>> }
+type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>>; taskType?: string }
 /** 後端猜人結果（只是建議；寫入一律走 verify）。bulkOk＝完整名字＋名單唯一＋租戶名錄也唯一，才能進「全部確認」 */
 type Suggestion = { alias: string; status: 'unique' | 'ambiguous' | 'none'; confidence?: 'exact' | 'partial'; user?: RosterPerson; users?: RosterPerson[]; bulkOk: boolean; note: string }
 
@@ -121,6 +122,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const [loadedUrl, setLoadedUrl] = useState('')
   const [sheetLoading, setSheetLoading] = useState(false)
   const [sheetError, setSheetError] = useState('')
+  const [sendNote, setSendNote] = useState('')   // 送出前重新檢查擋下的原因（顯示在送出按鈕旁）
 
   const [meta, setMeta] = useState<Meta | null>(null)
   const [metaError, setMetaError] = useState<{ code?: string; message: string } | null>(null)
@@ -179,7 +181,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
 
   // 批量填寫：對已勾選的列一次寫入逐列覆寫（留空的欄位不動）
   const [bulkOpen, setBulkOpen] = useState(false)
-  const [bulk, setBulk] = useState<{ requirementId: string; roles: Partial<Record<MeegleRoleKey, string>> }>({ requirementId: '', roles: {} })
+  const [bulk, setBulk] = useState<{ requirementId: string; taskType: string; roles: Partial<Record<MeegleRoleKey, string>> }>({ requirementId: '', taskType: '', roles: {} })
   const [bulkMsg, setBulkMsg] = useState('')
   const [results, setResults] = useState<Record<number, RowResult>>({})
   const [rowBusy, setRowBusy] = useState<Record<number, boolean>>({})
@@ -190,7 +192,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const loadMeta = useCallback(async () => {
     try {
       const j = await api<Meta & { ok: true }>(`/api/meegle/batch/meta?space=${space}`)
-      setMeta({ requirements: j.requirements, states: j.states, statesError: j.statesError })
+      setMeta({ requirements: j.requirements, states: j.states, statesError: j.statesError, taskType: j.taskType ?? null, unknownRequired: j.unknownRequired ?? [], createMetaError: j.createMetaError ?? null })
       setMetaError(null)
     } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
   }, [space])
@@ -247,7 +249,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
 
   const rows = useMemo(() => (records ?? []).map(rec => {
     const ov = overrides[rec._rowIndex] ?? {}
-    const plan: RowPlan = planRow({ record: rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles }, defaults, requirements, personMap)
+    const plan: RowPlan = planRow({ record: rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType }, defaults, requirements, personMap, meta?.taskType ?? null)
     // 這份 Sheet 之前從同一列、同一個名稱開過 → 標出來，預設不勾（跨批次的重複開單只能靠這裡擋）
     const all = prevByRow.get(String(rec._rowIndex)) ?? []
     const prev = all.filter(p => p.createPhase === 'created' && p.name === plan.name)
@@ -258,7 +260,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const pendingPrev = cur ? isPending(cur) : all.some(isPending)
     const jiraKey = String(rec['Jira issue key'] ?? '').trim()
     return { rec, plan, prev, pendingPrev, jiraKey, source: ov.requirementId ? '覆寫' : String(rec['關聯需求'] ?? '').trim() ? 'Sheet' : '預設' }
-  }), [records, overrides, defaults, requirements, personMap, prevByRow, results])
+  }), [records, overrides, defaults, requirements, personMap, prevByRow, results, meta?.taskType])
 
   useEffect(() => {
     if (!needsPreselect || !records || !meta) return
@@ -284,7 +286,9 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   // 已在 Meegle 開過（同列同名）的不送，伺服器也會擋並回傳原本那張
   // 被擋下的列也能勾（批量填寫要能補它們的設定），但送出只取通過檢查的；已開過／待確認的不能勾
   const isSelectable = (r: typeof rows[number]) => !r.pendingPrev && r.prev.length === 0
-  const sendable = rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.prev.length)
+  // Meegle 建立必填讀不到、或有工具不認得的必填 → 整批都不能送（CodeX 1006）
+  const createBlock = meta?.createMetaError ? `讀不到 Meegle 的建立必填欄位：${meta.createMetaError}` : meta?.unknownRequired.length ? `Meegle 有工具還不支援的必填欄位：${meta.unknownRequired.join('、')}——請通知工具維護者` : ''
+  const sendable = createBlock ? [] : rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.prev.length)
 
   // ── 人員對照 ──
   const aliasRows = useMemo(() => {
@@ -372,7 +376,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   function rowPayload(r: typeof rows[number]) {
     const roles = {} as Record<MeegleRoleKey, string[]>
     for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = r.plan.roles[d.key].aliases
-    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
+    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, taskType: r.plan.taskType ?? '', targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
   }
 
   function ensureBatch() {
@@ -387,6 +391,18 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     if (!list.length || otherSpace) return
     // 正式空間：每批送出前確認一次（CodeX）
     if (!confirmed && !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: list.length }))) return
+    // 第一張開單前重讀 Meegle 建立必填、重驗所有要送的列（CodeX 1006：預覽後可能新增必填、刪選項）。有變就停，讓人看過再送
+    let fresh: Meta
+    try {
+      const j = await api<Meta & { ok: true }>(`/api/meegle/batch/meta?space=${space}`)
+      fresh = { requirements: j.requirements, states: j.states, statesError: j.statesError, taskType: j.taskType ?? null, unknownRequired: j.unknownRequired ?? [], createMetaError: j.createMetaError ?? null }
+    } catch (e) { setSendNote(`送出前重新檢查 Meegle 設定失敗：${(e as Error).message}`); return }
+    const changed = fresh.createMetaError || fresh.unknownRequired.length || list.some(r => {
+      const ov = overrides[r.rec._rowIndex] ?? {}
+      return planRow({ record: r.rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType }, defaults, fresh.requirements, personMap, fresh.taskType).blocks.length > 0
+    })
+    if (changed) { setMeta(fresh); setSendNote('Meegle 的欄位設定在預覽之後變了，已重新檢查——請看下方被擋下的列，確認後再送'); return }
+    setSendNote('')
     const id = ensureBatch()
     setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
     for (const r of list) {
@@ -544,6 +560,14 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                     {requirements.map(r => <option key={r.id} value={r.id}>{r.name}（#{r.id}）</option>)}
                   </select>
                 </label>
+                {meta.taskType && (
+                  <label className="mb-field"><span>任務類型{meta.taskType.required ? '（必填）' : ''}</span>
+                    <select className="mb-select" value={defaults.taskType ?? ''} onChange={e => setDefaults(d => ({ ...d, taskType: e.target.value }))}>
+                      <option value="">選擇任務類型</option>
+                      {meta.taskType.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label className="mb-field"><span>受托人</span>
                   <select className="mb-select" value={defaults.roles.assignee?.[0] ?? ''} onChange={e => setDefaults(d => ({ ...d, roles: { ...d.roles, assignee: e.target.value ? [e.target.value] : [] } }))}>
                     <option value="">選擇人員</option>
@@ -690,6 +714,14 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                       {requirements.map(q => <option key={q.id} value={q.id}>{q.name}（#{q.id}）</option>)}
                     </select>
                   </label>
+                  {meta?.taskType && (
+                    <label className="mb-field"><span>任務類型</span>
+                      <select className="mb-select" value={bulk.taskType} onChange={e => setBulk(b => ({ ...b, taskType: e.target.value }))}>
+                        <option value="">— 不改 —</option>
+                        {meta.taskType.options.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </label>
+                  )}
                   {MEEGLE_ROLE_DEFS.map(d => (
                     <div key={d.key} className="mb-field"><span>{d.label}</span>
                       <PeoplePicker listId="mb-people-options" label={d.label} value={bulk.roles[d.key] ?? ''}
@@ -700,7 +732,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                 </div>
                 <div className="mb-bulk-actions">
                   <button type="button" className="mb-btn mb-btn--small mb-btn--primary"
-                    disabled={!selected.size || (!bulk.requirementId && !Object.values(bulk.roles).some(v => v?.trim()))}
+                    disabled={!selected.size || (!bulk.requirementId && !bulk.taskType && !Object.values(bulk.roles).some(v => v?.trim()))}
                     onClick={() => {
                       // 只寫有填的欄位；人名逗號分隔、取代 Sheet 值
                       setOverrides(o => {
@@ -711,7 +743,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                           for (const [k, v] of Object.entries(bulk.roles) as [MeegleRoleKey, string | undefined][]) {
                             if (v?.trim()) roles[k] = v.split(/[,，、]/).map(s => s.trim()).filter(Boolean)
                           }
-                          next[idx] = { ...cur, requirementId: bulk.requirementId || cur.requirementId, roles }
+                          next[idx] = { ...cur, requirementId: bulk.requirementId || cur.requirementId, taskType: bulk.taskType || cur.taskType, roles }
                         }
                         return next
                       })
@@ -746,7 +778,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                           onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
                         <td className="mb-num">{idx}</td>
                         <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}</td>
-                        <td className="mb-req">{r.plan.requirement ? r.plan.requirement.name : <span className="mb-muted">—</span>}</td>
+                        <td className="mb-req">{r.plan.requirement ? r.plan.requirement.name : <span className="mb-muted">—</span>}{r.plan.taskType && <div className="mb-muted">類型 {r.plan.taskType}</div>}</td>
                         <td className="mb-people">
                           {filled.length ? filled.map((d, i) => (
                             <span key={d.key}>{i ? ' ・ ' : ''}{ROLE_SHORT[d.key]} {r.plan.roles[d.key].aliases.map((a, j) => (
@@ -775,6 +807,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                 <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>›</button>
               </>}
             </div>
+            {createBlock && <div className="mb-alert mb-alert--bad">{createBlock}</div>}
+            {sendNote && !createBlock && <div className="mb-alert mb-alert--bad">{sendNote}</div>}
             <footer className="mb-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(unmappedAliases.length || aliasRows.length ? 2 : 1)}>上一步</button>
               <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b></div>

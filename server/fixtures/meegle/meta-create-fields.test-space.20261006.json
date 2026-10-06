@@ -1,0 +1,48 @@
+{
+  "FieldConfList": [
+    {
+      "default_value": {
+        "default_appear": 2,
+        "value": null
+      },
+      "field_alias": "name",
+      "field_key": "name",
+      "field_name": "任務名稱",
+      "field_type_key": "text",
+      "is_required": 1
+    },
+    {
+      "default_value": {
+        "default_appear": 1,
+        "value": "bnVsbA=="
+      },
+      "field_alias": "template",
+      "field_key": "template",
+      "field_name": "任務流程",
+      "field_type_key": "work_item_template",
+      "is_required": 1
+    },
+    {
+      "default_value": {
+        "default_appear": 2,
+        "value": null
+      },
+      "field_alias": "tp_link",
+      "field_key": "field_eab776",
+      "field_name": "關聯需求",
+      "field_type_key": "work_item_related_select",
+      "is_required": 1
+    },
+    {
+      "default_value": {
+        "default_appear": 2,
+        "value": null
+      },
+      "field_alias": "",
+      "field_key": "field_ef5b10",
+      "field_name": "任務類型",
+      "field_type_key": "select",
+      "is_required": 1
+    }
+  ]
+}

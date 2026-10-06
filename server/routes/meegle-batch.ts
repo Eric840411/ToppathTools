@@ -33,11 +33,11 @@ import {
 import { otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { denyTestSpace } from '../meegle-space-access.js'
 import {
-  confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
+  confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates, loadCreateMeta,
   bulkVerdict, checkDirectoryLabel, defaultRunner, listSpaceRoster, meegleTarget, resolveRoleIds, resolveUsersByEmail, searchUserKey, transitionToState, type CallOutcome, type DirectoryLabel, type UserMatch,
 } from '../meegle-workitem.js'
 import { matchRoster, type RosterMatch, type RosterPerson } from '../../shared/meegle-people-match.js'
-import { MEEGLE_ROLE_DEFS, normAlias, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
+import { MEEGLE_ROLE_DEFS, normAlias, pickTaskType, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
 
 export const router = Router()
 initMeegleBatchSchema(db)
@@ -85,7 +85,7 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
     const space = spaceSchema.parse(req.query.space)
     if (denyTestSpace(req, res, space)) return
     const env = spaceEnv(space)
-    const [reqs, states] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env)])
+    const [reqs, states, createMeta] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env), loadCreateMeta(ctx.token, defaultRunner, env)])
     if (reqs.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀取需求清單失敗：${reqs.message}` })
     res.json({
       ok: true,
@@ -95,6 +95,10 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
       // 狀態讀不到不影響開單，只是「開單後推到」選單會是空的
       states: states.kind === 'ok' ? states.value : [],
       statesError: states.kind === 'ok' ? null : states.message,
+      // 建立必填（2026-10-06 任務類型）：讀不到就整批不能送（前端擋），不是當成「沒有必填」
+      taskType: createMeta.kind === 'ok' && createMeta.value.taskType ? { required: createMeta.value.taskType.required, options: createMeta.value.taskType.options.map(o => o.name) } : null,
+      unknownRequired: createMeta.kind === 'ok' ? createMeta.value.unknownRequired : [],
+      createMetaError: createMeta.kind === 'ok' ? null : createMeta.message,
     })
   } catch (e) { next(e) }
 })
@@ -257,6 +261,8 @@ const rowSchema = z.object({
   targetStateKey: z.string().max(100).optional().default(''),
   /** 目標狀態的顯示名稱，只用在回填 Sheet「處理階段」的文字 */
   targetStateName: z.string().max(100).optional().default(''),
+  /** 任務類型選項**名稱**（伺服器自己換成這個空間的 option_id，不收前端給的 id） */
+  taskType: z.string().max(100).optional().default(''),
   space: spaceSchema,
 })
 
@@ -300,6 +306,23 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const roleIds = await resolveRoleIds(ctx.token, defaultRunner, env)
     if (roleIds.kind !== 'ok') return fail(roleIds.message)
 
+    // 建立必填每一列都重讀（CodeX 1006：預覽後 Meegle 可能新增必填、刪選項）；讀不到或有工具不認得的必填 → 不開
+    const cm = await loadCreateMeta(ctx.token, defaultRunner, env)
+    if (cm.kind !== 'ok') return fail(`讀取 Meegle 建立必填欄位失敗：${cm.message}`)
+    if (cm.value.unknownRequired.length) return fail(`Meegle 有工具還不支援的必填欄位：${cm.value.unknownRequired.join('、')}——整批先別送，請通知工具維護者`)
+    let taskType: { fieldKey: string; optionId: string } | null = null
+    const tt = cm.value.taskType
+    if (tt) {
+      const want = body.taskType.trim()
+      if (!want && tt.required) return fail('沒有任務類型（Meegle 必填）')
+      if (want) {
+        const name = pickTaskType(want, tt.options.map(o => o.name))
+        const opt = name ? tt.options.find(o => o.name === name) : undefined
+        if (!opt) return fail(`任務類型「${want}」不是 Meegle 現在的選項（可選：${tt.options.map(o => o.name).join('、')}）`)
+        taskType = { fieldKey: tt.fieldKey, optionId: opt.id }
+      }
+    }
+
     const map = getPersonMap(db, Object.values(body.roles).flat())
     const roles: Partial<Record<MeegleRoleKey, string[]>> = {}
     const unmapped: string[] = []
@@ -313,7 +336,7 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
       roles[key] = keys
     }
 
-    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles }, roleIds.value, defaultRunner, env)
+    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles, taskType }, roleIds.value, defaultRunner, env)
     if (created.kind === 'rejected') return fail(created.message)
     if (created.kind === 'unknown') {
       finishCreate(db, body.batchId, body.rowKey, { phase: 'unknown', message: created.message })

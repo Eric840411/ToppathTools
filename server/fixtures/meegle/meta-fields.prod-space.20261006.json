@@ -1,0 +1,487 @@
+{
+  "list": [
+    {
+      "field_key": "name",
+      "field_name": "任務名稱",
+      "field_type": "_name"
+    },
+    {
+      "field_key": "template",
+      "field_name": "任務流程",
+      "field_type": "_work_item_template",
+      "option": [
+        {
+          "option_id": "1636282",
+          "option_name": "一般流程"
+        }
+      ]
+    },
+    {
+      "field_key": "priority",
+      "field_name": "優先順序",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "option_1",
+          "option_name": "P0"
+        },
+        {
+          "option_id": "option_2",
+          "option_name": "P1"
+        },
+        {
+          "option_id": "option_3",
+          "option_name": "P2"
+        },
+        {
+          "option_id": "29_qu2ija",
+          "option_name": "P3"
+        },
+        {
+          "option_id": "6ut54jhqa",
+          "option_name": "P4"
+        }
+      ]
+    },
+    {
+      "field_key": "start_time",
+      "field_name": "Creation at",
+      "field_type": "date"
+    },
+    {
+      "field_key": "owner",
+      "field_name": "Feature Creator",
+      "field_type": "user"
+    },
+    {
+      "field_key": "watchers",
+      "field_name": "Follower",
+      "field_type": "multi-user"
+    },
+    {
+      "field_key": "description",
+      "field_name": "描述",
+      "field_type": "multi-text"
+    },
+    {
+      "field_key": "business",
+      "field_name": "Business line",
+      "field_type": "_business"
+    },
+    {
+      "field_key": "owned_project",
+      "field_name": "Space",
+      "field_type": "owned_project"
+    },
+    {
+      "field_key": "work_item_id",
+      "field_name": "任務 ID",
+      "field_type": "number"
+    },
+    {
+      "field_key": "current_status_operator",
+      "field_name": "Current owner",
+      "field_type": "multi-user"
+    },
+    {
+      "field_key": "work_item_type_key",
+      "field_name": "Work item type",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "story",
+          "option_name": "需求"
+        },
+        {
+          "disabled": true,
+          "option_id": "issue",
+          "option_name": "缺陷"
+        },
+        {
+          "disabled": true,
+          "option_id": "version",
+          "option_name": "版本"
+        },
+        {
+          "disabled": true,
+          "option_id": "sprint",
+          "option_name": "迭代"
+        },
+        {
+          "option_id": "sub_task",
+          "option_name": "Tasks"
+        },
+        {
+          "option_id": "6abd3a436ef2d2a4b44051d8",
+          "option_name": "任務項"
+        },
+        {
+          "option_id": "6ac1e7a7149f7d24a24eda6b",
+          "option_name": "任務項-阻礙關係"
+        }
+      ]
+    },
+    {
+      "field_key": "updated_by",
+      "field_name": "Updated by",
+      "field_type": "user"
+    },
+    {
+      "field_key": "updated_at",
+      "field_name": "Updated at",
+      "field_type": "date"
+    },
+    {
+      "field_key": "auto_number",
+      "field_name": "Auto-increment value",
+      "field_type": "number"
+    },
+    {
+      "field_key": "is_frozen",
+      "field_name": "Frozen status",
+      "field_type": "bool"
+    },
+    {
+      "field_key": "template_version",
+      "field_name": "Workflow version",
+      "field_type": "number"
+    },
+    {
+      "field_key": "archiving_date",
+      "field_name": "Completion date",
+      "field_type": "date"
+    },
+    {
+      "field_key": "archiving_status",
+      "field_name": "Completion status",
+      "field_type": "bool"
+    },
+    {
+      "field_key": "current_status_operator_role",
+      "field_name": "Authorized roles under the current status",
+      "field_type": "multi-select",
+      "option": [
+        {
+          "option_id": "role_6ac081a48614642b450645c5_6abd3a436ef2d2a4b44051d8_role_b2bf14",
+          "option_name": "受托人"
+        },
+        {
+          "option_id": "role_6ac081a48614642b450645c5_6abd3a436ef2d2a4b44051d8_role_a288f6",
+          "option_name": "RD 負責人"
+        },
+        {
+          "option_id": "role_6ac081a48614642b450645c5_6abd3a436ef2d2a4b44051d8_role_e18f13",
+          "option_name": "回報者"
+        },
+        {
+          "option_id": "role_6ac081a48614642b450645c5_6abd3a436ef2d2a4b44051d8_role_d2a2b6",
+          "option_name": "Code Review 人員"
+        },
+        {
+          "option_id": "role_6ac081a48614642b450645c5_6abd3a436ef2d2a4b44051d8_role_037ecd",
+          "option_name": "QA 驗證人員"
+        }
+      ]
+    },
+    {
+      "field_key": "abort_reason",
+      "field_name": "Reasons for termination",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "cancel",
+          "option_name": "Temporarily cancelled"
+        },
+        {
+          "option_id": "repeat",
+          "option_name": "Merged into another ongoing work item"
+        },
+        {
+          "option_id": "test",
+          "option_name": "Test"
+        },
+        {
+          "option_id": "other",
+          "option_name": "Others"
+        }
+      ]
+    },
+    {
+      "field_key": "abort_detail",
+      "field_name": "Add termination reason",
+      "field_type": "text"
+    },
+    {
+      "field_key": "work_item_status",
+      "field_name": "任務狀態",
+      "field_type": "_work_item_status",
+      "option": [
+        {
+          "option_id": "Not started",
+          "option_name": "待辦事項"
+        },
+        {
+          "option_id": "In Progress",
+          "option_name": "開發中"
+        },
+        {
+          "option_id": "BAOjDk8Pv",
+          "option_name": "可本機測試"
+        },
+        {
+          "option_id": "s_u_ryBIF",
+          "option_name": "本機免測試"
+        },
+        {
+          "option_id": "6Qsc4tJGz",
+          "option_name": "本機測試完成"
+        },
+        {
+          "option_id": "bw6rBP3G4",
+          "option_name": "本機環境驗證失敗"
+        },
+        {
+          "option_id": "5N0OM2AjW",
+          "option_name": "台北測試服"
+        },
+        {
+          "option_id": "rMaPpRVhj",
+          "option_name": "C服"
+        },
+        {
+          "option_id": "Finished",
+          "option_name": "完成"
+        },
+        {
+          "option_id": "MiOnaJawG",
+          "option_name": "不處理"
+        },
+        {
+          "option_id": "TVlxcw5iU",
+          "option_name": "暫停"
+        },
+        {
+          "option_id": "systemEnded",
+          "option_name": "Terminated"
+        }
+      ]
+    },
+    {
+      "field_key": "field_eab776",
+      "field_name": "關聯需求",
+      "field_type": "workitem_related_select",
+      "related_work_item_info": [
+        {
+          "project_key": "6ac081a48614642b450645c5",
+          "work_item_type": "story"
+        }
+      ]
+    },
+    {
+      "field_key": "field_a064e5",
+      "field_name": "關聯任務",
+      "field_type": "workitem_related_multi_select",
+      "related_work_item_info": [
+        {
+          "project_key": "6ac081a48614642b450645c5",
+          "work_item_type": "6abd3a436ef2d2a4b44051d8"
+        }
+      ]
+    },
+    {
+      "field_key": "field_44db22",
+      "field_name": "重新產生問題步驟",
+      "field_type": "multi-text"
+    },
+    {
+      "field_key": "field_b4c668",
+      "field_name": "Actual start",
+      "field_type": "date"
+    },
+    {
+      "field_key": "field_9bae45",
+      "field_name": "Actual end",
+      "field_type": "date"
+    },
+    {
+      "field_key": "field_9a3fe4",
+      "field_name": "難易度",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "g03wrwk7c",
+          "option_name": "困難"
+        },
+        {
+          "option_id": "oytg4g081",
+          "option_name": "高"
+        },
+        {
+          "option_id": "qfymb6r1z",
+          "option_name": "中"
+        },
+        {
+          "option_id": "_woha2v5n",
+          "option_name": "低"
+        },
+        {
+          "option_id": "py__w_55_",
+          "option_name": "簡單"
+        }
+      ]
+    },
+    {
+      "field_key": "field_ce2cfc",
+      "field_name": "上線時間",
+      "field_type": "date"
+    },
+    {
+      "field_key": "field_3db883",
+      "field_name": "本機測試完成時間",
+      "field_type": "date"
+    },
+    {
+      "field_key": "field_cbc597",
+      "field_name": "上C服時間",
+      "field_type": "date"
+    },
+    {
+      "field_key": "field_710be5",
+      "field_name": "QA測試難易度",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "c9cj3yvho",
+          "option_name": "困難"
+        },
+        {
+          "option_id": "9n1ove8ax",
+          "option_name": "高"
+        },
+        {
+          "option_id": "0808b45ow",
+          "option_name": "中"
+        },
+        {
+          "option_id": "408og0c9t",
+          "option_name": "低"
+        },
+        {
+          "option_id": "4o7exmoxt",
+          "option_name": "簡單"
+        }
+      ]
+    },
+    {
+      "field_key": "field_e742d0",
+      "field_name": "退件",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "nbu3s6e7u",
+          "option_name": "5"
+        },
+        {
+          "option_id": "t5bq_qe70",
+          "option_name": "4"
+        },
+        {
+          "option_id": "bwk0hlshd",
+          "option_name": "3"
+        },
+        {
+          "option_id": "3lq8dle6i",
+          "option_name": "2"
+        },
+        {
+          "option_id": "9kuyi5kfs",
+          "option_name": "1"
+        },
+        {
+          "option_id": "6kqyqbz5r",
+          "option_name": "0"
+        }
+      ]
+    },
+    {
+      "field_key": "field_f4ace6",
+      "field_name": "RD 工時",
+      "field_type": "text"
+    },
+    {
+      "field_key": "field_1ab2a7",
+      "field_name": "開發說明",
+      "field_type": "multi-text"
+    },
+    {
+      "field_key": "field_89ff93",
+      "field_name": "測試說明",
+      "field_type": "multi-text"
+    },
+    {
+      "field_key": "field_f6b7ab",
+      "field_name": "Gitlab 連結",
+      "field_type": "text"
+    },
+    {
+      "field_key": "field_07e581",
+      "field_name": "嚴重性 (QA)",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "s6jtpw1n8",
+          "option_name": "新功能"
+        },
+        {
+          "option_id": "w_bf784o_",
+          "option_name": "細節"
+        },
+        {
+          "option_id": "h1amhyxc7",
+          "option_name": "文字"
+        },
+        {
+          "option_id": "s96p81nj6",
+          "option_name": "調整"
+        },
+        {
+          "option_id": "hgw976jdg",
+          "option_name": "次要"
+        },
+        {
+          "option_id": "igshro8ol",
+          "option_name": "重要"
+        },
+        {
+          "option_id": "zrbcv7ifv",
+          "option_name": "當機"
+        },
+        {
+          "option_id": "81nqnpmsf",
+          "option_name": "沒有反應"
+        }
+      ]
+    },
+    {
+      "field_key": "field_ee72d7",
+      "field_name": "任務類型",
+      "field_type": "select",
+      "option": [
+        {
+          "option_id": "s_ymayp0d",
+          "option_name": "需求"
+        },
+        {
+          "option_id": "h_mb402w7",
+          "option_name": "BUG"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "has_more": false,
+    "page_num": 1,
+    "page_size": 50,
+    "total": 40
+  }
+}
