@@ -21,6 +21,20 @@ type Item = {
   /** 這一列正在被某個入口補寫（移出會被擋） */
   busy?: boolean
 }
+/** Sheet 上被清掉的回填（v5.26.0）：掃描結果的一列 */
+type ClearedItem = {
+  sourceKey: string; sheetLabel: string; sheetRow: number; workItemId: string; summary: string; owner: string; space?: 'test' | 'prod'
+  kind: 'all' | 'stage' | 'no-create' | 'conflict'; restorable: boolean; latestTool: Item['tool']; latestStage?: string; latestAt: number; cellId: string; cellStage: string; busy?: boolean
+}
+type ClearedResult = { sourceKey: string; sheetRow: number; workItemId: string; ok: boolean; message: string }
+const CLEARED_TEXT: Record<ClearedItem['kind'], string> = {
+  all: '單號與處理階段被清掉',
+  stage: '處理階段被清掉',
+  'no-create': '單號被清掉，但這張單不是開單工具開的——沒有紀錄能寫回單號，請手動填',
+  conflict: '單號格現在是別張單——不覆蓋',
+}
+const clearedKey = (i: { sourceKey: string; sheetRow: number }) => `${i.sourceKey}#${i.sheetRow}`
+
 type Result = { tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null; action?: 'retry' | 'dismiss' }
 
 const ICON_PATHS = {
@@ -73,6 +87,41 @@ export function MeegleBackfillTab() {
   const [ranAt, setRanAt] = useState<number | null>(null)
   // 「我自己處理了，移出清單」：先在頁面內展開確認（v5.12.0，CodeX 2026-10-06）
   const [askDismiss, setAskDismiss] = useState(false)
+  // Sheet 上被清掉的回填（v5.26.0）
+  const [scanUrl, setScanUrl] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [scan, setScan] = useState<{ checked: number; sheets: number; items: ClearedItem[]; sheetErrors: Array<{ sheetLabel: string; message: string }> } | null>(null)
+  const [scanError, setScanError] = useState('')
+  const [clearedSel, setClearedSel] = useState<Set<string>>(new Set())
+  const [restoring, setRestoring] = useState(false)
+  const [clearedResults, setClearedResults] = useState<Record<string, ClearedResult>>({})
+  const clearedChosen = (scan?.items ?? []).filter(i => i.restorable && clearedSel.has(clearedKey(i)))
+
+  async function runScan() {
+    if (!scanUrl.trim()) return
+    setScanning(true); setScanError(''); setClearedResults({})
+    try {
+      const r = await fetch('/api/meegle/backfill/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheetUrl: scanUrl.trim() }) })
+      const j = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
+      if (!r.ok || !j.ok) throw new Error(j.message || `HTTP ${r.status}`)
+      setScan(j)
+      // 不預設勾選：單號被清掉也可能是故意的（例如 Meegle 那張單刪了、要重開），補回去就變回舊單號——要人看過再勾
+      setClearedSel(new Set())
+    } catch (e) { setScanError((e as Error).message); setScan(null) } finally { setScanning(false) }
+  }
+  async function restore() {
+    if (!clearedChosen.length) return
+    setRestoring(true); setScanError('')
+    try {
+      const r = await fetch('/api/meegle/backfill/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: clearedChosen.map(i => ({ sourceKey: i.sourceKey, sheetRow: i.sheetRow, workItemId: i.workItemId })) }) })
+      const j = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
+      if (!r.ok || !j.ok) throw new Error(j.message || `HTTP ${r.status}`)
+      const m: Record<string, ClearedResult> = {}
+      for (const x of j.results as ClearedResult[]) m[clearedKey(x)] = x
+      setClearedResults(m)
+      setClearedSel(prev => new Set([...prev].filter(k => !m[k]?.ok)))
+    } catch (e) { setScanError((e as Error).message) } finally { setRestoring(false) }
+  }
 
   async function load(s = scope) {
     setLoading(true); setError('')
@@ -249,6 +298,65 @@ export function MeegleBackfillTab() {
           </table>
         </div>
         {ranAt && <div className="bf-ran"><Icon name="clock" /> {fmt(ranAt)}・{results.length} 筆處理完成</div>}
+      </section>
+
+      <section className="mb-card mb-shell">
+        <header className="bf-head">
+          <h2 className="mb-shell-title">Sheet 上被清掉的回填</h2>
+        </header>
+        <p className="mb-hint bf-sub">回填成功過、但 Sheet 上的「Meegle 單號／處理階段」後來被刪掉的列，上面的待補清單看不到。貼 Sheet 網址掃描，用紀錄裡的單號補回去。</p>
+        <div className="bf-scan">
+          <input className="mb-input" placeholder="貼上 Lark Sheet 網址（帶 sheet= 只掃那個工作表）" value={scanUrl} onChange={e => setScanUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void runScan() }} aria-label="Sheet 網址" />
+          <button type="button" className="mb-btn mb-btn--outline" disabled={!scanUrl.trim() || scanning || restoring} onClick={() => void runScan()}>{scanning ? '掃描中…' : '掃描'}</button>
+        </div>
+        {scanError && <div className="mb-alert mb-alert--bad"><Icon name="warn" /> {scanError}</div>}
+        {scan && (
+          <>
+            <div className="bf-actions">
+              <span>檢查了 <b>{scan.checked}</b> 筆回填紀錄（{scan.sheets} 個工作表），<b className="bf-n-warn">{scan.items.length}</b> 列被清掉
+                {scan.items.some(i => !i.restorable) && <span className="mb-muted">（其中 {scan.items.filter(i => !i.restorable).length} 列不能自動補）</span>}</span>
+              <button type="button" className="mb-btn mb-btn--primary" disabled={restoring || !clearedChosen.length} onClick={() => void restore()}>
+                {restoring ? '補回中…' : `補回 ${clearedChosen.length} 列`}
+              </button>
+            </div>
+            {scan.sheetErrors.map(e => <div key={e.sheetLabel} className="mb-alert mb-alert--warn"><Icon name="warn" /> {e.sheetLabel}：{e.message}</div>)}
+            {scan.checked === 0 && <div className="mb-empty bf-empty">這份 Sheet 沒有{canSeeAll ? '' : '你送出、'}回填成功過的紀錄</div>}
+            {scan.checked > 0 && scan.items.length === 0 && !scan.sheetErrors.length && <div className="mb-empty bf-empty">沒有被清掉的回填</div>}
+            {scan.items.length > 0 && (
+              <div className="mb-table-wrap">
+                <table className="mb-table">
+                  <thead><tr>
+                    <th className="mb-col-check">{(() => {
+                      const can = scan.items.filter(i => i.restorable && !clearedResults[clearedKey(i)]?.ok)
+                      return <input type="checkbox" aria-label="全選可補的列" disabled={!can.length} checked={can.length > 0 && can.every(i => clearedSel.has(clearedKey(i)))}
+                        onChange={e => setClearedSel(e.target.checked ? new Set(can.map(clearedKey)) : new Set())} />
+                    })()}</th><th>列號</th><th>單號</th><th>名稱</th><th>狀況</th><th>會寫回的處理階段</th><th>結果</th>
+                  </tr></thead>
+                  <tbody>
+                    {scan.items.map(i => {
+                      const k = clearedKey(i), res = clearedResults[k]
+                      return (
+                        <tr key={k}>
+                          <td className="mb-col-check"><input type="checkbox" disabled={!i.restorable || !!res?.ok} checked={i.restorable && clearedSel.has(k)} aria-label={`選取第 ${i.sheetRow} 列`}
+                            onChange={e => setClearedSel(prev => { const n = new Set(prev); if (e.target.checked) n.add(k); else n.delete(k); return n })} /></td>
+                          <td className="mb-num">第 {i.sheetRow} 列</td>
+                          <td className="mb-num">#{i.workItemId} {i.space === 'prod' && <SpaceTag space="prod" />}</td>
+                          <td className="bf-msg">{i.summary || '—'}</td>
+                          <td className="bf-msg">{i.kind === 'conflict' ? `${CLEARED_TEXT.conflict}（現在是「${i.cellId}」）` : CLEARED_TEXT[i.kind]}{i.busy && <span className="mb-badge bf-badge-pending">補寫中</span>}</td>
+                          <td>{i.restorable ? i.latestStage : '—'}</td>
+                          <td>{res && <span className={`bf-result bf-result--${res.ok ? 'ok' : 'bad'}`}>{res.ok ? '已補回' : '沒有寫'}</span>}
+                            {res && <div className="bf-msg mb-muted">{res.message}</div>}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="bf-foot"><span className="mb-muted"><Icon name="info" /> 補之前會重讀 Sheet：用摘要／標題確認是同一列，單號格是別張單就不寫</span></div>
+          </>
+        )}
       </section>
     </div>
   )

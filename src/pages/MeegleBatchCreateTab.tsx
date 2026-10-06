@@ -29,7 +29,8 @@ type ExtraFieldMeta = { key: string; label: string; group: string; kind: 'name' 
 type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null; taskType: TaskTypeMeta | null; unknownRequired: string[]; createMetaError: string | null; extraFields: ExtraFieldMeta[]; extraFieldsError: string | null }
 // targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
-type Previous = RowResult & { name: string; owner: string }
+/** sheetName：開單時 Sheet 上的名稱（認列用；name 是送出的任務名稱，可能被 AI／手改過） */
+type Previous = RowResult & { name: string; sheetName?: string; owner: string }
 /** name：逐列任務名稱（AI 產生或手改；空＝用 Sheet 摘要／標題）；nameByAi＝目前這個名稱是 AI 產生的（顯示 AI 標記用） */
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>>; taskType?: string; fields?: Record<string, string>; name?: string; nameByAi?: boolean }
 /** 後端猜人結果（只是建議；寫入一律走 verify）。bulkOk＝完整名字＋名單唯一＋租戶名錄也唯一，才能進「全部確認」 */
@@ -234,8 +235,9 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const ov = overrides[rec._rowIndex] ?? {}
     const { plan, extras } = planFor(rec, ov, meta)
     // 這份 Sheet 之前從同一列、同一個名稱開過 → 標出來，預設不勾（跨批次的重複開單只能靠這裡擋）
+    // 比 **Sheet 上的名稱**：AI／手改過名稱的列，重讀後覆寫沒了，比送出的名稱會認不出來而重複開單（v5.26.0）
     const all = prevByRow.get(String(rec._rowIndex)) ?? []
-    const prev = all.filter(p => p.createPhase === 'created' && p.name === plan.name)
+    const prev = all.filter(p => p.createPhase === 'created' && (p.sheetName || p.name) === plan.sheetName)
     // 同一列還有開單中／待確認的紀錄（任何批次）→ 不能送，伺服器也會擋。
     // 這次已經查過（results 有新結果）就以新結果為準，不然查明後這列還會一直卡著
     const cur = results[rec._rowIndex]
@@ -394,7 +396,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const roles = {} as Record<MeegleRoleKey, string[]>
     for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = plan.roles[d.key].aliases
     const fields = Object.fromEntries(Object.entries(overrides[r.rec._rowIndex]?.fields ?? {}).filter(([, v]) => v.trim()))
-    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: plan.name, description: plan.description, requirementId: plan.requirement!.id, roles, taskType: plan.taskType ?? '', fields, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
+    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: plan.name, sheetName: plan.sheetName, description: plan.description, requirementId: plan.requirement!.id, roles, taskType: plan.taskType ?? '', fields, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
   }
 
   function ensureBatch() {

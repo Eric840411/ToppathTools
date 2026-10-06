@@ -16,7 +16,7 @@
  * Lark 相關的讀寫從外面傳進來，測試用假的。
  */
 import type Database from 'better-sqlite3'
-import { finishWriteback, getBatchRow, writebackStageText, type BatchRow } from './meegle-batch-store.js'
+import { finishWriteback, getBatchRow, rowSheetName, writebackStageText, type BatchRow } from './meegle-batch-store.js'
 
 type DB = Database.Database
 
@@ -79,8 +79,10 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
     try { cells = await deps.readRowNames(row.sheet_url, rowIndex) } catch (e) { return fail(`讀不到 Sheet 第 ${rowIndex} 列：${(e as Error).message}`) }
     if (!cells) return fail(`讀不到 Sheet 第 ${rowIndex} 列的摘要／標題`)
     const onSheet = rowNameFromCells(cells)
-    if (onSheet !== normName(row.name)) {
-      return fail(`列已變動：第 ${rowIndex} 列現在是「${onSheet || '（空白）'}」，不是開單時的「${normName(row.name)}」。為了不寫到別列，沒有寫回`)
+    // 跟開單時 Sheet 上的名稱比（rowSheetName），不跟送出的任務名稱比——AI／手改過名稱的列會永遠對不上（v5.26.0）
+    const expected = normName(rowSheetName(row))
+    if (onSheet !== expected) {
+      return fail(`列已變動：第 ${rowIndex} 列現在是「${onSheet || '（空白）'}」，不是開單時的「${expected}」。為了不寫到別列，沒有寫回`)
     }
 
     const columns: Record<string, SheetCell> = {
@@ -170,6 +172,35 @@ export async function larkReadRowCells(sheetKey: string, rowIndex: number, names
     out[names[k]] = cellText(j.data?.valueRange?.values?.[0]?.[0])
   }
   return out
+}
+
+/**
+ * 一次讀整欄（第 1～lastRow 列，依欄名找欄，FormattedValue）。回傳 { 欄名: { 列號: 文字 } }；欄名找不到的那欄是空物件。
+ * 給補回填「掃描 Sheet」用——逐列讀的話每一列都要重新解析表頭、打一次 API。
+ */
+export async function larkReadColumns(sheetKey: string, names: string[], lastRow: number): Promise<{ found: Record<string, boolean>; cells: Record<string, Record<number, string>> }> {
+  const { resolveSheetHeaders, colIndexToLetter, normalizeColName } = await import('./routes/integrations.js')
+  const { getLarkToken } = await import('./shared.js')
+  const [, spreadsheetToken, sheetId] = sheetKey.split(':')
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const { headerCandidates } = await resolveSheetHeaders(base, token, spreadsheetToken, sheetId)
+  const found: Record<string, boolean> = {}
+  const cells: Record<string, Record<number, string>> = {}
+  for (const name of names) {
+    cells[name] = {}
+    const i = headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(name)))
+    found[name] = i >= 0
+    if (i < 0) continue
+    const L = colIndexToLetter(i)
+    const range = sheetId ? `${sheetId}!${L}1:${L}${lastRow}` : `${L}1:${L}${lastRow}`
+    const resp = await fetch(`${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}?valueRenderOption=FormattedValue`, { headers: { Authorization: `Bearer ${token}` } })
+    const j = await resp.json() as { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+    if (!resp.ok || j.code !== 0) throw new Error(`Lark 讀取失敗：HTTP ${resp.status} code ${j.code} ${j.msg ?? ''}`)
+    const vals = j.data?.valueRange?.values ?? []
+    vals.forEach((row, k) => { cells[name][k + 1] = cellText(row?.[0]) })
+  }
+  return { found, cells }
 }
 
 export function larkWritebackDeps(): WritebackDeps {

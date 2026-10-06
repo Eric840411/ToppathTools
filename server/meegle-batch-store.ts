@@ -25,6 +25,8 @@ export type BatchRow = {
   owner_email: string
   sheet_url: string
   name: string
+  /** Sheet 上原本的名稱（v5.26.0；舊資料空字串＝用 name）。認列用 rowSheetName() */
+  sheet_name: string
   requirement_id: string
   target_state: string
   create_phase: CreatePhase
@@ -84,6 +86,9 @@ export function initMeegleBatchSchema(db: DB) {
   if (!cols.includes('writeback_msg')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_msg TEXT')
   if (!cols.includes('writeback_at')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_at INTEGER')
   if (!cols.includes('writeback_rev')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_rev INTEGER NOT NULL DEFAULT 0')
+  // v5.26.0：Sheet 上原本的名稱（摘要→標題）。name 是送去 Meegle 的任務名稱，可能被 AI／手改覆寫過；
+  // 認列（回填核對、防重複開單）一律用 sheet_name，舊資料是空字串＝當初沒覆寫，退回用 name
+  if (!cols.includes('sheet_name')) db.exec("ALTER TABLE meegle_batch_rows ADD COLUMN sheet_name TEXT NOT NULL DEFAULT ''")
   addSpaceColumn(db, 'meegle_batch_rows')
 }
 
@@ -128,8 +133,12 @@ export type ClaimResult =
  * - **同一份 Sheet 同一列，任何批次還在開單中／待確認 → busy**。batchId 只活在前端記憶體，重整後換新，
  *   只看 (batchId, 列號) 擋不住「重整後再按一次送出」。
  */
-export function claimRow(db: DB, input: { batchId: string; rowKey: string; ownerEmail: string; sheetUrl?: string; name: string; requirementId: string; targetState: string; targetStateName?: string; space: MeegleSpace }, now = Date.now()): ClaimResult {
+/** 這一列開單時 Sheet 上的名稱：有記 sheet_name 就用它，舊資料（沒記）＝當初沒覆寫名稱，用 name */
+export const rowSheetName = (row: Pick<BatchRow, 'name' | 'sheet_name'>): string => row.sheet_name || row.name
+
+export function claimRow(db: DB, input: { batchId: string; rowKey: string; ownerEmail: string; sheetUrl?: string; name: string; sheetName?: string; requirementId: string; targetState: string; targetStateName?: string; space: MeegleSpace }, now = Date.now()): ClaimResult {
   const owner = input.ownerEmail.trim().toLowerCase()
+  const sheetName = (input.sheetName ?? '').trim()
   return db.transaction((): ClaimResult => {
     const sheetUrl = input.sheetUrl ?? ''
     const other = db.prepare('SELECT sheet_url FROM meegle_batch_rows WHERE batch_id = ? AND sheet_url != ? LIMIT 1').get(input.batchId, sheetUrl)
@@ -141,8 +150,9 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
         AND create_phase IN ('creating', 'unknown') LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId) as BatchRow | undefined
       if (pending) return { kind: 'busy', row: pending }
       // 別的批次已經從同一列、同一個名稱開成功 → 不再開（雙分頁：B 在 A 送出前就讀了 Sheet，預覽看不到「已開過」）
+      // 比的是 **Sheet 上的名稱**，不是送出的任務名稱——AI／手改過名稱的話兩次送的名稱會不同，比 name 就擋不住（v5.26.0）
       const done = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
-        AND create_phase = 'created' AND name = ? ORDER BY created_at LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId, input.name) as BatchRow | undefined
+        AND create_phase = 'created' AND (CASE WHEN sheet_name != '' THEN sheet_name ELSE name END) = ? ORDER BY created_at LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId, sheetName || input.name) as BatchRow | undefined
       if (done) return { kind: 'already-created', row: done }
     }
     const existing = getBatchRow(db, input.batchId, input.rowKey)
@@ -151,14 +161,14 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
       if (existing.create_phase === 'created') return { kind: 'already-created', row: existing }
       if (existing.create_phase === 'creating' || existing.create_phase === 'unknown') return { kind: 'busy', row: existing }
       // failed → 重新認領，內容以這次為準
-      db.prepare(`UPDATE meegle_batch_rows SET name = ?, requirement_id = ?, target_state = ?, target_state_name = ?, create_phase = 'creating',
+      db.prepare(`UPDATE meegle_batch_rows SET name = ?, sheet_name = ?, requirement_id = ?, target_state = ?, target_state_name = ?, create_phase = 'creating',
         state_phase = 'none', message = NULL, updated_at = ? WHERE batch_id = ? AND row_key = ? AND create_phase = 'failed'`)
-        .run(input.name, input.requirementId, input.targetState, input.targetStateName ?? '', now, input.batchId, input.rowKey)
+        .run(input.name, sheetName, input.requirementId, input.targetState, input.targetStateName ?? '', now, input.batchId, input.rowKey)
       return { kind: 'claimed' }
     }
-    db.prepare(`INSERT INTO meegle_batch_rows (batch_id, row_key, owner_email, sheet_url, name, requirement_id, target_state, target_state_name, create_phase, space, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)`)
-      .run(input.batchId, input.rowKey, owner, sheetUrl, input.name, input.requirementId, input.targetState, input.targetStateName ?? '', input.space, now, now)
+    db.prepare(`INSERT INTO meegle_batch_rows (batch_id, row_key, owner_email, sheet_url, name, sheet_name, requirement_id, target_state, target_state_name, create_phase, space, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?, ?)`)
+      .run(input.batchId, input.rowKey, owner, sheetUrl, input.name, sheetName, input.requirementId, input.targetState, input.targetStateName ?? '', input.space, now, now)
     return { kind: 'claimed' }
   }).immediate()
 }

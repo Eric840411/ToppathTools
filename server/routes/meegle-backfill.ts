@@ -10,7 +10,10 @@ import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
 import { isWritebackBusy, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { BACKFILL_TOOLS, backfillKey, dismissBackfill, initBackfillDismissSchema, listPendingBackfill, retryBackfill, type BackfillRunners, type PendingItem } from '../meegle-backfill.js'
-import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock, writebackRow } from '../meegle-sheet-writeback.js'
+import { fmtTime, larkReadColumns, larkReadRowCells, larkWritebackDeps, withSheetLock, WB_COLUMNS, writebackRow } from '../meegle-sheet-writeback.js'
+import { CLEARED_RESTORABLE, classifyCleared, listDoneRecords, restoreCleared, type DoneRecord } from '../meegle-backfill-cleared.js'
+import { parseLarkSheetUrl } from '../../shared/lark-sheet-url.js'
+import { MEEGLE_ID_COLUMN } from '../../shared/meegle-comment-rules.js'
 import { writebackComment } from '../meegle-comment-run.js'
 import { writebackStatus } from '../meegle-status-run.js'
 import { writebackEdit } from '../meegle-edit-run.js'
@@ -124,6 +127,70 @@ router.post('/api/meegle/backfill/dismiss', writeLimiter, (req, res, next) => {
     })
     const n = results.filter(r => r.ok && r.message === '已移出待補清單').length
     if (n) log('ok', getClientIP(req), ctx.email, 'Meegle 補回填', `移出清單 ${n} 筆`)
+    res.json({ ok: true, results })
+  } catch (e) { next(e) }
+})
+
+// ─── Sheet 上被清掉的回填（v5.26.0）：server/meegle-backfill-cleared.ts ───────────────────────
+
+/** 貼的網址 → 比對哪些來源。網址沒帶 sheet= 就比整份試算表的每個工作表 */
+function sheetMatcher(url: string): ((key: string) => boolean) | null {
+  const { spreadsheetToken, sheetId } = parseLarkSheetUrl(url.trim())
+  if (!spreadsheetToken) return null
+  return sheetId ? (k: string) => k === `lark:${spreadsheetToken}:${sheetId}` : (k: string) => k.startsWith(`lark:${spreadsheetToken}:`)
+}
+const sheetLabelOf = (sourceKey: string) => { const [, token = '', sheetId = ''] = sourceKey.split(':'); return `${token.slice(0, 6)}…／${sheetId}` }
+const doneRecords = (ctx: Ctx, match: (k: string) => boolean) => listDoneRecords(db, { match, owner: ctx.admin ? null : ctx.email, excludeTest: !ctx.admin })
+
+// POST /api/meegle/backfill/scan { sheetUrl } —— 找出「紀錄說回填成功、但 Sheet 上被清掉」的列
+router.post('/api/meegle/backfill/scan', writeLimiter, async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res); if (!ctx) return
+    const { sheetUrl } = z.object({ sheetUrl: z.string().trim().min(1).max(2000) }).parse(req.body)
+    const match = sheetMatcher(sheetUrl)
+    if (!match) return res.status(400).json({ ok: false, message: '看不懂這個網址，請貼 Lark Sheet 的網址' })
+    const records = doneRecords(ctx, match)
+    const bySource = new Map<string, DoneRecord[]>()
+    for (const r of records) bySource.set(r.sourceKey, [...(bySource.get(r.sourceKey) ?? []), r])
+    const items: Array<Record<string, unknown>> = []
+    const sheetErrors: Array<{ sheetLabel: string; message: string }> = []
+    for (const [sourceKey, list] of bySource) {
+      let read: Awaited<ReturnType<typeof larkReadColumns>>
+      try { read = await larkReadColumns(sourceKey, [MEEGLE_ID_COLUMN, WB_COLUMNS.stage], Math.max(...list.map(r => r.sheetRow))) }
+      catch (e) { sheetErrors.push({ sheetLabel: sheetLabelOf(sourceKey), message: (e as Error).message }); continue }
+      if (!read.found[MEEGLE_ID_COLUMN]) { sheetErrors.push({ sheetLabel: sheetLabelOf(sourceKey), message: `找不到「${MEEGLE_ID_COLUMN}」欄` }); continue }
+      for (const r of list) {
+        const cells = { id: read.cells[MEEGLE_ID_COLUMN][r.sheetRow] ?? '', stage: read.cells[WB_COLUMNS.stage][r.sheetRow] ?? '' }
+        const kind = classifyCleared(r, cells)
+        if (!kind) continue
+        items.push({ sourceKey, sheetLabel: sheetLabelOf(sourceKey), sheetRow: r.sheetRow, workItemId: r.workItemId, summary: r.summary, owner: r.owner, space: r.space,
+          kind, restorable: CLEARED_RESTORABLE[kind], latestTool: r.latest.tool, latestStage: BACKFILL_TOOLS.find(t => t.key === r.latest.tool)?.stage, latestAt: r.latest.at, cellId: cells.id, cellStage: cells.stage,
+          busy: isWritebackBusy(backfillKey(r.latest)) })
+      }
+    }
+    res.json({ ok: true, checked: records.length, sheets: bySource.size, items, sheetErrors })
+  } catch (e) { next(e) }
+})
+
+// POST /api/meegle/backfill/restore { items: [{ sourceKey, sheetRow, workItemId }] } —— 補回勾選的列（逐列重讀 Sheet、重新判定才寫）
+router.post('/api/meegle/backfill/restore', writeLimiter, async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res); if (!ctx) return
+    const { items } = z.object({ items: z.array(z.object({ sourceKey: z.string().regex(/^lark:[A-Za-z0-9]+:[A-Za-z0-9]*$/), sheetRow: z.number().int().min(2), workItemId: z.string().regex(/^\d+$/) })).min(1).max(200) }).parse(req.body)
+    const writeback = larkWritebackDeps()
+    const results: Array<{ sourceKey: string; sheetRow: number; workItemId: string; ok: boolean; message: string }> = []
+    for (const it of items) {
+      // 每一列都重新從 DB 找：只能補自己的（admin 可補全部人的）；這一列最近一次回填的單要是同一張——不信前端給的
+      const rec = doneRecords(ctx, k => k === it.sourceKey).find(r => r.sheetRow === it.sheetRow)
+      if (!rec || rec.workItemId !== it.workItemId) { results.push({ ...it, ok: false, message: '找不到這一列的回填紀錄（可能不是你送的，或這一列後來回填的是別張單）' }); continue }
+      if (isWritebackBusy(backfillKey(rec.latest))) { results.push({ ...it, ok: false, message: '這一列正在另一個請求補寫中' }); continue }
+      const r = await withWritebackBusy(rec.latest.tool, rec.latest.batchId, rec.latest.rowKey, () =>
+        restoreCleared({ db, writeback, readRowCells: larkReadRowCells, fmtTime }, rec).catch(e => ({ ok: false, message: (e as Error).message })))
+      results.push({ ...it, ok: r.ok, message: r.message })
+    }
+    const okN = results.filter(r => r.ok).length
+    log(okN === results.length ? 'ok' : 'warn', getClientIP(req), ctx.email, 'Meegle 補回填', `補回被清掉的回填 ${okN}／${results.length} 筆`)
+    addHistory('meegle-backfill', 'Meegle 補回填：補回被清掉的回填', `補回 ${okN}／${results.length} 筆`, { action: 'restore-cleared', results })
     res.json({ ok: true, results })
   } catch (e) { next(e) }
 })

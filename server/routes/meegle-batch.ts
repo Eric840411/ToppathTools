@@ -28,7 +28,7 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
   adoptTarget, claimRow, expireStaleCreating, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
-  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
+  listPersonMap, listRowsFromSheet, needsStatePush, rowSheetName, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
 import { otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { denyTestSpace } from '../meegle-space-access.js'
@@ -160,7 +160,7 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   const key = sheetSourceKey(sheetUrl)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
   // otherSpace：這份 Sheet 已在另一個空間開過 → 畫面一讀就提示（送出也會被 claimRow 擋）
-  res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
+  res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, sheetName: rowSheetName(r), owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // ── 人員名單（② 下拉選人、猜人用）──
@@ -294,6 +294,8 @@ const rowSchema = z.object({
   rowKey: z.string().min(1).max(40),
   sheetUrl: z.string().max(2000).optional().default(''),
   name: z.string().trim().min(1).max(500),
+  /** Sheet 上原本的名稱（摘要→標題）：認列用。name 可能被 AI／手改覆寫過（v5.26.0）；舊前端沒送＝當成跟 name 一樣 */
+  sheetName: z.string().trim().max(500).optional().default(''),
   description: z.string().max(100_000).optional().default(''),
   requirementId: z.string().regex(/^\d+$/),
   // 值是 Sheet 上的人名；伺服器自己查對照表換成 user_key，不收前端給的 user_key
@@ -324,7 +326,7 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     if (denyTestSpace(req, res, body.space)) return
     expireStaleCreating(db, STALE_CREATING_MS)
 
-    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName, space: body.space })
+    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, sheetName: body.sheetName, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName, space: body.space })
     if (claim.kind === 'space-mismatch' || claim.kind === 'space-conflict') return res.status(409).json({ ok: false, code: claim.kind === 'space-conflict' ? 'SPACE_CONFLICT' : 'SPACE_MISMATCH', message: spaceGuardMessage(claim, body.space) })
     if (claim.kind === 'source-mismatch') return res.status(409).json({ ok: false, code: 'SOURCE_MISMATCH', message: '這個批次是另一份 Sheet 的，請重新讀取 Sheet 後再送' })
     if (claim.kind === 'not-owner') return res.status(403).json({ ok: false, message: '這一列是別人送出的' })

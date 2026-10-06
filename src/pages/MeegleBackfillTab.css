@@ -61,3 +61,7 @@
 .bf-empty { border: 1px dashed var(--mb-border); border-radius: 10px; }
 @media (prefers-reduced-motion: reduce) { .bf-caret { transition: none; } }
 .bf-dismiss-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* v5.26.0 Sheet 上被清掉的回填 */
+.bf-scan { display: flex; gap: 10px; margin-bottom: 12px; }
+.bf-scan .mb-input { flex: 1; min-width: 0; }

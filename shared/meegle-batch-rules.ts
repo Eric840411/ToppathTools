@@ -101,6 +101,9 @@ export type BatchDefaults = {
 
 export type RowPlan = {
   name: string
+  /** Sheet 上這一列原本的名稱（摘要→標題）。**認列一律用這個**，不用 name——name 可能被 AI／手改覆寫過，
+   *  拿它跟 Sheet 比會回填失敗、重讀時也認不出「已開過」而重複開單（v5.26.0） */
+  sheetName: string
   description: string
   requirement: Requirement | null
   taskType: string | null   // 選項名稱（正式寫法）；null＝不帶
@@ -155,13 +158,19 @@ export function planTaskType(input: RowInput, defaults: BatchDefaults, meta: Tas
   return { taskType: hit }
 }
 
+/** Sheet 上這一列的任務名稱：摘要優先，沒有才用標題（跟回填核對列的 rowNameFromCells 同一個順序） */
+export function sheetRowName(rec: Record<string, unknown>): string {
+  return (str(rec['摘要']).trim() || str(rec['標題']).trim()).replace(/[\r\n]+/g, ' ').trim()
+}
+
 export function planRow(input: RowInput, defaults: BatchDefaults, requirements: Requirement[], personMap: Record<string, MappedPerson>, taskTypeMeta: TaskTypeMeta | null = null): RowPlan {
   const rec = input.record
   const blocks: string[] = []
   const warnings: string[] = []
 
   // 名稱：逐列覆寫（AI 產生／手改）優先，空白才用 Sheet 摘要→標題
-  const name = ((input.nameOverride ?? '').trim() || str(rec['摘要']).trim() || str(rec['標題']).trim()).replace(/[\r\n]+/g, ' ').trim()
+  const sheetName = sheetRowName(rec)
+  const name = (input.nameOverride ?? '').replace(/[\r\n]+/g, ' ').trim() || sheetName
   if (isRepeatedHeaderRow(rec)) blocks.push('這列是重複的標題列，不是資料')
   else if (!name) blocks.push('沒有摘要／標題，無法當任務名稱')
   const description = str(rec['描述'])
@@ -206,7 +215,7 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
     roles[def.key] = { aliases, people, unmapped }
   }
 
-  return { name, description, requirement, taskType: tt.taskType, roles, blocks, warnings }
+  return { name, sheetName, description, requirement, taskType: tt.taskType, roles, blocks, warnings }
 }
 
 /** 一批裡所有出現過的人名（去重、保留第一次出現的寫法），給「人員對照」那塊用。 */
