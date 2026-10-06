@@ -459,3 +459,24 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 ### 測試
 - `node scripts/ui-checks/meegle-bind-guide.mjs`（兩種主題，meta 全假）：四頁 × 三種 code、檢查中反灰、連按只打一次、成功才撤卡、網路錯誤不顯示成綁定、往返個人帳號後 Sheet 網址還在
 - 突變驗過：拿掉保持掛載 → 「網址還在」紅；拿掉防連點 → 「只打一次」「反灰」紅
+
+## 28z. 使用說明區塊（v5.14.0）
+
+使用者 2026-10-05：「meegle 批量可以做一個教學或是引導功能嗎？例如 sheet 需要有哪些必填欄位，或是怎麼選擇會預期出現什麼資料」。
+版面：放在**分頁操作的下方**（使用者否決放旁邊：「這樣不好，放在操作下方好了」），樣稿 `mockup-meegle-guide.html` 使用者確認。
+
+### 使用者操作
+- 開單／評論／狀態／修改四個分頁下方都有「使用說明」：左欄「Sheet 要有哪些欄」（必填／選填）、右欄「畫面上的選項會怎樣」＋寫回 Sheet 的內容。開單有範例表
+- 說明的分頁跟著工具分頁切；也可以在說明裡點別的分頁看
+- 「收起／展開」：第一次進來展開，之後記住（localStorage `meegle-guide-open`）
+- 補回填分頁不顯示（沒有 Sheet 欄要填）
+- 「Meegle 空間」那條只有管理員看得到（非管理員固定正式空間，v5.12.6）
+
+### 設計重點
+- 內容照**現在的規則**寫：`shared/meegle-batch-rules.ts`（欄名、受托人／Code Review 沒有 Sheet 欄）、`meegle-comment-rules.ts`（`#數字` 第一個字、處理階段預設勾選）、`meegle-status-rules.ts`（目標狀態優先序）、`meegle-edit-rules.ts`、`server/meegle-batch-store.ts`（處理階段字樣）。**規則改了說明要跟著改**
+- ⚠️ 樣稿原本寫「欄名大小寫、前後空白不影響」——**是錯的**：`server/routes/sheets.ts` 用表頭原字當 key（不 trim），多一個空白就對不到。說明改成「欄名要一字不差」
+- **修仙版不用 emoji**（使用者）：普通版是 inline SVG 線條圖示；修仙版是 CodeX 生的四張圖（`public/themes/xianxia/meegle-guide/{sheet,options,writeback,tip}.png`：卷軸、羅盤、印章、靈燈）。原圖 1254² → 依 alpha 裁切、補成正方形、縮 64²（顯示 20px）。兩組都渲染，用 `data-theme-mode` CSS 切
+
+### 驗證
+`node scripts/ui-checks/meegle-guide.mjs`（兩種主題＋非管理員＋手機寬 390）：在分頁操作下方、跟著分頁切、補回填不顯示、收起重整後仍收起、沒有 emoji、修仙版只顯示美術圖且每張真的載入、普通版只顯示線條圖示、非管理員看不到空間那條、390 寬沒有橫向溢出。
+注入驗過：放回一個 emoji、拿掉管理員判斷、不記收起狀態、不跟分頁走、圖檔不存在——各自紅在對應那條

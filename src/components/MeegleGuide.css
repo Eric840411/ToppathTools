@@ -1,0 +1,53 @@
+/* Meegle 批量工具「使用說明」（v5.14.0）。普通版在前、修仙版在檔尾（只換配色與圖示，結構不變） */
+.mgd { border: 1px solid #2d3f55; background: #10182a; border-radius: 12px; padding: 16px 18px; margin: 14px 0 4px; min-width: 0; color: #e2e8f0; }
+.mgd--closed { padding-top: 10px; padding-bottom: 10px; }
+.mgd-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mgd-title { margin: 0; font-size: 16px; }
+.mgd-lead { margin: 4px 0 12px; color: #94a3b8; font-size: 12.5px; }
+.mgd-lead b { color: #e2e8f0; }
+
+.mgd-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.mgd-tab { padding: 5px 14px; border-radius: 6px; border: 1px solid #2d3f55; background: transparent; color: #94a3b8; cursor: pointer; font: inherit; font-size: 13px; }
+.mgd-tab.is-on { color: #93c5fd; background: #1e3a5f; border-color: transparent; }
+
+.mgd-pane { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 0 24px; }
+@media (max-width: 900px) { .mgd-pane { grid-template-columns: 1fr; } }
+.mgd-col { min-width: 0; }
+
+.mgd-sec { display: flex; align-items: center; gap: 7px; margin: 14px 0 6px; font-weight: 700; font-size: 13.5px; }
+.mgd-col > .mgd-sec:first-child { margin-top: 0; }
+.mgd-sub { margin: 12px 0 6px; font-weight: 700; font-size: 13px; color: #cbd5e1; }
+
+.mgd-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mgd-table th, .mgd-table td { text-align: left; padding: 6px 7px; border-bottom: 1px solid #1e3556; vertical-align: top; }
+.mgd-table th { color: #94a3b8; font-weight: 600; white-space: nowrap; }
+.mgd code { font-size: 11.5px; padding: 0 4px; border-radius: 4px; background: rgba(148, 163, 184, .15); }
+.mgd-req { color: #f87171; font-weight: 700; white-space: nowrap; }
+.mgd-opt { color: #94a3b8; white-space: nowrap; }
+.mgd-scroll { overflow-x: auto; }
+.mgd-scroll .mgd-table td { white-space: nowrap; }
+
+.mgd-list { margin: 4px 0; padding-left: 18px; font-size: 12.5px; }
+.mgd-list li { margin: 3px 0; }
+
+.mgd-wb, .mgd-tip { display: flex; gap: 8px; align-items: flex-start; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin-top: 10px; }
+.mgd-wb { border: 1px solid rgba(63, 208, 127, .35); background: rgba(63, 208, 127, .06); }
+.mgd-wb .mgd-ic { color: #3fd07f; }
+.mgd-tip { border: 1px solid rgba(245, 183, 59, .35); background: rgba(245, 183, 59, .07); color: #fde68a; }
+.mgd-tip .mgd-ic { color: #f5b73b; }
+
+/* 圖示：普通版線條、修仙版美術圖（兩組都渲染，CSS 切；修仙版不用 emoji） */
+.mgd-ic { flex: none; display: inline-flex; width: 18px; height: 18px; color: #7ea6d8; }
+.mgd-ic svg, .mgd-ic img { width: 100%; height: 100%; }
+.mgd-ic-art { display: none; object-fit: contain; }
+
+:root[data-theme-mode="xianxia"] .mgd { border-color: rgba(212, 175, 55, .3); background: #17120a; color: #f3e6c4; }
+:root[data-theme-mode="xianxia"] .mgd-lead, :root[data-theme-mode="xianxia"] .mgd-table th, :root[data-theme-mode="xianxia"] .mgd-opt { color: #bfae86; }
+:root[data-theme-mode="xianxia"] .mgd-lead b, :root[data-theme-mode="xianxia"] .mgd-sub { color: #f3e6c4; }
+:root[data-theme-mode="xianxia"] .mgd-tab { border-color: rgba(212, 175, 55, .3); color: #bfae86; }
+:root[data-theme-mode="xianxia"] .mgd-tab.is-on { color: #f3dfa2; background: rgba(212, 175, 55, .18); }
+:root[data-theme-mode="xianxia"] .mgd-table th, :root[data-theme-mode="xianxia"] .mgd-table td { border-bottom-color: rgba(212, 175, 55, .22); }
+:root[data-theme-mode="xianxia"] .mgd code { background: rgba(212, 175, 55, .14); }
+:root[data-theme-mode="xianxia"] .mgd-ic { width: 20px; height: 20px; }
+:root[data-theme-mode="xianxia"] .mgd-ic-line { display: none; }
+:root[data-theme-mode="xianxia"] .mgd-ic-art { display: block; }

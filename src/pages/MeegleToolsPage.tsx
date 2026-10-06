@@ -6,6 +6,7 @@ import { MeegleBatchStatusTab } from './MeegleBatchStatusTab'
 import { MeegleBatchEditTab } from './MeegleBatchEditTab'
 import { MeegleBackfillTab } from './MeegleBackfillTab'
 import { MeegleSpaceBar } from '../components/MeegleSpace'
+import { MeegleGuide } from '../components/MeegleGuide'
 import { DEFAULT_MEEGLE_SPACE, isMeegleSpace, type MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -99,6 +100,8 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
       {tab === 'edit' && <MeegleBatchEditTab key={`edit:${spaceOf('edit')}`} space={spaceOf('edit')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {/* 管理員身分變了（降權）就整頁重掛：已載入的測試空間清單不能留在畫面上（CodeX review 1288024 [P2]） */}
       {tab === 'backfill' && <MeegleBackfillTab key={`backfill:${isAdmin ? 'admin' : 'user'}`} />}
+      {/* 使用說明放在分頁操作下方（使用者 2026-10-05）；補回填沒有 Sheet 欄位要填，不顯示 */}
+      {tab !== 'backfill' && <MeegleGuide tab={tab} isAdmin={isAdmin} />}
     </div>
   )
 }

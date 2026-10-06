@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.13.1'
+export const APP_VERSION = '5.14.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.14.0', date: '2026-10-06', changes: ['feat(Meegle 批量工具)：**使用說明**——開單、評論、狀態、修改四頁下方多了說明：Sheet 要有哪些欄（必填／選填）、畫面上每個選項會怎樣、送完會寫回什麼，開單附範例表。跟著分頁切換，可以收起（會記住）。修仙版用新的美術圖示（CodeX 繪製），不用 emoji（使用者要求）'] },
   { version: '5.13.1', date: '2026-10-06', changes: ['fix(通知設定搬遷)：搬遷失敗時 server 不啟動（原本照常服務，會把全域關閉的 AutoSpin 通知變成啟用）；寫入補送佇列失敗時整段退回，不再回報成功（CodeX review）'] },
   { version: '5.13.0', date: '2026-10-06', changes: ['change(通知)：**Discord 全部刪除**——AutoSpin、Live Ledger 對帳告警、週報提醒只發 Lark；Discord Webhook／Discord ID 對照／週報 Discord 按鈕 bot 的程式與設定都移除。舊設定在啟動時自動搬遷：AutoSpin 通知的開關（含「關閉」）、欄位、標題、頁尾搬到新名稱，其餘 Discord 設定刪除前先備份（退版還原步驟見 docs/features/29-lark-notify.md）；補送佇列裡的 Discord 項目丟掉（使用者要求，範圍 CodeX 同意）'] },
   { version: '5.12.8', date: '2026-10-06', changes: ['fix(登入)：角色重查還沒回來就登出或換帳號時，晚回來的結果不會再把畫面身分改回前一個帳號（CodeX review）'] },
