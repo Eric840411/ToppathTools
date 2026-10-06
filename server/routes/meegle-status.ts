@@ -50,7 +50,8 @@ function requireSelf(req: Request, res: Response): Ctx | null {
 function publicSteps(steps: StatusStepRow[]) {
   return steps.map(s => {
     const dd = s.step === 'date' ? dateDataOf(s) : null
-    return { step: s.step, phase: s.phase, message: s.message, attemptAt: s.attempt_at, ...(dd ? { date: { label: dd.label, original: dd.original, desired: dd.desired, pending: !!dd.pending } } : {}) }
+    const xd = s.step === 'extraDate' ? (() => { try { return (JSON.parse(s.data ?? '{}') as { dates?: Array<{ label: string; ms: number }> }).dates ?? null } catch { return null } })() : null
+    return { step: s.step, phase: s.phase, message: s.message, attemptAt: s.attempt_at, ...(dd ? { date: { label: dd.label, original: dd.original, desired: dd.desired, pending: !!dd.pending } } : {}), ...(xd ? { extraDates: xd } : {}) }
   })
 }
 
@@ -125,6 +126,8 @@ router.post('/api/meegle/status/row', writeLimiter, async (req, res, next) => {
       batchId: z.string().uuid(), sheetUrl: z.string().min(1).max(2000), sheetRow: z.number().int().min(2), summary: z.string().max(2000).default(''),
       workItemId: z.string().regex(/^\d{5,}$/), targetKey: z.string().min(1).max(100), targetName: z.string().max(100).default(''),
       dateMode: z.enum(['keep', 'auto', 'set']), sheetDate: z.number().int().positive().nullable().default(null),
+      // 目標狀態以外也填了的日期（v5.22.0）：只認有日期自動化的那幾欄，label 由後端自己對
+      extraDates: z.array(z.object({ field: z.string().max(40), ms: z.number().int().positive() })).max(4).default([]),
       space: spaceSchema,
     }).parse(req.body)
     if (denyTestSpace(req, res, b.space)) return
@@ -135,6 +138,11 @@ router.post('/api/meegle/status/row', writeLimiter, async (req, res, next) => {
     const result = await runStatusRow(depsFor(ctx.token, b.space), {
       batchId: b.batchId, workItemId: b.workItemId, sourceKey: sheetSourceKey(b.sheetUrl), sheetUrl: b.sheetUrl, sheetRow: b.sheetRow, summary: b.summary,
       ownerEmail: ctx.email, targetKey: b.targetKey, targetName: b.targetName, dateMode: b.dateMode, sheetDate: b.dateMode === 'set' ? b.sheetDate : null, space: b.space,
+      extraDates: b.dateMode !== 'set' ? [] : b.extraDates.flatMap(x => {
+        const def = Object.values(AUTO_DATE_FIELDS).find(f => f.field === x.field)
+        // 不認得的欄、或就是目標狀態自己那欄（那欄走 ② 日期步驟）→ 不收
+        return def && def.field !== AUTO_DATE_FIELDS[b.targetKey]?.field ? [{ field: def.field, label: def.label, ms: x.ms }] : []
+      }),
     })
     if (result.claim.kind === 'space-mismatch' || result.claim.kind === 'space-conflict') {
       return res.status(409).json({ ok: false, code: result.claim.kind === 'space-conflict' ? 'SPACE_CONFLICT' : 'SPACE_MISMATCH', message: spaceGuardMessage(result.claim, b.space) })

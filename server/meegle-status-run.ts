@@ -16,7 +16,7 @@ import type Database from 'better-sqlite3'
 import { MEEGLE_ID_COLUMN, parseMeegleIdCell } from '../shared/meegle-comment-rules.js'
 import { AUTO_DATE_FIELDS, desiredDate, STATUS_STAGE_DONE, taipeiDay, type DateMode } from '../shared/meegle-status-rules.js'
 import {
-  beginStatusStep, claimStatusRow, dateDataOf, finishStatusStep, getStatusRow, getStatusSteps,
+  beginStatusStep, claimStatusRow, dateDataOf, extraDatesOf, finishStatusStep, getStatusRow, getStatusSteps,
   type DateData, type StatusClaimInput, type StatusClaimResult, type StatusStepRow,
 } from './meegle-status-store.js'
 import type { CallOutcome } from './meegle-workitem.js'
@@ -119,6 +119,17 @@ export async function continueStatusRow(deps: StatusDeps, B: string, R: string):
   const dateStep = step('date')
   if (dateStep?.phase !== 'done' && dateStep?.phase !== 'skipped') return getStatusSteps(db, B, R)
 
+  // ③ 其他日期（v5.22.0，使用者 1006）：指定日期模式下，目標狀態以外也填了的日期欄照實寫。
+  // 直接轉到目標不會經過那個狀態（狀態流全連通、一步轉），沒有自動化要等；讀→寫→延遲讀回。舊紀錄沒有這一步＝略過
+  const xs = step('extraDate')
+  if (xs && xs.phase !== 'done' && xs.phase !== 'skipped' && beginStatusStep(db, B, R, 'extraDate', now())) {
+    const list = extraDatesOf(row).filter(x => x.field !== auto?.field)
+    if (!list.length) finishStatusStep(db, B, R, 'extraDate', 'skipped', '沒有其他要指定的日期', undefined, now())
+    else await writeExtraDates(deps, B, R, list)
+  }
+  const xStep = step('extraDate')
+  if (xStep && xStep.phase !== 'done' && xStep.phase !== 'skipped') return getStatusSteps(db, B, R)
+
   return writebackStatus(deps, B, R)
 }
 
@@ -171,6 +182,26 @@ async function settleDate(deps: StatusDeps, B: string, R: string, dd: DateData):
   finishStatusStep(db, B, R, 'date', 'done', null, { ...dd, pending: false }, now())
 }
 
+/** extraDate 步驟已經是 creating：逐欄 讀 → 已是那天就不寫 → 寫 → 延遲讀回比台北日期。任一欄失敗整步 failed（重試會再比一次，寫過的不重寫） */
+async function writeExtraDates(deps: StatusDeps, B: string, R: string, list: Array<{ field: string; label: string; ms: number }>): Promise<void> {
+  const { db } = deps
+  const now = () => deps.now?.() ?? Date.now()
+  const sameDay = (a: number | null, b: number | null) => a != null && b != null && taipeiDay(a) === taipeiDay(b)
+  const fail = (m: string) => { finishStatusStep(db, B, R, 'extraDate', 'failed', m, { dates: list }, now()) }
+  for (const x of list) {
+    const cur = await deps.readDate(R, x.field)
+    if (cur.kind !== 'ok') return fail(`讀不到目前的${x.label}：${msgOf(cur)}`)
+    if (sameDay(cur.value, x.ms)) continue
+    const w = await deps.writeDate(R, x.field, x.ms)
+    if (w.kind !== 'ok') return fail(`寫入${x.label}失敗：${msgOf(w)}`)
+    await deps.sleep(VERIFY_DELAY_MS)
+    const back = await deps.readDate(R, x.field)
+    if (back.kind !== 'ok') return fail(`寫入${x.label}後讀不回來確認：${msgOf(back)}`)
+    if (!sameDay(back.value, x.ms)) return fail(`寫入${x.label}後讀回是 ${fmtDay(back.value)}，不是 ${fmtDay(x.ms)}，可重試`)
+  }
+  finishStatusStep(db, B, R, 'extraDate', 'done', null, { dates: list }, now())
+}
+
 /** ③ Sheet 回填「處理階段＝已切換狀態」＋處理時間。轉狀態成功、日期 done／skipped 才寫；先確認那一列還是這張單。 */
 export async function writebackStatus(deps: StatusDeps, B: string, R: string): Promise<StatusStepRow[]> {
   const { db } = deps
@@ -179,7 +210,8 @@ export async function writebackStatus(deps: StatusDeps, B: string, R: string): P
   const steps = getStatusSteps(db, B, R)
   if (!row) return steps
   const ph = (s: string) => steps.find(x => x.step === s)?.phase
-  if (ph('state') !== 'done' || !['done', 'skipped'].includes(ph('date') ?? '') || ph('writeback') === 'done') return steps
+  // extraDate：舊紀錄沒有這一步（undefined）＝不擋
+  if (ph('state') !== 'done' || !['done', 'skipped'].includes(ph('date') ?? '') || ['none', 'creating', 'failed'].includes(ph('extraDate') ?? 'skipped') || ph('writeback') === 'done') return steps
   if (!row.source_key.startsWith('lark:')) return steps
   if (!beginStatusStep(db, B, R, 'writeback', now())) return getStatusSteps(db, B, R)
   const fail = (m: string) => { finishStatusStep(db, B, R, 'writeback', 'failed', m, undefined, now()); return getStatusSteps(db, B, R) }

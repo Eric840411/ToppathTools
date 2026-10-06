@@ -112,13 +112,13 @@ async function scenario(name: string, simOver: Partial<Sim>, p: Record<string, u
 
 await scenario('保留原值：手填 9/15，轉 C服 後自動化改今天 → 等它跑完再寫回 9/15，最後留住', { dates: { field_cbc597: D(9, 15) } }, {}, (sim, db, b) => {
   eq('  最後的上C服時間', taipeiDay(sim.dates.field_cbc597!), '2026-09-15')
-  eq('  三步都完成', phases(db, b), { state: 'done', date: 'done', writeback: 'done' })
+  eq('  三步都完成', phases(db, b), { state: 'done', date: 'done', extraDate: 'skipped', writeback: 'done' })
   eq('  寫入發生在自動化之後（不是轉完立刻寫）', sim.writes.length === 1 && sim.writes[0].at > Date.parse('2026-10-02T13:53:33Z') + 500 + 3000, true)
 })
 await scenario('保留原值：原本空 → 用自動帶入的今天，不寫', {}, {}, (sim, db, b) => {
   eq('  最後是今天', taipeiDay(sim.dates.field_cbc597!), '2026-10-02')
   eq('  沒有寫', sim.writes.length, 0)
-  eq('  日期 skipped、回填照做', phases(db, b), { state: 'done', date: 'skipped', writeback: 'done' })
+  eq('  日期 skipped、回填照做', phases(db, b), { state: 'done', date: 'skipped', extraDate: 'skipped', writeback: 'done' })
 })
 await scenario('用自動帶入：手填 9/15 被蓋成今天也不管', { dates: { field_cbc597: D(9, 15) } }, { dateMode: 'auto' }, (sim, db, b) => {
   eq('  最後是今天', taipeiDay(sim.dates.field_cbc597!), '2026-10-02')
@@ -126,8 +126,50 @@ await scenario('用自動帶入：手填 9/15 被蓋成今天也不管', { dates
 })
 await scenario('指定日期：Sheet 9/20、原本 9/15 → 最後 9/20', { dates: { field_cbc597: D(9, 15) } }, { dateMode: 'set', sheetDate: D(9, 20) }, (sim, db, b) => {
   eq('  最後是 9/20', taipeiDay(sim.dates.field_cbc597!), '2026-09-20')
-  eq('  三步完成', phases(db, b), { state: 'done', date: 'done', writeback: 'done' })
+  eq('  三步完成', phases(db, b), { state: 'done', date: 'done', extraDate: 'skipped', writeback: 'done' })
 })
+// ── 其他日期（v5.22.0，使用者 1006：直接轉完成時，填了的上C服時間也要照實寫）──
+await scenario('轉完成、指定上線 9/29＋上C服 9/28 → 兩格都照填', {}, { targetKey: 'Finished', targetName: '完成', dateMode: 'set', sheetDate: D(9, 29), extraDates: [{ field: 'field_cbc597', label: '上C服時間', ms: D(9, 28) }] }, (sim, db, b) => {
+  eq('  上線時間 9/29', taipeiDay(sim.dates.field_ce2cfc!), '2026-09-29')
+  eq('  上C服時間 9/28（原本是空的）', taipeiDay(sim.dates.field_cbc597!), '2026-09-28')
+  eq('  四步都完成', phases(db, b), { state: 'done', date: 'done', extraDate: 'done', writeback: 'done' })
+})
+await scenario('其他日期已經是那一天 → 不寫', { dates: { field_cbc597: D(9, 28), field_ce2cfc: null } }, { targetKey: 'Finished', targetName: '完成', dateMode: 'set', sheetDate: D(9, 29), extraDates: [{ field: 'field_cbc597', label: '上C服時間', ms: D(9, 28) }] }, (sim, db, b) => {
+  eq('  只寫了上線時間', sim.writes.map(w => w.field), ['field_ce2cfc'])
+  eq('  extraDate done', phases(db, b).extraDate, 'done')
+})
+{
+  console.log('其他日期步驟失敗時不回填、重試只補它')
+  const sim = makeSim(), db = newDb()
+  const pl = payload({ targetKey: 'Finished', targetName: '完成', dateMode: 'set', sheetDate: D(9, 29), extraDates: [{ field: 'field_cbc597', label: '上C服時間', ms: D(9, 28) }] })
+  const deps = depsFor(sim, db)
+  const realWrite = deps.writeDate
+  deps.writeDate = async (id, field, ms) => field === 'field_cbc597' ? { kind: 'rejected', message: 'No Permission' } : realWrite(id, field, ms)
+  await runStatusRow(deps, pl)
+  settle(sim)
+  eq('  extraDate failed、沒回填', [phases(db, pl.batchId).extraDate, phases(db, pl.batchId).writeback], ['failed', 'none'])
+  deps.writeDate = realWrite
+  await continueStatusRow(deps, pl.batchId, '15190441')
+  eq('  重試後補上、回填', [taipeiDay(sim.dates.field_cbc597!), phases(db, pl.batchId).extraDate, phases(db, pl.batchId).writeback], ['2026-09-28', 'done', 'done'])
+}
+{
+  console.log('舊紀錄（沒有 extraDate 這一步）照樣回填')
+  const sim = makeSim(), db = newDb()
+  const pl = payload({})
+  await runStatusRow(depsFor(sim, db), pl)
+  db.prepare(`DELETE FROM meegle_status_steps WHERE step = 'extraDate'`).run()
+  db.prepare(`UPDATE meegle_status_steps SET phase = 'none' WHERE step = 'writeback'`).run()
+  await continueStatusRow(depsFor(sim, db), pl.batchId, '15190441')
+  eq('  回填 done', phases(db, pl.batchId).writeback, 'done')
+}
+{
+  console.log('同一批：其他日期設定不同 → 視為換了目標，擋')
+  const sim = makeSim(), db = newDb()
+  const pl = payload({ targetKey: 'Finished', targetName: '完成', dateMode: 'set', sheetDate: D(9, 29), extraDates: [{ field: 'field_cbc597', label: '上C服時間', ms: D(9, 28) }] })
+  await runStatusRow(depsFor(sim, db), pl)
+  const again = await runStatusRow(depsFor(sim, db), { ...pl, extraDates: [{ field: 'field_cbc597', label: '上C服時間', ms: D(9, 27) }] })
+  eq('  target-changed', again.claim.kind, 'target-changed')
+}
 await scenario('指定日期空白 → 退回保留原值', { dates: { field_cbc597: D(9, 15) } }, { dateMode: 'set', sheetDate: null }, sim => {
   eq('  最後是原值 9/15', taipeiDay(sim.dates.field_cbc597!), '2026-09-15')
 })
@@ -136,7 +178,7 @@ await scenario('保留原值：原值本來就是今天 → 看不出自動化�
 })
 await scenario('CodeX：指定 9/20 但原值本來就是今天 → 看不到變動，標日期待確認、不覆寫', { dates: { field_cbc597: TODAY } }, { dateMode: 'set', sheetDate: D(9, 20) }, (sim, db, b) => {
   eq('  沒有寫', sim.writes.length, 0)
-  eq('  狀態成功、日期失敗分開記、沒回填', phases(db, b), { state: 'done', date: 'failed', writeback: 'none' })
+  eq('  狀態成功、日期失敗分開記、沒回填', phases(db, b), { state: 'done', date: 'failed', extraDate: 'none', writeback: 'none' })
   eq('  標成待確認', dateDataOf(getStatusSteps(db, b, '15190441').find(s => s.step === 'date'))?.pending, true)
 })
 await scenario('這個空間沒有自動化：等 20 秒看不到變動 → 待確認、不覆寫（逾時不能當成跑完）', { dates: { field_cbc597: D(9, 15) }, automationDelay: null }, {}, (sim, db, b) => {
@@ -160,7 +202,7 @@ await scenario('轉換回應不明但其實轉成功 → 重讀確認 done，日
   eq('  狀態 done、日期留住', [phases(db, b).state, taipeiDay(sim.dates.field_cbc597!)], ['done', '2026-09-15'])
 })
 await scenario('Meegle 拒絕轉換 → 狀態失敗，不碰日期也不回填', { dates: { field_cbc597: D(9, 15) }, transitionOutcome: 'rejected' }, {}, (sim, db, b) => {
-  eq('  狀態失敗、其餘 none', phases(db, b), { state: 'failed', date: 'none', writeback: 'none' })
+  eq('  狀態失敗、其餘 none', phases(db, b), { state: 'failed', date: 'none', extraDate: 'none', writeback: 'none' })
 })
 await scenario('完成 → 上線時間 一樣保留', { dates: { field_ce2cfc: D(9, 1), field_cbc597: null } }, { targetKey: 'Finished', targetName: '完成' }, sim => {
   eq('  上線時間留住 9/1', taipeiDay(sim.dates.field_ce2cfc!), '2026-09-01')
@@ -183,7 +225,7 @@ await scenario('回填內容跟 Jira 一樣', {}, {}, sim => {
   settle(sim)
   eq('只補日期：寫回第一次讀到的 9/15（不是重讀到的今天）', taipeiDay(sim.dates.field_cbc597!), '2026-09-15')
   eq('只補日期：沒有再轉一次狀態', sim.transitions, 1)
-  eq('只補日期：三步完成', phases(db, pl.batchId), { state: 'done', date: 'done', writeback: 'done' })
+  eq('只補日期：三步完成', phases(db, pl.batchId), { state: 'done', date: 'done', extraDate: 'skipped', writeback: 'done' })
 }
 // 狀態失敗重試：原值不重讀（第一次讀的才是真的）
 {

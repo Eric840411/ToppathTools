@@ -48,7 +48,7 @@ async function api<T>(url: string, body?: unknown): Promise<T> {
   return j as T
 }
 
-const STEP_LABEL: Record<string, string> = { state: '轉狀態', date: '日期', writeback: 'Sheet 回填' }
+const STEP_LABEL: Record<string, string> = { state: '轉狀態', date: '日期', extraDate: '其他日期', writeback: 'Sheet 回填' }
 const PHASE_TEXT: Record<Phase, string> = { none: '未執行', creating: '處理中', done: '完成', failed: '失敗', skipped: '略過' }
 const SOURCE_TEXT = { preview: '預覽', sheet: 'Sheet', default: '預設' } as const
 const fmtDay = (ms: number | null | undefined) => (ms == null ? '未設定' : taipeiDay(ms).slice(5).replace('-', '/'))
@@ -183,12 +183,15 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
     target: ReturnType<typeof resolveTargetState>
     cur: Current; issue: string
     date: { label: string; field: string; original: number | null; expected: string; note: string; sheetMs: number | null } | null
+    /** 指定日期模式下，目標狀態以外也填了的日期（v5.22.0：使用者 1006「照實填寫上就好」） */
+    extraDates: Array<{ field: string; label: string; ms: number }>
   }
   const plans: Plan[] = chosen.map(r => {
     const target = resolveTargetState({ previewKey: overrides[r.rowIndex] || null, sheetValue: targetColumn ? getField(r.rec, targetColumn) : '', defaultKey: defaultKey || null }, states)
     const cur = currents[r.workItemId] ?? { status: 'idle' }
     let issue = ''
     let date: Plan['date'] = null
+    const extraDates: Plan['extraDates'] = []
     if (!target.ok) issue = target.reason
     else if (cur.status === 'error') issue = cur.error ?? '讀不到 Meegle 現況'
     else if (cur.status !== 'ok') issue = '讀取 Meegle 中'
@@ -216,8 +219,24 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
         const note = dateMode === 'auto' ? '用自動帶入' : want == null ? '原本空白，用自動帶入' : want === original ? '保留原值' : '指定日期'
         date = { label: auto.label, field: auto.field, original, expected, note, sheetMs }
       }
+      // 其他日期欄：只有「指定日期」才寫，而且要有填（Sheet 欄優先、空白用整批那一天）；格式錯一樣擋列
+      if (dateMode === 'set') {
+        for (const f of autoFields) {
+          if (f.field === auto?.field) continue
+          const col = dateColumns[f.field]
+          const parsed = parseSheetDate(col ? getField(r.rec, col) : '')
+          if (!parsed.ok) { issue = issue || `${f.label}：${parsed.reason}`; continue }
+          let ms = parsed.ms
+          if (ms == null && dateFixed[f.field]) {
+            const fx = parseSheetDate(dateFixed[f.field])
+            if (!fx.ok) { issue = issue || `整批${f.label}：${fx.reason}`; continue }
+            ms = fx.ms
+          }
+          if (ms != null) extraDates.push({ field: f.field, label: f.label, ms })
+        }
+      }
     }
-    return { rowIndex: r.rowIndex, workItemId: r.workItemId, summary: r.summary, target, cur, issue, date }
+    return { rowIndex: r.rowIndex, workItemId: r.workItemId, summary: r.summary, target, cur, issue, date, extraDates }
   })
   const sendable = plans.filter(p => checked.has(p.rowIndex) && !p.issue)
   const blockedCount = plans.filter(p => p.issue && p.cur.status !== 'loading' && p.cur.status !== 'idle').length
@@ -246,6 +265,7 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
             const j = await api<{ claim: { kind: string }; steps: StepInfo[] }>('/api/meegle/status/row', {
               batchId: id, sheetUrl: loadedUrl, sheetRow: p.rowIndex, summary: p.summary, workItemId: p.workItemId,
               targetKey: t.key, targetName: t.name, dateMode, sheetDate: p.date?.sheetMs ?? null, space,
+              extraDates: p.extraDates.map(x => ({ field: x.field, ms: x.ms })),
             })
             res = { rowIndex: p.rowIndex, workItemId: p.workItemId, summary: p.summary, batchId: id, target: t.name, steps: j.steps, claim: j.claim.kind }
           } catch (e) {
@@ -392,7 +412,7 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
             <p className="mb-hint">優先順序：③ 預覽手改 ＞ Sheet 覆寫欄 ＞ 整批預設。Sheet 填的狀態名對不到 Meegle 狀態的列會擋下，不會猜。</p>
 
             <div className="ms-date-box">
-              <div className="ms-date-head"><Icon name="calendar" /> 日期處理（只影響轉到 C服／完成 時的 上C服時間／上線時間）</div>
+              <div className="ms-date-head"><Icon name="calendar" /> 日期處理（上C服時間／上線時間；「指定日期」時有填的兩格都會寫，不限目標狀態）</div>
               <div className="ms-radios" role="radiogroup" aria-label="日期處理">
                 {([['keep', '保留原值', '原本有填就寫回原值；原本空的用自動帶入的今天'], ['auto', '用自動帶入', '交給 Meegle 自動化，填今天'], ['set', '指定日期', 'Sheet 欄有填用它，沒填用整批同一天，都沒有退回保留原值（原值也空白就用自動帶入的今天）']] as const).map(([k, label, hint]) => (
                   <label key={k} className={`ms-radio${dateMode === k ? ' is-on' : ''}`}>
@@ -478,7 +498,14 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
                       <div className="ms-detail-vals"><b>{focusPlan.cur.status === 'ok' ? fmtDay(focusPlan.date.original) : '…'}</b><Icon name="arrow" /><b>{focusPlan.date.expected}</b></div>
                       <small className="mb-muted">原值 → 預計值（{focusPlan.date.note}）</small>
                     </div>
-                  ) : focusPlan.target.ok && <div className="mb-muted ms-detail-none">這個狀態不會動到日期欄</div>}
+                  ) : focusPlan.target.ok && !focusPlan.extraDates.length && <div className="mb-muted ms-detail-none">這個狀態不會動到日期欄</div>}
+                  {focusPlan.extraDates.map(x => (
+                    <div key={x.field} className="ms-detail-date">
+                      <span className="mb-muted">{x.label}</span>
+                      <div className="ms-detail-vals"><b>{focusPlan.cur.status === 'ok' ? fmtDay(focusPlan.cur.dates?.[x.field] ?? null) : '…'}</b><Icon name="arrow" /><b>{fmtDay(x.ms)}</b></div>
+                      <small className="mb-muted">原值 → 預計值（指定日期，不是這次轉到的狀態，照填的寫）</small>
+                    </div>
+                  ))}
                   {focusPlan.issue && focusPlan.cur.status !== 'loading' && focusPlan.cur.status !== 'idle' && <div className="mb-hint mb-hint--warn"><Icon name="warn" /> {focusPlan.issue}</div>}
                   {focusPlan.cur.status === 'error' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void readCurrent(focusPlan.workItemId)}><Icon name="refresh" /> 重讀</button>}
                   {detailBase && <a className="mb-btn mb-btn--small mb-btn--outline" href={`${detailBase}${focusPlan.workItemId}`} target="_blank" rel="noreferrer">在 Meegle 開啟</a>}

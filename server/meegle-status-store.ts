@@ -13,7 +13,7 @@ import { addSpaceColumn, spaceGuard, type MeegleSpace, type SpaceGuard } from '.
 type DB = Database.Database
 
 export type StatusPhase = 'none' | 'creating' | 'done' | 'failed' | 'skipped'
-export type StatusStep = 'state' | 'date' | 'writeback'
+export type StatusStep = 'state' | 'date' | 'extraDate' | 'writeback'
 export type StatusRow = {
   batch_id: string; row_key: string; source_key: string; sheet_url: string; sheet_row: number; summary: string
   work_item_id: string; owner_email: string; target_key: string; target_name: string; date_mode: DateMode
@@ -21,8 +21,11 @@ export type StatusRow = {
   sheet_date: number | null
   /** 哪個 Meegle 空間（v5.10.0；舊紀錄是 test） */
   space: MeegleSpace
+  /** 指定日期模式下、目標狀態以外也填了的日期欄（v5.22.0）：JSON [{field,label,ms}]；舊紀錄 NULL */
+  extra_dates: string | null
   created_at: number; updated_at: number
 }
+export type ExtraDate = { field: string; label: string; ms: number }
 export type StatusStepRow = { batch_id: string; row_key: string; step: StatusStep; phase: StatusPhase; message: string | null; attempt_at: number | null; updated_at: number; data: string | null }
 
 /** date 步驟存的資料：第一次讀到的原值與要寫的值。重試一律用這裡的，不重新讀原值（那時已經被自動化蓋掉了） */
@@ -46,6 +49,9 @@ export function initMeegleStatusSchema(db: DB) {
     );
   `)
   addSpaceColumn(db, 'meegle_status_rows')
+  // v5.22.0：目標狀態以外的指定日期（使用者 1006：轉到完成時填的上C服時間也要寫）。只加欄，不動舊資料
+  const cols = (db.prepare('PRAGMA table_info(meegle_status_rows)').all() as { name: string }[]).map(c => c.name)
+  if (!cols.includes('extra_dates')) db.exec('ALTER TABLE meegle_status_rows ADD COLUMN extra_dates TEXT')
 }
 
 export function getStatusRow(db: DB, batchId: string, rowKey: string): StatusRow | undefined {
@@ -62,6 +68,8 @@ export type StatusClaimInput = {
   batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string
   ownerEmail: string; targetKey: string; targetName: string; dateMode: DateMode; sheetDate: number | null
   space: MeegleSpace
+  /** 目標狀態以外也要寫的日期（只有 set 模式、有填的才帶） */
+  extraDates?: ExtraDate[]
 }
 export type StatusClaimResult =
   | { kind: 'claimed' }
@@ -90,19 +98,25 @@ export function claimStatusRow(db: DB, input: StatusClaimInput, now = Date.now()
     const existing = getStatusRow(db, input.batchId, R)
     if (existing) {
       if (existing.owner_email !== owner) return { kind: 'not-owner' }
-      if (existing.target_key !== input.targetKey || existing.date_mode !== input.dateMode || existing.sheet_date !== input.sheetDate) return { kind: 'target-changed' }
+      if (existing.target_key !== input.targetKey || existing.date_mode !== input.dateMode || existing.sheet_date !== input.sheetDate
+        || (existing.extra_dates ?? '[]') !== extraJson(input.extraDates)) return { kind: 'target-changed' }
       db.prepare('UPDATE meegle_status_rows SET sheet_url = ?, sheet_row = ?, summary = ?, updated_at = ? WHERE batch_id = ? AND row_key = ?')
         .run(input.sheetUrl, input.sheetRow, input.summary, now, input.batchId, R)
       return { kind: 'claimed' }
     }
     db.prepare(`INSERT INTO meegle_status_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email,
-      target_key, target_name, date_mode, sheet_date, space, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      target_key, target_name, date_mode, sheet_date, space, extra_dates, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(input.batchId, R, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, R, owner,
-        input.targetKey, input.targetName, input.dateMode, input.sheetDate, input.space, now, now)
+        input.targetKey, input.targetName, input.dateMode, input.sheetDate, input.space, extraJson(input.extraDates), now, now)
     const ins = db.prepare('INSERT INTO meegle_status_steps (batch_id, row_key, step, phase, updated_at) VALUES (?, ?, ?, ?, ?)')
-    for (const s of ['state', 'date', 'writeback'] as const) ins.run(input.batchId, R, s, 'none', now)
+    for (const s of ['state', 'date', 'extraDate', 'writeback'] as const) ins.run(input.batchId, R, s, 'none', now)
     return { kind: 'claimed' }
   }).immediate()
+}
+
+const extraJson = (list: ExtraDate[] | undefined) => JSON.stringify([...(list ?? [])].sort((a, b) => a.field.localeCompare(b.field)))
+export function extraDatesOf(row: Pick<StatusRow, 'extra_dates'>): ExtraDate[] {
+  try { const v = JSON.parse(row.extra_dates ?? '[]'); return Array.isArray(v) ? v as ExtraDate[] : [] } catch { return [] }
 }
 
 /** 開始一步：只能從 none／failed 進 creating（原子，搶不到回 false）。data 給了就覆寫。 */

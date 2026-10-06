@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.21.0'
+export const APP_VERSION = '5.22.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.22.0', date: '2026-10-06', changes: ['feat(Meegle 批量更新狀態)：**「指定日期」時上C服時間／上線時間有填的都照寫**，不限目標狀態（原本只寫目標狀態那一欄，轉到完成時填的上C服時間會被略過）；多一個「其他日期」步驟，失敗分開記、可重試'] },
   { version: '5.21.0', date: '2026-10-06', changes: ['feat(Meegle 批量評論)：**評論也帶圖片**——圖片另外上傳成評論附件、嵌在評論文字最後（Meegle 規定評論裡的圖要用評論附件的網址，測試說明那份不能用）；關掉「覆寫測試頁」時評論照樣帶圖'] },
   { version: '5.20.0', date: '2026-10-06', changes: ['feat(Meegle 批量評論)：**影片也放進測試頁**（Meegle 放不了內嵌影片，放成可點的檔案連結；評論附件照舊）；逐列預覽多一個「**覆寫測試頁**」開關（預設開，關掉＝測試頁不動、只發評論與影片評論）', 'fix(操作歷史)：Meegle 評論的影片步驟顯示成「影片 NaN」'] },
   { version: '5.19.0', date: '2026-10-06', changes: ['feat(Meegle 批量開單)：**開單帶「任務類型」**——Meegle 兩個空間都把它改成建立必填（測試／正式欄位 key 不同），原本工具從沒送過，開單被擋卻在預覽顯示可送出。改成：整批預設＋Sheet「任務類型」欄＋逐列覆寫，選項即時從 Meegle 讀；沒填或填錯在預覽就擋；Meegle 出現工具不認得的建立必填時整批不能送並列出欄名；按送出時與每一列開單前都重讀一次 Meegle 設定。規則跟 CodeX 定案；測試空間實開 #15244721 回讀＝BUG'] },
