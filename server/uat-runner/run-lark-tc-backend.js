@@ -308,6 +308,7 @@ async function getLarkToken() {
  * 記錄上的孤兒檔案，比兩者都做還糟。
  */
 import { detectManual } from './detect-manual.js';
+import { dismissSiteWarning, markSiteWarnings } from './site-warning.js';
 
 const DRY_RUN = process.env.UAT_DRY_RUN === '1';
 
@@ -1162,28 +1163,9 @@ function dashCompare(dashVals, dcVals, label) {
   return `【${label}】${results.join(' ')}`;
 }
 
-async function dismissWarningDialog(page, waitMs = 3000) {
-  // JS-hide Warning dialog to avoid triggering Vue Router navigation via Cancel button
-  if (waitMs > 0) {
-    await page.locator('.el-dialog').filter({ hasText: /Warnning|Warning/i })
-      .waitFor({ state: 'visible', timeout: waitMs }).catch(() => {});
-  }
-  const dismissed = await page.evaluate(() => {
-    let found = false;
-    document.querySelectorAll('.el-dialog__wrapper').forEach(el => {
-      if (/Warnning|Warning/i.test(el.textContent || '')) {
-        el.style.display = 'none';
-        found = true;
-      }
-    });
-    if (found) {
-      const overlay = document.querySelector('.v-modal');
-      if (overlay) overlay.style.display = 'none';
-    }
-    return found;
-  });
-  if (dismissed) await page.waitForTimeout(500);
-  return dismissed;
+/** 站台「機台異常」警告彈窗：規則在 site-warning.js（所有呼叫點共用，CodeX 1006） */
+function dismissWarningDialog(page, waitMs = 3000) {
+  return dismissSiteWarning(page, waitMs);
 }
 
 async function runDashFilterTest(page, filterLabel, targetDate, gameType, clientVersion, extraShotPaths, notes, criticalFails) {
@@ -1855,10 +1837,7 @@ async function verifyReportPage(page, tc) {
     const originalUrl = page.url();
     await page.goto(originalUrl.replace(/\/egm\/reports\/\w+$/, '/egm/reports/gameRecordList'), { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForTimeout(1200);
-    await page.evaluate(() => {
-      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
-      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
-    });
+    await dismissSiteWarning(page, 0);
     await page.waitForTimeout(300);
     const btn = await page.evaluate(() => {
       const b = [...document.querySelectorAll('button')].find(x => /^view$|^search$/i.test(x.innerText?.trim()));
@@ -2274,10 +2253,7 @@ async function verifyGameSettingPage(page, tc) {
     const originalUrl = page.url();
     await page.goto(originalUrl.replace(/\/game\/\w+$/, '/game/denomSet'), { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForTimeout(1200);
-    await page.evaluate(() => {
-      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
-      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
-    });
+    await dismissSiteWarning(page, 0);
     await page.waitForTimeout(300);
     const headers = await page.evaluate(() => [...document.querySelectorAll('.el-table th')].map(h => h.innerText?.trim()).filter(Boolean));
     const shotPath = path.join(SCREENSHOT_DIR, `denomset_crosscheck_${Date.now()}.png`);
@@ -2285,10 +2261,7 @@ async function verifyGameSettingPage(page, tc) {
     extraShotPaths.push(shotPath);
     await page.goto(originalUrl, { waitUntil: 'networkidle', timeout: 20000 });
     await page.waitForTimeout(800);
-    await page.evaluate(() => {
-      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
-      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
-    });
+    await dismissSiteWarning(page, 0);
     const missing = expectedCols.filter(c => !headers.some(h => h.includes(c)));
     return { headers, missing };
   };
@@ -2943,12 +2916,13 @@ async function verifyMachineReservation(page, tc, params = {}) {
     });
     await page.waitForTimeout(600);
   };
-  const getVisibleDialogInfo = () => page.evaluate(() => {
+  const getVisibleDialogInfo = async () => { await markSiteWarnings(page); return page.evaluate(() => {
     const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d =>
       d.getBoundingClientRect().width > 0
-      // ⚠️ 一定要排除站台層級那個一直開著的 Warnning 彈窗。不排除的話，面板根本沒打開
+      // ⚠️ 一定要排除站台層級那個一直開著的「機台異常」警告彈窗。不排除的話，面板根本沒打開
       // 也會抓到它，回報成「面板開啟(0筆記錄)」——假通過。不要拿掉這個條件。
-      && !/Warnning|Warning/i.test(d.textContent || ''));
+      // 辨識規則在 site-warning.js（標題＋machines are abnormal），真的 Warning 確認框不排除
+      && !d.closest('[data-uat-site-warning="1"]'));
     const d = dialogs[dialogs.length - 1];
     if (!d) return null;
     return {
@@ -2959,7 +2933,7 @@ async function verifyMachineReservation(page, tc, params = {}) {
       rowCount: d.querySelectorAll('.el-table__body tr').length,
       filterLabels: [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()),
     };
-  });
+  }); };
 
   // TC：查询：需要可以根据UserID/Account/Start Time查询，根据Status筛选
   if (/查询.*userid.*account.*start\s*time|根据status筛选/i.test(full)) {
@@ -4695,15 +4669,8 @@ async function performAction(page, pagePath, action, label, taskDesc) {
     // 因此改用 JS 隱藏 dialog + overlay，不觸發任何按鈕。
     if (action === 'daily_dashboard_verify') {
       // 等待 Warning dialog 出現（UAT 環境幾乎必定出現）
-      await page.locator('.el-dialog').filter({ hasText: 'Warnning' }).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-      // 用 JS 直接隱藏 Warning dialog 和 modal overlay（避免 Cancel 觸發導航）
-      await page.evaluate(() => {
-        document.querySelectorAll('.el-dialog__wrapper').forEach(el => {
-          if (el.textContent?.includes('Warnning')) el.style.display = 'none';
-        });
-        const overlay = document.querySelector('.v-modal');
-        if (overlay) overlay.style.display = 'none';
-      });
+      // 用 JS 直接隱藏（避免 Cancel 觸發導航）；規則在 site-warning.js
+      await dismissSiteWarning(page, 5000);
       await page.waitForTimeout(800);
       // 點 Search 載入今日數據
       const searchBtn = page.locator('button').filter({ hasText: /^Search$/ }).first();

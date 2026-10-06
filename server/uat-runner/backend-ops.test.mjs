@@ -48,6 +48,8 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     waitForLoadState: async () => {},
     waitForTimeout: async () => {},
     keyboard: { press: async () => {} },
+    // 站台警告彈窗（site-warning.js）走 page.evaluate 標記／隱藏；假頁面上沒有那種窗 → 標到 0 個
+    evaluate: async () => 0,
     url: () => 'https://cp.example/dashboards',
     // 登入後等轉址（v4.274.6）：假物件立刻依目前網址判斷
     waitForURL: async (pred) => { if (!pred(page.url())) throw new Error('timeout') },

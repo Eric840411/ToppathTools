@@ -19,6 +19,7 @@
  *    不然會拿到一份「綠的、但其實沒設定到」的結果。
  */
 import { runSteps } from './block-engine.js';
+import { dismissSiteWarning } from './site-warning.js';
 
 /**
  * 設定片段允許的動作。
@@ -114,9 +115,14 @@ export function createBackendOpContext(page, { baseUrl, onNote = () => {} }) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
       await page.waitForTimeout(waitMs);
+      // 跟錄製腳本的 openPath 同一套收尾：站台「機台異常」警告彈窗的遮罩會擋住片段的第一下點擊
+      // （claude-osm-2 在 uat-cp 踩到：Setting Level 按鈕點擊 15 秒逾時）。規則在 site-warning.js
+      await dismissSiteWarning(page);
     },
 
     async clickSelector(selector, waitMs = 800) {
+      // 點之前清掉已經開著的站台警告彈窗（錄製腳本的 clickSelector 也這樣做）；只動那一種窗
+      await dismissSiteWarning(page, 0);
       // ⚠️ **不做座標備援。** 後台設定按錯位置的後果是改到別的設定，
       //    而且你不會知道——寧可失敗。（前端腳本有座標備援是因為 canvas 沒有 DOM。）
       const target = page.locator(selector);

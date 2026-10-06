@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.28.3'
+export const APP_VERSION = '5.28.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.28.4', date: '2026-10-06', changes: ['fix(UAT 後台)：站台「機台異常」警告彈窗的關閉規則統一成一支（site-warning.js，CodeX 定案）——只認「標題 Warnning／Warning＋內文 machines are abnormal」，真的 Warning 確認框不再被藏；遮罩只在沒有其他對話框開著時才拿掉。後台設定片段開頁與點擊前也會關這個彈窗（原本沒關，片段第一下點擊被遮罩擋到逾時，claude-osm-2 回報）。uat-cp 實測：標題 Warnning、內文 Currently 20 machines are abnormal，關得掉'] },
   { version: '5.28.3', date: '2026-10-06', changes: ['fix(Meegle 補回填：補回被清掉的回填)：CodeX 補審 60c61d3 兩個問題——[P1] 讀單號、判定、寫入改在同一把 Sheet 鎖裡（原本鎖外先讀，排隊期間那一列被換成別張單仍會被蓋）；[P2]「最近一次」改看操作完成時間不看回填時間（原本補過一次再補，處理階段會從「已修改欄位」倒退成「已開單」）。兩條都補了回歸測試，拿掉修正會紅'] },
   { version: '5.28.2', date: '2026-10-06', changes: ['ui(週報)：「定時備稿提醒」的展開箭頭 ▶ 在 Mac／Lark 被畫成彩色 emoji，改成線條箭頭；其他頁面的 ▶／◀（AutoSpin、機台測試、OSM、GS Log、UAT 前台、AI 設定、遊戲版側欄）加文字呈現字元，不再顯示成 emoji', 'docs(週報)：撈 Meegle 單的說明改成「專案看關聯需求」（v5.27.0 改了規則，說明沒跟上）'] },
   { version: '5.28.1', date: '2026-10-06', changes: ['change(機台測試 batch)：音檔等證據改上傳到使用者指定的 Lark Drive 資料夾（InhAftoJglxUzjdrYonl6a2bgBd；可用 MT_LARK_DRIVE_FOLDER 或 secrets 的 larkDriveFolder 換），原本傳到應用程式自己的根目錄。一般上傳與 >20MB 分片上傳都改；分片路徑實測 21MB 進得去該資料夾'] },
