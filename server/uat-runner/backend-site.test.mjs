@@ -238,7 +238,18 @@ function siteCtx({ legacy = false } = {}) {
   b.logged.add(CP); b.logged.add(NC);
   const deps = { ...b.deps, async goto(u) { await b.deps.goto(u.replace(CP, NC)); } };
   const msg = await throwsMsg(() => openSitePage(deps, { url: `${CP}/egm`, site: 'cp', now }));
-  check('最後停在別站（已登入、沒經過登入頁）→ 也拒絕', /最後停在別站/.test(msg ?? ''), msg);
+  check('最後停在別站（已登入、沒經過登入頁）→ 也拒絕', /停在別站/.test(msg ?? ''), msg);
+}
+
+// CodeX 1006 第三輪 P2：等待期間（或關警告時）才轉到別站 → 也要拒絕，不能回傳 CP 的 origin
+for (const when of ['wait', 'dismiss']) {
+  const b = fakeBrowser();
+  b.logged.add(CP); b.logged.add(NC);
+  let jumped = false;
+  const deps = { ...b.deps, async [when]() { await b.deps[when](); await b.deps.goto(`${NC}/elsewhere`); jumped = true; } };
+  let res = null;
+  const msg = await throwsMsg(async () => { res = await openSitePage(deps, { url: `${CP}/egm`, site: 'cp', now }); });
+  check(`${when === 'wait' ? '等待期間' : '關站台警告時'}轉到 NC → 拒絕、不回傳成功`, jumped && /停在別站/.test(msg ?? '') && res === null, { msg, res });
 }
 
 // ── CodeX 1006 第二輪 P2：格式逐份查，帳密合併查 ──────────────────────

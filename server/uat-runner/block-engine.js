@@ -874,10 +874,16 @@ export async function openSitePage(deps, { url, site, waitMs = 1500, now = Date.
     await deps.goto(url);
     if (isLogin()) throw new Error(`${site.toUpperCase()} 登入後重開「${url}」又被導回登入頁——這個帳號可能沒有這一頁的權限`);
   }
-  // 最後停在別站（轉址）＝後面的點擊、斷言都不是在這一站做的 → 直接失敗，不要當成這一站的結果
-  if (!onExpectedSite()) throw new Error(`開「${url}」最後停在別站（${originOf(deps.currentUrl())}），不是 ${site.toUpperCase()}——拒絕繼續`);
+  // 停在別站（轉址）＝後面的點擊、斷言都不是在這一站做的 → 直接失敗，不要當成這一站的結果。
+  // CodeX 1006 第三輪 P2：頁面在**等待期間**也可能轉走——導頁後、等待後（dismiss 之前）、回傳前各驗一次
+  const mustStay = (when) => {
+    if (!onExpectedSite()) throw new Error(`開「${url}」${when}停在別站（${originOf(deps.currentUrl())}），不是 ${site.toUpperCase()}——拒絕繼續`);
+  };
+  mustStay('之後');
   await deps.wait(waitMs);
+  mustStay('等待期間被轉走，');
   await deps.dismiss();
+  mustStay('關站台警告後');
   return { site, origin: originOf(url), navMark, relogged };
 }
 
