@@ -1282,7 +1282,8 @@ export function makeOpenRoundHandler(o: {
     const ended = async () => { if (await endedNow()) endedFlag = true; return endedFlag }
     const stop = () => o.stopped() || handpay
     /** 每一下真的點之前 await：重讀流水＋停止狀態（沒有快取） */
-    const mustStop = async () => stop() || await ended()
+    // 讀流水是非同步的：讀的期間可能收到停止 → 讀完再看一次停止（CodeX edd347b [P1]）
+    const mustStop = async () => stop() || await ended() || stop()
     const profile = o.getProfile()
     const action = profile?.bonusAction ?? 'spin'
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)

@@ -4,19 +4,25 @@
 import { makeOpenRoundHandler } from '../server/machine-test/runner.js'
 
 type Ev = { seq: number; coin: number; reason: string; ts: number }
-function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean }) {
+function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean } }) {
   const log: Ev[] = o.noMoney ? [] : [{ seq: 1, coin: 2_000_000, reason: 'begin', ts: Date.now() - 40_000 }]
-  let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0
+  let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0
   const ended = () => log.some(e => e.reason === 'end')
   const pushEnd = () => { if (!ended()) log.push({ seq: 2, coin: 2_100_000, reason: 'end', ts: Date.now() }) }
   const onClick = (kind: 'spin' | 'tap') => {
     if (ended()) clicksAfterEnd++
+    if (o.stopFlag?.v) clicksAfterStop++
     clicks++; if (kind === 'spin') spins++; else taps++
     if (o.endAfterClicks !== undefined && clicks >= o.endAfterClicks && !ended()) log.push({ seq: 2, coin: 2_100_000, reason: 'end', ts: Date.now() })
   }
   const evaluate = async (fn: unknown) => {
     const src = String(fn)
-    if (src.includes('__moneyLog')) return log.map(e => ({ ...e }))
+    if (src.includes('__moneyLog')) {
+      // 模擬：第 N 次讀流水的期間使用者按了停止（CodeX edd347b 補測）
+      reads++
+      if (o.stopDuringReadAfter !== undefined && o.stopFlag && reads > o.stopDuringReadAfter) o.stopFlag.v = true
+      return log.map(e => ({ ...e }))
+    }
     if (src.includes('__lastMachineCoin')) return null
     if (src.includes('notification-close')) return 0
     if (src.includes('Want to reserve')) return false
@@ -44,15 +50,16 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
     getByText: () => ({ count: async () => 0, nth: () => ({ isVisible: async () => false }) }),
     locator: () => ({ count: async () => 0 }),
   }
-  return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, spins, taps }) }
+  return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps }) }
 }
 const quick = { pollMs: 5, quietMs: 0, maxMs: 300, maxActs: 20 }
-async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick> }) {
-  const f = fakePage(o)
+async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick> }) {
+  const stopFlag = { v: false }
+  const f = fakePage({ ...o, stopFlag })
   const h = makeOpenRoundHandler({
     page: f.page, emit: () => {}, machineCode: '000-FAKE-0001',
     getProfile: () => ({ machineType: 'FAKE', bonusAction: o.action ?? 'spin', touchPoints: o.touchPoints ?? [] }) as never,
-    sinceSeq: 0, osmStatus: () => undefined, stopped: () => false, filePrefix: 'probe-',
+    sinceSeq: 0, osmStatus: () => undefined, stopped: () => stopFlag.v, filePrefix: 'probe-',
     ocr: async () => o.body, timing: { ...quick, ...(o.timing ?? {}) },
   })
   const r1 = await h('probe')
@@ -77,6 +84,15 @@ const check = (name: string, got: string, want: string) => { const ok = got === 
   check('[P1] 取座標期間收到 end → 不點', `${r.r1}/${r.spins}/${r.clicksAfterEnd}`, 'done/0/0') }
 { const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1'], endDuringLookup: true })
   check('[P1] 觸屏查元素期間收到 end → 不點', `${r.r1}/${r.taps}/${r.clicksAfterEnd}`, 'done/0/0') }
+// 讀流水期間按停止（CodeX edd347b [P1]）：讀到第 N 次之後停止旗標變 true，之後一下都不能點
+for (const n of [1, 2, 3, 4, 5, 6]) {
+  const r = await run({ body: 'FREE GAMES 3  PRESS SPIN TO CONTINUE', stopDuringReadAfter: n })
+  check(`[P1] SPIN：第 ${n} 次讀流水期間按停止 → 停止後 0 下`, `${r.r1}/${r.clicksAfterStop}`, 'stopped/0')
+}
+for (const n of [1, 2, 3, 4, 5, 6]) {
+  const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], stopDuringReadAfter: n })
+  check(`[P1] 觸屏：第 ${n} 次讀流水期間按停止 → 停止後 0 下`, `${r.r1}/${r.clicksAfterStop}`, 'stopped/0')
+}
 { const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', endAfterClicks: 2 })
   check('特殊遊戲畫面 → 按到 end 為止，end 之後一下都沒有', `${r.r1}/${r.spins}/${r.clicksAfterEnd}`, 'done/2/0') }
 { const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1', '4,1', '5,1'], endAfterClicks: 1 })

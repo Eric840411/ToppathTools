@@ -300,5 +300,6 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - [P1] 重查之後還隔著非同步查詢：取 `boundingBox` 期間、觸屏 `frame.$$` 查元素期間收到 end，仍點下去。`guardedClick` 改成只有一種點法：取座標 → `mustStop()` → 立刻 `page.mouse.click`（原生 click 有自動等待、無法在中間重查，拿掉）；`clickTouchCell` 加選填 `mustStop`，找到元素後、點之前重查
   - 停止：CodeX 接受「停止後只試退出、不再推進」；halt 仍全擋。停止會立刻關瀏覽器，退出可能沒做完——沿用既有「使用者中止：未確認已離機」的結果
   - 探針：open-round 33、runner 路徑 11（含 0 SPINS REMAINING、取座標期間 end、查元素期間 end）；突變「取座標後不重查」「觸屏查到後不重查」「0 次也算」各自紅
+- **CodeX 審 edd347b（v5.29.4 修）**：[P1] `mustStop` 只在讀流水前看停止，讀的期間按停止、又沒收到 end 會放行。改成 `stop() || await ended() || stop()`。runner 路徑探針加 12 條（SPIN／觸屏 × 第 1～6 次讀流水期間按停止 → 停止後 0 下）；突變「讀完不再看停止」SPIN、觸屏各紅一條
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
 
