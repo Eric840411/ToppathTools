@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.12.7'
+export const APP_VERSION = '5.12.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.12.8', date: '2026-10-06', changes: ['fix(登入)：角色重查還沒回來就登出或換帳號時，晚回來的結果不會再把畫面身分改回前一個帳號（CodeX review）'] },
   { version: '5.12.7', date: '2026-10-06', changes: ['fix(Meegle 測試空間只給管理員)：操作歷史改成回資料庫查那一批的空間來判斷（舊批次、補回填、移出清單的紀錄沒寫空間也擋得到；補回填混合的紀錄只留正式空間那幾列）；角色在後台被改了，畫面回到前景或每 60 秒會跟著更新，補回填清單也會重新讀（CodeX review）'] },
   { version: '5.12.6', date: '2026-10-06', changes: ['change(Meegle 批量工具)：**測試空間只給管理員**——其他角色看不到空間切換，一律用正式空間；伺服器也會擋（非管理員送測試空間、或去動測試空間的舊紀錄，一律拒絕），補回填清單與操作歷史也看不到測試空間的紀錄（使用者要求，CodeX 同意）'] },
   { version: '5.12.5', date: '2026-10-06', changes: ['fix(機台測試)：已經被取消的那一輪，其他 agent 晚到的進度結果不再轉給畫面（不會混進新的一輪）；那一輪早就收尾時，晚到的斷線不再廣播「結束」（不會把新一輪的監看關掉）（CodeX review）'] },

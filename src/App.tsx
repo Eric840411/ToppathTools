@@ -505,15 +505,19 @@ function App() {
   // 視窗回到前景、以及每 60 秒重查一次登入帳號；角色變了才更新（會連帶重抓權限、Meegle 空間跟著切）
   useEffect(() => {
     if (!globalAccount) return
+    // 這一輪 effect 失效（登出、換帳號、角色已更新）後，還沒回來的重查一律丟掉——
+    // 不然 A 的重查晚回來，會把已經切成 B（或已登出）的畫面身分改回 A（CodeX review fcc882e [P2]）
+    let cancelled = false
     const recheck = () => {
       fetchAuthAccount().then(acc => {
+        if (cancelled) return
         if (acc && acc.email === globalAccount.email && acc.role !== globalAccount.role) { setGlobalAccount(acc); saveGlobalAccount(acc) }
       }).catch(() => { /* 暫時連不上就下次再查 */ })
     }
     const t = window.setInterval(recheck, 60_000)
     const onFocus = () => recheck()
     window.addEventListener('focus', onFocus)
-    return () => { window.clearInterval(t); window.removeEventListener('focus', onFocus) }
+    return () => { cancelled = true; window.clearInterval(t); window.removeEventListener('focus', onFocus) }
   }, [globalAccount])
 
   // Fetch permissions whenever globalAccount changes; redirect to first accessible group

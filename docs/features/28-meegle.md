@@ -417,7 +417,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 後端（`server/meegle-space-access.ts` 的 `denyTestSpace`，規則 `canUseSpace` 在 meegle-space.ts）：新請求帶 test → 403 `TEST_SPACE_ADMIN_ONLY`（meta、預覽、之前送過的列都算）；**重試／補推／查詢結果／繼續送出／候選／人工確認／補寫回一律看 DB 紀錄的 space**，不信前端；舊資料沒有 space 的仍照 `rowSpace()` 當 test，不改成 prod
 - 補回填也限 admin（CodeX：只寫 Sheet，但仍會顯示、操作測試紀錄）：清單不列、移出／補寫都擋
 - 操作歷史（v5.12.7 改，CodeX review 1288024 [P1]）：**用 detail 裡的 batchId 回 DB 查空間**（`server/meegle-history-filter.ts`），不能只比 `"space":"test"`——舊批次、補回填、移出清單的歷史都沒寫 space。補回填混合的紀錄逐列過濾；查不到（舊資料、批次已刪）當測試
-- 降權要跟著變（v5.12.7，CodeX review 1288024 [P2]）：App 在視窗回到前景與每 60 秒重查登入帳號，角色變了才更新；補回填分頁的 key 帶管理員身分，身分變了整頁重掛
+- 降權要跟著變（v5.12.7，CodeX review 1288024 [P2]）：App 在視窗回到前景與每 60 秒重查登入帳號，角色變了才更新；補回填分頁的 key 帶管理員身分，身分變了整頁重掛。v5.12.8：effect 失效（登出、換帳號）後還沒回來的重查一律丟掉（取消旗標），不然 A 的重查晚回來會把畫面改回 A（CodeX review fcc882e [P2]）；走查有「重查途中登出」
 - 角色看 `getAuthAccount(req).role`（每次查 DB，降權立刻生效），原本的 owner／工具權限照舊
 - `checkItemSpace` 與 Sheet 跨空間防重照留（避免偽填 prod 繞過）
 - 測試：單元（canUseSpace、補回填不列不准移、舊資料仍是 test）；真伺服器（非管理員三頁 previous＋開單 previous 帶 test → 403、prod 正常、管理員正常；歷史過濾；自己的測試舊紀錄直呼補寫回 → 403）；`node scripts/ui-checks/meegle-space-admin-only.mjs`；突變（規則永遠放行、前端不判斷 isAdmin）都會紅
