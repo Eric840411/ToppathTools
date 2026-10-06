@@ -1,5 +1,5 @@
 // runFeatureTaps 探針（2026-10-06 ARUZE JP／FG 點選 fallback；CodeX 1006 review 的 P1 也在這裡）：npx tsx scripts/feature-taps-probe.ts
-import { runFeatureTaps, featureTapSummary, onFeatureSelectScreen } from '../server/machine-test/verdicts.js'
+import { runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound } from '../server/machine-test/verdicts.js'
 
 const PTS = ['3,3', '6,3', '9,3', '2,4', '6,4'].map((point, i) => ({ point, group: i < 3 ? 'JP' : 'FG' }))
 
@@ -63,6 +63,50 @@ for (const [name, ocr, want] of ocrCases) {
   console.log(`${ok ? '✅' : '❌'} 選擇畫面判定：${name} → ${got ?? '不點'}`)
 }
 
+// ── 退出迴圈整合模擬（CodeX 1006 第二輪：helper 停手不夠，要驗「呼叫端」接著零推進）────────────────
+// 跟 runner 退出迴圈同一個結構：每一輪 planExitAdvance → handOff 就 return；hold 就只重試退出；
+// featureTap 就跑一輪（結果照劇本）、applyFeatureRound 決定 retryExit 或 legacy；legacy＝原本的 SPIN／盲推（計數）。
+async function exitLoop(o: { rounds: string[]; total?: number; enabled?: boolean; attempts?: number; stepMs?: number }) {
+  let feat = exitFeatureState(o.total ?? 20)
+  let now = 0, legacy = 0, featureRounds = 0, k = 0
+  const trace: string[] = []
+  for (let attempt = 1; attempt <= (o.attempts ?? 12); attempt++) {
+    now += o.stepMs ?? 5000
+    const plan = planExitAdvance(feat, now, o.enabled ?? true)
+    if (plan === 'handOff') { trace.push('handOff'); return { end: 'handOff', legacy, featureRounds, trace: trace.join(' ') } }
+    if (plan === 'hold') { trace.push('hold'); continue }
+    if (plan === 'featureTap') {
+      featureRounds++
+      const result = o.rounds[k++] ?? 'exhausted'
+      trace.push(`tap:${result}`)
+      const next = applyFeatureRound(feat, { result, cursor: result === 'exhausted' ? feat.total : feat.cursor + 1 }, now)
+      feat = next.state
+      if (next.then === 'retryExit') continue
+    }
+    legacy++
+    trace.push('legacy')
+  }
+  return { end: 'attempts', legacy, featureRounds, trace: trace.join(' ') }
+}
+const loopCases: Array<[string, () => Promise<string>, string]> = [
+  ['截圖失敗（unsure）→ 下一輪就交人工，之後推進全是零', async () => { const r = await exitLoop({ rounds: ['unsure'] }); return `${r.end}/legacy=${r.legacy}/rounds=${r.featureRounds}` }, 'handOff/legacy=0/rounds=1'],
+  ['先有進展再截圖失敗 → 觀察期零推進、unsure 後零推進', async () => { const r = await exitLoop({ rounds: ['screen', 'unsure'], attempts: 16 }); return `${r.end}/legacy=${r.legacy}/${r.trace}` },
+    'handOff/legacy=0/tap:screen hold hold hold hold hold hold hold hold hold hold hold tap:unsure handOff'],
+  ['畫面有進展 → 60 秒內只重試退出（零推進），之後才再點', async () => { const r = await exitLoop({ rounds: ['screen', 'done'], attempts: 14 }); return `legacy=${r.legacy}/${r.trace}` },
+    'legacy=0/tap:screen hold hold hold hold hold hold hold hold hold hold hold tap:done hold'],
+  ['不在選擇畫面（notOnScreen）→ 同一輪照原本流程推', async () => { const r = await exitLoop({ rounds: ['notOnScreen'], attempts: 1 }); return `legacy=${r.legacy}/${r.trace}` }, 'legacy=1/tap:notOnScreen legacy'],
+  ['OCR 最多 5 次，用完只走原本流程', async () => { const r = await exitLoop({ rounds: Array(9).fill('notOnScreen'), attempts: 7 }); return `rounds=${r.featureRounds}/legacy=${r.legacy}` }, 'rounds=5/legacy=7'],
+  ['清單點完（exhausted）→ 之後只走原本流程', async () => { const r = await exitLoop({ rounds: ['exhausted'], attempts: 3 }); return `rounds=${r.featureRounds}/legacy=${r.legacy}` }, 'rounds=1/legacy=3'],
+  ['被時限／上限擋下（stopped）→ 回去重試退出、不推', async () => { const r = await exitLoop({ rounds: ['stopped'], attempts: 1 }); return `legacy=${r.legacy}/${r.trace}` }, 'legacy=0/tap:stopped'],
+  ['沒設清單的機種（enabled=false）→ 跟改版前一樣只走原本流程', async () => { const r = await exitLoop({ rounds: [], enabled: false, attempts: 3 }); return `rounds=${r.featureRounds}/legacy=${r.legacy}` }, 'rounds=0/legacy=3'],
+]
+for (const [name, run, want] of loopCases) {
+  const got = await run()
+  const ok = got === want
+  if (!ok) fail++
+  console.log(`${ok ? '✅' : '❌'} 退出迴圈：${name}${ok ? '' : `\n   want ${want}\n   got  ${got}`}`)
+}
+
 const sum = featureTapSummary([
   { point: '3,3', group: 'JP', result: 'none' }, { point: '6,3', group: 'JP', result: 'noElement' },
   { point: '9,3', group: 'JP', result: 'done' }, { point: '2,4', group: 'FG', result: 'unsure' },
@@ -70,6 +114,6 @@ const sum = featureTapSummary([
 const sumOk = sum === '3,3→無、6,3→找不到格、9,3→結束、2,4→量不到'
 if (!sumOk) fail++
 console.log(`${sumOk ? '✅' : '❌'} 摘要格式：${sum}`)
-const total = cases.length + ocrCases.length + 1
+const total = cases.length + ocrCases.length + loopCases.length + 1
 console.log(fail ? `\n${fail}/${total} 項失敗` : `\n全部 ${total} 項通過`)
 process.exit(fail ? 1 : 0)

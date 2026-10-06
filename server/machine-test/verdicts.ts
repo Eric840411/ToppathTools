@@ -411,3 +411,30 @@ export function onFeatureSelectScreen(ocr: string, keywords: string[]): string |
   const t = norm(ocr)
   return keywords.find(k => k.trim() && t.includes(norm(k))) ?? null
 }
+
+// ── 退出路徑每一輪「要不要推進、怎麼推進」（CodeX 1006 第二輪 P1）──────────────────────────
+// runner 的退出迴圈每一輪只照這裡的回答做事；探針 scripts/feature-taps-probe.ts 用同一支模擬整段退出迴圈，
+// 驗「unsure 之後所有推進呼叫都是零」「觀察期間零推進」。
+//   · handOff＝觸屏推進時量不到（截圖失敗）→ **結束本台自動操作**、回傳待人工確認（不能只 emit，下面也不能再推）
+//   · hold＝觸屏有進展後的 60 秒觀察期 → 什麼都不推，只重試退出
+//   · featureTap＝跑一輪觸屏清單（還有沒點的格、OCR 次數沒用完）
+//   · legacy＝原本的推進流程（SPIN／盲推／OSMWatcher 補點）
+export const FEATURE_HOLD_MS = 60_000
+export const FEATURE_MAX_OCR = 5
+export type ExitFeatureState = { cursor: number; total: number; holdUntil: number; ocrTries: number; handOff: string | null }
+export const exitFeatureState = (total: number): ExitFeatureState => ({ cursor: 0, total, holdUntil: 0, ocrTries: 0, handOff: null })
+export function planExitAdvance(s: ExitFeatureState, now: number, enabled: boolean): 'handOff' | 'hold' | 'featureTap' | 'legacy' {
+  if (s.handOff) return 'handOff'
+  if (now < s.holdUntil) return 'hold'
+  if (enabled && s.cursor < s.total && s.ocrTries < FEATURE_MAX_OCR) return 'featureTap'
+  return 'legacy'
+}
+/** 一輪觸屏推進的結果 → 新狀態，以及這一輪接下來要「回去重試退出」還是「照原本流程推」 */
+export function applyFeatureRound(s: ExitFeatureState, r: { result: string; cursor: number }, now: number): { state: ExitFeatureState; then: 'retryExit' | 'legacy' } {
+  const state = { ...s, cursor: r.cursor, ocrTries: s.ocrTries + 1 }
+  if (r.result === 'done' || r.result === 'screen') return { state: { ...state, holdUntil: now + FEATURE_HOLD_MS, ocrTries: 0 }, then: 'retryExit' }
+  if (r.result === 'unsure') return { state: { ...state, handOff: '觸屏推進時截圖失敗，量不到畫面' }, then: 'retryExit' }
+  // stopped：被停止／時限／動作上限擋下——回去重試退出，由退出迴圈原本的上限檢查收尾
+  if (r.result === 'stopped') return { state, then: 'retryExit' }
+  return { state, then: 'legacy' }   // notOnScreen／exhausted
+}

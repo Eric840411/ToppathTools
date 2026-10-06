@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -1096,7 +1096,8 @@ async function clickTouchCell(page: Page, pt: string): Promise<boolean> {
  * 回傳 result：done／screen／exhausted／stopped／unsure（截圖失敗，要交人工）／notOnScreen（沒確認是選擇畫面，一下都沒點）。
  * 每一下都 emit「點觸屏 x,y → 有／無進展」（0335 那次 batch log 沒有任何點擊紀錄）。
  */
-async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: FeatureTapsCfg, start: number, ended: () => boolean, stop: () => boolean, why: string) {
+/** onTapped：每真的點下去一格就呼叫（呼叫端用它把這一輪的點擊即時算進動作上限，stop 才擋得住） */
+async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: FeatureTapsCfg, start: number, ended: () => boolean, stop: () => boolean, why: string, onTapped?: () => void) {
   let sawEnd = false
   const onC = (m: ConsoleMessage) => {
     const t = m.text()
@@ -1136,7 +1137,9 @@ async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: Fea
         pre = await shot()
         if (!pre) return 'unsure'
         if (halt()) return 'stop'   // CodeX 1006：真的點下去之前再查一次結束／停止／時限
-        return (await clickTouchCell(page, pt)) ? 'ok' : 'noElement'
+        const ok = await clickTouchCell(page, pt)
+        if (ok) onTapped?.()
+        return ok ? 'ok' : 'noElement'
       },
       check: async () => {
         const until = Date.now() + cfg.waitMs
@@ -4914,7 +4917,7 @@ export class MachineTestRunner extends EventEmitter {
             // 1006 ARUZE：退出被擋、遊戲進行中 → 先照機種點位清單點觸屏（JP 選元寶／FG 選卡），每格最多點一次；
             // 有進展後 60 秒內不再點（讓 FG 自己跑、走原本的推進流程），清單點完就只走原本流程
             const featureCfg = featureTapsConfig(machineCode)
-            let featureCursor = 0, featureHoldUntil = 0, featureOcrTries = 0
+            let feat = exitFeatureState(featureCfg?.points.length ?? 0)   // 每一輪推不推、怎麼推：verdicts.ts planExitAdvance
             const playbookTried = new Set<string>()   // 每條已學處理每台只試一次，試過還卡就交給人
             for (let attempt = 1; ; attempt++) {
               const trace: ExitTrace = { file: `${this.sessionPrefix}${machineCode}`, attempt, shots: [] }
@@ -4979,20 +4982,28 @@ export class MachineTestRunner extends EventEmitter {
               }
 
               retryStreak = 0
-              // CodeX 1006 P1：觸屏有進展後的 60 秒是「暫停觀察」——這段期間**所有**推進（SPIN／觸屏／盲推）都不做，只重試退出
-              if (Date.now() < featureHoldUntil) {
-                emit(`退出未完成（第 ${attempt} 次）：觸屏推進後觀察中（剩 ${Math.ceil((featureHoldUntil - Date.now()) / 1000)}s），不做任何推進，5 秒後再試退出`)
+              // CodeX 1006（兩輪 review）：這一輪推不推、怎麼推只聽 planExitAdvance——
+              //   handOff＝觸屏推進量不到 → 結束本台自動操作、待人工確認；hold＝有進展後 60 秒觀察期，所有推進都不做
+              const plan = planExitAdvance(feat, Date.now(), !!featureCfg && !this.stopped && (profile?.bonusAction ?? 'spin') !== 'auto_wait')
+              if (plan === 'handOff') {
+                this._haltReason = `${machineCode} 退出異常（帳號卡在這台）：JP／FG ${feat.handOff}，已停止所有自動操作｜⚠️ 待人工確認畫面與額度`
+                return { step: '退出測試', status: 'fail', message: `🆘 ${this._haltReason}（推進 ${acts} 次）`, durationMs: Date.now() - t0 }
+              }
+              if (plan === 'hold') {
+                emit(`退出未完成（第 ${attempt} 次）：觸屏推進後觀察中（剩 ${Math.ceil((feat.holdUntil - Date.now()) / 1000)}s），不做任何推進，5 秒後再試退出`)
                 await sleep(5000)
                 continue
               }
-              if (featureCfg && featureCursor < featureCfg.points.length && featureOcrTries < 5 && (profile?.bonusAction ?? 'spin') !== 'auto_wait' && !this.stopped) {
-                featureOcrTries++
-                const fr = await featureTapRound(page, emit, featureCfg, featureCursor, () => false, () => this.stopped, `退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）`)
-                featureCursor = fr.cursor
-                acts += fr.tapped
-                if (fr.result === 'done' || fr.result === 'screen') { featureHoldUntil = Date.now() + 60_000; featureOcrTries = 0; continue }
-                if (fr.result === 'unsure') featureCursor = featureCfg.points.length   // 量不到就不再點觸屏（交人工），下面照原本流程
-                else if (fr.result === 'exhausted') emit(`觸屏點位清單點完（${featureCfg.points.length} 格）都沒有進展 → 改走設定檔推進`)
+              if (plan === 'featureTap' && featureCfg) {
+                let roundTaps = 0
+                // 每一下點之前都查：停止、整台時限、動作上限（含這一輪已點的）
+                const guard = () => this.stopped || Date.now() - firstFailAt > EXIT_MAX_MS || acts + roundTaps >= EXIT_MAX_ACTS
+                const fr = await featureTapRound(page, emit, featureCfg, feat.cursor, () => false, guard, `退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）`, () => { roundTaps++ })
+                acts += roundTaps
+                const next = applyFeatureRound(feat, fr, Date.now())
+                feat = next.state
+                if (next.then === 'retryExit') continue
+                if (fr.result === 'exhausted') emit(`觸屏點位清單點完（${featureCfg.points.length} 格）都沒有進展 → 改走設定檔推進`)
               }
               emit(`退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）→ 依設定檔推進遊戲後再試退出`)
               if ((profile?.bonusAction ?? 'spin') === 'auto_wait') {

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.17.1'
+export const APP_VERSION = '5.17.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.17.2', date: '2026-10-06', changes: ['fix(機台測試 JP／FG 點選 fallback)：CodeX 第二輪 P1——退出路徑觸屏推進截圖失敗改成結束本台自動操作、回傳待人工確認（原本只停點觸屏、仍會落入 SPIN／盲推）；每一下點之前的 guard 加上整台時限與動作上限。退出迴圈的推進決策抽成 planExitAdvance，探針加整合模擬'] },
   { version: '5.17.1', date: '2026-10-06', changes: ['fix(機台測試 JP／FG 點選 fallback)：CodeX review 兩個 P1＋例外條件——OCR 確認在 JP／FG 選擇畫面（feature-taps.json screenText）才點，讀不到／沒命中不點；退出路徑有進展後 60 秒內所有推進都不做；截圖失敗立刻停手交人工；每一下點之前再查結束／停止／時限'] },
   { version: '5.17.0', date: '2026-10-06', changes: ['change(機台測試 batch)：**待人工確認的機台 J 欄改填「驗證未過」**（CCTV 編號不符、退出未確認…；使用者 1006 定案），verdict 文字仍是「待人工確認：…」。舊 agent／已在遊戲內／只跑部分／必驗未驗／少結果仍不填'] },
   { version: '5.16.1', date: '2026-10-06', changes: ['fix(機台測試 batch)：判定不出來時清 Lark J 欄（QA確認狀態，下拉欄）改寫 null——原本寫空字串，Lark 會標「資料無效」紅角，畫面看起來是空的'] },

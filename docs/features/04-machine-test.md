@@ -246,4 +246,9 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - **畫面變動只是「暫停觀察」訊號**，不能證明進了 FG（整頁比對、雜訊只量一次、門檻未校準）。退出路徑有進展後的 60 秒內**所有推進都不做**（SPIN、觸屏、盲推），只重試退出。
 - **量不到就停手**：點之前或點之後截圖失敗＝`unsure` → 立刻停止點觸屏、emit 🆘 交人工；不能把缺圖當成「沒變化」繼續點。
 - **每一下點之前再查一次**結束（moneyNtc end）／停止／時限，查到就不點。
-- 探針 `scripts/feature-taps-probe.ts` 17 項（含上面三條；拿掉「check unsure 就停」會紅在對應那項）。
+- **退出路徑每一輪怎麼推只聽 `verdicts.ts planExitAdvance`**（CodeX 第二輪 P1，v5.17.2）：
+  `handOff`（觸屏推進量不到）→ **結束本台自動操作**、退出測試回 FAIL「待人工確認」並設 halt（batch 換帳號），不再落入 SPIN／盲推；
+  `hold` → 只重試退出；`featureTap` → 跑一輪；`legacy` → 原本推進流程。
+- 退出路徑每一下點之前的 guard ＝ 停止 **＋整台時限（EXIT_MAX_MS）＋動作上限（EXIT_MAX_ACTS，含這一輪已點的）**。
+- 探針 `scripts/feature-taps-probe.ts` 25 項，含退出迴圈整合模擬（unsure 之後推進次數為零、觀察期零推進）；
+  把 de8edea 的寫法（unsure 只把 cursor 設到底、繼續原本流程）注入回去，會紅在兩條退出迴圈案例。
