@@ -1407,6 +1407,19 @@ async function main() {
         Object.assign(m, { verdict: j2.verdict, J: j2.J, larkLine: shortLine(result, j2, null, stepList), detailLine: larkLine(result, j2, date.slice(5, 10)) })
         log(`${code} 進場失敗＝AFT 轉入失敗 state=${hit.state}（盒子 log ${hit.time}）`)
         saveSummary(summaryFile, summary)
+      })
+      // 1006 ARUZE 0331：進場「成功」但前端馬上跳 Tips「Machine connection timeout」（點掉會回大廳）——runner 沒判讀到，
+      // 後面每一步都對著那個彈窗跑、全部沒反應。盒子 log 同時間 aft_in_end success=false state=87。
+      // 使用者：這是 AFT error，不是 offline。→ 進場 pass 但 Spin 完全沒開局時也查盒子 log，命中就把進場改判 fail（F 只寫 AFT error）
+      else if (entry?.status === 'pass' && spinDidNotRound(result.steps)) chain = chain.then(async () => {
+        const hit = await lookupAftFailure(code, curUid, result.startedAt, result.finishedAt)
+        if (!hit) return
+        entry.status = 'fail'
+        entry.message += `｜AFT error state=${hit.state}（盒子 log ${hit.time} aft_in_end 失敗；進場後前端多半跳 Tips「Machine connection timeout」）`
+        const j2 = judge(result, stepList)
+        Object.assign(m, { verdict: j2.verdict, J: j2.J, larkLine: shortLine(result, j2, null, stepList), detailLine: larkLine(result, j2, date.slice(5, 10)) })
+        log(`${code} 進場後 AFT 轉入失敗 state=${hit.state}（盒子 log ${hit.time}）→ 改判 AFT error`)
+        saveSummary(summaryFile, summary)
       }) }
     // 畫面方向檢查（影子模式 2026-09-29）：只寫 summary／報告／F 欄，**不影響 J**；失敗也不擋回寫
     chain = chain.then(async () => {
