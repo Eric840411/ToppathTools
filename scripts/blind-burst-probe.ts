@@ -41,6 +41,10 @@ const cases: Array<[string, () => Promise<string>, string]> = [
     const a = await run(); const b = await run()
     return `${a.halt ?? '-'}|${has(b.halt ?? '-', '剩餘額度不夠')}|${sent}`
   }, '-|剩餘額度不夠|13'],
+  // 1007 合理性（CodeX：扣款與派彩分開，不取絕對值）
+  ['大額派彩（第 3 下後餘額多 500 萬）→ 照推、不當成讀錯', async () => { const r = await sim({ balAfter: n => 2_000_000 - n * 7_000 + (n >= 3 ? 5_000_000 : 0) }); return `${r.halt}/${r.sent}` }, '-/12'],
+  ['一次少掉遠超合理（讀錯，例 2,000,000 → 0）→ 停手待核對、不再按', async () => { const r = await sim({ balAfter: n => (n >= 2 ? 0 : 2_000_000 - n * 7_000) }); return `${has(r.halt, '待核對')}/${r.sent}` }, '待核對/2'],
+  ['少掉剛好在合理範圍內（單把 2 倍）→ 不擋', async () => { const r = await sim({ balAfter: n => 2_000_000 - n * 20_000 }); return `${has(r.halt, '剩餘額度不夠')}/${r.sent}` }, '剩餘額度不夠/5'],
 ]
 
 let fail = 0

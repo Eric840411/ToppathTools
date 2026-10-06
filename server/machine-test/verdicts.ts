@@ -247,7 +247,8 @@ export async function runTouchVisualFlow(d: {
 // CodeX 0930 要求成本有界、可模擬驗證：每一下「按之前」都要過完所有關卡，任一條不過就回 halt（呼叫端停整批、不換台）：
 //   停止指令／整台時限到期／單台次數上限／畫面 Handpay／餘額讀不到／剩餘額度不夠再付一把。
 // 「剩餘額度不夠再付一把」是硬上限：要求 maxSpend − 已花 ≥ spinCost 才按，所以最後一把也不會超過 maxSpend。
-export type BlindBurstState = { presses: number; bal0: number | null | undefined }
+/** lastBal／lastPresses：上一次讀到的機台餘額與當時的累計次數（1007 合理性檢查用） */
+export type BlindBurstState = { presses: number; bal0: number | null | undefined; lastBal?: number; lastPresses?: number }
 export async function runBlindBurst(d: {
   state: BlindBurstState
   maxPresses: number
@@ -275,6 +276,14 @@ export async function runBlindBurst(d: {
     if (/hand\s*-?\s*pay/i.test(await d.bodyText())) return { halt: '畫面出現 Handpay，需人工處理', pressed }
     const bal = await d.readBalance()
     if (bal == null) return { halt: '讀不到前端餘額，無法確認扣款上限', pressed }
+    // 1007 合理性（CodeX：扣款與派彩分開判，不取絕對值——JP 大額派彩本來就會超過）：
+    // 跟上一次讀值比，**少掉的**超過「單把估價 × 這段期間按的次數 × 2」→ 不合理，可能讀錯 → 當成讀不到、停手待核對（不說是資料汙染）
+    if (s.lastBal !== undefined) {
+      const drop = s.lastBal - bal
+      const allowed = d.spinCost * Math.max(1, s.presses - (s.lastPresses ?? s.presses)) * 2
+      if (drop > allowed) return { halt: `待核對：機台餘額一次少了 ${drop}（${s.lastBal} → ${bal}），超過合理範圍 ${allowed}，可能讀錯，先停手`, pressed }
+    }
+    s.lastBal = bal; s.lastPresses = s.presses
     const spent = Math.max(0, s.bal0 - bal)
     if (d.maxSpend - spent < d.spinCost) return { halt: `剩餘額度不夠再付一把（已少 ${spent}，上限 ${d.maxSpend}，單把估 ${d.spinCost}）`, pressed }
     await d.press()
@@ -443,4 +452,94 @@ export function applyFeatureRound(s: ExitFeatureState, r: { result: string; curs
   // stopped：被停止／時限／動作上限擋下——回去重試退出，由退出迴圈原本的上限檢查收尾
   if (r.result === 'stopped') return { state, then: 'retryExit' }
   return { state, then: 'legacy' }   // notOnScreen／exhausted
+}
+
+// ── 未監控機台「開局沒結束」＝疑似特殊遊戲（1007，claude-osm-3 規格 A；CodeX 定案）────────────────
+// 機台不在 OSMWatcher 名單（或狀態 0）時，特殊遊戲只看得到 moneyNtc：最後一筆是 begin、超過 OPEN_ROUND_SUSPECT_MS 沒有 end。
+// 門檻 35 秒：claude-osm-3 從 9 份 batch log 配對 1354 局 begin→end，p95 5 秒、最長 28 秒（ARUZE 正常局）；20 秒會誤觸發。
+// 推進流程跟 OSMWatcher 偵測到時同一套（關 Tips／面額 → featureTaps → bonusAction → 卡住救援），結束條件換成「收到這一局的 end」。
+// 安全（不能變付費下注）：
+//   - 只在這一局還開著時動作；**每一下實際點擊前都重查**（關遮罩、OCR、等待之後都要），收到 end 立刻停、不再加碼
+//   - 按 SPIN 要有「當下畫面是特殊遊戲」的明確證據（OCR 判成 spin）＋距離最後一則 moneyNtc 超過 quietMs（只是節流，不是保證）；
+//     沒有證據就等，逾時 stalled——end 延遲／漏送時寧可停在 stalled 交人工
+//   - 從頭到尾沒有 begin（讀不到 moneyNtc）＝不啟動
+export const OPEN_ROUND_SUSPECT_MS = 35_000
+export type OpenRoundResult = { result: 'done' | 'stalled' | 'stopped'; acts: number; ms: number; how: string[] }
+export async function superviseOpenRound(d: {
+  /** 這一局（綁定開始時那筆 begin）收到 end 了沒 */
+  ended: () => Promise<boolean>
+  /** 距離最後一則 moneyNtc 多久（毫秒） */
+  lastMoneyAgo: () => Promise<number>
+  stop: () => boolean
+  closeOverlays: () => Promise<void>
+  /** 有機種點位清單才給：一輪點選（內部每一下前也會查 ended）；回 progress／none／giveUp */
+  featureTaps?: () => Promise<'progress' | 'none' | 'giveUp'>
+  action: 'spin' | 'touchscreen' | 'takewin' | 'auto_wait'
+  /** 截圖 OCR 判斷畫面：spin＝畫面叫你按 SPIN／PLAY（特殊遊戲中）、touch、wait、unknown；截圖／OCR 失敗回 fail */
+  screen: () => Promise<'spin' | 'touch' | 'wait' | 'unknown' | 'fail'>
+  pressSpin: () => Promise<boolean>
+  touch: () => Promise<boolean>
+  /** 卡住救援（只做一次）：回傳學到的動作 */
+  rescue?: () => Promise<'spin' | 'touchscreen' | null>
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+  maxMs: number
+  maxActs: number
+  quietMs: number
+  pollMs: number
+  stallMs: number
+}): Promise<OpenRoundResult> {
+  const t0 = d.now()
+  const how: string[] = []
+  let acts = 0, action = d.action, ftOn = !!d.featureTaps, rescued = false, lastProgress = t0
+  const out = (result: OpenRoundResult['result']): OpenRoundResult => ({ result, acts, ms: d.now() - t0, how })
+  while (true) {
+    if (await d.ended()) return out('done')
+    if (d.stop()) return out('stopped')
+    if (d.now() - t0 >= d.maxMs) return out('stalled')
+    if (acts >= d.maxActs) { await d.sleep(d.pollMs); continue }   // 點擊上限：只被動等 end
+    await d.closeOverlays()
+    if (await d.ended()) return out('done')   // 關遮罩途中收到 end
+    if (ftOn && d.featureTaps) {
+      const r = await d.featureTaps()
+      if (r === 'progress') { acts++; lastProgress = d.now(); how.push('featureTaps') }
+      if (r === 'giveUp') ftOn = false
+    } else if (action === 'touchscreen') {
+      if (await d.ended() || d.stop()) continue
+      if (await d.touch()) { acts++; how.push('touch') }
+    } else if (action === 'spin' || action === 'takewin') {
+      const s = await d.screen()
+      // OCR 之後、真的按之前再查一次（CodeX）
+      if (s === 'spin' && !d.stop() && !(await d.ended()) && (await d.lastMoneyAgo()) >= d.quietMs) {
+        if (await d.pressSpin()) { acts++; how.push('spin') }
+      } else if (s !== 'spin') how.push(`wait(${s})`)
+    }
+    if (d.rescue && !rescued && d.now() - lastProgress >= d.stallMs) {
+      rescued = true
+      const learned = await d.rescue()
+      if (learned) { action = learned; ftOn = false; lastProgress = d.now(); how.push(`rescue→${learned}`) }
+    }
+    await d.sleep(d.pollMs)
+  }
+}
+
+/**
+ * 要不要啟動 superviseOpenRound（純函式）。log＝moneyNtc 流水（seq 遞增），sinceSeq＝這次進機台時的序號（換台清狀態）。
+ * - OSMWatcher 有這台而且狀態不是 0 → 交給原本的 waitForNormalStatus（monitored）
+ * - 進機台之後一筆 begin 都沒有 → 不啟動（noSignal）
+ * - 最後一筆是 end → 沒有開著的局（closed）
+ * - 最後一筆 begin 還沒滿門檻 → 再等（young，附還要等多久）
+ * - 滿門檻 → 啟動，綁定那一筆 begin 的 seq
+ */
+export function openRoundTrigger(s: { log: Array<{ seq: number; reason: string; ts: number }>; sinceSeq: number; now: number; osmStatus: number | undefined; suspectMs?: number }):
+  | { start: true; beginSeq: number; ageMs: number }
+  | { start: false; why: 'monitored' | 'noSignal' | 'closed' | 'young'; waitMs?: number } {
+  if (s.osmStatus !== undefined && s.osmStatus !== 0) return { start: false, why: 'monitored' }
+  const mine = s.log.filter(e => e.seq > s.sinceSeq && (e.reason === 'begin' || e.reason === 'end'))
+  if (!mine.some(e => e.reason === 'begin')) return { start: false, why: 'noSignal' }
+  const last = mine[mine.length - 1]
+  if (last.reason !== 'begin') return { start: false, why: 'closed' }
+  const ageMs = s.now - last.ts, need = s.suspectMs ?? OPEN_ROUND_SUSPECT_MS
+  if (ageMs < need) return { start: false, why: 'young', waitMs: need - ageMs }
+  return { start: true, beginSeq: last.seq, ageMs }
 }

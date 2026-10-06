@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -636,12 +636,19 @@ const AUDIO_MONITOR_SCRIPT = `
 
 // ─── Pinus Coin Tracker JS (injected before page load) ───────────────────────
 
-const PINUS_TRACKER_SCRIPT = `
+export const PINUS_TRACKER_SCRIPT = `
 (() => {
   if (window.__pinusTrackerInjected) return;
   window.__pinusTrackerInjected = true;
   window.__lastCoin = null;
   window.__coinUpdatedAt = 0;
+  // 1007（0330 少 315 億）：__lastCoin 不分路由，任何帶 coin 的回應／推播都會寫進去——退出時大廳錢包會蓋掉機台餘額。
+  // 機台餘額另外存，**只收 pinus.on 的 moneyNtc 推播**（request 回應一律不算）；開局／結束判斷也用這份流水（含 reason）。
+  // 跟 AutoSpin（toppath-agent.py TOPPATH_MONITOR_SCRIPT）同一套做法
+  window.__lastMachineCoin = null;
+  window.__machineCoinAt = 0;
+  window.__moneyLog = [];
+  window.__moneySeq = 0;
 
   function tryPatch() {
     var p = window.pinus;
@@ -666,6 +673,13 @@ const PINUS_TRACKER_SCRIPT = `
         if (data && typeof data.coin === 'number') {
           window.__lastCoin = data.coin;
           window.__coinUpdatedAt = Date.now();
+        }
+        if (route === 'moneyNtc' && data && typeof data.coin === 'number') {
+          window.__lastMachineCoin = data.coin;
+          window.__machineCoinAt = Date.now();
+          window.__moneySeq = (window.__moneySeq || 0) + 1;
+          window.__moneyLog.push({ seq: window.__moneySeq, coin: data.coin, reason: String(data.reason || ''), ts: Date.now() });
+          if (window.__moneyLog.length > 200) window.__moneyLog.shift();
         }
         cb && cb(data);
       });
@@ -1184,6 +1198,75 @@ export function classifyBonusText(raw: string): BonusPlanAction {
 export interface BonusLearn { action: 'spin' | 'touchscreen'; touchPoints?: string[]; ocr: string; note: string; shots: string[] }
 const BONUS_SAVE_DIR = join(MACHINE_TEST_ROOT, 'bonus-saves')
 const BONUS_OCR_PROMPT = 'This is a screenshot of a slot machine screen during a bonus / free game / jackpot feature. Transcribe ALL visible English text exactly as shown (instructions, buttons, counters), one item per line. Output only the text.'
+/**
+ * 未監控機台「開局沒結束」的處理器（1007，規格 A；判斷與安全規則在 verdicts.ts superviseOpenRound／openRoundTrigger，探針 scripts/open-round-probe.ts）。
+ * 綁定「這次進機台」：sinceSeq＝進機台時 moneyNtc 流水的序號，換台就是新的處理器。
+ * 回傳 null＝不需要處理（沒有開著的局／沒有 moneyNtc 訊號／OSMWatcher 有監控交給原流程）。
+ */
+export type OpenRoundHandler = (where: string) => Promise<{ result: 'done' | 'stalled' | 'stopped'; note: string } | null>
+function makeOpenRoundHandler(o: {
+  page: Page; emit: (msg: string) => void; machineCode: string; getProfile: () => MachineProfile | undefined
+  sinceSeq: number; osmStatus: () => number | undefined; stopped: () => boolean; filePrefix: string
+}): OpenRoundHandler {
+  const { page, emit, machineCode } = o
+  return async (where: string) => {
+    let trg = openRoundTrigger({ log: await readMoneyLog(page), sinceSeq: o.sinceSeq, now: Date.now(), osmStatus: o.osmStatus() })
+    // 局還年輕（< 35 秒）：等到滿門檻或收到 end 再判斷——正常局最長 28 秒
+    // ⚠️ 用 === false 收窄（這個 tsconfig 下 !trg.start 不會把 union 收窄）
+    while (trg.start === false && trg.why === 'young' && !o.stopped()) {
+      await sleep(Math.min((trg.waitMs ?? 0) + 300, 5000))
+      trg = openRoundTrigger({ log: await readMoneyLog(page), sinceSeq: o.sinceSeq, now: Date.now(), osmStatus: o.osmStatus() })
+    }
+    if (trg.start === false) return null
+    const beginSeq = trg.beginSeq
+    let endedFlag = false, handpay = false
+    const ended = async () => { if (!endedFlag) endedFlag = (await readMoneyLog(page)).some(e => e.seq > beginSeq && e.reason === 'end'); return endedFlag }
+    const stop = () => o.stopped() || handpay
+    const profile = o.getProfile()
+    const action = profile?.bonusAction ?? 'spin'
+    emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
+    const ft = featureTapsConfig(machineCode)
+    let ftCursor = 0
+    let learnedPoints: string[] | undefined
+    const r = await superviseOpenRound({
+      ended, stop,
+      lastMoneyAgo: async () => { const l = await readMoneyLog(page); return l.length ? Date.now() - l[l.length - 1].ts : Number.POSITIVE_INFINITY },
+      closeOverlays: async () => {
+        await dismissGameTips(page, emit)
+        await dismissDenomOverlay(page, emit, '疑似特殊遊戲')
+        handpay = /hand\s*-?\s*pay/i.test(await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''))
+        if (handpay) emit('⚠️ 畫面出現 Handpay → 停止推進，需人工處理')
+      },
+      featureTaps: ft ? async () => {
+        const fr = await featureTapRound(page, emit, ft, ftCursor, () => endedFlag, stop, `${where} 疑似特殊遊戲（可能卡在 JP／FG 選擇畫面）`)
+        ftCursor = fr.cursor
+        return fr.result === 'screen' || fr.result === 'done' ? 'progress' : fr.result === 'stopped' ? 'none' : 'giveUp'
+      } : undefined,
+      action,
+      screen: async () => {
+        const shot = await page.screenshot({ type: 'png' }).catch(() => null)
+        if (!shot) return 'fail'
+        try { return classifyBonusText(await callGeminiVisionViaProxy(BONUS_OCR_PROMPT, shot.toString('base64'))) } catch { return 'fail' }
+      },
+      pressSpin: async () => (await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])) !== null,
+      touch: async () => doTouchPoints(page, learnedPoints ? { ...(profile ?? ({} as MachineProfile)), touchPoints: learnedPoints } : profile, emit),
+      rescue: async () => {
+        const rr = await bonusStallRescue(page, emit, machineCode, () => !endedFlag, `${o.filePrefix}${machineCode}-open-${Date.now()}`)
+        emit(`🧩 疑似特殊遊戲救援：${rr.note}`)
+        if (!rr.learn) return null
+        if (rr.learn.action === 'touchscreen' && rr.learn.touchPoints?.length) learnedPoints = rr.learn.touchPoints
+        return rr.learn.action
+      },
+      now: Date.now, sleep: async ms => { await sleep(ms) },
+      maxMs: 8 * 60_000, maxActs: 60, quietMs: 8_000, pollMs: 8_000, stallMs: BONUS_STALL_MS,
+    })
+    const ways = [...new Set(r.how.map(h => h.replace(/\(.*\)$/, '')))].join('、') || '只等待'
+    const note = `疑似特殊遊戲（未監控，依 moneyNtc 判斷）：處理方式 ${ways}，操作 ${r.acts} 次，耗時 ${(r.ms / 1000).toFixed(0)} 秒，結果 ${r.result === 'done' ? 'done（收到 end）' : r.result}`
+    emit(`${r.result === 'done' ? '✅' : '⚠️'} ${where}：${note}`)
+    return { result: r.result, note }
+  }
+}
+
 async function bonusStallRescue(page: Page, emit: (msg: string) => void, machineCode: string, isSpecial: () => boolean, file: string): Promise<{ learn: BonusLearn | null; note: string }> {
   const shots: string[] = []
   const grab = async (tag: string) => {
@@ -1953,25 +2036,51 @@ async function stepStream(
   }
 }
 
-/** Read credit balance from pinus WebSocket interception (window.__lastCoin).
- *  Scans all frames — pinus may live in a child iframe, not the top frame.
+// readBalance()（讀 __lastCoin）1007 移除：__lastCoin 不分路由、會被大廳錢包蓋掉，機台餘額一律用下面的 readMachineBalance
+
+/**
+ * 機台內餘額（1007，0330 少 315 億的修正）：只採兩個來源——
+ *   ① moneyNtc 推播的 coin（tracker 的 __lastMachineCoin；遊戲 iframe 優先）
+ *   ② Tips 框「Cash out credit: N」（退出流程中最可靠）
+ * 兩個都沒有＝null（還沒有任何 moneyNtc，例如剛進機台還沒開過局）。**不退回 __lastCoin**——那份會被大廳錢包蓋掉。
  */
-async function readBalance(page: Page, _customSel?: string | null): Promise<number | null> {
-  // ⚠️ 2026-10-01 JJBXGRAND 0344：大廳 frame 跟遊戲 iframe（/game）都會攔到 coin——大廳是錢包（帶小數，例 7,632,524.96）、
-  // 遊戲裡是機台 CREDIT（例 2,002,282）。原本「第一個有值的 frame」→ 盲推起點讀到錢包、之後讀到機台，算成少了 563 萬，
-  // 扣款關卡誤觸停批。改成**固定優先讀遊戲 iframe**，沒有遊戲 frame（還在大廳）才退回其他 frame。
+export function parseCashOutCredit(text: string): number | null {
+  const m = String(text ?? '').match(/cash\s*-?\s*out\s+credit\s*[:：]?\s*([\d,]+(?:\.\d+)?)/i)
+  if (!m) return null
+  const n = Number(m[1].replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+async function readMachineBalance(page: Page): Promise<number | null> {
   let fallback: number | null = null
   for (const frame of page.frames()) {
     try {
-      const coin = await frame.evaluate(
-        () => (window as unknown as Record<string, unknown>).__lastCoin as number | null ?? null
-      )
+      const coin = await frame.evaluate(() => (window as unknown as Record<string, unknown>).__lastMachineCoin as number | null ?? null)
       if (coin === null) continue
       if (/\/game\b/.test(frame.url())) return coin
       if (fallback === null) fallback = coin
-    } catch { /* frame may be detached or cross-origin */ }
+    } catch { /* frame detached */ }
   }
-  return fallback
+  if (fallback !== null) return fallback
+  for (const frame of page.frames()) {
+    try {
+      const v = parseCashOutCredit(await frame.evaluate(() => document.body?.innerText ?? ''))
+      if (v !== null) return v
+    } catch { /* frame detached */ }
+  }
+  return null
+}
+export type MoneyEvent = { seq: number; coin: number; reason: string; ts: number }
+/** 這頁到目前的 moneyNtc 流水（遊戲 iframe 優先；沒有就取筆數最多的那個 frame） */
+async function readMoneyLog(page: Page): Promise<MoneyEvent[]> {
+  let best: MoneyEvent[] = []
+  for (const frame of page.frames()) {
+    try {
+      const log = await frame.evaluate(() => ((window as unknown as Record<string, unknown>).__moneyLog as unknown[] | undefined) ?? []) as MoneyEvent[]
+      if (/\/game\b/.test(frame.url()) && log.length) return log
+      if (log.length > best.length) best = log
+    } catch { /* frame detached */ }
+  }
+  return best
 }
 
 /** After certain actions (btn_bet click, cashout, re-entering the game...) the game may show a
@@ -2252,9 +2361,11 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
       return { step: 'Spin 測試', status: 'fail', message: 'Spin 按鈕存在但被禁用（disabled）', durationMs: Date.now() - t0 }
     }
 
-    // Read balance before spin
-    const balanceBefore = await readBalance(page, customBalanceSel)
-    emit(`Spin 前餘額：${balanceBefore !== null ? balanceBefore : '無法讀取'}`)
+    // Read balance before spin —— 1007：只用機台內餘額（moneyNtc／Cash out credit），剛進機台還沒開過局時是 null
+    void customBalanceSel
+    const balanceBefore = await readMachineBalance(page)
+    const moneySeq0 = await (async () => { const l = await readMoneyLog(page); return l.length ? l[l.length - 1].seq : 0 })()
+    emit(`Spin 前機台餘額：${balanceBefore !== null ? balanceBefore : '尚無（還沒有 moneyNtc）'}`)
 
     // Record pre-spin baseline to detect contamination from other machines playing audio
     let baselineRmsDb: number | undefined
@@ -2302,17 +2413,9 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
       // 每次點 Spin 前主動檢查並關閉，不能只靠例外處理（同步 AutoSpin.py 的作法）。
       await dismissDenomOverlay(page, emit, `Spin ${spinIdx + 1}`)
 
-      // Capture coin state before this spin to detect pinus update
-      const coinBeforeSpin = await readBalance(page, null)
-      const updatedAtBeforeSpin = await (async () => {
-        for (const frame of page.frames()) {
-          try {
-            const ts = await frame.evaluate(() => (window as unknown as Record<string,unknown>).__coinUpdatedAt as number ?? 0)
-            if (ts) return ts
-          } catch { /* skip */ }
-        }
-        return 0
-      })()
+      // Capture coin state before this spin —— 1007：看機台內餘額與 moneyNtc 序號（不用 __coinUpdatedAt，大廳錢包也會動它）
+      const coinBeforeSpin = await readMachineBalance(page)
+      const seqBeforeSpin = await (async () => { const l = await readMoneyLog(page); return l.length ? l[l.length - 1].seq : 0 })()
 
       // Use Playwright native click (dispatches proper pointer/mouse events).
       // If an overlay intercepts (e.g., DFDC free-game overlay), fall back to force click.
@@ -2347,22 +2450,13 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
 
       // Check if pinus got a new coin message after this spin
       await sleep(1000)
-      const coinAfterSpin = await readBalance(page, null)
-      const updatedAtAfterSpin = await (async () => {
-        for (const frame of page.frames()) {
-          try {
-            const ts = await frame.evaluate(() => (window as unknown as Record<string,unknown>).__coinUpdatedAt as number ?? 0)
-            if (ts) return ts
-          } catch { /* skip */ }
-        }
-        return 0
-      })()
-      const pinusUpdated = updatedAtAfterSpin > updatedAtBeforeSpin
+      const coinAfterSpin = await readMachineBalance(page)
+      const pinusUpdated = (await (async () => { const l = await readMoneyLog(page); return l.length ? l[l.length - 1].seq : 0 })()) > seqBeforeSpin
       const coinChanged = coinAfterSpin !== null && coinBeforeSpin !== null && coinAfterSpin !== coinBeforeSpin
       if (pinusUpdated || coinChanged) {
         emit(`Spin ${spinIdx + 1} 完成 | coin: ${coinBeforeSpin} → ${coinAfterSpin}`)
       } else {
-        emit(`⚠️ Spin ${spinIdx + 1} 未偵測到餘額變化（按鈕 disabled=${spinStarted}，pinus未更新）`)
+        emit(`⚠️ Spin ${spinIdx + 1} 未偵測到餘額變化（按鈕 disabled=${spinStarted}，沒有新的 moneyNtc）`)
       }
       if (spinIdx < SPIN_COUNT - 1) await sleep(500)
     }
@@ -2377,8 +2471,10 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
     await diagPinusFrames(page, emit)
 
     // Read balance after all spins
-    const balanceAfter = await readBalance(page, customBalanceSel)
-    emit(`${SPIN_COUNT} 次 Spin 後餘額：${balanceAfter !== null ? balanceAfter : '無法讀取'}`)
+    const balanceAfter = await readMachineBalance(page)
+    emit(`${SPIN_COUNT} 次 Spin 後機台餘額：${balanceAfter !== null ? balanceAfter : '無法讀取'}`)
+    const newMoney = (await readMoneyLog(page)).filter(e => e.seq > moneySeq0)
+    const nBegin = newMoney.filter(e => e.reason === 'begin').length, nEnd = newMoney.filter(e => e.reason === 'end').length
 
     if (balanceBefore !== null && balanceAfter !== null) {
       const diff = balanceAfter - balanceBefore
@@ -2400,10 +2496,20 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
       }
     }
 
+    // CodeX 1007：Spin 前還沒有機台餘額（剛進機台沒開過局）時，不退回其他來源——用「這次點擊之後的新 begin」確認開局、end 確認完成，
+    // 餘額變化標未驗
+    if (nBegin > 0 && nEnd > 0) {
+      return {
+        step: 'Spin 測試',
+        status: 'pass',
+        message: `✅ Spin 確認執行（${SPIN_COUNT} 次，本次 moneyNtc begin ${nBegin}／end ${nEnd}；Spin 前尚無機台餘額，餘額變化未驗${balanceAfter !== null ? `，Spin 後 ${balanceAfter}` : ''}）`,
+        durationMs: Date.now() - t0,
+      }
+    }
     return {
       step: 'Spin 測試',
       status: 'warn',
-      message: `Spin 按鈕已找到並點擊 ${SPIN_COUNT} 次（無法讀取餘額，無法確認是否執行）`,
+      message: `Spin 按鈕已找到並點擊 ${SPIN_COUNT} 次（無法讀取機台餘額，無法確認是否執行；本次 moneyNtc begin ${nBegin}／end ${nEnd}）`,
       durationMs: Date.now() - t0,
     }
   } catch (e) {
@@ -2691,6 +2797,7 @@ async function stepIdeck(
   shouldStop?: () => boolean,
   debugGmid?: string,
   sessionPrefix = '',
+  openRound?: OpenRoundHandler,   // 1007：未監控機台開局沒結束 → 疑似特殊遊戲處理器（收到 end 後繼續下一顆）
 ): Promise<StepResult> {
   const t0 = Date.now()
   try {
@@ -2941,7 +3048,11 @@ async function stepIdeck(
           // 1006 ARUZE 0335：開局 45 秒沒結束，常是中 JP（選元寶）／FG（選卡）要觸屏點才會往下走。
           // 機種在 feature-taps.json 有點位清單才點；只點觸屏格，iDeck 按鍵本身仍然不補點
           let ftNote = ''
-          const ft = !done && !shouldStop?.() ? featureTapsConfig(machineCode) : null
+          // 1007 規格 A：未監控機台交給共用處理器（含 featureTaps／bonusAction／救援，結束條件＝收到這一局的 end）；
+          // 回 null＝不適用（OSMWatcher 有監控），照原本的點位清單流程
+          const orr = !done && !shouldStop?.() && openRound ? await openRound(`iDeck ${label}`) : null
+          if (orr) { ftNote = orr.note; done = isEnd() || orr.result === 'done' }
+          const ft = !done && !orr && !shouldStop?.() ? featureTapsConfig(machineCode) : null
           if (ft) {
             const deadline = Date.now() + FEATURE_TAP_MAX_MS
             const all: FeatureTapLog[] = []
@@ -2958,7 +3069,7 @@ async function stepIdeck(
             ftNote = `JP／FG 觸屏推進 ${all.filter(l => l.result === 'done' || l.result === 'screen' || l.result === 'none').length} 下（${featureTapSummary(all) || '沒點到'}）${why}`
           }
           if (!done) { o.result = 'spinTimeout'; o.note = `${o.note ? o.note + '；' : ''}開局後 45 秒內沒等到 moneyNtc end（iDeck 不補點${ftNote ? '；' + ftNote + '仍未結束' : ''}）` }
-          else o.note = `${o.note ? o.note + '；' : ''}有開局（moneyNtc begin→end）${ftNote ? '；' + ftNote : ''}`
+          else o.note = `${o.note ? o.note + '；' : ''}有開局（moneyNtc begin→end${orr ? '，觸發特殊遊戲' : ''}）${ftNote ? '；' + ftNote : ''}`
         } else o.note = `${o.note ? o.note + '；' : ''}沒開局`
       }
 
@@ -4477,7 +4588,7 @@ async function exitSnap(page: Page, emit: (msg: string) => void, trace: ExitTrac
       const t = await f.evaluate(() => document.body?.innerText ?? '').catch(() => '')
       for (const m of t.match(EXIT_TEXT_RE) ?? []) texts.add(m.trim())
     }
-    const bal = await readBalance(page).catch(() => null)
+    const bal = await readMachineBalance(page).catch(() => null)   // 1007：機台內餘額（不是大廳錢包）
     let shot = ''
     if (trace.attempt <= 3 || trace.attempt % 5 === 0) {
       mkdirSync(EXIT_SAVE_DIR, { recursive: true })
@@ -4874,10 +4985,20 @@ export class MachineTestRunner extends EventEmitter {
             profile = { ...(profile ?? ({ machineType } as MachineProfile)), bonusAction: r.learn.action, ...(r.learn.touchPoints?.length ? { touchPoints: r.learn.touchPoints } : {}) }
             return profile
           }
+          // 1007 規格 A：綁定這次進機台（moneyNtc 序號基準），未監控機台開局沒結束時由它處理
+          const moneySeqAtEntry = await (async () => { const l = await readMoneyLog(page); return l.length ? l[l.length - 1].seq : 0 })()
+          const openRound = makeOpenRoundHandler({
+            page, emit, machineCode, getProfile: () => profile, sinceSeq: moneySeqAtEntry,
+            osmStatus: () => this.osmStatus.get(machineCode), stopped: () => this.stopped, filePrefix: this.sessionPrefix,
+          })
           const checkOsm = async () => {
             if (this.stopped) return
             const s = this.osmStatus.get(machineCode)
-            if (s === undefined || s === 0) return  // normal — no log, proceed immediately
+            if (s === undefined || s === 0) {
+              const orr = await openRound('步驟之間')
+              if (orr) stepResults.push({ step: '特殊遊戲等待', status: orr.result === 'done' ? 'pass' : 'warn', message: orr.note, durationMs: 0 })
+              return
+            }
             const bonusWait = await waitForNormalStatus(this.osmStatus, machineCode, page, profile, emit, () => this.stopped, stallRescue)
             if (bonusWait) {
               stepResults.push({ step: '特殊遊戲等待', status: 'pass', message: `偵測到「${bonusWait.label}」，等待 ${(bonusWait.waited / 1000).toFixed(0)}s 後完成`, durationMs: bonusWait.waited })
@@ -5028,7 +5149,7 @@ export class MachineTestRunner extends EventEmitter {
                 // 代價：feature 在這 60 秒中途結束的話，剩下的幾下是一般付費 Spin（最多約 11 下）。
                 // CodeX 0930：成本要有界——付費 Spin 可能再中 feature、跨輪累積。整台另外設盲推總次數與扣款上限，
                 // 每一下都看停止／Handpay；任一條觸發就停整批（不換台，帳號可能還坐在這台）。
-                // 整台總時限沿用 EXIT_MAX_MS（20 分）。扣款用前端餘額（readBalance，Spin 步驟同一個來源）；讀不到就停批（CodeX：無法確認就不按）。
+                // 整台總時限沿用 EXIT_MAX_MS（20 分）。扣款用機台內餘額（readMachineBalance：moneyNtc／Cash out credit，Spin 步驟同一個來源）；讀不到就停批（CodeX：無法確認就不按）。
                 // 流程在 verdicts.ts runBlindBurst（探針 scripts/blind-burst-probe.ts 模擬各停止條件）
                 emit(`不在影像辨識監控：連續推進 60 秒（每 5 秒一下）再試退出｜本台盲推累計 ${blind.presses}/${BLIND_MAX_PRESSES} 下`)
                 const b = await runBlindBurst({
@@ -5037,7 +5158,7 @@ export class MachineTestRunner extends EventEmitter {
                   isStopped: () => this.stopped,
                   deadlineExceeded: () => Date.now() - firstFailAt > EXIT_MAX_MS || acts >= EXIT_MAX_ACTS,
                   bodyText: () => page.evaluate(() => document.body?.innerText ?? '').catch(() => ''),
-                  readBalance: () => readBalance(page, profile?.balanceSelector ?? null),
+                  readBalance: () => readMachineBalance(page),   // 1007：只用機台內餘額（0330：大廳錢包蓋掉機台餘額，算成少 315 億）
                   press: async () => {
                     await dismissGameTips(page, emit)
                     // 兩段式機種（bonus-sequence.json thenSpin）點完觸屏後的那一下 SPIN：此刻重新檢查停止／Handpay／次數／剩餘額度，
@@ -5047,7 +5168,7 @@ export class MachineTestRunner extends EventEmitter {
                       const d = extraSpinDecision({
                         stopped: this.stopped, presses: blind.presses, maxPresses: BLIND_MAX_PRESSES,
                         bodyText: await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''),
-                        bal: await readBalance(page, profile?.balanceSelector ?? null), bal0: blind.bal0,
+                        bal: await readMachineBalance(page), bal0: blind.bal0,
                         maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST,
                       })
                       if (d.ok) { blind.presses++; acts++ }
@@ -5137,7 +5258,7 @@ export class MachineTestRunner extends EventEmitter {
           if (steps.ideck) {
             await checkOsm()
             const ideckXpaths = (profile?.ideckXpaths ?? []).length > 0 ? profile!.ideckXpaths! : this.betRandomConfig[machineCode]
-            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix)
+            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix, openRound)
             stepResults.push(r6)
             this.log(`${workerTag} [${r6.status.toUpperCase()}] iDeck: ${r6.message}`, machineCode)
           }

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.28.6'
+export const APP_VERSION = '5.29.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.29.0', date: '2026-10-07', changes: ['fix(機台測試)：**機台餘額只用機台內的值**（0330 少 315 億的根因）——注入的 coin 追蹤不分路由，退出時大廳錢包把機台餘額蓋掉。改成只收 moneyNtc 推播（另有 Tips「Cash out credit」），Spin 前後、盲推扣款關卡、退出紀錄都改用它；Spin 前還沒有機台餘額時改用本次 begin／end 確認開局、餘額標未驗；盲推加合理性：一次少掉超過單把×次數×2 → 停手待核對（派彩變多不擋）', 'feat(機台測試)：**未監控機台「開局後沒結束」＝疑似特殊遊戲**——不在 OSMWatcher（或狀態 0）的機台，moneyNtc begin 超過 35 秒沒 end（1354 局正常最長 28 秒），走跟特殊遊戲同一套推進（關 Tips／面額 → 點位清單 → bonusAction → 卡住救援），收到 end 就停；步驟之間與 iDeck 都會處理，iDeck 收到 end 後繼續測下一顆。按 SPIN 要畫面 OCR 確認在特殊遊戲中＋距上一則 moneyNtc 8 秒以上，每一下前重查；沒有 moneyNtc 訊號不啟動。規則 claude-osm-3 規格、CodeX 定案'] },
   { version: '5.28.6', date: '2026-10-06', changes: ['ui(Jackpot 監控)：門檻來源「從未取得」時顯示原因（例如「OSM_WATCH_URL 未設定」並提示要設的環境變數）；原本只有「更新失敗」才顯示原因，正式站一直顯示從未取得卻看不出為什麼'] },
   { version: '5.28.5', date: '2026-10-06', changes: ['fix(UAT 後台 站台警告彈窗)：CodeX 596f4df [P2]——判斷「還有其他對話框開著、遮罩要留著」時只看 el-dialog，漏了 MessageBox 確認框與 drawer；站台警告＋MessageBox 同時開著會把確認框的遮罩拿掉。補上兩者與回歸測試'] },
   { version: '5.28.4', date: '2026-10-06', changes: ['fix(UAT 後台)：站台「機台異常」警告彈窗的關閉規則統一成一支（site-warning.js，CodeX 定案）——只認「標題 Warnning／Warning＋內文 machines are abnormal」，真的 Warning 確認框不再被藏；遮罩只在沒有其他對話框開著時才拿掉。後台設定片段開頁與點擊前也會關這個彈窗（原本沒關，片段第一下點擊被遮罩擋到逾時，claude-osm-2 回報）。uat-cp 實測：標題 Warnning、內文 Currently 20 machines are abnormal，關得掉'] },

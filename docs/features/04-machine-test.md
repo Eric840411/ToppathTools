@@ -265,3 +265,24 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 實測（machine-test 的 Lark 應用程式）：`upload_all` → code 0（claude-osm-3 測）；**分片**（>20MB，upload_prepare／part×6／finish）21MB → 全部 code 0，tenant_readable 也成功（claude-toppath 測，用的是同一串 API 呼叫的獨立腳本，不是直接呼叫 uploadDrive）
 - 限制：應用程式沒有 `drive:drive`，讀不到資料夾 meta、**刪不掉**資料夾裡的檔案（只能上傳）。測試留下的檔案要人手動刪
 
+## 機台餘額只用機台內的值＋未監控機台疑似特殊遊戲（v5.29.0，2026-10-07）
+
+規格：`osm-qa-agent/reports/spec-mt-feature-detect-balance-1007.md`（claude-osm-3 整理、主使用者 10/07 核准「1跟2不做，其他都做」）。做法 CodeX 定案（Discord 10/07）。
+
+### B. 餘額
+- **根因**：`PINUS_TRACKER_SCRIPT` 把 `pinus.request` 任何回應、`pinus.on` 任何推播，只要帶 coin 就寫 `__lastCoin`——退出時伺服器回的大廳錢包把機台餘額蓋掉（證據 `osm-qa-agent/reports/aruze-0330-balance-evidence-1006.txt`：before-quit 2,000,000 → end 31,566,687,267.61；0330 盲推關卡算成「已少 315 億」停批）
+- tracker 另存 `__lastMachineCoin`／`__machineCoinAt`／`__moneyLog`（seq、coin、reason、ts），**只在 `pinus.on` 且 route＝moneyNtc** 更新（跟 AutoSpin `toppath-agent.py` 同一套）；`__lastCoin` 不動
+- `readMachineBalance`：遊戲 iframe 的 `__lastMachineCoin` → Tips「Cash out credit: N」（`parseCashOutCredit`）→ null。舊的 `readBalance` 移除
+- Spin：前後餘額、每下「有沒有新 moneyNtc」都改看機台內；**Spin 前還沒有機台餘額**（剛進機台沒開過局）不退回其他來源——本次有 begin 且有 end → pass、訊息寫「餘額變化未驗」（CodeX）
+- 盲推扣款關卡、`extraSpinDecision`、退出紀錄（exitSnap）全部改讀機台內餘額；讀不到照舊停
+- 盲推合理性（`runBlindBurst`）：跟上一次讀值比，**少掉**的超過「單把估價 × 期間按的次數 × 2」→ 停手、訊息「待核對」（可能讀錯，不說是資料汙染）；**變多不擋**（JP 大額派彩）——CodeX：扣款與派彩分開判，不取絕對值
+- 驗證：`npx tsx scripts/machine-coin-tracker-probe.ts`（假 window 跑注入腳本，重放 0322／0324 順序：錢包回應後機台餘額仍是 200 萬、__lastCoin 被蓋證明情境重現）；突變「拿掉 route 過濾」紅。`blind-burst-probe` 加 3 條（派彩變多照推、一次少到 0 停手待核對、剛好在範圍內不擋）
+
+### A. 疑似特殊遊戲
+- 判斷（`verdicts.ts openRoundTrigger`）：OSMWatcher 沒這台或狀態 0；進機台之後有 begin；最後一筆是 begin；超過 **35 秒**（`OPEN_ROUND_SUSPECT_MS`）。35 秒的依據：claude-osm-3 從 9 份 batch log 配對 1354 局，p50 0s、p95 5s、最長 28s（ARUZE）；規格原本 20 秒會誤觸發
+- 處理（`superviseOpenRound`，runner 的 `makeOpenRoundHandler`）：關 Tips／面額（含 Handpay 偵測）→ 有點位清單走 `featureTapRound` → 否則 bonusAction（touchscreen 點 touchPoints；spin 要 OCR `classifyBonusText`＝spin 而且距上一則 moneyNtc ≥ 8 秒才按）→ 2 分鐘沒進展救援一次（`bonusStallRescue`）。結束條件：收到**綁定那一筆 begin** 之後的 end
+- 安全：每一下實際點擊前重查 end（關遮罩後、OCR 後都查）；沒有 begin 不啟動；上限 8 分鐘／60 次操作，到了 stalled；停止／Handpay 即停。CodeX：N 秒只能節流不能保證，所以 SPIN 另外要畫面證據，沒有就等
+- 掛的位置：`checkOsm()`（每個步驟之前，含退出前）——未監控時先看有沒有開著的局，處理完記一筆「特殊遊戲等待」；iDeck 開局 45 秒沒結束時（未監控）改走處理器，收到 end 後該顆記「有開局（觸發特殊遊戲）」、繼續下一顆（原本 spinTimeout 整段中止）。OSMWatcher 有監控的機台照舊
+- 驗證：`npx tsx scripts/open-round-probe.ts`（19 條：關遮罩／OCR 途中收到 end、畫面回普通局不按、節流、上限、點位、觸發條件…）；突變「拿掉 SPIN 前 end 重查」「拿掉關遮罩後與觸屏前重查」「拿掉沒訊號不啟動」各自紅
+- ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
+
