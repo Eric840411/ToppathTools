@@ -55,6 +55,7 @@
 → [checkOsm] iDeck 測試（XPath 或自動偵測按鈕點擊 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
 → [checkOsm] 觸屏測試（span 文字點位 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
 → [checkOsm] CCTV 號碼比對（截圖 + Gemini Vision OCR）
+  - 存檔／上傳（cctv-saves，batch 貼 Lark H 欄）一律是**整個 viewport**；OCR／鏡頭比對仍用裁到 `div.cctv_video` 的圖（v5.15.1）
 → [checkOsm] 退出測試（btn_cashout → leaveGMNtc，errcode=10002 時自動重試最多 3 次）
 ```
 > `[checkOsm]`：每步驟前檢查 OSMWatcher 狀態，若偵測到特殊遊戲（FG/JP/Handpay），執行指定 bonusAction 一次後持續 Spin 直到 status=0。

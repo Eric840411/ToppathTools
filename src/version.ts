@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.15.0'
+export const APP_VERSION = '5.15.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.15.1', date: '2026-10-06', changes: ['fix(機台測試)：CCTV 截圖存檔／上傳（Lark H 欄）一律整頁，不再只存裁切的 CCTV 容器；OCR 與鏡頭比對仍用裁切圖'] },
   { version: '5.15.0', date: '2026-10-06', changes: ['merge(機台測試)：**把 0929～1004 機台自動化測試改動合併進 main**——原本放在 feat/machine-test-1003 分支（當時記為 5.2.0，跟 main 的 5.2.0 撞號）與 osm-qa-agent 本機，一直沒合併，正式站的 agent 按「更新程式碼」會退回舊 runner。合併時保留 main 的 agent 斷線修正（v5.12.4）', '（原分支 5.2.0）feat(機台測試)：合併 0929～1003 機台自動化測試改動（osm-qa-agent 實戰回饋）——推流沒畫面最多等 30 秒、canvas-only 判 mainstream no show；退出紀錄（5 個時間點截圖＋彈框文字＋餘額＋WS 收發）；退出連續 3 次失敗＝帳號卡住（batch 換帳號續跑、不停批），含 Handpay／AFT；退出處理手冊（症狀→處理，白名單動作）；選單閘門多參考圖＋自動學選單參考圖與關選單觸屏格；特殊遊戲 2 分鐘沒進展→截圖 OCR 判斷按 SPIN 或逐格學觸屏點位；新機種 bonusAction 預設 spin；CCTV 切換前留推流截圖；量觸屏座標模式（MT_GATE_PROBE）。⚠️ 版號暫定：跟 main 同時有 minor 時，後合併的人改下一個 minor（toppath session 1003 約定）'] },
   { version: '5.14.0', date: '2026-10-06', changes: ['feat(Meegle 批量工具)：**使用說明**——開單、評論、狀態、修改四頁下方多了說明：Sheet 要有哪些欄（必填／選填）、畫面上每個選項會怎樣、送完會寫回什麼，開單附範例表。跟著分頁切換，可以收起（會記住）。修仙版用新的美術圖示（CodeX 繪製），不用 emoji（使用者要求）'] },
   { version: '5.13.1', date: '2026-10-06', changes: ['fix(通知設定搬遷)：搬遷失敗時 server 不啟動（原本照常服務，會把全域關閉的 AutoSpin 通知變成啟用）；寫入補送佇列失敗時整段退回，不再回報成功（CodeX review）'] },
