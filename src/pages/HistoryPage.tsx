@@ -489,7 +489,8 @@ function MeegleCommentHistory({ detail }: { detail: Record<string, unknown> }) {
                 <td style={cell}>
                   {(r.steps ?? []).map(s => (
                     <span key={s.step} title={s.message ?? ''} style={{ marginRight: 8, whiteSpace: 'nowrap', color: color(s.phase) }}>
-                      {MC_STEP[s.step] ?? (s.step.startsWith('video:') ? `影片 ${Number(s.step.slice(6)) + 1}` : s.step)}：{MC_PHASE[s.phase] ?? s.phase}
+                      {/* 影片步驟的 key 是 video:<內容 hash>（v4.272.0 起），不是序號——用它在這列影片步驟裡的位置編號（原本 Number(hash) 顯示成 NaN） */}
+                      {MC_STEP[s.step] ?? (s.step.startsWith('video:') ? `影片 ${(r.steps ?? []).filter(x => x.step.startsWith('video:')).findIndex(x => x.step === s.step) + 1}` : s.step)}：{MC_PHASE[s.phase] ?? s.phase}
                     </span>
                   ))}
                 </td>

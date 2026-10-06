@@ -43,6 +43,8 @@ type Item = {
   review: string | null; reviewStale: boolean
   remote: { status: 'idle' | 'loading' | 'ok' | 'error'; state?: RemoteState; hash?: string; current?: string; error?: string }
   confirmHash: string | null
+  /** 覆寫測試頁（2026-10-06 使用者要的開關，預設開）：關＝測試頁不動，只發評論／影片評論 */
+  overwriteDesc: boolean
   /** 每次手改正文 +1；AI 回來時版本不同就不套用（晚回的舊結果不能蓋新稿） */
   rev: number
 }
@@ -261,7 +263,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         rowIndex: r.rowIndex, workItemId: r.workItemId!, summary: r.summary, person: personOf(r.rec), asEmail: id.email,
         text, commentText: defaultComment(text), commentEdited: false, images: [], videos: [], attError: '', skipMissingAtt: false, attLoading: !!attachmentColumn,
         ai: useAiFormat || useAiReview ? 'queued' : 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
-        remote: { status: 'idle' }, confirmHash: null, rev: 0,
+        remote: { status: 'idle' }, confirmHash: null, overwriteDesc: true, rev: 0,
       }
     })
     setItems(base); setCurrent(0); setStep(3)
@@ -364,12 +366,12 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   /** 這一列能不能送（「可送出 N 列」排除衝突、處理中、驗證失敗——CodeX） */
   const itemIssue = (it: Item): string => {
     if (!rowIdentity(it.person).ok) return '身分不能用'
-    if (it.remote.status !== 'ok') return it.remote.status === 'error' ? '讀不到 Meegle 現況' : '讀取 Meegle 中'
-    if (it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return '遠端已被修改，需確認'
+    if (it.overwriteDesc && it.remote.status !== 'ok') return it.remote.status === 'error' ? '讀不到 Meegle 現況' : '讀取 Meegle 中'
+    if (it.overwriteDesc && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return '遠端已被修改，需確認'
     if (it.ai === 'running' || it.ai === 'queued') return it.ai === 'queued' ? 'AI 排隊中' : 'AI 處理中'
     if (it.attLoading) return '附件載入中'
     if (it.attError && !it.skipMissingAtt) return '有附件沒載到'
-    if (!it.text.trim()) return '測試說明是空的'
+    if (it.overwriteDesc && !it.text.trim()) return '測試說明是空的'
     if (!it.commentText.trim()) return '評論是空的'
     return ''
   }
@@ -400,7 +402,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
             description: it.text, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })),
             commentText: it.commentText, videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })),
             reviewText: useAiReview && it.review ? it.review : null,
-            expectedRemoteHash: it.remote.hash, confirmedRemoteHash: it.confirmHash,
+            // 不覆寫測試頁時後端不讀不寫測試說明，hash 用不到（給固定值過格式檢查）
+            expectedRemoteHash: it.overwriteDesc ? it.remote.hash : '0'.repeat(64), confirmedRemoteHash: it.confirmHash, overwriteDesc: it.overwriteDesc,
             allowRepeat: !!row?.commented, space,
           })
           res = { rowIndex: it.rowIndex, workItemId: it.workItemId, summary: it.summary, batchId: id, steps: j.steps, claim: j.claim.kind }
@@ -464,7 +467,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         batchId: r.batchId, sheetUrl: loadedUrl, sheetRow: it.rowIndex, summary: it.summary, workItemId: it.workItemId, asEmail: it.asEmail,
         description: it.text, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })), commentText: it.commentText,
         videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })), reviewText: useAiReview && it.review ? it.review : null,
-        expectedRemoteHash: it.remote.hash, confirmedRemoteHash: it.confirmHash, allowRepeat: !!rows.find(x => x.rowIndex === it.rowIndex)?.commented, space,
+        expectedRemoteHash: it.overwriteDesc ? it.remote.hash : '0'.repeat(64), confirmedRemoteHash: it.confirmHash, overwriteDesc: it.overwriteDesc, allowRepeat: !!rows.find(x => x.rowIndex === it.rowIndex)?.commented, space,
       })
       setResults(prev => prev.map(x => x.workItemId === r.workItemId ? { ...x, steps: j.steps, claim: j.claim.kind, error: undefined } : x))
     } catch (e) {
@@ -490,7 +493,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   const missing = cur ? validateCommentSections(cur.text) : []
 
   const statusOf = (it: Item): { cls: string; text: string } => {
-    if (it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
+    if (it.overwriteDesc && it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
     if (it.ai === 'running' || it.ai === 'queued' || it.remote.status === 'loading' || it.remote.status === 'idle' || it.attLoading) return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : it.attLoading ? '附件載入中' : '讀取中' }
     if (itemIssue(it)) return { cls: 'warn', text: '待處理' }
     if (validateCommentSections(it.text).length) return { cls: 'pending', text: '待補資料' }
@@ -645,7 +648,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         {/* ── ③ 逐列預覽 ── */}
         {step === 3 && (
           <div className="mb-pane">
-            <div className="mc-overwrite"><Icon name="warn" /> 將整格覆寫測試說明</div>
+            <div className="mc-overwrite"><Icon name="warn" /> {items[current] && !items[current].overwriteDesc ? '這一列不動測試頁，只發評論與影片' : '將整格覆寫測試說明（圖片嵌在最後、影片放成連結）'}</div>
             <div className="mc-head">
               <h3 className="mb-pane-title">逐列預覽</h3>
               {items.length > 0 && (
@@ -679,6 +682,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                 <>
                   <section className="mc-panel">
                     <div className="mc-panel-head"><Icon name="doc" /> 測試說明 <span className="mb-muted">#{cur.workItemId}</span>
+                      <label className="mc-switch" style={{ marginLeft: 'auto' }} title="關掉＝Meegle 測試頁整格不動，只發評論與影片評論"><input type="checkbox" checked={cur.overwriteDesc}
+                        onChange={e => editItem(cur.rowIndex, { overwriteDesc: e.target.checked })} /> 覆寫測試頁</label>
                       {cur.ai === 'running' && <span className="mb-badge mb-badge--pending">AI 處理中</span>}
                       {cur.aiFormatted && cur.ai !== 'running' && <span className="mb-badge mb-badge--ok">AI 已整理</span>}
                     </div>

@@ -209,3 +209,12 @@ export function listPreviousForSource(db: DB, sourceKey: string, space: MeegleSp
     ORDER BY r.created_at`).all(sourceKey, space) as CommentRow[]
   return rows.map(r => ({ ...r, steps: getSteps(db, r.batch_id, r.row_key) }))
 }
+
+/**
+ * 「覆寫測試頁」開關（2026-10-06）：關＝desc 記 skipped；開＝skipped 改回 none（上次關、這次開要能真的寫）。
+ * 只動還沒做出結果的（none／skipped／failed）；done／creating／unknown 不碰——寫過的就是寫過了。
+ */
+export function applyDescMode(db: DB, batchId: string, rowKey: string, overwrite: boolean, now = Date.now()): void {
+  db.prepare(`UPDATE meegle_comment_steps SET phase = ?, message = ?, updated_at = ? WHERE batch_id = ? AND row_key = ? AND step = 'desc' AND phase IN ('none', 'skipped', 'failed')`)
+    .run(overwrite ? 'none' : 'skipped', overwrite ? null : '使用者選擇不覆寫測試頁', now, batchId, rowKey)
+}

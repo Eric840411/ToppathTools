@@ -82,6 +82,8 @@ type RowContent = {
   sheetUrl: string; sheetRow: number; summary: string; workItemId: string; asEmail: string
   description: string; images: Array<{ cacheId: string; name: string }>; commentText: string
   videos: Array<{ cacheId: string; name: string }>; reviewText: string | null
+  /** 覆寫測試頁（2026-10-06 開關；舊紀錄沒有這個欄位＝true） */
+  overwriteDesc?: boolean
 }
 
 /** 送出一列（/row 與 /row/continue 共用）。身分、附件快取、租約都在這裡處理 */
@@ -121,6 +123,7 @@ async function executeRow(req: Request, ctx: Ctx, batchId: string, space: Meegle
       description: c.description, images: c.images.map(f => ({ name: f.name, path: cachePath(f.cacheId) })),
       commentText: c.commentText, videos, reviewText: c.reviewText,
       expectedRemoteHash: opts.expectedRemoteHash, confirmedRemoteHash: opts.confirmedRemoteHash,
+      overwriteDesc: c.overwriteDesc !== false,
     })
     if (result.claim.kind === 'space-mismatch' || result.claim.kind === 'space-conflict') {
       return { status: 409, body: { ok: false, code: result.claim.kind === 'space-conflict' ? 'SPACE_CONFLICT' : 'SPACE_MISMATCH', message: spaceGuardMessage(result.claim, space) } }
@@ -248,6 +251,7 @@ router.post('/api/meegle/comment/row', writeLimiter, busyHandler('comment', b =>
       reviewText: z.string().max(20000).nullable().default(null),
       expectedRemoteHash: z.string().regex(/^[0-9a-f]{64}$/), confirmedRemoteHash: z.string().regex(/^[0-9a-f]{64}$/).nullable().default(null),
       allowRepeat: z.boolean().default(false),
+      overwriteDesc: z.boolean().default(true),
       space: spaceSchema,
     }).parse(req.body)
     const { batchId, expectedRemoteHash, confirmedRemoteHash, allowRepeat, space, ...content } = body
@@ -265,7 +269,8 @@ router.post('/api/meegle/comment/row/continue', writeLimiter, busyHandler('comme
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
     const row = ownedRow(req, res, ctx, body.batchId, body.rowKey); if (!row) return
     const desc = getSteps(db, body.batchId, body.rowKey).find(st => st.step === 'desc')
-    if (desc?.phase !== 'done') return res.status(409).json({ ok: false, message: '測試說明還沒成功寫入，請回 ③ 重新預覽這一列再送' })
+    // skipped＝這列選了「不覆寫測試頁」，也可以接著做評論（內容用上次存的，開關跟著存的走）
+    if (desc?.phase !== 'done' && desc?.phase !== 'skipped') return res.status(409).json({ ok: false, message: '測試說明還沒成功寫入，請回 ③ 重新預覽這一列再送' })
     let content: RowContent
     try { content = JSON.parse(row.payload ?? '') as RowContent } catch { return res.status(409).json({ ok: false, message: '找不到上次送出的內容，請回 ③ 重新預覽這一列再送' }) }
     // desc 已完成，runner 不會再比遠端 hash；這裡給一個不會被用到的值

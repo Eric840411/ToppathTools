@@ -16,7 +16,7 @@ import type Database from 'better-sqlite3'
 import { COMMENT_STAGE_DONE, MEEGLE_ID_COLUMN, parseMeegleIdCell } from '../shared/meegle-comment-rules.js'
 import { buildDescription, classifyRemote, descHash, textFingerprint, type Uploaded } from './meegle-comment-ops.js'
 import {
-  beginStep, claimCommentRow, finishStep, getCommentRow, getSnapshot, getSteps, readyForWriteback, setSnapshot,
+  applyDescMode, beginStep, claimCommentRow, finishStep, getCommentRow, getSnapshot, getSteps, readyForWriteback, setSnapshot,
   type ClaimInput, type ClaimResult, type StepRow,
 } from './meegle-comment-store.js'
 import type { CallOutcome } from './meegle-workitem.js'
@@ -47,6 +47,11 @@ export type RowPayload = Omit<ClaimInput, 'videos'> & {
   expectedRemoteHash: string
   /** 使用者在預覽確認過「被改過也要覆寫」的那個遠端版本 hash（只在 changed 時需要） */
   confirmedRemoteHash: string | null
+  /**
+   * 要不要覆寫測試說明（2026-10-06 使用者要的開關，預設 true＝原本行為）。
+   * false＝測試頁整個不動（不讀不寫、圖片／影片連結也不放），① 記 skipped，只做評論／影片評論／AI／回填
+   */
+  overwriteDesc?: boolean
 }
 
 export type RunResult = { claim: ClaimResult; steps: StepRow[] }
@@ -64,7 +69,8 @@ export async function runCommentRow(deps: RunDeps, p: RowPayload): Promise<RunRe
   const phase = (step: string) => getSteps(db, B, R).find(s => s.step === step)?.phase
   const doneOrSkipped = (step: string) => ['done', 'skipped'].includes(phase(step) ?? '')
 
-  // ① 覆寫測試說明
+  // ① 覆寫測試說明（使用者關掉「覆寫測試頁」→ 這一步記 skipped，測試頁不動；這次又打開 → 改回 none）
+  applyDescMode(db, B, R, p.overwriteDesc !== false, now())
   if (!doneOrSkipped('desc') && beginStep(db, B, R, 'desc', now())) {
     const ok = await (async (): Promise<boolean> => {
       const cur = await deps.getDescription(R)
@@ -84,7 +90,14 @@ export async function runCommentRow(deps: RunDeps, p: RowPayload): Promise<RunRe
         if (up.kind !== 'ok' || !up.value.fileUrl) { finishStep(db, B, R, 'desc', 'failed', `圖片 ${img.name} 上傳失敗：${up.kind === 'ok' ? '沒有網址' : msgOf(up)}`, undefined, now()); return false }
         urls.push({ name: img.name, url: up.value.fileUrl })
       }
-      const md = buildDescription(p.description, urls)
+      // 影片也放進測試頁（2026-10-06 使用者要）：Meegle 放不了內嵌影片，上傳成測試說明的檔案（16）後放可點連結；評論附件照舊另外貼
+      const videoLinks: Array<{ name: string; url: string }> = []
+      for (const v of videos) {
+        const up = await deps.uploadFile(R, v.path, v.name, 'image')
+        if (up.kind !== 'ok' || !up.value.fileUrl) { finishStep(db, B, R, 'desc', 'failed', `影片 ${v.name} 上傳到測試頁失敗：${up.kind === 'ok' ? '沒有網址' : msgOf(up)}`, undefined, now()); return false }
+        videoLinks.push({ name: v.name, url: up.value.fileUrl })
+      }
+      const md = buildDescription(p.description, urls, videoLinks)
       const w = await deps.setDescription(R, md)
       if (w.kind === 'rejected') { finishStep(db, B, R, 'desc', 'failed', `Meegle 拒絕寫入：${w.message}`, undefined, now()); return false }
       if (w.kind === 'unknown') { finishStep(db, B, R, 'desc', 'unknown', `寫入結果不明：${w.message}`, undefined, now()); return false }
@@ -95,7 +108,7 @@ export async function runCommentRow(deps: RunDeps, p: RowPayload): Promise<RunRe
         finishStep(db, B, R, 'desc', 'unknown', '讀回的內容跟送出的不一樣（可能剛好有人同時在改），請到 Meegle 確認', undefined, now()); return false
       }
       setSnapshot(db, R, descHash(back.value), p.asEmail || p.ownerEmail, now())
-      finishStep(db, B, R, 'desc', 'done', null, { images: urls.length }, now())
+      finishStep(db, B, R, 'desc', 'done', null, { images: urls.length, videoLinks: videoLinks.length }, now())
       return true
     })()
     if (!ok) return { claim, steps: getSteps(db, B, R) }

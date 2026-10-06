@@ -44,7 +44,7 @@ function makeDeps(f: Fake): RunDeps {
       if (r.kind === 'ok' || f.failOn?.set === 'unknown') f.remote = f.raceAfterWrite ?? (f.rewrite ? f.rewrite(md) : md)
       return r
     },
-    uploadFile: async (_id, _p, name, kind) => { f.calls.push(`up:${kind}:${name}`); return res(`up:${name}`, { fileToken: `tok-${name}`, fileUrl: `https://m/${name}` }) },
+    uploadFile: async (_id, _p, name, kind) => { f.calls.push(`up:${kind}:${name}`); return res(`up:${kind}:${name}`, { fileToken: `tok-${name}`, fileUrl: `https://m/${name}` }) },
     addComment: async (_id, content, tok) => { f.calls.push(tok ? `comment+${tok}` : `comment:${content.slice(0, 12)}`); return res(tok ? `comment+${tok}` : content.startsWith('AI') ? 'review' : 'comment', true as const) },
     readRowCells: async () => { f.calls.push('read-sheet'); return { 'Meegle 單號': f.sheet.id ?? '' } },
     writeRow: async (_k, _r, cols) => { f.calls.push(`write:${Object.values(cols).join('|')}`); return f.failOn?.write ? { ok: false, error: '寫入失敗' } : { ok: true } },
@@ -69,9 +69,9 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   const d = makeDeps(f)
   const r = await runCommentRow(d, payload())
   eq('全部成功：每一步 done', ph(r.steps), { desc: 'done', comment: 'done', 'video:a1': 'done', 'video:b2': 'done', review: 'done', writeback: 'done' })
-  eq('順序：讀→傳圖→寫→讀回→評論→影片×2→分析→核對 Sheet→回填', f.calls, [
-    'get', 'up:image:a.png', 'set', 'get', 'comment:QA 已填寫測試頁', 'up:comment:v1.mp4', 'comment+tok-v1.mp4', 'up:comment:v2.mp4', 'comment+tok-v2.mp4', 'comment:AI 完整性分析\n\n涵蓋', 'read-sheet', 'write:添加評論|T'])
-  eq('寫入的測試說明帶圖片', f.remote, '【驗證結果】\n- 通過\n\n![a.png](https://m/a.png)')
+  eq('順序：讀→傳圖→傳影片（測試頁連結）→寫→讀回→評論→影片×2→分析→核對 Sheet→回填', f.calls, [
+    'get', 'up:image:a.png', 'up:image:v1.mp4', 'up:image:v2.mp4', 'set', 'get', 'comment:QA 已填寫測試頁', 'up:comment:v1.mp4', 'comment+tok-v1.mp4', 'up:comment:v2.mp4', 'comment+tok-v2.mp4', 'comment:AI 完整性分析\n\n涵蓋', 'read-sheet', 'write:添加評論|T'])
+  eq('寫入的測試說明帶圖片＋影片連結（2026-10-06：影片也要在測試頁）', f.remote, '【驗證結果】\n- 通過\n\n![a.png](https://m/a.png)\n\n影片：[v1.mp4](https://m/v1.mp4)\n\n影片：[v2.mp4](https://m/v2.mp4)')
   eq('基準＝讀回值的 hash', getSnapshot(d.db, '15194994'), descHash(f.remote))
   const again = await runCommentRow(d, payload())
   eq('同批次再送：已全部 done，不會再呼叫 Meegle', f.calls.filter(c => c.startsWith('comment')).length, 4)
@@ -137,7 +137,7 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   eq('讀回失敗 → unknown、不更新基準', [ph(r.steps).desc, getSnapshot(d.db, '15194994')], ['unknown', null])
 }
 {
-  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:a.png': 'rejected' } }
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:image:a.png': 'rejected' } }
   const r = await runCommentRow(makeDeps(f), payload())
   eq('圖片上傳失敗 → failed、測試說明沒動（可重送）', [ph(r.steps).desc, f.calls.includes('set')], ['failed', false])
 }
@@ -167,9 +167,41 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   eq('影片還是 unknown 時按補寫回 → 不回填、不讀 Sheet', [ph(steps).writeback, f.calls.slice(before)], ['none', []])
 }
 {
-  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:v1.mp4': 'rejected' } }
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:comment:v1.mp4': 'rejected' } }
   const r = await runCommentRow(makeDeps(f), payload())
   eq('影片上傳失敗 → failed（沒貼出去，可重送）', ph(r.steps)['video:a1'], 'failed')
+}
+{
+  // 影片上傳到測試頁失敗：測試說明還沒寫 → desc failed、後面都不做（不會貼了評論卻沒有測試頁）
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:image:v2.mp4': 'rejected' } }
+  const r = await runCommentRow(makeDeps(f), payload())
+  eq('影片上傳到測試頁失敗 → desc failed、沒寫入、沒評論', [ph(r.steps).desc, f.calls.includes('set'), f.calls.some(c => c.startsWith('comment'))], ['failed', false, false])
+}
+// ── 「覆寫測試頁」開關（2026-10-06 使用者要）────────────────────────────
+{
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' } }
+  const d = makeDeps(f)
+  const r = await runCommentRow(d, { ...payload(), overwriteDesc: false })
+  eq('關掉覆寫 → desc skipped、測試頁不讀不寫、不傳圖', [ph(r.steps).desc, f.calls.filter(c => c === 'get' || c === 'set' || c.startsWith('up:image')).length, f.remote], ['skipped', 0, TEMPLATE])
+  eq('關掉覆寫 → 評論、影片評論、分析、回填照做', [ph(r.steps).comment, ph(r.steps)['video:a1'], ph(r.steps).review, ph(r.steps).writeback], ['done', 'done', 'done', 'done'])
+}
+{
+  // 同一批：先關掉送、評論失敗；這次打開再送 → 測試頁要真的寫（skipped 不能卡住）
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { comment: 'rejected' } }
+  const d = makeDeps(f)
+  await runCommentRow(d, { ...payload(), overwriteDesc: false })
+  f.failOn = {}
+  const r = await runCommentRow(d, payload())
+  eq('上次不覆寫、這次打開 → 測試頁照樣寫入', [ph(r.steps).desc, f.calls.includes('set')], ['done', true])
+}
+{
+  // 已經寫過的不會因為這次關掉而變 skipped（寫過就是寫過）
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { comment: 'rejected' } }
+  const d = makeDeps(f)
+  await runCommentRow(d, payload())
+  f.failOn = {}
+  const r = await runCommentRow(d, { ...payload(), overwriteDesc: false })
+  eq('已寫入的測試說明，這次關掉 → 仍是 done', ph(r.steps).desc, 'done')
 }
 {
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { comment: 'rejected' } }

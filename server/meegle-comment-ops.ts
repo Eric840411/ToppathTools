@@ -156,11 +156,19 @@ export function classifyRemote(current: string, snapshotHash: string | null): Re
   return 'has-content'
 }
 
-/** 測試說明內容＋圖片。圖片接在最後（Jira 版也是圖片放評論尾端）。 */
-export function buildDescription(text: string, images: Array<{ name: string; url: string }>): string {
+/**
+ * 測試說明內容＋圖片＋影片連結。圖片接在最後（Jira 版也是圖片放評論尾端）。
+ * 影片（2026-10-06 使用者要測試頁也看得到）：Meegle 富文本**放不了內嵌影片**——用圖片語法會變成壞圖，
+ * 只能放成可點的檔案連結 `[檔名](url)`（實測 #15244721）。評論附件照舊另外貼。
+ */
+export function buildDescription(text: string, images: Array<{ name: string; url: string }>, videoLinks: Array<{ name: string; url: string }> = []): string {
   const body = text.replace(/\r\n/g, '\n').trim()
-  if (!images.length) return body
-  return `${body}\n\n${images.map(i => `![${i.name.replace(/[[\]]/g, '')}](${i.url})`).join('\n\n')}`
+  const clean = (n: string) => n.replace(/[[\]]/g, '')
+  const parts = [
+    ...images.map(i => `![${clean(i.name)}](${i.url})`),
+    ...videoLinks.map(v => `影片：[${clean(v.name)}](${v.url})`),
+  ]
+  return parts.length ? `${body}\n\n${parts.join('\n\n')}` : body
 }
 
 /**
