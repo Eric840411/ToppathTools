@@ -1,6 +1,7 @@
 // 未監控機台「開局沒結束」＝疑似特殊遊戲（1007）：npx tsx scripts/open-round-probe.ts
 // 假時鐘＋假 moneyNtc，檢查 superviseOpenRound／openRoundTrigger 什麼時候動、什麼時候停，以及**收到 end 之後一下都不能再按**。
-import { superviseOpenRound, openRoundTrigger, OPEN_ROUND_SUSPECT_MS } from '../server/machine-test/verdicts.js'
+import { superviseOpenRound, openRoundTrigger, stepGateBlock, OPEN_ROUND_SUSPECT_MS } from '../server/machine-test/verdicts.js'
+import { openRoundScreen } from '../server/machine-test/runner.js'
 
 type Sim = {
   endAt?: number                       // 第幾毫秒收到 end（undefined＝永遠不來）
@@ -55,6 +56,19 @@ const cases: Array<[string, () => Promise<string>, string]> = [
   ['觸發：begin 才 10 秒 → 再等 25 秒', async () => JSON.stringify(openRoundTrigger({ log: [{ seq: 1, reason: 'begin', ts: 90_000 }], sinceSeq: 0, now: 100_000, osmStatus: 0 })), '{"start":false,"why":"young","waitMs":25000}'],
   ['觸發：begin 超過 35 秒沒 end、未監控 → 啟動並綁定那筆 begin', async () => JSON.stringify(openRoundTrigger({ log: [{ seq: 3, reason: 'begin', ts: 0 }], sinceSeq: 0, now: OPEN_ROUND_SUSPECT_MS, osmStatus: undefined })), `{"start":true,"beginSeq":3,"ageMs":${OPEN_ROUND_SUSPECT_MS}}`],
   ['觸發：OSMWatcher 判特殊狀態（非 0）→ 交給原流程', async () => JSON.stringify(openRoundTrigger({ log: [{ seq: 1, reason: 'begin', ts: 0 }], sinceSeq: 0, now: 100_000, osmStatus: 2 })), '{"start":false,"why":"monitored"}'],
+  // 步驟關卡（CodeX 35d17c9 [P1]）
+  ['關卡：使用者停止 → Spin 擋下', async () => stepGateBlock({ stopped: true, halt: null, isExit: false })?.message ?? 'run', '未執行：使用者已停止'],
+  ['關卡：使用者停止、沒有開著的特殊遊戲 → 退出照舊試', async () => String(stepGateBlock({ stopped: true, halt: null, isExit: true })), 'null'],
+  ['關卡：疑似特殊遊戲 stalled → Spin 擋', async () => stepGateBlock({ stopped: false, halt: 'x', isExit: false })?.status ?? 'run', 'skip'],
+  ['關卡：疑似特殊遊戲 stalled → 退出也擋（fail，交人工）', async () => stepGateBlock({ stopped: true, halt: 'x', isExit: true })?.status ?? 'run', 'fail'],
+  ['關卡：一般情況 → 放行', async () => String(stepGateBlock({ stopped: false, halt: null, isExit: false })), 'null'],
+  // 畫面證據（CodeX 35d17c9 [P1]）
+  ['畫面：普通局「JACKPOT 1,234,567 PRESS PLAY TO SPIN」→ 不算', async () => openRoundScreen('GRAND JACKPOT 1,234,567  PRESS PLAY TO SPIN'), 'unknown'],
+  ['畫面：結算「BONUS COMPLETE TOTAL WIN 100 PRESS PLAY TO SPIN」→ wait', async () => openRoundScreen('BONUS COMPLETE  TOTAL WIN 100  PRESS PLAY TO SPIN'), 'wait'],
+  ['畫面：「FEATURE」「BONUS」字樣但沒計數器 → 不算', async () => openRoundScreen('BONUS FEATURE  PRESS SPIN'), 'unknown'],
+  ['畫面：「FREE GAMES 3 / PRESS SPIN」→ spin', async () => openRoundScreen('FREE GAMES 3  PRESS SPIN TO CONTINUE'), 'spin'],
+  ['畫面：「5 SPINS REMAINING」→ spin', async () => openRoundScreen('5 SPINS REMAINING  PRESS SPIN'), 'spin'],
+  ['畫面：「RE-SPINS: 2」→ spin', async () => openRoundScreen('RE-SPINS: 2  PRESS PLAY'), 'spin'],
 ]
 
 let fail = 0

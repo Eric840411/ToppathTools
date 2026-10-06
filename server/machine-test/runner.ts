@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -1111,7 +1111,7 @@ async function clickTouchCell(page: Page, pt: string): Promise<boolean> {
  * 每一下都 emit「點觸屏 x,y → 有／無進展」（0335 那次 batch log 沒有任何點擊紀錄）。
  */
 /** onTapped：每真的點下去一格就呼叫（呼叫端用它把這一輪的點擊即時算進動作上限，stop 才擋得住） */
-async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: FeatureTapsCfg, start: number, ended: () => boolean, stop: () => boolean, why: string, onTapped?: () => void) {
+async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: FeatureTapsCfg, start: number, ended: () => boolean, stop: () => boolean, why: string, onTapped?: () => void, mustStop?: () => Promise<boolean>) {
   let sawEnd = false
   const onC = (m: ConsoleMessage) => {
     const t = m.text()
@@ -1151,6 +1151,7 @@ async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: Fea
         pre = await shot()
         if (!pre) return 'unsure'
         if (halt()) return 'stop'   // CodeX 1006：真的點下去之前再查一次結束／停止／時限
+        if (mustStop && await mustStop()) return 'stop'   // 1007 CodeX 35d17c9：疑似特殊遊戲路徑逐下 await 重讀流水，不靠快取
         const ok = await clickTouchCell(page, pt)
         if (ok) onTapped?.()
         return ok ? 'ok' : 'noElement'
@@ -1211,10 +1212,39 @@ export type OpenRoundHandler = (where: string) => Promise<{ result: 'done' | 'st
  * 所以這裡另外要有**特殊遊戲字樣**（FREE GAMES／FREE SPINS／SPINS REMAINING／RE-SPIN／BONUS／FEATURE／JACKPOT），沒有就當看不出來。
  */
 export function openRoundScreen(raw: string): 'spin' | 'touch' | 'wait' | 'unknown' {
+  const t = String(raw ?? '').toLowerCase().replace(/\s+/g, ' ')
+  // 結算畫面（BONUS COMPLETE／TOTAL WIN／CONGRATULATIONS…）不是局中：即使同畫面有 PRESS PLAY TO SPIN 也不按（CodeX 35d17c9 [P1]）
+  if (/total win|bonus (complete|over|end)|feature (complete|over|end)|congratulations|you (have )?won?\b|collect/.test(t)) return 'wait'
   const k = classifyBonusText(raw)
   if (k !== 'spin') return k
-  const t = String(raw ?? '').toLowerCase().replace(/\s+/g, ' ')
-  return /free ?(game|spin)s?|spins? (remaining|left)|re-?spins?|bonus|feature|jackpot/.test(t) ? 'spin' : 'unknown'
+  // 局中證據要是**計數器**（FREE GAMES 3／3 SPINS REMAINING／RE-SPINS: 2／SPINS LEFT 5）——
+  // JACKPOT／BONUS／FEATURE 這種字普通局也常駐在畫面上（獎池看板、按鈕），不能當證據
+  const counter = /(free ?(games?|spins?)|re-?spins?)\s*[:：x×]?\s*\d+|\d+\s*(free ?)?(games?|spins?|re-?spins?)\s*(remaining|left)|(games?|spins?) (remaining|left)\s*[:：]?\s*\d+/
+  return counter.test(t) ? 'spin' : 'unknown'
+}
+
+/**
+ * 疑似特殊遊戲路徑的點擊：每一種嘗試（原生 click → force → 滑鼠座標）**之前都 await 重查**（CodeX 35d17c9 [P1]：
+ * nativeClick 第一次等待逾時期間收到 end，接著 force click 仍點下去）。回 'stopped'＝重查判定不能點，'none'＝找不到可見元素
+ */
+async function guardedClick(page: Page, selectors: string[], mustStop: () => Promise<boolean>): Promise<'clicked' | 'stopped' | 'none'> {
+  for (const sel of selectors) {
+    let els: ElementHandle[] = []
+    try { els = await page.$$(sel) } catch { continue }
+    for (const el of els) {
+      try { if (!await el.isVisible()) continue } catch { continue }
+      if (await mustStop()) return 'stopped'
+      try { await el.click({ timeout: 3000 }); return 'clicked' } catch { /* 下一種 */ }
+      if (await mustStop()) return 'stopped'
+      try { await el.click({ force: true, timeout: 3000 }); return 'clicked' } catch { /* 下一種 */ }
+      if (await mustStop()) return 'stopped'
+      try {
+        const box = await el.boundingBox()
+        if (box) { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'clicked' }
+      } catch { /* 放棄這個元素 */ }
+    }
+  }
+  return 'none'
 }
 
 export function makeOpenRoundHandler(o: {
@@ -1223,7 +1253,7 @@ export function makeOpenRoundHandler(o: {
   /** 測試用：換掉截圖 OCR（預設走 Gemini 代理） */
   ocr?: (png: Buffer) => Promise<string>
   /** 測試用：換掉每輪間隔／點擊間隔 */
-  timing?: { pollMs?: number; quietMs?: number; maxMs?: number; maxActs?: number; tickMs?: number }
+  timing?: { pollMs?: number; quietMs?: number; maxMs?: number; maxActs?: number }
 }): OpenRoundHandler {
   const { page, emit, machineCode } = o
   const ocr = o.ocr ?? (async (png: Buffer) => callGeminiVisionViaProxy(BONUS_OCR_PROMPT, png.toString('base64')))
@@ -1244,11 +1274,11 @@ export function makeOpenRoundHandler(o: {
     let handpay = false, taps = 0
     // 每一下點擊前都**重讀** moneyNtc 流水（CodeX 2d513b6 [P1]：不能只看快取）
     const endedNow = async () => (await readMoneyLog(page)).some(e => e.seq > beginSeq && e.reason === 'end')
-    // 同步版只給「內層同步檢查」用（featureTapRound 的 ended／stop）：背景每 tickMs 重讀一次；我們自己的迴圈一律用 endedNow
     let endedFlag = false
-    const ticker = setInterval(() => { void endedNow().then(v => { if (v) endedFlag = true }).catch(() => {}) }, o.timing?.tickMs ?? 250)
     const ended = async () => { if (await endedNow()) endedFlag = true; return endedFlag }
     const stop = () => o.stopped() || handpay
+    /** 每一下真的點之前 await：重讀流水＋停止狀態（沒有快取） */
+    const mustStop = async () => stop() || await ended()
     const profile = o.getProfile()
     const action = profile?.bonusAction ?? 'spin'
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
@@ -1266,7 +1296,7 @@ export function makeOpenRoundHandler(o: {
         },
         featureTaps: ft ? async (budget: number) => {
           let n = 0
-          const fr = await featureTapRound(page, emit, ft, ftCursor, () => endedFlag, () => stop() || n >= budget, `${where} 疑似特殊遊戲（可能卡在 JP／FG 選擇畫面）`, () => { n++ })
+          const fr = await featureTapRound(page, emit, ft, ftCursor, () => endedFlag, () => stop() || n >= budget, `${where} 疑似特殊遊戲（可能卡在 JP／FG 選擇畫面）`, () => { n++ }, mustStop)
           ftCursor = fr.cursor; taps += n
           return { kind: fr.result === 'screen' || fr.result === 'done' ? 'progress' : fr.result === 'stopped' ? 'none' : 'giveUp', taps: n }
         } : undefined,
@@ -1277,17 +1307,15 @@ export function makeOpenRoundHandler(o: {
           try { return openRoundScreen(await ocr(shot)) } catch { return 'fail' }
         },
         pressSpin: async () => {
-          // 按之前最後一次重讀（supervisor 已查過，這裡是真的點下去前的那一刻）
-          if (await endedNow() || stop()) return false
-          const ok = (await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])) !== null
-          if (ok) taps++
-          return ok
+          const r = await guardedClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS], mustStop)
+          if (r === 'clicked') taps++
+          return r === 'clicked'
         },
         // 逐格點：每一格點之前都重讀流水與停止狀態（doTouchPoints 一次點完整串，中間不會停）
         touch: async (budget: number) => {
           let n = 0
           for (const pt of profile?.touchPoints ?? []) {
-            if (n >= budget || stop() || await endedNow()) break
+            if (n >= budget || await mustStop()) break
             if (await clickTouchCell(page, pt)) { n++; emit(`（疑似特殊遊戲：觸屏點擊 "${pt}"）`) }
             await sleep(800)
           }
@@ -1304,9 +1332,7 @@ export function makeOpenRoundHandler(o: {
       emit(`${r.result === 'done' ? '✅' : '🆘'} ${where}：${note}`)
       if (r.result !== 'done') failed = { beginSeq, result: r.result, note }
       return { result: r.result, note }
-    } finally {
-      clearInterval(ticker)
-    }
+    } finally { /* 沒有背景計時器要收 */ }
   }
 }
 
@@ -5043,7 +5069,7 @@ export class MachineTestRunner extends EventEmitter {
               const orr = await openRound('步驟之間')
               if (!orr) return
               stepResults.push({ step: '特殊遊戲等待', status: orr.result === 'done' ? 'pass' : 'fail', message: orr.note, durationMs: 0 })
-              if (orr.result !== 'done' && !this.stopped) {
+              if (orr.result !== 'done') {   // 停止也算（CodeX 35d17c9 [P1]：!this.stopped 會讓停止後的步驟照跑）
                 openRoundHalt = orr.note
                 this._haltReason = `${machineCode} 疑似特殊遊戲未結束（帳號可能卡在這台）：${orr.note}｜⚠️ 額度可能還在機台上`
               }
@@ -5058,10 +5084,12 @@ export class MachineTestRunner extends EventEmitter {
 
           /** 每個步驟之前：照舊看特殊狀態；疑似特殊遊戲已判 stalled 就不做這一步（退出也不做——帳號留在機台，交人工） */
           const stepGate = async (name: string): Promise<boolean> => {
-            if (!openRoundHalt) await checkOsm()
-            if (!openRoundHalt) return true
             const isExit = name === '退出測試'
-            stepResults.push({ step: name, status: isExit ? 'fail' : 'skip', message: `${isExit ? '🆘 ' : ''}未執行：疑似特殊遊戲未結束，已停止所有自動操作，請人工處理（${openRoundHalt}）`, durationMs: 0 })
+            // 判斷在 verdicts.ts stepGateBlock（探針 open-round-probe）；檢查特殊狀態之前、之後各擋一次
+            let block = stepGateBlock({ stopped: this.stopped, halt: openRoundHalt, isExit })
+            if (!block) { await checkOsm(); block = stepGateBlock({ stopped: this.stopped, halt: openRoundHalt, isExit }) }
+            if (!block) return true
+            stepResults.push({ step: name, ...block, durationMs: 0 })
             return false
           }
 

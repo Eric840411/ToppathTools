@@ -547,3 +547,14 @@ export function openRoundTrigger(s: { log: Array<{ seq: number; reason: string; 
   if (ageMs < need) return { start: false, why: 'young', waitMs: need - ageMs }
   return { start: true, beginSeq: last.seq, ageMs }
 }
+
+/**
+ * 每個步驟之前要不要擋（1007，CodeX 35d17c9 [P1]：停止或疑似特殊遊戲 stalled 之後不能再放行 Spin／iDeck…）。
+ * halt＝疑似特殊遊戲沒結束的說明（有值就連退出也擋——局還開著，退出會被擋／按到局裡）。
+ * 使用者停止但沒有開著的特殊遊戲：測試步驟擋、退出照舊試（不然帳號留在機台上，exitUntilLobby 會依停止狀態收尾）。
+ */
+export function stepGateBlock(s: { stopped: boolean; halt: string | null; isExit: boolean }): { status: 'skip' | 'fail'; message: string } | null {
+  if (s.halt) return { status: s.isExit ? 'fail' : 'skip', message: `${s.isExit ? '🆘 ' : ''}未執行：疑似特殊遊戲未結束，已停止所有自動操作，請人工處理（${s.halt}）` }
+  if (s.stopped && !s.isExit) return { status: 'skip', message: '未執行：使用者已停止' }
+  return null
+}

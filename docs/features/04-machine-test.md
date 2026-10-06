@@ -290,5 +290,10 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - [P1] stalled／Handpay／停止只記 warn、後面照跑。改成 `stepGate`：之後每一步（含退出）都不做、記「未執行：疑似特殊遊戲未結束，已停止所有自動操作」，設 `_haltReason`（batch 換帳號／停批，同退出卡住）；同一局再問直接回快取結果，不重跑 8 分鐘
   - [P2] 60 次算實際點擊：featureTaps 用 onTapped 逐下計、觸屏逐格計，一輪多下都算
   - 實際 runner 路徑探針 `npx tsx scripts/open-round-runner-probe.ts`（跑真的 `makeOpenRoundHandler`，只換假 Page）：普通局畫面不按且 stalled、同一局再問直接回、特殊遊戲畫面按到 end 為止且 end 後 0 下、逐格觸屏第 1 格後收到 end 第 2 格不點、上限 3 只點 3 下、沒 moneyNtc 不啟動。突變「改回 classifyBonusText」「觸屏不逐格重查」各自紅
+- **CodeX 審 35d17c9（v5.29.2 修）**：
+  - [P1] 證據仍太寬：普通局有獎池看板「JACKPOT」、結算「BONUS COMPLETE TOTAL WIN」都按了。`openRoundScreen` 改成：結算字樣（total win／bonus complete／congratulations／collect…）→ wait 不按；spin 指示之外要有**計數器**（FREE GAMES 3／3 SPINS REMAINING／RE-SPINS: 2／SPINS LEFT 5），JACKPOT／BONUS／FEATURE 單獨出現不算
+  - [P1] `nativeClick` 原生 click 逾時期間收到 end，接著 force 仍點。改用 `guardedClick`：原生／force／滑鼠每一種之前都 await `mustStop()`（重讀流水＋停止）；`featureTapRound` 加選填 `mustStop`，每一下點之前 await，拿掉 250ms 背景旗標
+  - [P1] 停止時 gate 放行。抽成 `verdicts.ts stepGateBlock`：halt（疑似特殊遊戲沒結束）→ 全擋含退出；使用者停止 → 測試步驟擋、**退出照舊試**（沒有開著的特殊遊戲時，exitUntilLobby 依停止狀態收尾，不然帳號留在機台）；停止造成的 openRound 'stopped' 也設 halt
+  - 探針：open-round 31 條（含關卡 5 條、畫面證據 6 條）、runner 路徑 9 條（含 JACKPOT 看板、結算畫面、原生 click 逾時期間收到 end）。突變「重試前不重查」「證據回到寬鬆」「拿掉停止擋」各自紅
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
 
