@@ -56,18 +56,22 @@ export function listDoneRecords(db: DB, opts: { match: (sourceKey: string) => bo
   const ownerSql = opts.owner ? 'AND owner_email = ?' : ''
   const ownerArgs = opts.owner ? [opts.owner] : []
 
+  // ⚠️ 「最近一次」比的是**操作完成時間**，不是回填時間（CodeX 60c61d3 [P2]）：補回時重跑開單回填會刷新 writeback_at，
+  //    用它排序的話，下一次補寫「最近一次」就變成開單，處理階段從「已修改欄位」倒退成「已開單」。
+  //    開單用 updated_at（開單／推狀態才會動，回填不動）；評論／狀態／修改用回填以外步驟的最後更新時間
   if (has('meegle_batch_rows')) {
     const rows = db.prepare(`SELECT batch_id, row_key, sheet_url, work_item_id, name, owner_email, space, writeback_at, updated_at FROM meegle_batch_rows
       WHERE create_phase = 'created' AND writeback_phase = 'done' AND work_item_id IS NOT NULL AND sheet_url LIKE 'lark:%' ${ownerSql}`).all(...ownerArgs) as Array<{ batch_id: string; row_key: string; sheet_url: string; work_item_id: string; name: string; owner_email: string; space: string; writeback_at: number | null; updated_at: number }>
     for (const r of rows) {
       if (!opts.match(r.sheet_url)) continue
-      hits.push({ tool: 'create', batchId: r.batch_id, rowKey: r.row_key, sourceKey: r.sheet_url, sheetRow: Number(r.row_key), workItemId: String(r.work_item_id), summary: r.name, owner: r.owner_email, space: r.space, at: r.writeback_at ?? r.updated_at })
+      hits.push({ tool: 'create', batchId: r.batch_id, rowKey: r.row_key, sourceKey: r.sheet_url, sheetRow: Number(r.row_key), workItemId: String(r.work_item_id), summary: r.name, owner: r.owner_email, space: r.space, at: r.updated_at })
     }
   }
   for (const tool of ['comment', 'status', 'edit'] as const) {
     const rowsTable = `meegle_${tool}_rows`, stepsTable = `meegle_${tool}_steps`
     if (!has(rowsTable)) continue
-    const rows = db.prepare(`SELECT r.batch_id, r.row_key, r.source_key, r.sheet_row, r.work_item_id, r.summary, r.owner_email, r.space, s.updated_at
+    const rows = db.prepare(`SELECT r.batch_id, r.row_key, r.source_key, r.sheet_row, r.work_item_id, r.summary, r.owner_email, r.space,
+        (SELECT MAX(o.updated_at) FROM ${stepsTable} o WHERE o.batch_id = r.batch_id AND o.row_key = r.row_key AND o.step != 'writeback') AS updated_at
       FROM ${rowsTable} r JOIN ${stepsTable} s ON s.batch_id = r.batch_id AND s.row_key = r.row_key AND s.step = 'writeback'
       WHERE s.phase = 'done' AND r.source_key LIKE 'lark:%' ${opts.owner ? 'AND r.owner_email = ?' : ''}`).all(...ownerArgs) as Array<{ batch_id: string; row_key: string; source_key: string; sheet_row: number; work_item_id: string; summary: string | null; owner_email: string; space: string; updated_at: number }>
     for (const r of rows) {
@@ -119,8 +123,10 @@ export type RestoreDeps = {
 }
 
 /**
- * 補回一列。動手前重讀 Sheet、重新判定——掃描之後 Sheet 可能又被改過。
- * 回傳 ok＋說明；不能補的（no-create／conflict／已經沒被清）回 ok:false 與原因，不寫。
+ * 補回一列。**讀單號、判定、寫入都在同一把 Sheet 鎖裡**（CodeX 60c61d3 [P1]）：原本先在鎖外讀單號、
+ * 再交給開單回填自己排鎖——排隊期間別的回填把那一列換成別張單，force 只核對名稱，會蓋過去。
+ * 開單回填用 lockHeld 在這把鎖裡跑，不另外排隊（同一條佇列再排一次會等自己而卡死）。
+ * 不能補的（no-create／conflict／已經沒被清）回 ok:false 與原因，不寫。
  */
 export async function restoreCleared(deps: RestoreDeps, rec: DoneRecord): Promise<{ ok: boolean; message: string }> {
   const now = () => deps.now?.() ?? Date.now()
@@ -128,26 +134,26 @@ export async function restoreCleared(deps: RestoreDeps, rec: DoneRecord): Promis
     const c = await deps.readRowCells(rec.sourceKey, rec.sheetRow, [MEEGLE_ID_COLUMN, WB_COLUMNS.stage])
     return c ? { id: c[MEEGLE_ID_COLUMN] ?? '', stage: c[WB_COLUMNS.stage] ?? '' } : null
   }
-  let cells: { id: string; stage: string } | null
-  try { cells = await read() } catch (e) { return { ok: false, message: `讀不到 Sheet 第 ${rec.sheetRow} 列：${(e as Error).message}` } }
-  if (!cells) return { ok: false, message: `Sheet 找不到「${MEEGLE_ID_COLUMN}」欄` }
-  const kind = classifyCleared(rec, cells)
-  if (kind === null) return { ok: false, message: '這一列現在沒有被清掉，不用補' }
-  if (kind === 'conflict') return { ok: false, message: `第 ${rec.sheetRow} 列的 Meegle 單號現在是「${cells.id}」，不是 #${rec.workItemId}，沒有覆蓋` }
-  if (kind === 'no-create') return { ok: false, message: '這張單不是開單工具開的，沒有紀錄能寫回單號，請手動填' }
-
-  // 1. 要補單號、或最近一次就是開單 → 開單的回填重寫（它自己核對摘要／標題、排 Sheet 鎖）
-  if (kind === 'all' || rec.latest.tool === 'create') {
-    if (!rec.create) return { ok: false, message: '找不到開單紀錄' }
-    const r = await writebackRow(deps.db, rec.create.batchId, rec.create.rowKey, deps.writeback, { force: true })
-    if (r.phase !== 'done') return { ok: false, message: r.message ?? '開單回填沒有寫成' }
-    if (rec.latest.tool === 'create') return { ok: true, message: r.message ? `已補回單號與處理階段（${r.message}）` : '已補回單號與處理階段' }
-  }
-
-  // 2. 最近一次是評論／狀態／修改 → 處理階段寫那個工具的字。先確認單號格是這張單
-  const tool = rec.latest.tool as Exclude<BackfillTool, 'create'>
-  const stage = STEP_TOOL_STAGE[tool]
   return withSheetLock(rec.sourceKey, async () => {
+    let cells: { id: string; stage: string } | null
+    try { cells = await read() } catch (e) { return { ok: false, message: `讀不到 Sheet 第 ${rec.sheetRow} 列：${(e as Error).message}` } }
+    if (!cells) return { ok: false, message: `Sheet 找不到「${MEEGLE_ID_COLUMN}」欄` }
+    const kind = classifyCleared(rec, cells)
+    if (kind === null) return { ok: false, message: '這一列現在沒有被清掉，不用補' }
+    if (kind === 'conflict') return { ok: false, message: `第 ${rec.sheetRow} 列的 Meegle 單號現在是「${cells.id}」，不是 #${rec.workItemId}，沒有覆蓋` }
+    if (kind === 'no-create') return { ok: false, message: '這張單不是開單工具開的，沒有紀錄能寫回單號，請手動填' }
+
+    // 1. 要補單號、或最近一次就是開單 → 開單的回填重寫（它核對摘要／標題）
+    if (kind === 'all' || rec.latest.tool === 'create') {
+      if (!rec.create) return { ok: false, message: '找不到開單紀錄' }
+      const r = await writebackRow(deps.db, rec.create.batchId, rec.create.rowKey, deps.writeback, { force: true, lockHeld: true })
+      if (r.phase !== 'done') return { ok: false, message: r.message ?? '開單回填沒有寫成' }
+      if (rec.latest.tool === 'create') return { ok: true, message: r.message ? `已補回單號與處理階段（${r.message}）` : '已補回單號與處理階段' }
+    }
+
+    // 2. 最近一次是評論／狀態／修改 → 處理階段寫那個工具的字。還在同一把鎖裡，再確認一次單號是這張單（第 1 步剛寫的）
+    const tool = rec.latest.tool as Exclude<BackfillTool, 'create'>
+    const stage = STEP_TOOL_STAGE[tool]
     let c: { id: string; stage: string } | null
     try { c = await read() } catch (e) { return { ok: false, message: `讀不到 Sheet 第 ${rec.sheetRow} 列：${(e as Error).message}` } }
     if (!c || parseMeegleIdCell(c.id) !== rec.workItemId) return { ok: false, message: `第 ${rec.sheetRow} 列的 Meegle 單號現在是「${c?.id || '（空白）'}」，不是 #${rec.workItemId}，沒有寫處理階段` }

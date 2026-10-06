@@ -61,11 +61,13 @@ export type WritebackOutcome = { phase: 'done' | 'failed' | 'skipped'; message?:
  * 回填一列。可以重複呼叫（補寫回）：每次都從 DB 讀最新狀態組內容。
  * 不需要回填的（還沒開成單、沒有來源 Sheet、已經是 done 且沒有新變化）直接跳過。
  */
-export async function writebackRow(db: DB, batchId: string, rowKey: string, deps: WritebackDeps, opts: { force?: boolean } = {}): Promise<WritebackOutcome> {
+export async function writebackRow(db: DB, batchId: string, rowKey: string, deps: WritebackDeps,
+  opts: { force?: boolean; /** 呼叫端已經拿著這份 Sheet 的鎖（補回被清掉的回填：讀單號、判定、寫入要在同一把鎖內——CodeX 60c61d3 [P1]） */ lockHeld?: boolean } = {}): Promise<WritebackOutcome> {
   const first = getBatchRow(db, batchId, rowKey)
   if (!first || first.create_phase !== 'created' || !first.work_item_id) return { phase: 'skipped', message: '這一列還沒開單成功' }
   if (!first.sheet_url.startsWith('lark:')) return { phase: 'skipped', message: '來源不是 Lark Sheet' }
-  return withSheetLock(first.sheet_url, async () => {
+  const locked = <T>(fn: () => Promise<T>) => opts.lockHeld ? fn() : withSheetLock(first.sheet_url, fn)
+  return locked(async () => {
     // 拿到鎖之後才讀最新狀態——排隊期間可能又推了狀態
     const row = getBatchRow(db, batchId, rowKey) as BatchRow
     if (row.writeback_phase === 'done' && !opts.force) return { phase: 'skipped', message: '已經寫回過' }

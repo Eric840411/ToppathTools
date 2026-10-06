@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { claimRow, initMeegleBatchSchema } from './meegle-batch-store.js'
 import { initMeegleEditSchema } from './meegle-edit-store.js'
 import { classifyCleared, listDoneRecords, restoreCleared, type DoneRecord } from './meegle-backfill-cleared.js'
-import { writebackRow, type SheetCell, type WritebackDeps } from './meegle-sheet-writeback.js'
+import { withSheetLock, writebackRow, type SheetCell, type WritebackDeps } from './meegle-sheet-writeback.js'
 import { EDIT_STAGE_DONE } from '../shared/meegle-edit-rules.js'
 
 let pass = 0, fail = 0
@@ -21,7 +21,7 @@ function fresh() { const db = new Database(':memory:'); initMeegleBatchSchema(db
 /** 開單成功＋回填成功的一列（走真的 claimRow，再把結果標成 created／done） */
 function created(db: Database.Database, batch: string, row: number, wid: string, opts: { name?: string; sheetName?: string; owner?: string; at?: number; space?: 'test' | 'prod' } = {}) {
   const k = claimRow(db, { batchId: batch, rowKey: String(row), ownerEmail: opts.owner ?? 'me@t', sheetUrl: SRC, name: opts.name ?? 'Bug', sheetName: opts.sheetName, requirementId: '1', targetState: '', space: opts.space ?? 'test' }).kind
-  db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, writeback_phase = 'done', writeback_at = ? WHERE batch_id = ? AND row_key = ?`).run(wid, opts.at ?? 100, batch, String(row))
+  db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, writeback_phase = 'done', writeback_at = ?, updated_at = ? WHERE batch_id = ? AND row_key = ?`).run(wid, opts.at ?? 100, opts.at ?? 100, batch, String(row))
   return k
 }
 function edited(db: Database.Database, batch: string, row: number, wid: string, at: number, owner = 'me@t') {
@@ -103,6 +103,30 @@ await (async () => {
   const s = fakeSheet({ 4: { '摘要': 'Bug', 'Meegle 單號': '#15245901' } })
   const r = await restoreCleared(s.deps(db), recOf(db, 4))
   eq('只清處理階段、單號還在（修改工具）→ 只補處理階段', [r.ok, s.rows[4]['處理階段'], s.writes.map(w => w.cols.sort().join('+'))], [true, EDIT_STAGE_DONE, ['處理時間+處理階段']])
+})()
+
+// ── CodeX 60c61d3 [P1]：排隊等鎖期間單號被換成別張單 → 不能蓋過去 ──
+await (async () => {
+  const db = fresh()
+  created(db, 'b1', 3, '15245900')
+  const s = fakeSheet({ 3: { '摘要': 'Bug' } })
+  // 另一個回填先拿到這份 Sheet 的鎖，期間把第 3 列換成別張單
+  const other = withSheetLock(SRC, async () => { await new Promise(r => setTimeout(r, 30)); s.rows[3]['Meegle 單號'] = '#15249999' })
+  const r = await restoreCleared(s.deps(db), recOf(db, 3))
+  await other
+  eq('[P1] 等鎖期間被換成別張單 → 不寫、單號保持別張單', [r.ok, s.writes.length, s.rows[3]['Meegle 單號']], [false, 0, '#15249999'])
+})()
+
+// ── CodeX 60c61d3 [P2]：補過一次再補，處理階段不能倒退成開單 ──
+await (async () => {
+  const db = fresh()
+  created(db, 'b1', 3, '15245900', { at: 100 }); edited(db, 'e1', 3, '15245900', 200)
+  const s = fakeSheet({ 3: { '摘要': 'Bug' } })
+  const r1 = await restoreCleared(s.deps(db), recOf(db, 3))
+  s.rows[3]['處理階段'] = ''   // 補完又被清掉處理階段
+  const rec2 = recOf(db, 3)
+  const r2 = await restoreCleared(s.deps(db), rec2)
+  eq('[P2] 第二次補：最近一次仍是修改、處理階段仍是「已修改欄位」', [r1.ok, r2.ok, rec2.latest.tool, s.rows[3]['處理階段']], [true, true, 'edit', EDIT_STAGE_DONE])
 })()
 
 // ── 開單認列改用 Sheet 名稱（AI／手改名稱） ──
