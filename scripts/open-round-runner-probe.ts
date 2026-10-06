@@ -20,7 +20,7 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
     if (src.includes('__moneyLog')) {
       // 模擬：第 N 次讀流水的期間使用者按了停止（CodeX edd347b 補測）
       reads++
-      if (o.stopDuringReadAfter !== undefined && o.stopFlag && reads > o.stopDuringReadAfter) o.stopFlag.v = true
+      if (o.stopDuringReadAfter !== undefined && o.stopFlag && reads >= o.stopDuringReadAfter) o.stopFlag.v = true   // 第 N 次讀的期間（含）
       return log.map(e => ({ ...e }))
     }
     if (src.includes('__lastMachineCoin')) return null
