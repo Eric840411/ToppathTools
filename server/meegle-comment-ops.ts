@@ -175,12 +175,20 @@ export function buildDescription(text: string, images: Array<{ name: string; url
  * 評論送出結果不明時，找「可能就是這則」的候選。**只產生候選，不判定成功**（CodeX：沒有可歸屬本次操作的證據就維持 unknown）。
  * 條件：同建立者、送出時間（往前 2 分鐘容許時鐘差）之後、正規化內文相同。
  */
+/** 評論裡嵌一張圖（CLI `comment add --content` 說明的格式；圖片要先上傳成評論附件 13） */
+export function commentImageMarkdown(name: string, fileUrl: string, fileToken: string): string {
+  return `![${name.replace(/[[\]]/g, '')}](${fileUrl})<!--${fileToken} -->`
+}
+
+/** 找候選時比文字：圖片（網址每次上傳都不同、Meegle 會拿掉替代文字與 token 註解）整段不比 */
+const withoutImages = (s: string) => s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<!--[\s\S]*?-->/g, '')
+
 export function commentCandidates(comments: RemoteComment[], opts: { creator: string; sinceMs: number; content: string }): RemoteComment[] {
-  const want = normalizeDesc(opts.content)
+  const want = normalizeDesc(withoutImages(opts.content))
   return comments.filter(c => {
     if (opts.creator && c.creator !== opts.creator) return false
     const t = Date.parse(c.createdAt.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(c.createdAt) ? '' : 'Z'))
     if (Number.isFinite(t) && t < opts.sinceMs - 120_000) return false
-    return normalizeDesc(c.content) === want
+    return normalizeDesc(withoutImages(c.content)) === want
   })
 }

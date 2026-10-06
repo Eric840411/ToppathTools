@@ -14,7 +14,7 @@
  */
 import type Database from 'better-sqlite3'
 import { COMMENT_STAGE_DONE, MEEGLE_ID_COLUMN, parseMeegleIdCell } from '../shared/meegle-comment-rules.js'
-import { buildDescription, classifyRemote, descHash, textFingerprint, type Uploaded } from './meegle-comment-ops.js'
+import { buildDescription, classifyRemote, commentImageMarkdown, descHash, textFingerprint, type Uploaded } from './meegle-comment-ops.js'
 import {
   applyDescMode, beginStep, claimCommentRow, finishStep, getCommentRow, getSnapshot, getSteps, readyForWriteback, setSnapshot,
   type ClaimInput, type ClaimResult, type StepRow,
@@ -131,7 +131,23 @@ export async function runCommentRow(deps: RunDeps, p: RowPayload): Promise<RunRe
     finishStep(db, B, R, step, c.kind === 'rejected' ? 'failed' : 'unknown', c.kind === 'rejected' ? `Meegle 拒絕：${c.message}` : `送出結果不明：${c.message}（不會自動重送）`, undefined, now())
     return false
   }
-  if (!(await post('comment', p.commentText))) return { claim, steps: getSteps(db, B, R) }
+  // 評論也帶圖片（2026-10-06 使用者要）：圖片另外上傳成**評論附件（13）**，用 CLI 說明的格式嵌在評論文字最後：
+  // `![名稱](file_url)<!--file_token -->`。測試說明那份（16）的網址不能用——評論會回 invalid file token（實測 #15244721）
+  let commentContent = p.commentText
+  if (p.images.length && !doneOrSkipped('comment') && phase('comment') !== 'creating' && phase('comment') !== 'unknown') {
+    const embeds: string[] = []
+    for (const img of p.images) {
+      const up = await deps.uploadFile(R, img.path, img.name, 'comment')
+      if (up.kind !== 'ok' || !up.value.fileUrl) {
+        // 還沒貼評論：標 failed 可重送（多傳的圖只是孤兒檔）
+        if (beginStep(db, B, R, 'comment', now(), { content: p.commentText })) finishStep(db, B, R, 'comment', 'failed', `圖片 ${img.name} 上傳到評論失敗：${up.kind === 'ok' ? '沒有網址' : msgOf(up)}`, undefined, now())
+        return { claim, steps: getSteps(db, B, R) }
+      }
+      embeds.push(commentImageMarkdown(img.name, up.value.fileUrl, up.value.fileToken))
+    }
+    commentContent = `${p.commentText.trim()}\n\n${embeds.join('\n\n')}`
+  }
+  if (!(await post('comment', commentContent))) return { claim, steps: getSteps(db, B, R) }
   // 影片：評論帶附件時 Meegle 會拆成「文字一則＋附件一則」，所以影片那則不帶文字（實測）
   for (const v of videos) {
     if (!(await post(`video:${v.key}`, '', v))) return { claim, steps: getSteps(db, B, R) }

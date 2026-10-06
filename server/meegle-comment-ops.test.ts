@@ -3,7 +3,7 @@
  * 假資料都取自 2026-10-02 在測試單 #15190441 的實測回應。
  */
 import {
-  addComment, buildDescription, classifyRemote, commentCandidates, descHash, getDescription, isTemplateOnly,
+  addComment, buildDescription, classifyRemote, commentCandidates, commentImageMarkdown, descHash, getDescription, isTemplateOnly,
   listComments, normalizeDesc, setDescription, textFingerprint, uploadFile,
 } from './meegle-comment-ops.js'
 import type { Runner } from './meegle-workitem.js'
@@ -73,6 +73,13 @@ const since = Date.parse('2026-10-02T04:13:00Z')
 eq('同建立者＋時間之後＋內文相同 → 候選 1', commentCandidates(cs, { creator: 'u1', sinceMs: since, content: '[測試] 驗證通過' }).map(c => c.commentId), ['1'])
 eq('別人貼的不算', commentCandidates(cs, { creator: 'u2', sinceMs: since, content: '[測試] 驗證通過' }).map(c => c.commentId), ['2'])
 eq('太早之前的同文字不算', commentCandidates(cs, { creator: 'u1', sinceMs: Date.parse('2026-10-02T05:00:00Z'), content: '[測試] 驗證通過' }).length, 0)
+{
+  // 評論帶圖（2026-10-06）：Meegle 存回來會拿掉替代文字與 token 註解（實測 #15244721）；找候選時圖片整段不比
+  const withImg = [{ commentId: '9', content: '驗證通過\n\n![](https://x/stream/AAA)\n', creator: 'u1', createdAt: '2026-10-02 04:14:00', fileUrl: '' }]
+  eq('帶圖的評論：送出的內容（含替代文字＋token）也找得到候選', commentCandidates(withImg, { creator: 'u1', sinceMs: since, content: '驗證通過\n\n![a.png](https://x/stream/BBB)<!--tok -->' }).map(c => c.commentId), ['9'])
+  eq('帶圖的評論：文字不同仍不算', commentCandidates(withImg, { creator: 'u1', sinceMs: since, content: '驗證失敗\n\n![a.png](https://x/stream/BBB)<!--tok -->' }).length, 0)
+  eq('評論圖片格式（CLI 說明）', commentImageMarkdown('a[1].png', 'https://u', 'TOK'), '![a1.png](https://u)<!--TOK -->')
+}
 
 // ── CLI 包裝（實測回應格式）──
 {

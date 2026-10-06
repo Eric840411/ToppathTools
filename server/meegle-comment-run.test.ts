@@ -70,7 +70,7 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   const r = await runCommentRow(d, payload())
   eq('全部成功：每一步 done', ph(r.steps), { desc: 'done', comment: 'done', 'video:a1': 'done', 'video:b2': 'done', review: 'done', writeback: 'done' })
   eq('順序：讀→傳圖→傳影片（測試頁連結）→寫→讀回→評論→影片×2→分析→核對 Sheet→回填', f.calls, [
-    'get', 'up:image:a.png', 'up:image:v1.mp4', 'up:image:v2.mp4', 'set', 'get', 'comment:QA 已填寫測試頁', 'up:comment:v1.mp4', 'comment+tok-v1.mp4', 'up:comment:v2.mp4', 'comment+tok-v2.mp4', 'comment:AI 完整性分析\n\n涵蓋', 'read-sheet', 'write:添加評論|T'])
+    'get', 'up:image:a.png', 'up:image:v1.mp4', 'up:image:v2.mp4', 'set', 'get', 'up:comment:a.png', 'comment:QA 已填寫測試頁\n\n!', 'up:comment:v1.mp4', 'comment+tok-v1.mp4', 'up:comment:v2.mp4', 'comment+tok-v2.mp4', 'comment:AI 完整性分析\n\n涵蓋', 'read-sheet', 'write:添加評論|T'])
   eq('寫入的測試說明帶圖片＋影片連結（2026-10-06：影片也要在測試頁）', f.remote, '【驗證結果】\n- 通過\n\n![a.png](https://m/a.png)\n\n影片：[v1.mp4](https://m/v1.mp4)\n\n影片：[v2.mp4](https://m/v2.mp4)')
   eq('基準＝讀回值的 hash', getSnapshot(d.db, '15194994'), descHash(f.remote))
   const again = await runCommentRow(d, payload())
@@ -170,6 +170,29 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:comment:v1.mp4': 'rejected' } }
   const r = await runCommentRow(makeDeps(f), payload())
   eq('影片上傳失敗 → failed（沒貼出去，可重送）', ph(r.steps)['video:a1'], 'failed')
+}
+// ── 評論也帶圖片（2026-10-06 使用者要）：圖片另傳成評論附件（13），用 CLI 說明的格式嵌在評論最後 ─────
+{
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' } }
+  const d = makeDeps(f)
+  const sent: string[] = []
+  const add = d.addComment
+  d.addComment = async (id, content, tok) => { if (!tok) sent.push(content); return add(id, content, tok) }
+  await runCommentRow(d, payload())
+  eq('評論內容＝評論文字＋圖片（評論附件網址＋token 註解）', sent[0], 'QA 已填寫測試頁\n\n![a.png](https://m/a.png)<!--tok-a.png -->')
+  eq('評論用的圖片是另外傳的評論附件（13），不是測試說明那份（16）', f.calls.filter(c => c.includes('a.png')), ['up:image:a.png', 'up:comment:a.png'])
+}
+{
+  // 關掉覆寫測試頁：評論照樣帶圖
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' } }
+  await runCommentRow(makeDeps(f), { ...payload(), overwriteDesc: false })
+  eq('不覆寫測試頁 → 圖片只傳評論那份', f.calls.filter(c => c.includes('a.png')), ['up:comment:a.png'])
+}
+{
+  // 評論用的圖片上傳失敗：評論還沒貼 → comment failed、後面不做
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:comment:a.png': 'rejected' } }
+  const r = await runCommentRow(makeDeps(f), payload())
+  eq('評論圖片上傳失敗 → comment failed、沒貼評論、影片沒做', [ph(r.steps).comment, f.calls.some(c => c.startsWith('comment')), ph(r.steps)['video:a1']], ['failed', false, 'none'])
 }
 {
   // 影片上傳到測試頁失敗：測試說明還沒寫 → desc failed、後面都不做（不會貼了評論卻沒有測試頁）
