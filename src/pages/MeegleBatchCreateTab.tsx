@@ -373,10 +373,10 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   }
 
   // ── 送出 ──
-  function rowPayload(r: typeof rows[number]) {
+  function rowPayload(r: typeof rows[number], plan: RowPlan = r.plan) {
     const roles = {} as Record<MeegleRoleKey, string[]>
-    for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = r.plan.roles[d.key].aliases
-    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, taskType: r.plan.taskType ?? '', targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
+    for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = plan.roles[d.key].aliases
+    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: plan.name, description: plan.description, requirementId: plan.requirement!.id, roles, taskType: plan.taskType ?? '', targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '', space }
   }
 
   function ensureBatch() {
@@ -386,28 +386,66 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     return id
   }
 
-  async function submit(confirmed = false) {
-    const list = sendable
-    if (!list.length || otherSpace) return
-    // 正式空間：每批送出前確認一次（CodeX）
-    if (!confirmed && !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: list.length }))) return
-    // 第一張開單前重讀 Meegle 建立必填、重驗所有要送的列（CodeX 1006：預覽後可能新增必填、刪選項）。有變就停，讓人看過再送
+  /**
+   * 送出前重讀 Meegle 建立必填、用新設定重算所有要送的列（CodeX 1006）。
+   * 回傳要送的內容；**跟預覽時要送的不一樣**（被擋、或內容變了——例如預覽時沒有任務類型欄，現在有了）就回 null，
+   * 同時更新預覽、留下原因，讓人看過再送。重驗期間整頁算忙（呼叫端已設 running），送出鈕與切空間都鎖住。
+   */
+  async function recheckBeforeSend(list: typeof rows): Promise<Array<{ r: typeof rows[number]; payload: ReturnType<typeof rowPayload> }> | null> {
     let fresh: Meta
     try {
       const j = await api<Meta & { ok: true }>(`/api/meegle/batch/meta?space=${space}`)
       fresh = { requirements: j.requirements, states: j.states, statesError: j.statesError, taskType: j.taskType ?? null, unknownRequired: j.unknownRequired ?? [], createMetaError: j.createMetaError ?? null }
-    } catch (e) { setSendNote(`送出前重新檢查 Meegle 設定失敗：${(e as Error).message}`); return }
-    const changed = fresh.createMetaError || fresh.unknownRequired.length || list.some(r => {
-      const ov = overrides[r.rec._rowIndex] ?? {}
-      return planRow({ record: r.rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType }, defaults, fresh.requirements, personMap, fresh.taskType).blocks.length > 0
-    })
-    if (changed) { setMeta(fresh); setSendNote('Meegle 的欄位設定在預覽之後變了，已重新檢查——請看下方被擋下的列，確認後再送'); return }
-    setSendNote('')
-    const id = ensureBatch()
-    setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
+    } catch (e) { setSendNote(`送出前重新檢查 Meegle 設定失敗：${(e as Error).message}`); return null }
+    if (!aliveRef.current || spaceRef.current !== space) return null   // 等待期間切了空間／離開頁面 → 這一輪作廢
+    const out: Array<{ r: typeof rows[number]; payload: ReturnType<typeof rowPayload> }> = []
+    let changed = !!fresh.createMetaError || fresh.unknownRequired.length > 0
     for (const r of list) {
+      const ov = overrides[r.rec._rowIndex] ?? {}
+      const plan = planRow({ record: r.rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType }, defaults, fresh.requirements, personMap, fresh.taskType)
+      if (plan.blocks.length) { changed = true; continue }
+      const payload = rowPayload(r, plan)
+      // 重驗通過但要送的內容變了（CodeX：不能送預覽時的舊內容）→ 也停下來給人看
+      if (JSON.stringify(payload) !== JSON.stringify(rowPayload(r))) changed = true
+      out.push({ r, payload })
+    }
+    if (changed) {
+      setMeta(fresh)
+      setSendNote('Meegle 的欄位設定在預覽之後變了，已重新檢查並更新預覽——請確認被擋下或內容改變的列，再按一次送出')
+      return null
+    }
+    setSendNote('')
+    return out
+  }
+
+  // 重驗會 await：期間元件可能卸載、空間可能被切（CodeX 1006 [P2]）
+  const aliveRef = useRef(true)
+  useEffect(() => () => { aliveRef.current = false }, [])
+  const spaceRef = useRef(space)
+  spaceRef.current = space
+  const submittingRef = useRef(false)
+
+  async function submit(confirmed = false, onRechecked?: () => void) {
+    const list = sendable
+    if (!list.length || otherSpace || submittingRef.current) return
+    // 正式空間：每批送出前確認一次（CodeX）
+    if (!confirmed && !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: list.length }))) return
+    submittingRef.current = true
+    setRunning(true)   // 重驗也算忙：鎖送出鈕、切空間（onBusyChange）、重複提交
+    try {
+      const planned = await recheckBeforeSend(list)
+      if (!planned) { setRunning(false); return }
+      onRechecked?.()
+      const id = ensureBatch()
+      setProgress({ done: 0, total: planned.length }); setProgressDismissed(false)
+      await sendPlanned(id, planned)
+    } finally { submittingRef.current = false }
+  }
+
+  async function sendPlanned(id: string, planned: Array<{ r: typeof rows[number]; payload: ReturnType<typeof rowPayload> }>) {
+    for (const { r, payload } of planned) {
       try {
-        const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: id, ...rowPayload(r) })
+        const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: id, ...payload })
         setResults(m => ({ ...m, [r.rec._rowIndex]: j.row }))
       } catch (e) {
         // 請求本身失敗（斷線、伺服器錯誤）：伺服器那邊可能已經開了，標成待確認，用「查詢結果」去釐清
@@ -481,8 +519,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
 
   async function submitAndShow() {
     if (otherSpace || !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendable.length }))) return
-    setStep(4)
-    await submit(true)
+    // 重驗通過才切到結果頁；沒過就留在預覽頁，擋下原因（sendNote／createBlock）才看得到（CodeX 1006 [P2]）
+    await submit(true, () => setStep(4))
   }
   // 送出中、單列重試／繼續送出中都算忙：這時切空間會卸掉畫面，但後端還在寫（CodeX review 025fe7c [P2]）
   const anyRowBusy = Object.values(rowBusy).some(Boolean)
