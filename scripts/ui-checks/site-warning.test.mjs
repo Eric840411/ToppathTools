@@ -50,6 +50,13 @@ check('站台警告＋drawer → 警告藏掉、drawer 與遮罩留著', !(await
 await page.setContent(`<body>${SITE}<div class="el-message-box__wrapper" id="mbclosed" style="display:none"></div>${MODAL}</body>`);
 await dismissSiteWarning(page, 0);
 check('關著的 MessageBox 不算 → 遮罩照樣拿掉', !(await vis('.v-modal')));
+// 可見性的另外兩條分支（CodeX e63d8cc 建議）：CSS 藏起來的（不是 inline style）也不算開著
+await page.setContent(`<style>.gone{display:none}</style><body>${SITE}<div class="el-message-box__wrapper gone"></div>${MODAL}</body>`);
+await dismissSiteWarning(page, 0);
+check('CSS display:none 的 MessageBox 不算 → 遮罩拿掉', !(await vis('.v-modal')));
+await page.setContent(`<body>${SITE}<div class="el-drawer__wrapper" style="visibility:hidden"></div>${MODAL}</body>`);
+await dismissSiteWarning(page, 0);
+check('visibility:hidden 的 drawer 不算 → 遮罩拿掉', !(await vis('.v-modal')));
 
 await page.setContent(`<body>${CONFIRM}${MODAL}</body>`);
 check('只有標題 Warning 的確認框 → 不認、不動', await dismissSiteWarning(page, 0) === false && await vis('#confirm') && await vis('.v-modal'));
