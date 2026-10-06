@@ -272,7 +272,7 @@ router.post('/api/weekly-report/meegle-by-range', async (req, res) => {
     const note = endDate < todayTaipei ? '注意：「更新」只看最後一次更新時間，這週之後又被更新過的單不會出現在這裡' : ''
     res.json({
       ok: true, note,
-      issues: got.value.map(i => ({ key: i.key, summary: i.summary, status: i.status, created: i.created, updated: i.updated, role: i.role, jiraProjectName: i.projectName })),
+      issues: got.value.map(i => ({ key: i.key, summary: i.summary, status: i.status, created: i.created, updated: i.updated, role: i.role, jiraProjectName: i.projectName, requirementName: i.requirementName })),
     })
   } catch (e) {
     res.status(500).json({ ok: false, message: `查詢失敗：${e instanceof Error ? e.message : String(e)}` })
@@ -727,7 +727,7 @@ async function fetchJiraDraftsForCron(
     out.skipped.push({ label: 'Meegle', reason: `${actorToken.reason}，這次沒有撈單——請本人到個人帳號頁綁定，或在定時提醒設定換一位授權人` })
     return out
   }
-  const byIssue = new Map<string, { key: string; summary: string; jiraProjectName: string; accountLabels: string[] }>()
+  const byIssue = new Map<string, { key: string; summary: string; jiraProjectName: string; requirementName: string; accountLabels: string[] }>()
   for (const acc of candidates) {
     const label = acc.label || acc.email
     const who = await resolveMeeglePerson(db, actorToken.token, acc.email)
@@ -737,7 +737,7 @@ async function fetchJiraDraftsForCron(
     for (const iss of got.value) {
       const existing = byIssue.get(iss.key)
       if (existing) { if (!existing.accountLabels.includes(label)) existing.accountLabels.push(label) }
-      else byIssue.set(iss.key, { key: iss.key, summary: iss.summary, jiraProjectName: iss.projectName, accountLabels: [label] })
+      else byIssue.set(iss.key, { key: iss.key, summary: iss.summary, jiraProjectName: iss.projectName, requirementName: iss.requirementName, accountLabels: [label] })
     }
   }
 

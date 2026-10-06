@@ -80,6 +80,41 @@ export function matchLarkProjectByJiraName(jiraProjectName: string, larkProjects
     })
 }
 
+/** 專案編號（「P7-002 系統Bug」「P7-002-系統Bug」→ P7-002）；沒有編號回空字串 */
+export function projectCode(s: string): string {
+  return /^\s*(P\d+-\d{3})(?![0-9])/i.exec(s)?.[1]?.toUpperCase() ?? ''
+}
+
+/**
+ * Meegle 關聯需求 → Base 專案選項（v5.27.0，使用者 2026-10-06：Meegle 之後專案要看關聯需求）。
+ * 兩邊寫法不同（「P7-002 系統Bug」↔「P7-002-系統Bug」、「P7-043-CG營銷Lucky Draw V4」↔「P7-043-CG-營銷抽獎V4」），所以：
+ *  1. 拿掉測試空間的「測-」前綴；名稱正規化後（忽略空白、連字號、大小寫）**恰好一個**相同 → 用它
+ *  2. 不然用編號：同編號、而且不是「只有編號」的選項**恰好一個** → 用它（Base 的 P7-017～033 同時有「P7-022」跟「P7-022-營銷…」兩個）
+ *  3. 都不是 → 不猜（畫面標未選專案）
+ * 刻意不用 matchLarkProjectByJiraName 的「互相包含」：「P7-022」這種只有編號的選項會包含在任何 P7-022 開頭的名稱裡，排在前面就被選走
+ */
+export function matchLarkProjectByRequirement(requirementName: string, larkProjects: FieldOption[]): FieldOption | undefined {
+  const name = requirementName.trim().replace(/^測-/, '')
+  if (!name) return undefined
+  const norm = normalizeProjectName(name)
+  const exact = larkProjects.filter(p => normalizeProjectName(p.name) === norm)
+  if (exact.length === 1) return exact[0]
+  if (exact.length > 1) return undefined
+  const code = projectCode(name)
+  if (!code) return undefined
+  const sameCode = larkProjects.filter(p => projectCode(p.name) === code && normalizeProjectName(p.name) !== normalizeProjectName(code))
+  return sameCode.length === 1 ? sameCode[0] : undefined
+}
+
+/**
+ * 撈到的單 → Base 專案選項。**有關聯需求就只看關聯需求**（對不到就留空，不退回標題中括號——
+ * 標題寫 [OSM] 但需求是「系統Bug」時，退回去會靜默歸錯）；沒有關聯需求的（舊資料）才用標題第一個中括號。
+ */
+export function matchWeeklyIssueProject(iss: { jiraProjectName: string; requirementName?: string }, larkProjects: FieldOption[]): FieldOption | undefined {
+  if (iss.requirementName?.trim()) return matchLarkProjectByRequirement(iss.requirementName, larkProjects)
+  return matchLarkProjectByJiraName(iss.jiraProjectName, larkProjects)
+}
+
 // ── Jira 標題標籤歸集 ─────────────────────────────────────────────────────────
 
 /** 取標題開頭連續的中括號標籤。刻意只吃開頭，本文中間出現的中括號不算——例如
@@ -164,6 +199,8 @@ export interface JiraRangeIssue {
   key: string
   summary: string
   jiraProjectName: string
+  /** Meegle 關聯需求名稱（v5.27.0）；有的話專案用它比對，見 matchWeeklyIssueProject */
+  requirementName?: string
   /** 這張單是被哪些帳號查到的（同一張單可能同時是 A 的 reporter、B 的驗證人員）*/
   accountLabels: string[]
 }
@@ -192,7 +229,7 @@ export function groupJiraIssuesToDrafts(
   type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[]; issues: { key: string; summary: string }[] }
   const groups = new Map<string, GroupAcc>()
   for (const iss of issues) {
-    const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, larkProjects)
+    const matchedProject = matchWeeklyIssueProject(iss, larkProjects)
     const targetPersons = new Set<string>()
     for (const label of iss.accountLabels) {
       for (const [kw, member] of keywordToMember) {

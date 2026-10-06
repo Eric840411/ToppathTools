@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 // 在 server 再寫一份的話，之後改規則一定會漏一邊，症狀是「Discord 送出去的跟頁面上看到的不一樣」
 import {
   DEFAULT_TAB_DATE_PROJECT_NAME, MERGE_PROJECT_NAME, DEFAULT_SCAN_SHEET_URL,
-  MERGE_CONTENT, matchLarkProjectByJiraName, buildPreviewItems, countMergeable, countJiraTagAffected,
+  MERGE_CONTENT, matchLarkProjectByJiraName, matchWeeklyIssueProject, buildPreviewItems, countMergeable, countJiraTagAffected,
   applyDefaultScanSheetProject, AUTO_IMPORT_TARGET_KEYWORDS, matchesAutoImportTarget,
 } from '../../shared/weekly-report-rules.js'
 
@@ -34,7 +34,7 @@ function WarningIcon({ size = 14, style }: { size?: number; style?: CSSPropertie
 
 interface FieldOption { id: string; name: string }
 interface ParsedTable { appToken: string; tableId: string; members: FieldOption[]; projects: FieldOption[] }
-interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'assignee' | 'both' | 'unknown'; jiraProjectName: string }
+interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'assignee' | 'both' | 'unknown'; jiraProjectName: string; requirementName?: string }
 
 // ── 批次掃描審核（2026-08-16）：掃描來源 Sheet、抓出所有出現的人、一次幫全部人產草稿 ──
 // jiraIssues：Jira 撈單套用進來的原始資料（單號 + 標題成對存，不是兩個平行陣列——只存 summaries[]
@@ -720,7 +720,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     type GroupAcc = { projectId: string; projectName: string; keys: string[]; accountLabels: Set<string>; issues: { key: string; summary: string }[] }
     const groups = new Map<string, GroupAcc>()
     for (const iss of checkedIssues) {
-      const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, parsed.projects)
+      const matchedProject = matchWeeklyIssueProject(iss, parsed.projects)
       const groupKey = matchedProject?.name ?? ''
       let g = groups.get(groupKey)
       if (!g) { g = { projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], accountLabels: new Set(), issues: [] }; groups.set(groupKey, g) }
@@ -763,7 +763,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     const unmatchedAccountNames = new Set<string>()
 
     for (const iss of checkedIssues) {
-      const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, parsed.projects)
+      const matchedProject = matchWeeklyIssueProject(iss, parsed.projects)
       for (const rawPerson of iss.accountLabels) {
         const person = memberByLowerName.get(rawPerson.trim().toLowerCase())
         if (!person) {
@@ -1022,7 +1022,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[]; issues: { key: string; summary: string }[] }
         const groups = new Map<string, GroupAcc>()
         for (const iss of issues) {
-          const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, parsed.projects)
+          const matchedProject = matchWeeklyIssueProject(iss, parsed.projects)
           const targetPersons = new Set<string>()
           for (const label of iss.accountLabels) {
             for (const [kw, member] of keywordToMember) {
@@ -1445,7 +1445,7 @@ function BatchScanSection({
                           <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, fontWeight: 700, color: 'var(--cr-cyan)', background: 'var(--cr-cyan-soft)', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>{iss.key}</span>
                           {iss.summary}
                         </div>
-                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{iss.status} · 來源帳號：{iss.accountLabels.join('、')}{iss.jiraProjectName ? ` · Jira 專案：${iss.jiraProjectName}` : ''}</div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{iss.status} · 來源帳號：{iss.accountLabels.join('、')}{iss.requirementName ? ` · 關聯需求：${iss.requirementName}` : iss.jiraProjectName ? ` · 標題標籤：${iss.jiraProjectName}` : ''}</div>
                       </div>
                     </label>
                   ))}

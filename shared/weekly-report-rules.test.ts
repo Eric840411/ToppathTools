@@ -8,7 +8,7 @@
  */
 import {
   MERGE_PROJECT_NAME, MERGE_CONTENT,
-  leadingTags, jiraTagGroups, matchLarkProjectByJiraName, normalizeProjectName,
+  leadingTags, jiraTagGroups, matchLarkProjectByJiraName, normalizeProjectName, matchLarkProjectByRequirement, matchWeeklyIssueProject,
   buildPreviewItems, countMergeable, countJiraTagAffected,
   type DraftItem,
 } from './weekly-report-rules.js'
@@ -120,6 +120,25 @@ eq('人員排序穩定（zh-Hant）',
 // ── 計數 ─────────────────────────────────────────────────────────────────────
 eq('countMergeable 算的是原始草稿裡有幾筆會被併', countMergeable({ Eric: [osm('a'), osm('b'), other('c')] }), 2)
 eq('countJiraTagAffected 只算帶 jiraIssues 的', countJiraTagAffected({ Eric: [jiraItem, other('c')] }), 1)
+
+// ── Meegle 關聯需求 → Base 專案（v5.27.0）。選項與需求名稱是 2026-10-06 從真的 Base／Meegle 正式空間讀出來的 ──
+{
+  const BASE = ['P7-001-系統維護', 'P7-002-系統Bug', 'P7-005-OSM', 'P7-006-圖像識別-OSM', 'P7-007-第三方測試', 'P7-011-熱更新(灰度)', 'P7-022', 'P7-022-營銷Jakcpot(全網)',
+    'P7-043-CG-營銷抽獎V4', 'P7-046-TP次世代前端-Color Game', 'P7-047-Color War 2.0', 'P7-PM任務', 'P7-045 Rust Server重構'].map((name, i) => ({ id: `o${i}`, name }))
+  const m = (req: string) => matchLarkProjectByRequirement(req, BASE)?.name ?? null
+  eq('需求：空白與連字號不同 → 比得上', m('P7-002 系統Bug'), 'P7-002-系統Bug')
+  eq('需求：大小寫、括號前空白不同 → 比得上', [m('P7-047 Color war 2.0'), m('P7-011 熱更新 (灰度)')], ['P7-047-Color War 2.0', 'P7-011-熱更新(灰度)'])
+  eq('需求：沒有編號、名稱相同 → 比得上', m('P7-PM任務'), 'P7-PM任務')
+  eq('需求：名稱不同但編號唯一 → 用編號', m('P7-043-CG營銷Lucky Draw V4'), 'P7-043-CG-營銷抽獎V4')
+  eq('需求：Base 同編號有「只有編號」跟「編號＋名稱」→ 選帶名稱的，不被只有編號的搶走', m('P7-022 營銷Jakcpot'), 'P7-022-營銷Jakcpot(全網)')
+  eq('需求：P7-005 不會配到 P7-006-圖像識別-OSM', m('P7-005 OSM'), 'P7-005-OSM')
+  eq('需求：測試空間「測-」前綴拿掉再比', m('測-P7-002 系統Bug'), 'P7-002-系統Bug')
+  eq('需求：Base 沒有的（P6／LBSLOT）→ 不猜', [m('P6-042 GSW'), m('LBSLOT-實體老虎機')], [null, null])
+  eq('需求：P7-0021 這種多一位的不算 P7-002', m('P7-0021 什麼'), null)
+  eq('單：有關聯需求就只看需求（標題寫 [OSM] 也不會歸到 OSM）', matchWeeklyIssueProject({ jiraProjectName: 'OSM', requirementName: 'P7-002 系統Bug' }, BASE)?.name, 'P7-002-系統Bug')
+  eq('單：需求對不到 → 留空，不退回標題', matchWeeklyIssueProject({ jiraProjectName: 'OSM', requirementName: 'P6-042 GSW' }, BASE), undefined)
+  eq('單：沒有關聯需求（舊資料）→ 用標題中括號', matchWeeklyIssueProject({ jiraProjectName: 'OSM' }, BASE)?.name, 'P7-005-OSM')
+}
 
 // ── 結果 ─────────────────────────────────────────────────────────────────────
 console.log(`\n通過 ${pass} 項`)

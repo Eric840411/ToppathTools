@@ -64,6 +64,15 @@ eq('邊界單建立在週期內（台北 10/1 18:00）→ 收進來', r3.kind ==
 const r4 = await fetchMeegleWeek('tok', who, '2026-09-25', '2026-10-01', fakeRunner('2026-10-01T17:00:00Z') as never)
 eq('邊界單建立在週期外（台北 10/2 01:00）→ 不收', r4.kind === 'ok' && r4.value.length, 0)
 
+// v5.27.0：固定撈正式空間、帶回關聯需求名稱
+{ const seen: string[][] = []
+  const reqRow = { moql_field_list: [...mqlRow.moql_field_list.filter(f => f.key !== 'start_time'), { key: 'start_time', value: { string_value: '2026-09-28' } },
+    { key: 'field_eab776', value: { key_label_value: { key: '15100002', label: 'P7-002 系統Bug' } } }] }
+  const r = await fetchMeegleWeek('tok', who, '2026-09-25', '2026-10-01', (async (args: string[]) => { seen.push(args); return out({ data: { '1': [reqRow] }, list: [{ count: 1, group_infos: [{ group_id: '1' }] }], session_id: 's' }) }) as never)
+  eq('沒指定 env → 查正式空間的 project key', seen[0][seen[0].indexOf('--project-key') + 1], '6ac081a48614642b450645c5')
+  eq('MQL 有選關聯需求欄', /`field_eab776`/.test(seen[0][seen[0].indexOf('--mql') + 1]), true)
+  eq('回傳關聯需求名稱', r.kind === 'ok' && r.value[0].requirementName, 'P7-002 系統Bug') }
+
 // CodeX review 2afdaeb [P1]：週報 API 後端關卡
 { let asked = 0; const perm = (v: boolean) => () => { asked++; return v }
   eq('關卡：沒登入 → 401', weeklyGateProblem(null, perm(true))?.status, 401)

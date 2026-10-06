@@ -218,3 +218,19 @@
 > **v5.1.0 起**：週報提醒可以改發 Lark（見 `29-lark-notify.md`）。Lark 卡片沒有「確認送出」按鈕，改成「開啟週報頁確認送出」連結（`工具網址/?page=weekly-report`），在頁面上送出、照樣檢查登入與權限。
 
 > **v5.1.1 後端關卡**（CodeX review [P1]，既有漏洞）：`/api/weekly-report/*` 原本後端完全沒檢查登入與權限（只靠前端擋頁面），`batch-submit` 直接呼叫就能用服務端 Lark token 寫入。現在 router 最前面掛一個前綴關卡：登入（401）→ 未停權（403）→ 有「週報彙整」權限（403），逐關短路；規則在 `meegle-weekly.ts` 的 `weeklyGateProblem`，跟排程授權人同一條停權判斷。新端點自動受管。驗證：`node scripts/ui-checks/weekly-gate-live-check.mjs`（真伺服器 17 項；拿掉關卡 13 項變紅）。
+
+## 專案改看 Meegle 關聯需求、固定撈正式空間（v5.27.0，2026-10-06 使用者）
+
+**背景**：轉 Meegle 後專案用標題第一個中括號（10/02 選 A），但實際標題是 [QA]／[Client]／[後端]…，幾乎都對不到 Base 專案，預期結果整片「⚠ 未選專案」。使用者：「現在都改成 Meegle 的關聯需求了」。
+⚠️ CodeX 用量到上限（18:19 恢復），規則是我依真實資料提、使用者在 Lark 確認後先做，**事後要請 CodeX 補審**。
+
+- **撈單**（`server/meegle-weekly.ts` `fetchMeegleWeek`）：MQL 多選關聯需求欄（`field_eab776`），回 `requirementName`（`key_label_value.label`）；`/meegle-by-range` 與定時提醒預覽都帶出去
+- **比對**（`shared/weekly-report-rules.ts`，前後端共用）：
+  - `matchLarkProjectByRequirement`：拿掉「測-」→ 名稱正規化（`normalizeProjectName`，忽略空白／連字號／大小寫）**恰好一個**相同就用 → 不然用編號（`projectCode`，`P7-043`；後面不能再接數字）找「同編號、不是只有編號」的選項，**恰好一個**才用 → 都不是就不猜
+  - **刻意不用** `matchLarkProjectByJiraName` 的互相包含：Base 的 P7-017～033 同時有「P7-022」跟「P7-022-營銷Jakcpot(全網)」，只有編號那個排在前面，會先被包含比對選走
+  - `matchWeeklyIssueProject`：**有關聯需求就只看需求**（對不到留空，不退回標題——標題寫 [OSM] 但需求是系統Bug 時會靜默歸錯）；沒有需求的舊單才用標題中括號。頁面三處＋`groupJiraIssuesToDrafts` 都改用它
+- **固定撈正式空間**：`fetchMeegleWeek` 預設 env 改 `spaceEnv('prod')`。原本是 `process.env`，沒設 `MEEGLE_PROJECT_KEY` 就是**測試空間**。本機實測 10/02～10/08：測試 37 筆（多是「[工具測試請忽略]」，需求「測-P7-006…」「OSM」）、正式 22 筆（需求「P7-001 系統維護」「P7-002 系統Bug」…）。Meegle 單號兩空間共用流水號，事後分不出空間，只能查詢時指定。使用者確認「改正式空間就好」
+- 實際資料（2026-10-06 讀出）：正式空間 29 個需求，P7 開頭的都對得到；P6-042 GSW、P6-029、P6-025 OSM-AG、LBSLOT-實體老虎機 Base 沒有選項 → 未選專案
+- 草稿列的小字改成「關聯需求：…」（沒有需求才顯示「標題標籤：…」）
+- 測試：`npx tsx shared/weekly-report-rules.test.ts`（選項與需求名稱取自真資料）、`npx tsx server/meegle-weekly.test.ts`（沒指定 env → 正式空間 key、MQL 有選需求欄）。突變驗過：比對改回互相包含、需求對不到退回標題、預設 env 改回 process.env → 各自紅
+

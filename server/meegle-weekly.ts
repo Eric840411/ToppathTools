@@ -13,6 +13,7 @@
  */
 import type Database from 'better-sqlite3'
 import { call, defaultRunner, meegleTarget, queryAll, resolveUsersByEmail, MEEGLE_ROLES, type CallOutcome, type Runner } from './meegle-workitem.js'
+import { spaceEnv } from './meegle-space.js'
 
 const TZ = 8 * 3600_000
 const DAY = 86400_000
@@ -104,19 +105,23 @@ export async function resolveMeeglePerson(db: Database.Database, token: string, 
   return { ok: true, person: { userKey: m.userKey, name: m.name || e }, via: 'search' }
 }
 
-export type WeekItem = { key: string; workItemId: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'assignee' | 'verifier' | 'both'; projectName: string }
+export type WeekItem = { key: string; workItemId: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'assignee' | 'verifier' | 'both'; projectName: string; /** 關聯需求名稱（v5.27.0；專案改看它） */ requirementName: string }
 
 type Flat = Record<string, Record<string, unknown>>
 const str = (f: Flat, k: string) => String((f[k] as { string_value?: unknown } | undefined)?.string_value ?? '')
 
-/** 撈這個人在週期內的任務項（建立或更新落在週期內）。查詢用呼叫者自己的 token */
-export async function fetchMeegleWeek(token: string, person: MeeglePerson, startDate: string, endDate: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<WeekItem[]>> {
+/**
+ * 撈這個人在週期內的任務項（建立或更新落在週期內）。查詢用呼叫者自己的 token。
+ * **固定撈正式空間**（v5.27.0，使用者 2026-10-06）：原本用 process.env 的 MEEGLE_PROJECT_KEY，沒設就是**測試空間**——
+ * 本機實測同一週測試空間 37 筆（多是「[工具測試請忽略]」）、正式 22 筆。單號兩個空間共用流水號，事後分不出來，只能在查詢時就指定
+ */
+export async function fetchMeegleWeek(token: string, person: MeeglePerson, startDate: string, endDate: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = spaceEnv('prod')): Promise<CallOutcome<WeekItem[]>> {
   const t = meegleTarget(env)
   const b = weekBounds(startDate, endDate)
   const who = `'${person.name.replace(/['\\<>]/g, '')}<id:${person.userKey}>'`
   const roleName = (k: string) => MEEGLE_ROLES.find(r => r.key === k)!.roleName
   const roles = ['reporter', 'assignee', 'qaVerifier'] as const
-  const mql = `SELECT \`work_item_id\`, \`name\`, \`work_item_status\`, \`start_time\`, \`updated_at\`, ${roles.map(r => `\`__${roleName(r)}\``).join(', ')} FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\``
+  const mql = `SELECT \`work_item_id\`, \`name\`, \`work_item_status\`, \`start_time\`, \`updated_at\`, \`${t.requirementFieldKey}\`, ${roles.map(r => `\`__${roleName(r)}\``).join(', ')} FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\``
     + ` WHERE (${roles.map(r => `array_contains(\`__${roleName(r)}\`, ${who})`).join(' OR ')})`
     + ` AND ((\`start_time\` >= '${b.qStart}' AND \`start_time\` < '${b.qEnd}') OR (\`updated_at\` >= '${b.qStart}' AND \`updated_at\` < '${b.qEnd}'))`
   const rows = await queryAll(token, t.projectKey, mql, runner)
@@ -152,6 +157,7 @@ export async function fetchMeegleWeek(token: string, person: MeeglePerson, start
       created: createdIso || str(f, 'start_time'), updated: updatedMs != null ? new Date(updatedMs).toISOString() : '',
       role: isRep && isQa ? 'both' : isQa ? 'verifier' : isRep ? 'reporter' : 'assignee',
       projectName: projectFromTitle(title),
+      requirementName: String((f[t.requirementFieldKey] as { key_label_value?: { label?: unknown } } | undefined)?.key_label_value?.label ?? '').trim(),
     })
   }
   return { kind: 'ok', value: out.sort((a, b2) => b2.updated.localeCompare(a.updated)) }
