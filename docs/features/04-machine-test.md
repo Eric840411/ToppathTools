@@ -97,8 +97,12 @@
 - UAT、AutoSpin 下注等各自的斷線收尾規則照舊，只是改從同一個入口呼叫
 - agent 端：斷線時要求正在跑的 runner 停止；重連後的新派工**先等上一輪收尾**（`claimLoopDone`）；斷線結束的迴圈印「連線中斷」不印 complete；`job_done` 送不出去會記一行
 
+### v5.12.5（CodeX review c189606）
+- **[P1] 舊結果污染新測試**：進度事件（`event`，含 machine_done）也要擋——除了是目前連線、自己的 session，**那個 session 還要在跑**（`acceptsEvent` 看 `activeRunners`）。A 斷線取消整輪後 B 還掛著舊 sessionId、收尾時照樣送 machine_done，新一輪已開始的話會混進去、甚至觸發 Lark 回寫
+- **[P2] 收尾冪等**：佇列和 runner 都不在＝早就收尾了，`abortMachineTestSession` 直接返回、不廣播（原本仍廣播 error／session_done，會關掉新一輪的監看）
+
 ### 測試
-- `npx tsx server/agent-lifecycle.test.ts`（17）：ready 先到／close 先到兩種順序、重複收尾、舊訊息晚到、多 agent 取消
+- `npx tsx server/agent-lifecycle.test.ts`（21，含跨 session：A 斷線取消第一輪 → 第二輪開始 → B 晚到的事件與晚斷線）：ready 先到／close 先到兩種順序、重複收尾、舊訊息晚到、多 agent 取消
 - 突變驗過：拿掉「只做一次」、close 無條件刪 map、重連不收舊連線，各自有對應的測試變紅
 - ⚠️ 沒有真 agent 斷線的實測：agent 要用真的 token 連線，本機無法偽造。下次真的斷線時看 log 有沒有「Agent disconnected: …（Agent … 重新連線，舊連線已中斷）」與 session 是否自動結束
 - ⚠️ agent 端的修改要 agent「更新程式碼」並重啟才生效

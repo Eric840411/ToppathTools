@@ -75,10 +75,37 @@ function setup() {
   eq('停掉所有參與的 agent', stopped, ['A', 'B'])
   eq('沒跑完的機台標失敗並廣播佇列', events[0]?.type === 'queue_update' && (events[0].statuses as Array<{ state: string }>).every(s => s.state === 'failed'), true)
   eq('廣播錯誤與 session 結束（畫面不會卡在執行中）', events.slice(1).map(e => e.type), ['error', 'session_done'])
-  // session 已經被手動 stop 過：abortQueue 回 null、stopRunner 回 false，照樣只廣播結束、不報錯
+  // session 已經收尾過（佇列、runner 都不在）→ 什麼都不廣播（CodeX review c189606 [P2]：舊的 session_done 會關掉新一輪的監看）
   const ev2: string[] = []
-  abortMachineTestSession('mt_9', 'x', { abortQueue: () => null, stopRunner: () => false, broadcast: e => ev2.push(e.type) })
-  eq('session 已不在 → 不廣播佇列，只通知結束', ev2, ['error', 'session_done'])
+  const r2 = abortMachineTestSession('mt_9', 'x', { abortQueue: () => null, stopRunner: () => false, broadcast: e => ev2.push(e.type) })
+  eq('session 已不在 → 不廣播任何東西', [r2, ev2], [false, []])
+}
+
+// ── 跨 session：A 斷線取消第一輪 → 第二輪開始 → B 晚斷線（CodeX review c189606 的兩個案例）──
+{
+  const { life } = setup()
+  const active = new Set<string>(['mt_1'])
+  const queues = new Map<string, unknown[]>([['mt_1', [{ machineCode: '0214', state: 'running' }]]])
+  const runners = new Map<string, () => void>([['mt_1', () => {}]])
+  const shown: Array<{ type: string; session: string }> = []
+  const abortDeps = (sid: string) => ({
+    abortQueue: (s: string) => { const q = queues.get(s) ?? null; queues.delete(s); return q },
+    stopRunner: (s: string) => { const r = runners.get(s); if (!r) return false; r(); runners.delete(s); active.delete(s); return true },
+    broadcast: (e: { type: string }) => shown.push({ type: e.type, session: sid }),
+  })
+  const A = mk('A', 'a', 'mt_1'); const B = mk('B', 'b', 'mt_1')
+  life.register(A); life.register(B)
+  abortMachineTestSession('mt_1', 'A 斷線', abortDeps('mt_1'))          // A 斷線 → 第一輪取消
+  // 第二輪開始（別的 agent C）
+  active.add('mt_2'); queues.set('mt_2', []); runners.set('mt_2', () => {})
+  const C = mk('C', 'c', 'mt_2'); life.register(C)
+  // B 收尾送出第一輪的 machine_done
+  eq('第一輪已取消：B 晚到的進度事件不收（不會混進第二輪）', life.acceptsEvent(B, 'mt_1', s => active.has(s)), false)
+  eq('第二輪的事件照收', life.acceptsEvent(C, 'mt_2', s => active.has(s)), true)
+  const before = shown.length
+  const r = abortMachineTestSession('mt_1', 'B 晚斷線', abortDeps('mt_1'))   // B 晚斷線，手上還是第一輪
+  eq('B 晚斷線：第一輪早就收尾 → 不再廣播（第二輪的監看不會被關掉）', [r, shown.length - before], [false, 0])
+  eq('第二輪還在跑', active.has('mt_2'), true)
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

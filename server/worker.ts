@@ -669,6 +669,8 @@ wss.on('connection', (ws, req) => {
       }
 
       if (msg.type === 'event' && msg.sessionId && msg.event) {
+        // 舊連線、或這輪已經被取消（別台斷線／手動 stop）：進度事件不轉給畫面——不然會混進新的一輪（CodeX review c189606 [P1]）
+        if (!agentLifecycle.acceptsEvent(myInfo, msg.sessionId, sid => activeRunners.has(sid))) return
         const ev = msg.event as TestEvent
         if (agentId) {
           const info = agentConnections.get(agentId)

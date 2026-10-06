@@ -27,6 +27,12 @@ type Lifecycle = {
   isCurrent(info: AgentInfo | null | undefined): boolean
   /** 這條 socket 是目前的連線、而且手上就是這個 session（舊連線晚到的訊息不算數） */
   ownsSession(info: AgentInfo | null | undefined, sessionId: string): boolean
+  /**
+   * 機台測試的進度事件（machine_done 等）收不收：要是自己的 session **而且那個 session 還在跑**。
+   * 只看歸屬不夠：A 斷線把整輪取消後，B 還掛著舊 sessionId、收尾時照樣送 machine_done；
+   * 那時新的一輪已經開始的話，舊結果會混進新測試，甚至觸發新一輪的 Lark 回寫（CodeX review c189606 [P1]）
+   */
+  acceptsEvent(info: AgentInfo | null | undefined, sessionId: string, isActive: (sessionId: string) => boolean): boolean
 }
 
 export function createAgentLifecycle(deps: {
@@ -56,6 +62,7 @@ export function createAgentLifecycle(deps: {
     },
     isCurrent,
     ownsSession: (info, sessionId) => isCurrent(info) && !!sessionId && info!.sessionId === sessionId,
+    acceptsEvent: (info, sessionId, isActive) => isCurrent(info) && !!sessionId && info!.sessionId === sessionId && isActive(sessionId),
   }
 }
 
@@ -73,8 +80,12 @@ export function abortMachineTestSession(sessionId: string, reason: string, deps:
 }) {
   const ts = new Date().toISOString()
   const statuses = deps.abortQueue(sessionId)
+  const stopped = deps.stopRunner(sessionId)
+  // ⚠️ 佇列和 runner 都已經不在＝這輪早就收尾了（被別台斷線取消、或手動 stop）。這時再廣播 error／session_done，
+  //    畫面會把**新的那一輪**的監看關掉，後端卻還在跑（CodeX review c189606 [P2]，記憶體重現）。直接返回
+  if (!statuses && !stopped) return false
   if (statuses) deps.broadcast({ type: 'queue_update', statuses, message: '', ts })
-  deps.stopRunner(sessionId)
   deps.broadcast({ type: 'error', message: reason, ts })
   deps.broadcast({ type: 'session_done', message: `機台測試已中斷：${reason}`, ts })
+  return true
 }
