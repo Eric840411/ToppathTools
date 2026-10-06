@@ -3,7 +3,8 @@
  * 前端預覽與後端送出共用這一份；值怎麼換成 Meegle 的格式沿用批量修改的 resolveFieldValue（同一套規則，不另寫）。
  *
  * 範圍：任務項在兩個空間 key 相同的欄位（2026-10-06 實查 fixture server/fixtures/meegle/meta-fields.*）。
- * 不放：名稱／描述／關聯需求／任務類型／人員（開單本來就有專門的欄）、測試說明（有批量評論工具）、系統欄位。
+ * 不放：名稱／描述／關聯需求／任務類型／人員（開單本來就有專門的欄）、測試說明（有批量評論工具）、系統欄位、
+ * 關聯任務（field_a064e5，關聯多個工作項，格式不同，要用再另外做）。
  * select 的選項每個空間即時讀，送出時後端只收「選項名稱」，自己換 option_id。
  */
 import { EDIT_FIELDS, resolveFieldValue, type EditFieldDef, type Option } from './meegle-edit-rules.js'
@@ -19,6 +20,10 @@ export const CREATE_EXTRA_FIELDS: EditFieldDef[] = [
   { ...fromEdit('field_3db883'), group: '時間' },
   { ...fromEdit('field_cbc597'), group: '時間' },
   { ...fromEdit('field_ce2cfc'), group: '時間' },
+  // 2026-10-06 使用者：少了 Actual start／Actual end（兩空間 key 相同，實查 fixture）
+  { key: 'field_b4c668', label: 'Actual start', group: '時間', kind: 'date', clearable: true },
+  { key: 'field_9bae45', label: 'Actual end', group: '時間', kind: 'date', clearable: true },
+  { key: 'field_f4ace6', label: 'RD 工時', group: '說明與連結', kind: 'text', clearable: true },
   { ...fromEdit('field_1ab2a7'), group: '說明與連結' },
   { key: 'field_44db22', label: '重新產生問題步驟', group: '說明與連結', kind: 'multi', clearable: true },
   { ...fromEdit('field_f6b7ab'), group: '說明與連結' },

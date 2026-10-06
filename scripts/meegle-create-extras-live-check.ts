@@ -24,7 +24,7 @@ if (opts.kind !== 'ok') throw new Error(`選項：${opts.message}`)
 const pick = (k: string) => opts.value[k][opts.value[k].length - 1]?.name ?? ''
 const raw: Record<string, string> = {
   priority: pick('priority'), field_9a3fe4: pick('field_9a3fe4'), field_07e581: pick('field_07e581'), field_710be5: pick('field_710be5'), field_e742d0: pick('field_e742d0'),
-  field_3db883: '2026/09/27', field_cbc597: '2026/09/28', field_ce2cfc: '2026/09/29',
+  field_3db883: '2026/09/27', field_cbc597: '2026/09/28', field_ce2cfc: '2026/09/29', field_b4c668: '2026/09/25', field_9bae45: '2026/09/30', field_f4ace6: '4h',
   field_1ab2a7: '開發說明第一行\n第二行', field_44db22: '1. 步驟一\n2. 步驟二', field_f6b7ab: 'https://gitlab.example/merge_requests/1',
 }
 const ex = resolveCreateExtras(raw, opts.value)

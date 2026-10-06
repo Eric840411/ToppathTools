@@ -541,6 +541,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - **可設的其他欄位**（`shared/meegle-create-fields.ts`，前後端共用）：優先順序、難易度、嚴重性(QA)、QA測試難易度、退件、本機測試完成／上C服／上線時間、開發說明、重新產生問題步驟、Gitlab 連結。
   兩空間 key 相同（實查 fixture）；select 選項依空間即時讀，後端只收選項名稱、每列重讀選項再換 option_id；換不出來整列擋。
   值的換算沿用批量修改的 `resolveFieldValue`（從 resolveEdit 抽出來，規則只一份）
+- v5.24.1 補上 **Actual start／Actual end**（使用者問「為什麼少了」）與 **RD 工時**；實開 #15245457 讀回正確。仍不放「關聯任務」（關聯多個工作項，格式不同）
 - 預覽列名稱下方顯示這列帶了哪些其他欄位
 - 實機：`npx tsx scripts/meegle-create-extras-live-check.ts`（測試空間實開 #15245280，11 欄全部讀回正確；多行文字 Meegle 會把單一換行變空行，內容不變）
 - 測試：`npx tsx shared/meegle-create-fields.test.ts`（8）
