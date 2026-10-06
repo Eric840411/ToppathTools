@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -4958,6 +4958,12 @@ export class MachineTestRunner extends EventEmitter {
                 // 使用者 1003：不要硬試 20 分鐘再停批——「沒有遊戲進行中的證據」連續 EXIT_STUCK_RETRIES 次就停手，
                 // 標成「退出異常、帳號卡在這台」，batch 會立刻回報＋換帳號跑剩下的（1565 那次卡了 32 次、20 分鐘）。
                 // 有遊戲進行中證據（feature/FG）的不走這裡，照舊推進遊戲＋20 分鐘上限——那時換帳號會把額度留在機台上。
+                // 1006 CodeX：JP／FG 觸屏推進後的觀察期，手冊動作也不做、連續失敗也不累計（判定在 verdicts.ts inFeatureHold）
+                if (inFeatureHold(feat, Date.now())) {
+                  emit(`退出未完成（第 ${attempt} 次）：觸屏推進後觀察中（剩 ${Math.ceil((feat.holdUntil - Date.now()) / 1000)}s），不套手冊、不做任何推進，5 秒後再試退出`)
+                  await sleep(5000)
+                  continue
+                }
                 retryStreak++
                 if (retryStreak >= EXIT_STUCK_RETRIES) {
                   // 症狀簽名＝最後一次停在畫面上的文字（end 那張之前的最後狀態）＋WS 停在哪一步
@@ -5002,6 +5008,11 @@ export class MachineTestRunner extends EventEmitter {
                 acts += roundTaps
                 const next = applyFeatureRound(feat, fr, Date.now())
                 feat = next.state
+                if (next.then === 'handOff') {
+                  // CodeX 第三輪 P1：**當輪**就結束——不能 continue，下一輪會先跑 stepExit（點 Cashout／Confirm）與手冊動作
+                  this._haltReason = `${machineCode} 退出異常（帳號卡在這台）：JP／FG ${feat.handOff}，已停止所有自動操作｜⚠️ 待人工確認畫面與額度`
+                  return { step: '退出測試', status: 'fail', message: `🆘 ${this._haltReason}（推進 ${acts} 次）`, durationMs: Date.now() - t0 }
+                }
                 if (next.then === 'retryExit') continue
                 if (fr.result === 'exhausted') emit(`觸屏點位清單點完（${featureCfg.points.length} 格）都沒有進展 → 改走設定檔推進`)
               }

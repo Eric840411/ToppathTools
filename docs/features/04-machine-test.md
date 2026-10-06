@@ -250,5 +250,9 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   `handOff`（觸屏推進量不到）→ **結束本台自動操作**、退出測試回 FAIL「待人工確認」並設 halt（batch 換帳號），不再落入 SPIN／盲推；
   `hold` → 只重試退出；`featureTap` → 跑一輪；`legacy` → 原本推進流程。
 - 退出路徑每一下點之前的 guard ＝ 停止 **＋整台時限（EXIT_MAX_MS）＋動作上限（EXIT_MAX_ACTS，含這一輪已點的）**。
-- 探針 `scripts/feature-taps-probe.ts` 25 項，含退出迴圈整合模擬（unsure 之後推進次數為零、觀察期零推進）；
-  把 de8edea 的寫法（unsure 只把 cursor 設到底、繼續原本流程）注入回去，會紅在兩條退出迴圈案例。
+- **unsure 當輪就 FAIL＋halt**（CodeX 第三輪 P1，v5.17.3）：不能 `continue`——下一輪會先跑 `stepExit`（點 Cashout／Confirm），
+  可能直接回 PASS，或進 retry 分支套手冊動作，繞過待人工確認。`applyFeatureRound` 對 unsure 回 `then: 'handOff'`，runner 當場 return。
+- **觀察期也擋手冊**：沒有遊戲進行中證據的 retry 分支，在累計連續失敗與套手冊（exit-playbook）**之前**先查 `inFeatureHold`，觀察期內只等、不累計、不 halt。
+- 探針 `scripts/feature-taps-probe.ts` 27 項。退出迴圈模擬照 runner 的**實際順序**（stepExit → retry／手冊 → 遊戲進行中推進），
+  判定函式與 runner 同一支、迴圈膠水照抄——證明的是這個順序下不會繞過，runner 真實行為仍要 0335 真機驗。
+  注入：unsure 改回 `retryExit`（804b0e8 的寫法）紅 2 條；觀察期失效紅 3 條。

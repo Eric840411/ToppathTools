@@ -423,17 +423,23 @@ export const FEATURE_HOLD_MS = 60_000
 export const FEATURE_MAX_OCR = 5
 export type ExitFeatureState = { cursor: number; total: number; holdUntil: number; ocrTries: number; handOff: string | null }
 export const exitFeatureState = (total: number): ExitFeatureState => ({ cursor: 0, total, holdUntil: 0, ocrTries: 0, handOff: null })
+/** 觸屏推進後的觀察期。退出迴圈兩條分支（遊戲進行中／沒有證據的 retry＋手冊）都用這一支擋（CodeX 第三輪 P1：手冊動作之前就要攔住） */
+export const inFeatureHold = (s: ExitFeatureState, now: number) => now < s.holdUntil
 export function planExitAdvance(s: ExitFeatureState, now: number, enabled: boolean): 'handOff' | 'hold' | 'featureTap' | 'legacy' {
   if (s.handOff) return 'handOff'
-  if (now < s.holdUntil) return 'hold'
+  if (inFeatureHold(s, now)) return 'hold'
   if (enabled && s.cursor < s.total && s.ocrTries < FEATURE_MAX_OCR) return 'featureTap'
   return 'legacy'
 }
-/** 一輪觸屏推進的結果 → 新狀態，以及這一輪接下來要「回去重試退出」還是「照原本流程推」 */
-export function applyFeatureRound(s: ExitFeatureState, r: { result: string; cursor: number }, now: number): { state: ExitFeatureState; then: 'retryExit' | 'legacy' } {
+/**
+ * 一輪觸屏推進的結果 → 新狀態，以及這一輪接下來：
+ *   handOff＝**當輪**就結束本台自動操作（CodeX 第三輪 P1：不能 continue——下一輪會先跑 stepExit、手冊動作，繞過交人工）
+ *   retryExit＝回去重試退出；legacy＝照原本流程推
+ */
+export function applyFeatureRound(s: ExitFeatureState, r: { result: string; cursor: number }, now: number): { state: ExitFeatureState; then: 'handOff' | 'retryExit' | 'legacy' } {
   const state = { ...s, cursor: r.cursor, ocrTries: s.ocrTries + 1 }
   if (r.result === 'done' || r.result === 'screen') return { state: { ...state, holdUntil: now + FEATURE_HOLD_MS, ocrTries: 0 }, then: 'retryExit' }
-  if (r.result === 'unsure') return { state: { ...state, handOff: '觸屏推進時截圖失敗，量不到畫面' }, then: 'retryExit' }
+  if (r.result === 'unsure') return { state: { ...state, handOff: '觸屏推進時截圖失敗，量不到畫面' }, then: 'handOff' }
   // stopped：被停止／時限／動作上限擋下——回去重試退出，由退出迴圈原本的上限檢查收尾
   if (r.result === 'stopped') return { state, then: 'retryExit' }
   return { state, then: 'legacy' }   // notOnScreen／exhausted
