@@ -50,14 +50,19 @@ export async function readEditCurrent(token: string, workItemId: string, roleIds
 
 /** 單選欄位的選項（option_id ↔ 名稱）。meta-fields 不帶 --field-keys 時不回 option（實測） */
 export async function listEditOptions(token: string, runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<Record<string, Option[]>>> {
+  return listSelectOptions(token, SELECT_KEYS, runner, env)
+}
+
+/** 指定幾個單選欄位的選項（開單的「其他欄位」也用；一次 CLI 呼叫）。任何一欄找不到 → rejected（設定被改過就整批不送） */
+export async function listSelectOptions(token: string, keys: string[], runner: Runner = defaultRunner, env: NodeJS.ProcessEnv = process.env): Promise<CallOutcome<Record<string, Option[]>>> {
   const t = meegleTarget(env)
   const args = ['workitem', 'meta-fields', '--project-key', t.projectKey, '--work-item-type', t.taskTypeKey]
-  for (const k of SELECT_KEYS) args.push('--field-keys', k)
+  for (const k of keys) args.push('--field-keys', k)
   const r = await call(runner, args, token)
   if (r.kind !== 'ok') return r
   const list = (r.value as { list?: Array<{ field_key?: string; option?: Array<{ option_id?: string; option_name?: string }> }> }).list ?? []
   const out: Record<string, Option[]> = {}
-  for (const k of SELECT_KEYS) {
+  for (const k of keys) {
     const f = list.find(x => x.field_key === k)
     if (!f) return { kind: 'rejected', message: `Meegle 找不到欄位 ${k}（設定可能被改過）` }
     out[k] = (f.option ?? []).filter(o => o.option_id).map(o => ({ id: String(o.option_id), name: String(o.option_name ?? '') }))

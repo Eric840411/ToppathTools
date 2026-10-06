@@ -407,6 +407,8 @@ export type CreateInput = {
   roles: Partial<Record<MeegleRoleKey, string[]>> // 值是 user_key
   /** 任務類型：欄位 key（依空間）＋option_id。select 寫 option_id 字串（同 update，見 meegle-edit-ops） */
   taskType?: { fieldKey: string; optionId: string } | null
+  /** 其他欄位（shared/meegle-create-fields.ts 換好的 field_value，2026-10-06） */
+  extraFields?: Array<{ field_key: string; field_value: string }>
 }
 
 /** 組 `workitem create --fields` 的內容。純函式。所有 field_value 都是字串（見檔頭契約 1）。 */
@@ -418,6 +420,7 @@ export function buildCreateFields(input: CreateInput, roleIds: Record<MeegleRole
   ]
   if (input.description?.trim()) fields.push({ field_key: 'description', field_value: input.description })
   if (input.taskType) fields.push({ field_key: input.taskType.fieldKey, field_value: input.taskType.optionId })
+  for (const x of input.extraFields ?? []) if (!fields.some(f => f.field_key === x.field_key)) fields.push(x)
   const roleOwners = MEEGLE_ROLES
     .map(r => ({ role: roleIds[r.key], owners: (input.roles[r.key] ?? []).filter(Boolean) }))
     .filter(r => r.owners.length > 0)

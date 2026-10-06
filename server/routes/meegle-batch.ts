@@ -38,6 +38,8 @@ import {
 } from '../meegle-workitem.js'
 import { matchRoster, type RosterMatch, type RosterPerson } from '../../shared/meegle-people-match.js'
 import { MEEGLE_ROLE_DEFS, normAlias, pickTaskType, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
+import { CREATE_EXTRA_FIELDS, CREATE_SELECT_KEYS, resolveCreateExtras } from '../../shared/meegle-create-fields.js'
+import { listSelectOptions } from '../meegle-edit-ops.js'
 
 export const router = Router()
 initMeegleBatchSchema(db)
@@ -85,7 +87,7 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
     const space = spaceSchema.parse(req.query.space)
     if (denyTestSpace(req, res, space)) return
     const env = spaceEnv(space)
-    const [reqs, states, createMeta] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env), loadCreateMeta(ctx.token, defaultRunner, env)])
+    const [reqs, states, createMeta, extraOpts] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env), loadCreateMeta(ctx.token, defaultRunner, env), listSelectOptions(ctx.token, CREATE_SELECT_KEYS, defaultRunner, env)])
     if (reqs.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀取需求清單失敗：${reqs.message}` })
     res.json({
       ok: true,
@@ -99,6 +101,9 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
       taskType: createMeta.kind === 'ok' && createMeta.value.taskType ? { required: createMeta.value.taskType.required, options: createMeta.value.taskType.options.map(o => o.name) } : null,
       unknownRequired: createMeta.kind === 'ok' ? createMeta.value.unknownRequired : [],
       createMetaError: createMeta.kind === 'ok' ? null : createMeta.message,
+      // 其他欄位（2026-10-06）：欄位清單固定、select 選項依空間即時讀；讀不到選項就不能設那幾欄（前端擋）
+      extraFields: CREATE_EXTRA_FIELDS.map(f => ({ key: f.key, label: f.label, group: f.group, kind: f.kind, options: f.kind === 'select' && extraOpts.kind === 'ok' ? extraOpts.value[f.key] ?? [] : undefined })),
+      extraFieldsError: extraOpts.kind === 'ok' ? null : extraOpts.message,
     })
   } catch (e) { next(e) }
 })
@@ -263,6 +268,8 @@ const rowSchema = z.object({
   targetStateName: z.string().max(100).optional().default(''),
   /** 任務類型選項**名稱**（伺服器自己換成這個空間的 option_id，不收前端給的 id） */
   taskType: z.string().max(100).optional().default(''),
+  /** 其他欄位的原文（select 給名稱、日期給 YYYY/MM/DD）；伺服器自己用 resolveCreateExtras 換 */
+  fields: z.record(z.string().max(40), z.string().max(20000)).optional().default({}),
   space: spaceSchema,
 })
 
@@ -323,6 +330,16 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
       }
     }
 
+    // 其他欄位：選項每一列重讀（預覽後可能被改），換不出來就不開（不送半套）
+    let extraFields: Array<{ field_key: string; field_value: string }> = []
+    if (Object.values(body.fields).some(v => v.trim())) {
+      const opts = await listSelectOptions(ctx.token, CREATE_SELECT_KEYS, defaultRunner, env)
+      if (opts.kind !== 'ok') return fail(`讀取 Meegle 欄位選項失敗：${opts.message}`)
+      const ex = resolveCreateExtras(body.fields, opts.value)
+      if (ex.issues.length) return fail(`其他欄位有問題：${ex.issues.join('；')}`)
+      extraFields = ex.fields
+    }
+
     const map = getPersonMap(db, Object.values(body.roles).flat())
     const roles: Partial<Record<MeegleRoleKey, string[]>> = {}
     const unmapped: string[] = []
@@ -336,7 +353,7 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
       roles[key] = keys
     }
 
-    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles, taskType }, roleIds.value, defaultRunner, env)
+    const created = await createTask(ctx.token, { name: body.name, description: body.description, requirementId: body.requirementId, roles, taskType, extraFields }, roleIds.value, defaultRunner, env)
     if (created.kind === 'rejected') return fail(created.message)
     if (created.kind === 'unknown') {
       finishCreate(db, body.batchId, body.rowKey, { phase: 'unknown', message: created.message })

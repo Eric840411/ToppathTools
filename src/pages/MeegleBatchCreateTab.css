@@ -157,6 +157,32 @@
    選擇器刻意照抄 xianxia-complete.css 那條的形狀（.main-content input:not(...)×5），權重才壓得過 */
 :root[data-theme-mode="xianxia"] .main-content input.mb-picker-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]) { border: 0 !important; background: transparent !important; box-shadow: none !important; padding: 4px 2px !important; min-height: 0 !important; }
 .mb-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+/* 批量設定分區（v5.23.0，使用者 1006：所有欄位都能設，但不要擠成一團）：必填｜人員 並排，其他欄位整排、自己挑要哪幾欄 */
+.mb-bulk-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 2.2fr); gap: 12px; margin-bottom: 12px; }
+.mb-bulk-sec { padding: 10px 12px 12px; border: 1px solid var(--mb-border); border-radius: 10px; background: var(--mb-card2); min-width: 0; }
+.mb-bulk-sec--full { grid-column: 1 / -1; }
+.mb-bulk-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.mb-bulk-sec-title { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; letter-spacing: .04em; color: var(--mb-muted); }
+.mb-bulk-sec-head .mb-bulk-sec-title { margin: 0; }
+.mb-bulk-sec .mb-field { margin-bottom: 8px; }
+.mb-bulk-sec .mb-field:last-child { margin-bottom: 0; }
+.mb-bulk-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; }
+.mb-bulk-people .mb-field { margin-bottom: 0; }
+.mb-bulk-add { width: auto; min-width: 180px; }
+.mb-bulk-empty { margin: 4px 0 0; font-size: 12.5px; }
+.mb-bulk-extra { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px 14px; }
+.mb-bulk-extra-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.mb-bulk-extra-row.is-multi { grid-column: 1 / -1; align-items: start; }
+.mb-bulk-extra-label { display: flex; flex-direction: column; font-size: 13px; color: var(--mb-text); line-height: 1.3; }
+.mb-bulk-extra-label small { font-size: 11px; color: var(--mb-muted); }
+.mb-bulk-extra-x { padding: 4px 10px; }
+.mb-bulk-textarea { resize: vertical; min-height: 64px; }
+.mb-extras { margin-top: 2px; font-size: 11.5px; line-height: 1.4; }
+@media (max-width: 860px) {
+  .mb-bulk-grid { grid-template-columns: 1fr; }
+  .mb-bulk-extra { grid-template-columns: 1fr; }
+  .mb-bulk-extra-row { grid-template-columns: 96px minmax(0, 1fr) auto; }
+}
 
 .mb-table-wrap { overflow-x: auto; border: 1px solid var(--mb-border); border-radius: 10px; }
 .mb-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }

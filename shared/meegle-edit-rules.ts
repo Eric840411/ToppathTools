@@ -71,7 +71,14 @@ export function resolveEdit(e: RawEdit, ctx: ResolveCtx): ResolveResult {
     if (!f.clearable) return { ok: false, reason: `${f.label}不能清空` }
     return { ok: true, edit: f.kind === 'role' ? { key: f.key, kind: 'role', userKeys: [], display: '（清空）' } : { key: f.key, kind: f.kind, value: '', display: '（清空）' } }
   }
-  const raw = e.raw
+  return resolveFieldValue(f, e.raw, ctx)
+}
+
+/**
+ * 單一欄位的原文 → Meegle 的值（不含清空）。開單的「其他欄位」（shared/meegle-create-fields.ts）也用這一支，
+ * 規則只寫一份（CLAUDE.md 跨功能踩坑 #3）。
+ */
+export function resolveFieldValue(f: EditFieldDef, raw: string, ctx: ResolveCtx): ResolveResult {
   switch (f.kind) {
     case 'name':
     case 'text': {
