@@ -71,6 +71,15 @@ Ignore and do not reply to messages from any other Discord channel, including `1
 
 **⚠️ mention 格式錯了就是靜默失敗**：`<@1509189087066722363>` 必須是整則訊息去除頭尾空白後的**第一個字元**，前面不能有任何文字。放在句子中間 CodeX 完全不會有反應、也不會報錯。想在長訊息裡順帶問他 → **另外發一則**。（2026-08-29 犯過一次。）
 
+# Lark
+
+**Lark 群 `oc_ffe8872a067932e55b4fbebbbc88244e` 只轉給這個 session（claude-toppath）**——訊息就算寫「@OSM QA」也要**自己回**，
+不要假設 osm-agent 會接（2026-10-06 使用者要求記下）。osm-agent 拆成 claude-osm／-2／-3 的話題分派只用在另一個群
+`oc_8f0b93e81709a99ec176fb8784dd7c7f`，收不到這個群。不確定某個群歸誰時看 `~/.claude/channels/lark/routes.json` 的 `chats`，不要猜。
+外掛收到訊息會自動加 [了解]，那不代表有人在處理——沒回就是沒回。
+
+**為什麼**：2026-10-06 使用者在這個群 @OSM QA 問 Meegle 開單失敗，我以為是 osm-agent 的事沒回，結果沒人收得到，使用者連問三次「為什麼沒回應」。
+
 # Server Architecture
 
 The Express backend is split into route modules. All live under `server/`:
