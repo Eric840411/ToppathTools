@@ -31,6 +31,9 @@ eq('日期看不懂 → 擋', resolveCreateExtras({ field_ce2cfc: '下週一' },
 eq('不認得的欄位 → 擋（後端不收前端亂塞的 key）', resolveCreateExtras({ field_89ff93: 'x' }, opts).issues, ['不支援的欄位 field_89ff93'])
 eq('讀不到選項 → 單選欄擋', resolveCreateExtras({ field_9a3fe4: '簡單' }, {}).issues.length, 1)
 eq('什麼都沒填 → 什麼都不送', resolveCreateExtras(undefined, opts), { fields: [], display: [], issues: [] })
+// 關聯任務（2026-10-06 實測：只收數字陣列 JSON `[15244721,15245280]`）
+eq('關聯任務：#、逗號、頓號、空白都收，去重，變數字陣列', resolveCreateExtras({ field_a064e5: '#15244721, 15245280、15244721' }, opts).fields, [{ field_key: 'field_a064e5', field_value: '[15244721,15245280]' }])
+eq('關聯任務：有一個不是單號 → 整欄擋', resolveCreateExtras({ field_a064e5: '15244721, abc' }, opts).issues.length, 1)
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) process.exit(1)

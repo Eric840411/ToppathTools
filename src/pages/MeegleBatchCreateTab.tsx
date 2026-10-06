@@ -25,7 +25,7 @@ type SheetRecord = Record<string, unknown> & { _rowIndex: number }
 type Person = MappedPerson & { alias: string }
 // taskType／unknownRequired／createMetaError：Meegle 建立必填（2026-10-06 任務類型），伺服器每次即時讀
 /** 其他欄位（2026-10-06）：欄位清單由後端給（shared/meegle-create-fields.ts），select 選項依空間即時讀 */
-type ExtraFieldMeta = { key: string; label: string; group: string; kind: 'name' | 'text' | 'multi' | 'select' | 'date' | 'role'; options?: Option[] }
+type ExtraFieldMeta = { key: string; label: string; group: string; kind: 'name' | 'text' | 'multi' | 'select' | 'date' | 'role' | 'related'; options?: Option[] }
 type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null; taskType: TaskTypeMeta | null; unknownRequired: string[]; createMetaError: string | null; extraFields: ExtraFieldMeta[]; extraFieldsError: string | null }
 // targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
@@ -831,7 +831,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                                 ) : f.kind === 'multi' ? (
                                   <textarea className="mb-input mb-bulk-textarea" rows={3} value={v} onChange={e => set(e.target.value)} aria-label={f.label} />
                                 ) : (
-                                  <input className="mb-input" value={v} onChange={e => set(e.target.value)} aria-label={f.label} placeholder={f.key === 'field_f6b7ab' ? 'https://…' : ''} />
+                                  <input className="mb-input" value={v} onChange={e => set(e.target.value)} aria-label={f.label} placeholder={f.key === 'field_f6b7ab' ? 'https://…' : f.kind === 'related' ? '單號，多個用逗號分隔（例 15244721, 15245280）' : ''} />
                                 )}
                                 <button type="button" className="mb-btn mb-btn--small mb-btn--outline mb-bulk-extra-x" aria-label={`移除 ${f.label}`}
                                   onClick={() => { setBulkFieldKeys(ks => ks.filter(x => x !== k)); setBulk(b => { const fields = { ...b.fields }; delete fields[k]; return { ...b, fields } }) }}>×</button>

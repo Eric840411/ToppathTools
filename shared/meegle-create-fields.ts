@@ -3,8 +3,7 @@
  * 前端預覽與後端送出共用這一份；值怎麼換成 Meegle 的格式沿用批量修改的 resolveFieldValue（同一套規則，不另寫）。
  *
  * 範圍：任務項在兩個空間 key 相同的欄位（2026-10-06 實查 fixture server/fixtures/meegle/meta-fields.*）。
- * 不放：名稱／描述／關聯需求／任務類型／人員（開單本來就有專門的欄）、測試說明（有批量評論工具）、系統欄位、
- * 關聯任務（field_a064e5，關聯多個工作項，格式不同，要用再另外做）。
+ * 不放：名稱／描述／關聯需求／任務類型／人員（開單本來就有專門的欄）、測試說明（有批量評論工具）、系統欄位。
  * select 的選項每個空間即時讀，送出時後端只收「選項名稱」，自己換 option_id。
  */
 import { EDIT_FIELDS, resolveFieldValue, type EditFieldDef, type Option } from './meegle-edit-rules.js'
@@ -27,6 +26,8 @@ export const CREATE_EXTRA_FIELDS: EditFieldDef[] = [
   { ...fromEdit('field_1ab2a7'), group: '說明與連結' },
   { key: 'field_44db22', label: '重新產生問題步驟', group: '說明與連結', kind: 'multi', clearable: true },
   { ...fromEdit('field_f6b7ab'), group: '說明與連結' },
+  // 2026-10-06 使用者「先做吧」：關聯任務（關聯多個工作項）。值＝單號，多個用逗號分隔
+  { key: 'field_a064e5', label: '關聯任務', group: '說明與連結', kind: 'related', clearable: true },
 ]
 export const CREATE_EXTRA_GROUPS = ['基本', '測試頁', '時間', '說明與連結'] as const
 export const createExtraDef = (key: string) => CREATE_EXTRA_FIELDS.find(f => f.key === key)

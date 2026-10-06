@@ -24,7 +24,7 @@ if (opts.kind !== 'ok') throw new Error(`選項：${opts.message}`)
 const pick = (k: string) => opts.value[k][opts.value[k].length - 1]?.name ?? ''
 const raw: Record<string, string> = {
   priority: pick('priority'), field_9a3fe4: pick('field_9a3fe4'), field_07e581: pick('field_07e581'), field_710be5: pick('field_710be5'), field_e742d0: pick('field_e742d0'),
-  field_3db883: '2026/09/27', field_cbc597: '2026/09/28', field_ce2cfc: '2026/09/29', field_b4c668: '2026/09/25', field_9bae45: '2026/09/30', field_f4ace6: '4h',
+  field_3db883: '2026/09/27', field_cbc597: '2026/09/28', field_ce2cfc: '2026/09/29', field_b4c668: '2026/09/25', field_9bae45: '2026/09/30', field_f4ace6: '4h', field_a064e5: '#15244721, 15245280',
   field_1ab2a7: '開發說明第一行\n第二行', field_44db22: '1. 步驟一\n2. 步驟二', field_f6b7ab: 'https://gitlab.example/merge_requests/1',
 }
 const ex = resolveCreateExtras(raw, opts.value)
@@ -48,7 +48,11 @@ let bad = 0
 for (const f of ex.fields) {
   const v = back.find(b => b.key === f.field_key)?.value
   const s = typeof v === 'object' && v ? JSON.stringify(v) : String(v ?? '')
-  const ok = s.includes(f.field_value) || (typeof v === 'number' && String(v) === f.field_value)
+  // 關聯任務讀回是 [{id,name}]：比單號集合
+  const relOk = Array.isArray(v) && f.field_value.startsWith('[') && JSON.stringify((v as Array<{ id: number }>).map(x => x.id).sort()) === JSON.stringify((JSON.parse(f.field_value) as number[]).sort())
+  // 多行文字：Meegle 會把單一換行變空行（內容不變）——比去掉空白後的文字
+  const textOk = typeof v === 'string' && v.replace(/\s+/g, '') === f.field_value.replace(/\s+/g, '')
+  const ok = relOk || textOk || s.includes(f.field_value) || (typeof v === 'number' && String(v) === f.field_value)
   if (!ok) bad++
   console.log(`${ok ? '✅' : '❌'} ${f.field_key} 送 ${JSON.stringify(f.field_value).slice(0, 40)} 讀回 ${s.slice(0, 80)}`)
 }

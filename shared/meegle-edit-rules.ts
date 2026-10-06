@@ -16,7 +16,8 @@ import { parseSheetDate, taipeiDay } from './meegle-status-rules.js'
 
 export const EDIT_STAGE_DONE = '已修改欄位'   // 跟 Jira 批量修改同一個字，Sheet 不用改
 
-export type EditKind = 'name' | 'text' | 'multi' | 'select' | 'date' | 'role'
+/** related＝關聯多個工作項（2026-10-06 關聯任務）：field_value 是單號數字陣列的 JSON 字串 `[15244721,15245280]`（實測；字串陣列、逗號字串都會被擋） */
+export type EditKind = 'name' | 'text' | 'multi' | 'select' | 'date' | 'role' | 'related'
 export type EditFieldDef = { key: string; label: string; group: string; kind: EditKind; clearable: boolean; images?: boolean }
 
 export const EDIT_FIELDS: EditFieldDef[] = [
@@ -100,6 +101,15 @@ export function resolveFieldValue(f: EditFieldDef, raw: string, ctx: ResolveCtx)
       if ('reason' in d) return { ok: false, reason: `${f.label}：${d.reason}` }
       if (d.ms == null) return { ok: false, reason: `${f.label}是空的` }
       return { ok: true, edit: { key: f.key, kind: 'date', value: String(d.ms), display: d.day.replace(/-/g, '/') } }
+    }
+    case 'related': {
+      // 「#15244721, 15245280」「15244721、15245280」都收；每個都要是單號（5 位以上數字），有一個不是就擋，不略過
+      const parts = raw.split(/[,，、\s]+/).map(x => x.trim().replace(/^#/, '')).filter(Boolean)
+      const bad = parts.filter(x => !/^\d{5,}$/.test(x))
+      if (bad.length) return { ok: false, reason: `${f.label}：「${bad.join('、')}」不是單號（填 Meegle 單號，多個用逗號分隔）` }
+      if (!parts.length) return { ok: false, reason: `${f.label}是空的` }
+      const ids = [...new Set(parts)]
+      return { ok: true, edit: { key: f.key, kind: 'related', value: `[${ids.join(',')}]`, display: ids.map(x => `#${x}`).join('、') } }
     }
     case 'role': {
       const names = splitPeople(raw)
