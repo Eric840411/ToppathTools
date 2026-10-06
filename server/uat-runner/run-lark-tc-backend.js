@@ -11,7 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
-import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
+import { runSteps as runBlockSteps, countBucket, resolveSiteTarget, openSitePage, checkOpenPageSites, missingSiteCreds } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 // ⚠️ 回寫時「那一列要寫什麼」只有一份（H5／PC 也要用同一套判定與欄位）。
 import { larkRecordFields } from './lark-writeback.js';
@@ -63,6 +63,14 @@ const CUSTOM_TRIAL = (() => {
  */
 const BACKEND_SITE = (process.env.UAT_BACKEND_SITE || 'cp').toLowerCase() === 'nc' ? 'nc' : 'cp';
 const BACKEND_URL = process.env.UAT_BACKEND_URL || (BACKEND_SITE === 'nc' ? 'http://uat-nc.osmslot.org' : 'http://uat-cp.osmslot.org');
+/**
+ * 跨站（1006）：open_page 寫了 site 時要去的網址。新版派工會帶兩站網址；
+ * 舊 server 只帶 UAT_BACKEND_URL（＝選的那一站），另一站退回內建網址。
+ */
+const SITE_URLS = {
+  cp: process.env.UAT_CP_BACKEND_URL || (BACKEND_SITE === 'cp' ? BACKEND_URL : 'http://uat-cp.osmslot.org'),
+  nc: process.env.UAT_NC_BACKEND_URL || (BACKEND_SITE === 'nc' ? BACKEND_URL : 'http://uat-nc.osmslot.org'),
+};
 const SCREENSHOT_DIR = './data/raw/screenshots/lark_tc';
 
 // ─── 可調整參數（config/backend-test-params.json）──────────────────────
@@ -4352,6 +4360,30 @@ const BUILTIN_VERIFIERS = {
  * taskFull 是 TC 的描述文字，內建驗證器要靠它比對自己該跑哪些分支——
  * 少傳這個，builtin_verifier 積木會靜默通過（見 callBuiltin 的註解）。
  */
+/** 站台 → 那一站存的帳密（cpBackend／nchBackend） */
+function siteCreds(site) {
+  return site === 'nc' ? TEST_PARAMS.credentials.nchBackend : TEST_PARAMS.credentials.cpBackend;
+}
+/**
+ * 開跑前（1006 CodeX (b)）：站台設定有錯、或缺任一個會用到的站台帳密 → 擋下，一步都不跑。
+ * 錯誤訊息給使用者看，不含帳密。
+ */
+function preflightSites(steps) {
+  const bad = checkOpenPageSites(steps);
+  if (bad.length) throw new Error(`腳本的站台設定有問題：${bad.join('；')}`);
+  const missing = missingSiteCreds(steps, BACKEND_SITE, siteCreds);
+  if (missing.length) throw new Error(`設定不足：這次會用到 ${missing.map(s => s === 'nc' ? 'NC（uat-nc）' : 'CP').join('、')} 後台，但「執行設定」沒有那一站的帳密——開跑前擋下，沒有執行任何步驟`);
+}
+/** 登入某一站（補登用）：填該站帳密、送出、等離開 /login；成不成功由呼叫端看網址 */
+async function loginBackendSite(p, site) {
+  const c = siteCreds(site);
+  if (!c?.username || !c?.password) throw new Error(`尚未設定 ${site === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
+  await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', c.username);
+  await p.fill('input[type="password"]', c.password);
+  await p.click('button[type="submit"], button:has-text("Login")');
+  await p.waitForURL(url => !url.pathname.includes('/login'), { timeout: 20000 }).catch(() => {});
+}
+
 async function performSteps(p, steps, label, taskFull, multiBindings = null) {
   // 定位與唯一性檢查抽到 recorded-selector.js，**測試 import 同一支**。
   // 不抽的話測試只能拿命中數自己判「這種應該被拒絕」，那是在驗自己。
@@ -4384,7 +4416,19 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       return { ...compared, diffPng: undefined, shots };
     },
     checkLocator,
-    async openPath(targetPath, waitMs) {
+    async openPath(targetPath, waitMs, opts) {
+      // 1006 跨站：寫了 site 才走這條（被導到 /login 才用該站帳密補登一次，規則在 block-engine.js openSitePage）；
+      // 沒寫照舊開本次執行的站台
+      if (opts?.site) {
+        const { site, url } = resolveSiteTarget(targetPath, opts.site, { defaultSite: BACKEND_SITE, siteUrls: SITE_URLS });
+        return openSitePage({
+          goto: (u) => p.goto(u, { waitUntil: 'networkidle', timeout: 20000 }),
+          currentUrl: () => p.url(),
+          login: (s) => loginBackendSite(p, s),
+          dismiss: () => dismissWarningDialog(p),
+          wait: (ms) => p.waitForTimeout(ms),
+        }, { url, site, waitMs });
+      }
       await p.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
       await p.waitForTimeout(waitMs);
       // ⚠️ 一定要跟 builtin 走同一套收尾。後台每頁載入後都會彈站台層級的 Warnning 彈窗，
@@ -4479,8 +4523,10 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
      * netCapture 是整輪共用的（掛在同一個 page 上），所以一定要用時間界線切，
      * 不然問的會變成「整輪跑下來有沒有出現過」——那幾乎永遠是 true，等於沒驗。
      */
-    netCallsSince(sinceTs) {
+    netCallsSince(sinceTs, opts) {
       if (!netCapture) return [];
+      // 跨站（1006）：只要「目前站台的頁面、這次導頁之後」發出的請求，前一站延遲回來的不算
+      if (opts?.pageOrigin) return netCapture.records().filter(r => r.kind === 'api' && r.pageOrigin === opts.pageOrigin && (r.requestedAt ?? r.ts) >= sinceTs);
       return netCapture.records().filter(r => r.kind === 'api' && r.ts >= sinceTs);
     },
     /**
@@ -5064,6 +5110,7 @@ async function runRecordedMultiScript() {
     if (!creds.username || !creds.password) {
       throw new Error(`尚未設定 ${BACKEND_SITE === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
     }
+    preflightSites(script.steps);
     console.log(`後台站台：${BACKEND_SITE.toUpperCase()}（${BACKEND_URL}）`);
     /**
      * ⚠️ 「錄的站台」與「現在跑的站台」不一樣時**要講出來**。
@@ -5220,11 +5267,13 @@ async function main() {
     });
     startStatsBroadcast();
     await p.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
-    if (!TEST_PARAMS.credentials.cpBackend.username || !TEST_PARAMS.credentials.cpBackend.password) {
-      throw new Error('尚未設定「CP 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）');
+    // 1006：帳密跟著本次執行的站台（原本寫死 CP——選 NC 跑會拿 CP 帳密去登 NC）
+    const loginCreds = siteCreds(BACKEND_SITE);
+    if (!loginCreds.username || !loginCreds.password) {
+      throw new Error(`尚未設定「${BACKEND_SITE === 'nc' ? 'NC' : 'CP'} 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）`);
     }
-    await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', TEST_PARAMS.credentials.cpBackend.username);
-    await p.fill('input[type="password"]', TEST_PARAMS.credentials.cpBackend.password);
+    await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', loginCreds.username);
+    await p.fill('input[type="password"]', loginCreds.password);
     await p.click('button[type="submit"], button:has-text("Login")');
     await p.waitForTimeout(3000);
     // 登入後的站台警告是在錄製器啟用前自動處理，因此不會出現在錄製 JSON。
@@ -5233,6 +5282,8 @@ async function main() {
     return { page: p, ctx: ctx2 };
   }
 
+  // 1006 跨站：要跑的 TC 積木裡只要有 open_page 寫了 site，開跑前就查齊帳密
+  preflightSites(targets.flatMap(t => TC_REGISTRY[t.record_id]?.steps ?? []));
   let { page, ctx } = await createLoginPage();
   console.log('✅ 後台登入完成\n');
 

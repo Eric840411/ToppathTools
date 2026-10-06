@@ -1,4 +1,4 @@
-import { BLOCK_DEFS, runSteps } from './block-engine.js';
+import { BLOCK_DEFS, runSteps, checkOpenPageSites } from './block-engine.js';
 import { stepDependencyIssues } from './step-dependencies.js';
 
 /**
@@ -37,6 +37,8 @@ export function validateMultiTcScript(script, forRun = false, engine = BACKEND_T
     if (forRun && step.disabled !== true && !step.tcId && (isCheck(step, engine) || ['read', 'evidence', 'result'].includes(def?.category))) errors.push(`第 ${i + 1} 步：請指定檢查、讀值或截圖的所屬 TC`);
     if (forRun && step.disabled !== true && step.secret) errors.push(`第 ${i + 1} 步：密碼欄位需移至登入設定，不可直接重播空密碼`);
   });
+  // 後台跨站（1006）：只有後台引擎有 open_page 的 site
+  if (engine === BACKEND_TC_ENGINE) errors.push(...checkOpenPageSites(script.steps));
   for (const id of ids) if (script.steps.filter(s => s?.action === 'set_tc_result' && s.tcId === id && s.disabled !== true).length > 1) errors.push(`TC ${id} 只能有一個啟用的回填判定積木`);
   return errors;
 }

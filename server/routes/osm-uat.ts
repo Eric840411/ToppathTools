@@ -27,7 +27,7 @@ import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getAuthEmailFromContext } from '../request-context.js'
 import { db } from '../shared.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
-import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
+import { BLOCK_DEFS, checkOpenPageSites } from '../uat-runner/block-engine.js'
 import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
 import { backendRecorderScript, RECORDER_MARKER, RECORDER_STOP_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
 import { applySelectorChecks } from '../uat-runner/recorded-selector.js'
@@ -1346,6 +1346,9 @@ router.post('/api/osm-uat/tc-steps/import', writeLimiter, (req, res) => {
   if (unknown.size) {
     return res.status(400).json({ ok: false, message: `檔案裡有不認得的積木：${[...unknown].join('、')}。可能是從比較新的版本匯出的。` })
   }
+  // 後台跨站（1006）：site 寫錯、寫了 site 又用完整網址，存的時候就擋（規則在 block-engine.js，跟 runner 同一份）
+  const importSiteErrors = Object.entries(parsed.data.steps).flatMap(([id, steps]) => checkOpenPageSites(steps).map(e => `${id}：${e}`))
+  if (importSiteErrors.length) return res.status(400).json({ ok: false, message: importSiteErrors.join('；') })
 
   const before = listUatTcSteps()
   let added = 0, updated = 0
@@ -1394,6 +1397,8 @@ router.put('/api/osm-uat/custom-tcs', writeLimiter, (req, res) => {
   // 不認得的積木要在存的時候就擋掉——存進去要等到執行才炸，那時已經離這裡很遠了
   const unknown = [...new Set(parsed.data.steps.map(step => step.action).filter(a => !(a in BLOCK_DEFS)))]
   if (unknown.length) return res.status(400).json({ ok: false, message: `不認得的積木：${unknown.join('、')}` })
+  const customSiteErrors = checkOpenPageSites(parsed.data.steps)
+  if (customSiteErrors.length) return res.status(400).json({ ok: false, message: customSiteErrors.join('；') })
   const id = saveUatCustomTc({ ...parsed.data, createdBy: account.email })
   res.json({ ok: true, id })
 })
@@ -1525,6 +1530,8 @@ router.put('/api/osm-uat/tc-steps/:recordId', writeLimiter, (req, res) => {
     // 存下不認得的積木，執行時才會失敗，那時已經離編輯很遠了；在存的時候就擋掉
     return res.status(400).json({ ok: false, message: `不認得的積木：${[...new Set(unknown)].join('、')}` })
   }
+  const stepSiteErrors = checkOpenPageSites(parsed.data.steps)
+  if (stepSiteErrors.length) return res.status(400).json({ ok: false, message: stepSiteErrors.join('；') })
 
   saveUatTcSteps(String(req.params.recordId), parsed.data.steps, account.email)
   res.json({ ok: true, steps: parsed.data.steps })
@@ -1621,7 +1628,11 @@ router.post('/api/osm-uat/run', (req, res) => {
   // 站台（CP／NP）。runner 讀 UAT_BACKEND_SITE 決定網址與要用哪一組帳密，
   // 沒帶就是 CP——跟這個參數出現以前的行為一樣。
   const site = UAT_BACKEND_SITES[pickSite((req.body as { site?: string })?.site)]
-  const siteEnv = { UAT_BACKEND_SITE: pickSite((req.body as { site?: string })?.site), UAT_BACKEND_URL: site.url }
+  // 1006 跨站：腳本裡的 open_page 可以寫 site，runner 要知道兩站的網址（舊 runner 只看 UAT_BACKEND_URL，不受影響）
+  const siteEnv = {
+    UAT_BACKEND_SITE: pickSite((req.body as { site?: string })?.site), UAT_BACKEND_URL: site.url,
+    UAT_CP_BACKEND_URL: UAT_BACKEND_SITES.cp.url, UAT_NC_BACKEND_URL: UAT_BACKEND_SITES.nc.url,
+  }
   // 積木存在 DB，runner 讀不到，所以執行時整包帶下去。
   // agent 派工也走這條，agent 端不需要有任何積木檔案。
   const tcSteps = { ...listUatTcSteps(), ...(stepsOverride ?? {}) }

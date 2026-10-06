@@ -193,9 +193,16 @@ export function createNetCollector(options = {}) {
  */
 export function attachNetworkCapture(page, options = {}) {
   const collector = createNetCollector(options);
+  // 跨站（1006）：記下「發出請求當下，頁面在哪一站」與發出時間。
+  // 完成時才看 page.url() 不行——前一站延遲回來的請求，完成時頁面已經換到下一站，會被算成新站的
+  const startedOn = new WeakMap();
+  const onRequest = (request) => {
+    try { startedOn.set(request, { pageOrigin: new URL(page.url()).origin, requestedAt: Date.now() }); } catch { /* about:blank 之類沒有 origin */ }
+  };
 
   const onFinished = async (request) => {
     try {
+      const started = startedOn.get(request);
       const timing = request.timing();
       const duration = durationOf(timing);
       const response = await request.response().catch(() => null);
@@ -217,6 +224,8 @@ export function attachNetworkCapture(page, options = {}) {
         // 兩者都算進統計會讓「API 平均耗時」失真，所以標起來、統計時排除。
         isRedirect: request.redirectedFrom() !== null,
         isPreflight: request.method() === 'OPTIONS',
+        pageOrigin: started?.pageOrigin ?? null,
+        requestedAt: started?.requestedAt ?? null,
       });
     } catch { /* 單筆抓不到就跳過，不影響整體 */ }
   };
@@ -233,12 +242,14 @@ export function attachNetworkCapture(page, options = {}) {
     } catch { /* 同上 */ }
   };
 
+  page.on('request', onRequest);
   page.on('requestfinished', onFinished);
   page.on('requestfailed', onFailed);
 
   return {
     /** 拆掉監聽；page 已經關掉時呼叫也不會炸 */
     detach() {
+      try { page.off('request', onRequest); } catch { /* page 已關 */ }
       try { page.off('requestfinished', onFinished); } catch { /* page 已關 */ }
       try { page.off('requestfailed', onFailed); } catch { /* page 已關 */ }
     },

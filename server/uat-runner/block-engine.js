@@ -89,6 +89,9 @@ export const BLOCK_DEFS = {
       { key: 'subtype', label: '子類型', type: 'text', placeholder: 'Dashboard', help: '對應 SUBTYPE_MAP 的鍵；填了 path 就以 path 為準' },
       { key: 'path', label: '直接指定路徑', type: 'text', placeholder: '/dashboard', help: '選填。子類型對不到時用這個' },
       { key: 'waitMs', label: '開啟後等待（毫秒）', type: 'number', default: 1500 },
+      // 1006（TC T-A-004「CP 只有 OSM、NC 有 OSM＋GCP」）：一份腳本先跑 CP 再登入 NC。規則跟 CodeX 定案，見 resolveSiteTarget
+      { key: 'site', label: '站台', type: 'select', options: ['', 'cp', 'nc'], emptyLabel: '依執行設定', default: '',
+        help: '選填。不填＝這次執行選的站台（不沿用上一步）。跨站的段落每一顆開頁都要寫明；切到另一站時被導到登入頁才會用那一站存的帳密登入' },
     ],
   },
   click: {
@@ -731,6 +734,119 @@ function withAliases(obj) {
  * ⚠️ 展開會放大步數，所以次數（≤20）、跨度（≤20）、展開後總步數（≤300）都有上限；
  *    超過就**明確報錯**，不要偷偷截斷——截斷等於少跑了而沒有人知道。
  */
+// ── 後台跨站（open_page 的 site，1006 CodeX 定案）────────────────────────────────────────
+// (a) 先開目標頁，被導到 /login 才登入；最多補登一次，成功後重開目標頁並關站台警告——不是每次切站都重登
+// (b) 開跑前掃整份腳本（含巢狀），缺任一個需要的站台帳密就擋（設定不足／受阻）
+// (c) 寫明 site 優先；沒寫一律用本次執行的站台，**不沿用上一步**（舊腳本行為不變）
+// (d) netMark 照舊設在導頁前；補登的話設在登入完成、重開目標頁前；斷言只看「目前站台、目前導頁之後」發出的請求
+// 絕對網址跟 site 指向不同站台＝拒絕（不然帳密會送錯站）
+export const BACKEND_SITE_KEYS = ['cp', 'nc'];
+const originOf = (u) => { try { return new URL(u).origin; } catch { return null; } };
+
+/** open_page 的 site 欄位：'' / undefined＝沒寫；不合法回 null（呼叫端報錯） */
+export function stepSiteOf(step) {
+  const raw = step?.site;
+  if (raw === undefined || raw === null || raw === '') return '';
+  const s = String(raw).toLowerCase();
+  return BACKEND_SITE_KEYS.includes(s) ? s : null;
+}
+
+/** 這一顆 open_page 實際要去哪：{ site, url }；衝突／不合法丟錯（訊息直接給使用者看） */
+export function resolveSiteTarget(target, rawSite, { defaultSite, siteUrls }) {
+  const written = stepSiteOf({ site: rawSite });
+  if (written === null) throw new Error(`站台「${rawSite}」不認得（只能是 cp 或 nc）`);
+  const site = written || defaultSite;
+  const base = siteUrls?.[site];
+  if (!base) throw new Error(`沒有 ${site.toUpperCase()} 站台的網址（派工沒帶，請更新伺服器／agent）`);
+  if (/^https?:\/\//i.test(String(target))) {
+    const o = originOf(target);
+    // 沒寫 site 的絕對網址：照舊直接開（舊腳本），但不可能補登——那是 runner 的事
+    if (written && o !== originOf(base)) throw new Error(`這一步寫站台 ${written.toUpperCase()}，網址卻是 ${o}——兩者衝突，拒絕執行（避免帳密送錯站）`);
+    return { site: written || siteOfOrigin(o, siteUrls) || site, url: String(target) };
+  }
+  return { site, url: new URL(String(target), base).toString() };
+}
+function siteOfOrigin(origin, siteUrls) {
+  return Object.keys(siteUrls ?? {}).find(k => originOf(siteUrls[k]) === origin) ?? null;
+}
+
+/** 走訪整份步驟（含巢狀 steps／children），回傳每一顆 open_page 用到的站台 */
+export function sitesUsedBySteps(steps, defaultSite) {
+  const out = new Set([defaultSite]);
+  const walk = (list) => {
+    for (const step of list ?? []) {
+      if (!step || typeof step !== 'object') continue;
+      if (step.action === 'open_page' && step.disabled !== true) {
+        const s = stepSiteOf(step);
+        if (s) out.add(s);
+      }
+      for (const k of ['steps', 'children']) if (Array.isArray(step[k])) walk(step[k]);
+    }
+  };
+  walk(steps);
+  return out;
+}
+
+/**
+ * 存檔／開跑前的靜態檢查（不需要知道站台網址，存檔端與 runner 共用這一份）：
+ *   · site 只能是 cp／nc
+ *   · 寫了 site 的開頁不能用完整網址（網址本身就決定了站台，兩個一起寫只會有衝突的機會）
+ *   · 一份腳本只要有任何一顆開頁寫了 site，**每一顆開頁都要寫**（CodeX (c)：跨站段落每個 open_page 都寫明；
+ *     沒寫的那顆會回到執行預設站台，夾在跨站段落裡很容易看錯）
+ * 回傳錯誤訊息陣列（空＝OK）。
+ */
+export function checkOpenPageSites(steps) {
+  const errors = [];
+  const pages = [];
+  const walk = (list, prefix) => {
+    (list ?? []).forEach((step, i) => {
+      if (!step || typeof step !== 'object') return;
+      const where = `${prefix}第 ${i + 1} 步`;
+      if (step.action === 'open_page' && step.disabled !== true) {
+        const s = stepSiteOf(step);
+        pages.push({ where, s });
+        if (s === null) errors.push(`${where}：站台「${step.site}」不認得（只能是 cp 或 nc）`);
+        else if (s && /^https?:\/\//i.test(String(step.path ?? ''))) errors.push(`${where}：寫了站台就要用相對路徑（例 /dashboard），不能用完整網址`);
+      }
+      for (const k of ['steps', 'children']) if (Array.isArray(step[k])) walk(step[k], `${where} 裡的`);
+    });
+  };
+  walk(steps, '');
+  if (pages.some(p => p.s)) {
+    const blank = pages.filter(p => p.s === '').map(p => p.where);
+    if (blank.length) errors.push(`這份腳本有跨站的開頁，每一顆「開啟後台頁面」都要選站台；沒選的：${blank.join('、')}`);
+  }
+  return errors;
+}
+
+/** 開跑前（b）：缺哪幾個站台的帳密。credsOf(site) 回 { username, password } */
+export function missingSiteCreds(steps, defaultSite, credsOf) {
+  return [...sitesUsedBySteps(steps, defaultSite)].filter(s => { const c = credsOf(s); return !c?.username || !c?.password; });
+}
+
+/**
+ * 導到某站台的某頁，必要時補登一次（a、d）。瀏覽器動作全部注入，測試用假的跑：
+ *   goto(url)、currentUrl()、login(site)（填表送出、等離開 /login）、dismiss()、wait(ms)
+ * 回傳 { site, origin, navMark, relogged }——navMark＝最後一次導到目標頁之前的時間，斷言界線用它。
+ */
+export async function openSitePage(deps, { url, site, waitMs = 1500, now = Date.now }) {
+  const isLogin = () => { try { return /\/login(\/|$|\?)/i.test(new URL(deps.currentUrl()).pathname + '/'); } catch { return false; } };
+  let navMark = now();
+  await deps.goto(url);
+  let relogged = false;
+  if (isLogin()) {
+    await deps.login(site);
+    if (isLogin()) throw new Error(`${site.toUpperCase()} 後台登入失敗（送出帳密後仍在登入頁）——請確認「執行設定」裡 ${site.toUpperCase()} 的帳密`);
+    relogged = true;
+    navMark = now();
+    await deps.goto(url);
+    if (isLogin()) throw new Error(`${site.toUpperCase()} 登入後重開「${url}」又被導回登入頁——這個帳號可能沒有這一頁的權限`);
+  }
+  await deps.wait(waitMs);
+  await deps.dismiss();
+  return { site, origin: originOf(url), navMark, relogged };
+}
+
 export function expandRepeats(steps) {
   const out = [];
   const list = steps ?? [];
@@ -764,6 +880,8 @@ export async function runSteps(steps, ctx, options = {}) {
   const warnings = [];   // warn 級別：有檢查、有異常，但不影響 pass 判定
   /** 網路斷言的時間界線。每次 open_page 之後往前推，只問「這之後打了什麼」 */
   let netMark = options.state?.netMark ?? Date.now();
+  /** 目前站台頁面的 origin（只有 runner 回報時才有；用來把前一站的請求隔開） */
+  let netOrigin = options.state?.netOrigin ?? null;
   const allShotPaths = [];
   /** 跑過幾次「截圖」積木。>0 代表作者自己指定了證據點，就不自動補截。 */
   let explicitShots = 0;
@@ -970,8 +1088,19 @@ export async function runSteps(steps, ctx, options = {}) {
         // 全部落在界線之前，assert_api_called 會永遠看到 0 支。而「開這頁時打了哪些
         // 後端」正是最常要驗的東西。實測才發現（單元測試是直接餵假資料，蓋不到這段）。
         netMark = Date.now();
-        await ctx.openPath(target, Number(step.waitMs) || 1500);
-        notes.push(`${tag}：${target}`);
+        // site（1006）：寫了就交給 runner 換站／補登；舊 runner 不認得第三個參數，所以沒寫就照舊兩個參數呼叫
+        const site = stepSiteOf(step);
+        if (site === null) { if (fail(step, `${tag}：站台「${step.site}」不認得（只能是 cp 或 nc）`) === 'stop') break; continue }
+        let nav;
+        try {
+          nav = site ? await ctx.openPath(target, Number(step.waitMs) || 1500, { site }) : await ctx.openPath(target, Number(step.waitMs) || 1500);
+        } catch (error) {
+          if (fail(step, `${tag}：${error.message}`) === 'stop') break; continue;
+        }
+        // 補登過的話，界線改成「登入完成、重開目標頁之前」；斷言另外只看這個站台的請求
+        if (nav && typeof nav.navMark === 'number') netMark = nav.navMark;
+        if (nav && nav.origin) netOrigin = nav.origin;
+        notes.push(`${tag}：${site ? `［${site.toUpperCase()}］` : ''}${target}${nav?.relogged ? '（被導到登入頁，已用該站帳密補登）' : ''}`);
 
       } else if (step.action === 'click') {
         /**
@@ -1242,7 +1371,8 @@ export async function runSteps(steps, ctx, options = {}) {
         }
         // ⚠️ 判定規則在 api-assert.js，**三個引擎共用同一份**（Backend 與 H5/PC 的
         //    兩個引擎）。搬回來自己算的話會變成「同一條斷言，Backend 判過、H5 判不過」。
-        const verdict = evaluateApiAssertion(ctx.netCallsSince(netMark) ?? [], step);
+        // 跨站（1006）：只看目前站台頁面發出的請求，前一站延遲回來的不算（netOrigin 沒有＝沒用過 site，照舊）
+        const verdict = evaluateApiAssertion(ctx.netCallsSince(netMark, netOrigin ? { pageOrigin: netOrigin } : undefined) ?? [], step);
         if (!verdict.ok) {
           if (fail(step, `${tag}：${step.urlPattern} —— ${verdict.why}`) === 'stop') break; continue;
         }
@@ -1867,7 +1997,7 @@ export async function runSteps(steps, ctx, options = {}) {
    *     留後台截圖反而讓人誤以為有驗證證據）。
    */
   async function finish() {
-    if (options.state) { options.state.vars = vars; options.state.netMark = netMark; }
+    if (options.state) { options.state.vars = vars; options.state.netMark = netMark; options.state.netOrigin = netOrigin; }
     if (options.autoScreenshot !== false && explicitShots === 0 && !manual && typeof ctx.takeScreenshot === 'function') {
       try {
         const shot = await ctx.takeScreenshot('result');

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.17.3'
+export const APP_VERSION = '5.18.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.18.0', date: '2026-10-06', changes: ['feat(UAT 後台)：**錄製腳本可以跨站**——「開啟後台頁面」多一個「站台」（不填／cp／nc），一份腳本可以 CP→NC→CP（TC T-A-004）。被導到登入頁才用那一站存的帳密補登一次；開跑前查齊會用到的站台帳密；網路斷言只看目前站台的請求。跨站腳本每一顆開頁都要選站台；寫了站台只能用相對路徑。規則跟 CodeX 定案', 'fix(UAT 後台)：逐筆 TC 執行的登入帳密原本寫死 CP，選 NC 執行會拿 CP 帳密登 NC；改成跟著執行站台'] },
   { version: '5.17.3', date: '2026-10-06', changes: ['fix(機台測試 JP／FG 點選 fallback)：CodeX 第三輪 P1——觸屏推進截圖失敗**當輪**就回 FAIL＋halt（原本 continue，下一輪的 stepExit／手冊動作會繞過交人工）；觸屏推進後的觀察期也擋住 retry 分支的手冊動作與連續失敗累計。探針的退出迴圈模擬改成照 runner 實際順序（27 項）'] },
   { version: '5.17.2', date: '2026-10-06', changes: ['fix(機台測試 JP／FG 點選 fallback)：CodeX 第二輪 P1——退出路徑觸屏推進截圖失敗改成結束本台自動操作、回傳待人工確認（原本只停點觸屏、仍會落入 SPIN／盲推）；每一下點之前的 guard 加上整台時限與動作上限。退出迴圈的推進決策抽成 planExitAdvance，探針加整合模擬'] },
   { version: '5.17.1', date: '2026-10-06', changes: ['fix(機台測試 JP／FG 點選 fallback)：CodeX review 兩個 P1＋例外條件——OCR 確認在 JP／FG 選擇畫面（feature-taps.json screenText）才點，讀不到／沒命中不點；退出路徑有進展後 60 秒內所有推進都不做；截圖失敗立刻停手交人工；每一下點之前再查結束／停止／時限'] },

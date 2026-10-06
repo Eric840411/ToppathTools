@@ -34,6 +34,8 @@ interface BlockParam {
   label: string
   type: 'text' | 'number' | 'textarea' | 'select' | 'boolean' | 'asset'
   options?: string[]
+  /** select 的空字串選項要顯示的字（例：站台「依執行設定」） */
+  emptyLabel?: string
   default?: unknown
   placeholder?: string
   help?: string
@@ -447,7 +449,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, onRec
                       value={String(current[prm.key] ?? prm.default ?? '')}
                       onChange={e => patchStep(selected!, { [prm.key]: e.target.value })}
                     >
-                      {(prm.options ?? []).map(o => <option value={o} key={o}>{o}</option>)}
+                      {(prm.options ?? []).map(o => <option value={o} key={o}>{o || prm.emptyLabel || ''}</option>)}
                     </select>
                   ) : (
                     <input

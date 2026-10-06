@@ -107,7 +107,9 @@ export function createBackendOpContext(page, { baseUrl, onNote = () => {} }) {
 
     /** open_page：片段一律用明確路徑，不吃 subtype（那是 TC registry 的概念） */
     resolveSubtypePath() { return null },
-    async openPath(target, waitMs = 1500) {
+    async openPath(target, waitMs = 1500, opts) {
+      // 1006：設定片段跑在派工選的那一個站台，不支援 open_page 的 site（要跨站請用後台錄製腳本）
+      if (opts?.site) throw new Error('設定片段不支援指定站台（片段固定跑在派工選的站台）');
       const url = /^https?:\/\//i.test(target) ? target : new URL(target, baseUrl).toString();
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
