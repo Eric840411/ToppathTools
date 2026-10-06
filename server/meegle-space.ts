@@ -10,6 +10,7 @@
  */
 import type Database from 'better-sqlite3'
 import { z } from 'zod'
+import { isAdminRole } from './role-store.js'
 import { isMeegleSpace, meegleSpaceLabel, type MeegleSpace } from '../shared/meegle-space.js'
 import { call, defaultRunner, meegleTarget, type CallOutcome, type Runner } from './meegle-workitem.js'
 
@@ -34,6 +35,15 @@ export function spaceEnv(space: MeegleSpace, base: NodeJS.ProcessEnv = process.e
   return { ...base, MEEGLE_PROJECT_KEY: spaceProjectKey(space, base) }
 }
 
+/**
+ * **測試空間只給管理員**（使用者 2026-10-06：其他角色一律正式；CodeX 同意＋必補）。
+ * - 新請求帶 space=test、或要動的紀錄（DB 上的 space）是 test → 非管理員回 403，不默默改成 prod
+ * - 角色看登入 session 目前的帳號（getAuthAccount 每次查 DB，降權立刻生效）
+ * - 舊資料沒有 space 的仍照 rowSpace() 當 test——不能為了讓非管理員看得到就改成 prod
+ */
+export function canUseSpace(role: string | null | undefined, space: MeegleSpace): boolean {
+  return space !== 'test' || isAdminRole(role)
+}
 /** 新請求的 space 欄位：必填、只認兩個值（沒有 default——缺了要報錯，不是當成測試） */
 export const spaceSchema = z.enum(['test', 'prod'])
 

@@ -18,6 +18,7 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import { defaultRunner, resolveDetailUrlBase, resolveRoleIds, type CallOutcome } from '../meegle-workitem.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { denyTestSpace } from '../meegle-space-access.js'
 import { listEditOptions, readEditCurrent, roleOperate, updateFields, uploadDescriptionImage } from '../meegle-edit-ops.js'
 import { textFingerprint } from '../meegle-comment-ops.js'
 import { listPersonMap } from '../meegle-batch-store.js'
@@ -91,6 +92,7 @@ router.post('/api/meegle/edit/meta', async (req, res, next) => {
   try {
     const ctx = requireSelf(req, res); if (!ctx) return
     const { space } = z.object({ space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const [c, base] = await Promise.all([resolveCtxFor(ctx.token, space, true), resolveDetailUrlBase(ctx.token, defaultRunner, spaceEnv(space))])
     if (c.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀不到 Meegle 欄位設定：${c.message}` })
     res.json({
@@ -106,6 +108,7 @@ router.post('/api/meegle/edit/preview', async (req, res, next) => {
     const ctx = requireSelf(req, res); if (!ctx) return
     const b = z.object({ workItemId: z.string().regex(/^\d{5,}$/), raws: z.array(rawSchema).max(40), images: z.array(imageSchema).max(30).default([]), space: spaceSchema }).parse(req.body)
     // 預覽就核對空間（Meegle 不驗 project key）
+    if (denyTestSpace(req, res, b.space)) return
     const own = await checkItemSpace(ctx.token, b.workItemId, b.space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${b.workItemId} 所屬空間失敗：${own.message}` })
@@ -140,6 +143,7 @@ router.post('/api/meegle/edit/previous', (req, res, next) => {
     const account = getAuthAccount(req)
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
     const { sheetUrl, space } = z.object({ sheetUrl: z.string().min(1).max(2000), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     expireStaleEditSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
     res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listPreviousEditForSource(db, key, space).map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), steps: publicSteps(r.steps) })) })
@@ -178,6 +182,7 @@ router.post('/api/meegle/edit/row', writeLimiter, async (req, res, next) => {
       baseline: z.record(z.string(), z.union([z.string().max(200_000), z.array(z.string().max(100)).max(50)])), planHash: z.string().regex(/^[0-9a-f]{64}$/),
       space: spaceSchema,
     }).parse(req.body)
+    if (denyTestSpace(req, res, b.space)) return
     const own = await checkItemSpace(ctx.token, b.workItemId, b.space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${b.workItemId} 所屬空間失敗：${own.message}` })
@@ -212,6 +217,7 @@ router.post('/api/meegle/edit/row/retry', writeLimiter, busyHandler('edit', b =>
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
     // 空間用紀錄上的；重試前一樣核對單子所屬空間
     const space = rowSpace(row.space)
+    if (denyTestSpace(req, res, space)) return
     const own = await checkItemSpace(ctx.token, row.work_item_id, space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${row.work_item_id} 所屬空間失敗：${own.message}` })

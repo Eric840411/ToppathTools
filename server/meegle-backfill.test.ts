@@ -76,6 +76,9 @@ eq('retry：只呼叫對應工具', called, ['create:2', 'status:201'])
 
 // ── 移出清單（v5.12.0，CodeX 2026-10-06 的驗收範圍）──
 initBackfillDismissSchema(db)
+// 下面這些是正式空間的列（v5.12.6 起非管理員碰不到測試空間；欄位預設的 test 是給舊資料用的）
+const toProd = () => { for (const t of ['meegle_batch_rows', 'meegle_comment_rows', 'meegle_status_rows', 'meegle_edit_rows']) db.exec(`UPDATE ${t} SET space = 'prod' WHERE space = 'test'`) }
+toProd()
 const B = '11111111-1111-4111-8111-111111111111'
 const hist: number[] = []
 const me = { email: 'me@t', admin: false }
@@ -93,8 +96,10 @@ eq('admin 可以移別人的', dismissBackfill(db, [{ tool: 'create', batchId: B
 eq('正在補寫的列 → 不准移', dismissBackfill(db, [{ tool: 'status', batchId: 's1', rowKey: '201' }], me, { ...rec, busy: k => k === 'status:s1:201' })[0].message, '這一列正在補寫，結束後再移')
 // 舊批次移出、新批次又失敗 → 新的仍要列出
 stepRow('comment', 'c-old2', '106', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 3)
+toProd()
 dismissBackfill(db, [{ tool: 'comment', batchId: 'c-old2', rowKey: '106' }], me, rec)
 stepRow('comment', 'c-new2', '106', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 4)
+toProd()
 eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfill(db, { owner: 'me@t', now: NOW }).filter(i => i.workItemId === '106').map(i => i.batchId), ['c-new2'])
 
 // 開單頁自己的「補寫回」寫到一半 → 移出要擋（各入口共用同一個標記，CodeX review 99ee76a [P2]）
@@ -140,6 +145,17 @@ eq('舊批次移出、新批次失敗 → 新批次仍列出', listPendingBackfi
   let called = false
   await (busyHandler('edit', b => ({ batchId: b.batchId, rowKey: b.rowKey }), async () => { called = true }) as unknown as (req: unknown, res: unknown, next: unknown) => Promise<void>)({ body: { batchId: 1 } }, new EventEmitter(), () => {})
   eq('body 拿不到鍵 → 不標、照樣交給 handler 驗證', [called, isWritebackBusy('edit:1:undefined')], [true, false])
+}
+
+// ── 測試空間只給管理員（v5.12.6，CodeX：補回填也限 admin）──
+{
+  stepRow('comment', 'c-test', '107', { desc: 'done', comment: 'done', review: 'skipped', writeback: 'failed' }, NOW, 'me@t', 5)   // 預設 space=test（舊資料也是）
+  const mine = (excludeTest: boolean) => listPendingBackfill(db, { owner: 'me@t', now: NOW, excludeTest }).some(i => i.batchId === 'c-test')
+  eq('非管理員：待補清單看不到測試空間的列', mine(true), false)
+  eq('管理員：看得到', mine(false), true)
+  eq('非管理員：移出測試空間的列 → 不准（當成不在清單）', dismissBackfill(db, [{ tool: 'comment', batchId: 'c-test', rowKey: '107' }], me, { now: NOW })[0].ok, false)
+  eq('舊資料沒有 space → 仍當測試，不會變成正式讓非管理員碰到', (db.prepare("SELECT space FROM meegle_comment_rows WHERE batch_id = 'c-test'").get() as { space: string }).space, 'test')
+  eq('管理員可以移', dismissBackfill(db, [{ tool: 'comment', batchId: 'c-test', rowKey: '107' }], { email: 'admin@t', admin: true }, { now: NOW })[0].ok, true)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -31,6 +31,7 @@ import {
   listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
 import { otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { denyTestSpace } from '../meegle-space-access.js'
 import {
   confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
   bulkVerdict, checkDirectoryLabel, defaultRunner, listSpaceRoster, meegleTarget, resolveRoleIds, resolveUsersByEmail, searchUserKey, transitionToState, type CallOutcome, type DirectoryLabel, type UserMatch,
@@ -82,6 +83,7 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
     const ctx = requireCtx(req, res)
     if (!ctx) return
     const space = spaceSchema.parse(req.query.space)
+    if (denyTestSpace(req, res, space)) return
     const env = spaceEnv(space)
     const [reqs, states] = await Promise.all([listRequirements(ctx.token, defaultRunner, env), listTaskStates(ctx.token, defaultRunner, env)])
     if (reqs.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀取需求清單失敗：${reqs.message}` })
@@ -110,6 +112,7 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
   const { sheetUrl, space } = z.object({ sheetUrl: z.string().max(2000), space: spaceSchema }).parse(req.body)
+  if (denyTestSpace(req, res, space)) return
   const key = sheetSourceKey(sheetUrl)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
   // otherSpace：這份 Sheet 已在另一個空間開過 → 畫面一讀就提示（送出也會被 claimRow 擋）
@@ -143,6 +146,7 @@ router.post('/api/meegle/batch/people/roster', async (req, res, next) => {
     const ctx = requireCtx(req, res)
     if (!ctx) return
     const { refresh, space } = z.object({ refresh: z.boolean().optional().default(false), space: spaceSchema }).parse(req.body ?? {})
+    if (denyTestSpace(req, res, space)) return
     const r = await getRoster(ctx, space, refresh)
     if (r.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${r.message}` })
     res.json({ ok: true, users: r.value.users, fetchedAt: r.value.at })
@@ -155,6 +159,7 @@ router.post('/api/meegle/batch/people/suggest', async (req, res, next) => {
     const ctx = requireCtx(req, res)
     if (!ctx) return
     const { aliases, space } = z.object({ aliases: z.array(z.string().trim().min(1).max(100)).max(200), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const roster = await getRoster(ctx, space)
     if (roster.kind !== 'ok') return res.status(502).json({ ok: false, code: 'UNAVAILABLE', message: `讀取 Meegle 人員名單失敗：${roster.message}` })
     // 同批重複名字合併；已對照的不猜
@@ -192,6 +197,7 @@ router.post('/api/meegle/batch/people/verify', writeLimiter, async (req, res, ne
     if (!ctx) return
     // space：名單與「從既有單子找人」的退路用哪個空間查（對照表本身是全租戶共用的人，不分空間）
     const { alias, email, userKey, space } = z.object({ alias: z.string().trim().min(1).max(100), email: z.string().trim().email().max(200), userKey: z.string().regex(/^\d+$/).max(40).optional(), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const want = email.toLowerCase()
     let match: UserMatch | null = null
     if (userKey) {
@@ -267,6 +273,7 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const ctx = requireCtx(req, res)
     if (!ctx) return
     const body = rowSchema.parse(req.body)
+    if (denyTestSpace(req, res, body.space)) return
     expireStaleCreating(db, STALE_CREATING_MS)
 
     const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName, space: body.space })
@@ -331,6 +338,7 @@ router.post('/api/meegle/batch/row/retry-state', writeLimiter, busyHandler('crea
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().min(1).max(40), targetStateKey: z.string().max(100).optional().default(''), targetStateName: z.string().max(100).optional().default('') }).parse(req.body)
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
+    if (denyTestSpace(req, res, rowSpace(row.space))) return
     if (row.create_phase !== 'created' || !row.work_item_id) return res.status(409).json({ ok: false, message: '這一列還沒開單成功' })
     const target = adoptTarget(db, body.batchId, body.rowKey, body.targetStateKey, Date.now(), body.targetStateName)
     if (!target) return res.status(400).json({ ok: false, message: '這一列沒有目標狀態，請先在「開單後推到」選一個' })
@@ -350,6 +358,7 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, busyHandler('create',
     expireStaleCreating(db, STALE_CREATING_MS)
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
+    if (denyTestSpace(req, res, rowSpace(row.space))) return
     if (row.create_phase !== 'unknown') {
       if (needsStatePush(row)) await pushState(ctx, rowSpace(row.space), row.batch_id, row.row_key, row.work_item_id!, row.target_state)
       if (row.create_phase === 'created') await writeback(body.batchId, body.rowKey)
@@ -390,6 +399,7 @@ router.post('/api/meegle/batch/row/writeback', writeLimiter, busyHandler('create
     const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().min(1).max(40) }).parse(req.body)
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
+    if (denyTestSpace(req, res, rowSpace(row.space))) return
     if (row.create_phase !== 'created') return res.status(409).json({ ok: false, message: '這一列還沒開單成功，沒有東西可以寫回' })
     await writeback(body.batchId, body.rowKey, true)
     res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })

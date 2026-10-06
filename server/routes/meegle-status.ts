@@ -16,6 +16,7 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import { defaultRunner, listTaskStates, resolveDetailUrlBase, transitionToState } from '../meegle-workitem.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { denyTestSpace } from '../meegle-space-access.js'
 import { readCurrent, readDate, readState, writeDate } from '../meegle-status-ops.js'
 import {
   expireStaleStatusSteps, getStatusRow, getStatusSteps, initMeegleStatusSchema, listPreviousStatusForSource, dateDataOf, type StatusStepRow,
@@ -75,6 +76,7 @@ router.post('/api/meegle/status/meta', async (req, res, next) => {
   try {
     const ctx = requireSelf(req, res); if (!ctx) return
     const { space } = z.object({ space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const env = spaceEnv(space)
     const [states, base] = await Promise.all([listTaskStates(ctx.token, defaultRunner, env), resolveDetailUrlBase(ctx.token, defaultRunner, env)])
     if (states.kind !== 'ok') return res.status(502).json({ ok: false, message: `讀不到 Meegle 狀態清單：${states.message}` })
@@ -90,6 +92,7 @@ router.post('/api/meegle/status/current', async (req, res, next) => {
   try {
     const ctx = requireSelf(req, res); if (!ctx) return
     const { workItemId, space } = z.object({ workItemId: z.string().regex(/^\d{5,}$/), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     // 預覽就核對空間（Meegle 不驗 project key）
     const own = await checkItemSpace(ctx.token, workItemId, space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
@@ -106,6 +109,7 @@ router.post('/api/meegle/status/previous', (req, res, next) => {
     const account = getAuthAccount(req)
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
     const { sheetUrl, space } = z.object({ sheetUrl: z.string().min(1).max(2000), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     expireStaleStatusSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
     const rows = listPreviousStatusForSource(db, key, space)
@@ -123,6 +127,7 @@ router.post('/api/meegle/status/row', writeLimiter, async (req, res, next) => {
       dateMode: z.enum(['keep', 'auto', 'set']), sheetDate: z.number().int().positive().nullable().default(null),
       space: spaceSchema,
     }).parse(req.body)
+    if (denyTestSpace(req, res, b.space)) return
     const own = await checkItemSpace(ctx.token, b.workItemId, b.space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${b.workItemId} 所屬空間失敗：${own.message}` })
@@ -150,6 +155,7 @@ router.post('/api/meegle/status/row/retry', writeLimiter, busyHandler('status', 
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
     // 空間用紀錄上的；重試前一樣核對單子所屬空間
     const space = rowSpace(row.space)
+    if (denyTestSpace(req, res, space)) return
     const own = await checkItemSpace(ctx.token, row.work_item_id, space)
     if (own.kind === 'rejected') return res.status(409).json({ ok: false, code: 'WRONG_SPACE', message: own.message })
     if (own.kind !== 'ok') return res.status(502).json({ ok: false, message: `確認 #${row.work_item_id} 所屬空間失敗：${own.message}` })

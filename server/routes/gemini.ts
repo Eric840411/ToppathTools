@@ -3,6 +3,7 @@
  * All /api/gemini/* routes plus Gemini helper utilities used by other route files.
  */
 import { Router } from 'express'
+import { isAdminRole } from '../role-store.js'
 import { z } from 'zod'
 import { Agent, fetch as undiciFetch } from 'undici'
 import Bottleneck from 'bottleneck'
@@ -1031,5 +1032,8 @@ router.get('/api/history', (req, res) => {
   const rows = feature
     ? db.prepare('SELECT * FROM operation_history WHERE feature = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 200').all(feature, since)
     : db.prepare('SELECT * FROM operation_history WHERE created_at >= ? ORDER BY created_at DESC LIMIT 200').all(since)
-  res.json({ ok: true, records: rows })
+  // 測試空間只給管理員（v5.12.6）：非管理員看不到測試空間的 Meegle 操作紀錄
+  const admin = isAdminRole(getAuthAccount(req)?.role)
+  const visible = admin ? rows : (rows as Array<{ feature: string; detail: string | null }>).filter(r => !(r.feature.startsWith('meegle-') && /"space":"test"/.test(r.detail ?? '')))
+  res.json({ ok: true, records: visible })
 })

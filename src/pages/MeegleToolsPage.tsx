@@ -56,7 +56,9 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
     return out
   })
   const [lastSpace, setLastSpace] = useState<MeegleSpace>(() => readSpace(LAST_SPACE_KEY) ?? DEFAULT_MEEGLE_SPACE)
-  const spaceOf = (t: SpaceTab) => spaces[t] ?? lastSpace
+  // 測試空間只給管理員（使用者 2026-10-06；後端也擋）：其他角色一律正式、不顯示切換，localStorage 裡舊的 test 不理會。
+  // 帳號降權時 spaceOf 從 test 變 prod → 分頁的 key 跟著變、整頁重掛，測試空間讀到的預覽與待送內容一起清掉（CodeX）
+  const spaceOf = (t: SpaceTab): MeegleSpace => (isAdmin ? spaces[t] ?? lastSpace : 'prod')
   const pickSpace = (t: SpaceTab, s: MeegleSpace) => {
     setSpaces(m => ({ ...m, [t]: s })); setLastSpace(s); setBusy(false)
     try { localStorage.setItem(SPACE_KEY(t), s); localStorage.setItem(LAST_SPACE_KEY, s) } catch { /* 無痕視窗等 */ }
@@ -64,11 +66,11 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
   // 第一次進某個分頁就把當下的初始值存成它自己的：不然它一直跟著 lastSpace 走，
   // 在別頁選正式再回來，這頁沒動過也會變成正式（CodeX review 025fe7c [P2]）
   useEffect(() => {
-    if (tab === 'backfill' || spaces[tab]) return
+    if (tab === 'backfill' || spaces[tab] || !isAdmin) return
     const s = lastSpace
     setSpaces(m => (m[tab] ? m : { ...m, [tab]: s }))
     try { localStorage.setItem(SPACE_KEY(tab), s) } catch { /* 無痕視窗等 */ }
-  }, [tab, spaces, lastSpace])
+  }, [tab, spaces, lastSpace, isAdmin])
   // 分頁送出中 → 不能切空間（切了會把送到一半的畫面整個卸掉）
   const [busy, setBusy] = useState(false)
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
@@ -90,7 +92,7 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
           >{t.label}</button>
         ))}
       </div>
-      {tab !== 'backfill' && <MeegleSpaceBar space={spaceOf(tab)} onChange={s => pickSpace(tab, s)} disabled={busy} />}
+      {tab !== 'backfill' && isAdmin && <MeegleSpaceBar space={spaceOf(tab)} onChange={s => pickSpace(tab, s)} disabled={busy} />}
       {tab === 'create' && <MeegleBatchCreateTab key={`create:${spaceOf('create')}`} space={spaceOf('create')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}
       {tab === 'comment' && <MeegleBatchCommentTab key={`comment:${spaceOf('comment')}`} space={spaceOf('comment')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
       {tab === 'status' && <MeegleBatchStatusTab key={`status:${spaceOf('status')}`} space={spaceOf('status')} onBusyChange={setBusy} onGoBind={onGoBind} initialSheetUrl={lastSheet} onSheetLoaded={onSheetLoaded} />}

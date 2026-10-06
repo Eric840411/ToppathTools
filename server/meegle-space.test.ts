@@ -3,7 +3,7 @@
  * 守三件事：一個批次只屬於一個空間；同一份 Sheet 送過一個空間就不能送另一個；動既有單前核對它真正所屬的空間。
  */
 import Database from 'better-sqlite3'
-import { checkItemSpace, otherSpaceOf, spaceEnv, spaceProjectKey, spaceSchema } from './meegle-space.js'
+import { canUseSpace, checkItemSpace, otherSpaceOf, spaceEnv, spaceProjectKey, spaceSchema } from './meegle-space.js'
 import { meegleTarget, type Runner } from './meegle-workitem.js'
 import { claimRow, initMeegleBatchSchema, listRowsFromSheet, takenWorkItemIds, finishCreate } from './meegle-batch-store.js'
 import { claimCommentRow, initMeegleCommentSchema, listPreviousForSource } from './meegle-comment-store.js'
@@ -23,6 +23,11 @@ eq('兩個空間的 project key', [spaceProjectKey('test', {}), spaceProjectKey(
 eq('spaceEnv 讓既有操作改用該空間的 key', [meegleTarget(spaceEnv('prod', {})).projectKey, meegleTarget(spaceEnv('test', {})).projectKey], [PROD, TEST])
 eq('env 可覆寫正式 key', spaceProjectKey('prod', { MEEGLE_PROD_PROJECT_KEY: 'p2' }), 'p2')
 eq('新請求沒帶 space／亂帶 → 驗證失敗（不默默當測試）', [spaceSchema.safeParse(undefined).success, spaceSchema.safeParse('').success, spaceSchema.safeParse('staging').success, spaceSchema.safeParse('prod').success], [false, false, false, true])
+
+// ── 測試空間只給管理員（v5.12.6）──
+eq('測試空間：管理員可以、舊多角色含 admin 也可以', [canUseSpace('admin', 'test'), canUseSpace('pm,admin', 'test')], [true, true])
+eq('測試空間：其他角色、沒登入都不行', [canUseSpace('qa', 'test'), canUseSpace('r_custom', 'test'), canUseSpace(undefined, 'test')], [false, false, false])
+eq('正式空間：誰都可以', [canUseSpace('qa', 'prod'), canUseSpace(undefined, 'prod')], [true, true])
 
 // ── 開單 ──
 {

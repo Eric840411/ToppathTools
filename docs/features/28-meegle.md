@@ -412,6 +412,15 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - **單列重試／補寫回／繼續送出進行中也算忙**（`rowBusy`），不能切空間——切了畫面會卸掉，後端還在寫
 - 介面：開單分頁網址列＋讀取鈕改成同一行（跟其他分頁一樣）；按鈕名稱四頁統一「讀取 Sheet」「重新讀取 Sheet」（使用者 10/05）
 
+### v5.12.6 測試空間只給管理員（使用者 2026-10-06；CodeX 同意＋必補）
+- 非管理員：**不顯示空間切換**，四頁一律 prod，localStorage 裡舊的 test 不理會；帳號降權時分頁的 key 從 test 變 prod，整頁重掛，測試空間讀到的預覽與待送內容一起清掉
+- 後端（`server/meegle-space-access.ts` 的 `denyTestSpace`，規則 `canUseSpace` 在 meegle-space.ts）：新請求帶 test → 403 `TEST_SPACE_ADMIN_ONLY`（meta、預覽、之前送過的列都算）；**重試／補推／查詢結果／繼續送出／候選／人工確認／補寫回一律看 DB 紀錄的 space**，不信前端；舊資料沒有 space 的仍照 `rowSpace()` 當 test，不改成 prod
+- 補回填也限 admin（CodeX：只寫 Sheet，但仍會顯示、操作測試紀錄）：清單不列、移出／補寫都擋
+- 操作歷史：非管理員看不到 detail 裡 `space: test` 的 Meegle 紀錄
+- 角色看 `getAuthAccount(req).role`（每次查 DB，降權立刻生效），原本的 owner／工具權限照舊
+- `checkItemSpace` 與 Sheet 跨空間防重照留（避免偽填 prod 繞過）
+- 測試：單元（canUseSpace、補回填不列不准移、舊資料仍是 test）；真伺服器（非管理員三頁 previous＋開單 previous 帶 test → 403、prod 正常、管理員正常；歷史過濾；自己的測試舊紀錄直呼補寫回 → 403）；`node scripts/ui-checks/meegle-space-admin-only.mjs`；突變（規則永遠放行、前端不判斷 isAdmin）都會紅
+
 ### ⚠️ Meegle 不驗 project key（2026-10-05 實測）
 拿**正式**的 project key 去 `workitem get` **測試空間**的單 #15194995，照樣回 200、內容完整，只有 `owned_project.key` 看得出它其實在測試。
 寫入大概也一樣——所以切錯空間時，評論／狀態／修改會**安安靜靜改到另一個空間的單**。

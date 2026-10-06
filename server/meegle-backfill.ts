@@ -50,7 +50,8 @@ export function dismissBackfill(db: DB, items: Array<Pick<PendingItem, 'tool' | 
   opts: { now?: number; busy?: (key: string) => boolean; recordHistory?: (rows: DismissResult[]) => void } = {}): DismissResult[] {
   const now = opts.now ?? Date.now()
   return db.transaction((): DismissResult[] => {
-    const visible = listPendingBackfill(db, { owner: actor.admin ? null : actor.email, now })
+    // 非管理員看不到測試空間的列 → 也不能移（CodeX：補回填也限 admin）
+    const visible = listPendingBackfill(db, { owner: actor.admin ? null : actor.email, now, excludeTest: !actor.admin })
     const ins = db.prepare('INSERT OR IGNORE INTO meegle_backfill_dismissed (tool, batch_id, row_key, dismissed_by, dismissed_at) VALUES (?, ?, ?, ?, ?)')
     const out: DismissResult[] = []
     for (const it of items) {
@@ -121,7 +122,7 @@ function fromCreate(db: DB, owner: string | null, now: number): PendingItem[] {
  * 待補清單。owner＝null 代表全部人（只給 admin）。
  * 同一張單、同一個工具，只留最新一批的那筆（舊批次失敗、新批次已成功的不列）。
  */
-export function listPendingBackfill(db: DB, opts: { owner: string | null; now?: number }): PendingItem[] {
+export function listPendingBackfill(db: DB, opts: { owner: string | null; now?: number; /** 非管理員：不列測試空間的列（v5.12.6） */ excludeTest?: boolean }): PendingItem[] {
   const now = opts.now ?? Date.now()
   const all = [
     ...fromCreate(db, opts.owner, now),
@@ -137,7 +138,7 @@ export function listPendingBackfill(db: DB, opts: { owner: string | null; now?: 
       WHERE r.work_item_id = ? AND r.source_key = ? AND s.phase = 'done' AND r.created_at > (SELECT created_at FROM ${rowsTable} WHERE batch_id = ? AND row_key = ?) LIMIT 1`)
       .get(it.workItemId, it.sourceKey, it.batchId, it.rowKey)
   }
-  return all.filter(it => !newerDone(it) && !isDismissed(db, it)).sort((a, b) => b.lastAt - a.lastAt)
+  return all.filter(it => !newerDone(it) && !isDismissed(db, it) && !(opts.excludeTest && it.space === 'test')).sort((a, b) => b.lastAt - a.lastAt)
 }
 
 export type BackfillRunners = Record<BackfillTool, (batchId: string, rowKey: string) => Promise<{ ok: boolean; message: string | null }>>

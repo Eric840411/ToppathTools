@@ -83,7 +83,7 @@ router.get('/api/meegle/backfill/pending', (req, res, next) => {
     const ctx = requireCtx(req, res); if (!ctx) return
     const all = req.query.all === '1' && ctx.admin
     expireAll()
-    res.json({ ok: true, scope: all ? 'all' : 'mine', canSeeAll: ctx.admin, items: listPendingBackfill(db, { owner: all ? null : ctx.email }).map(publicItem) })
+    res.json({ ok: true, scope: all ? 'all' : 'mine', canSeeAll: ctx.admin, items: listPendingBackfill(db, { owner: all ? null : ctx.email, excludeTest: !ctx.admin }).map(publicItem) })
   } catch (e) { next(e) }
 })
 
@@ -98,7 +98,7 @@ router.post('/api/meegle/backfill/retry', writeLimiter, async (req, res, next) =
     const results: Array<{ tool: string; batchId: string; rowKey: string; workItemId: string; ok: boolean; message: string | null }> = []
     for (const it of items) {
       // 每一列執行前才重查：前面幾列在寫的時候，後面的可能已經被另一個分頁移出或補好（CodeX 2026-10-06）
-      const hit = listPendingBackfill(db, { owner: ctx.admin ? null : ctx.email }).find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
+      const hit = listPendingBackfill(db, { owner: ctx.admin ? null : ctx.email, excludeTest: !ctx.admin }).find(v => v.tool === it.tool && v.batchId === it.batchId && v.rowKey === it.rowKey)
       if (!hit) { results.push({ ...it, workItemId: '', ok: false, message: '這一列不在待補清單裡（可能已經補好、移出、或不是你送的）' }); continue }
       if (isWritebackBusy(backfillKey(it))) { results.push({ ...it, workItemId: hit.workItemId, ok: false, message: '這一列正在另一個請求補寫中' }); continue }
       const r = await withWritebackBusy(it.tool, it.batchId, it.rowKey, () => retryBackfill(run, it))

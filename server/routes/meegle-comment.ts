@@ -27,6 +27,7 @@ import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment
 import { defaultRunner, resolveDetailUrlBase } from '../meegle-workitem.js'
 import { busyHandler, withWritebackBusy } from '../meegle-writeback-busy.js'
 import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { denyTestSpace } from '../meegle-space-access.js'
 import { fmtTime, larkReadRowCells, larkWritebackDeps, withSheetLock } from '../meegle-sheet-writeback.js'
 import { cachePath, holdLease, isCacheId, touchCacheFile } from '../jira-attachment-files.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
@@ -135,6 +136,7 @@ router.post('/api/meegle/comment/meta', async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const { space } = z.object({ space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const me = identityFor(ctx.email, '')
     // 本人沒綁定仍回 ok：評論頁可以用「填寫人」的身分代送，不能整頁擋掉。但要帶 code，前端才能顯示綁定引導（CodeX 2026-10-06）
     if ('code' in me) return res.json({ ok: true, detailBase: '', bound: false, code: me.code, message: me.message })
@@ -172,6 +174,7 @@ router.post('/api/meegle/comment/remote', async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const { workItemId, space } = z.object({ workItemId: z.string().regex(/^\d{5,}$/), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     const me = identityFor(ctx.email, '')
     if ('code' in me) return res.status(409).json({ ok: false, code: me.code, message: me.message })
     // 預覽就核對空間：切錯的話在這裡就看得到，不用等到送出
@@ -222,6 +225,7 @@ router.post('/api/meegle/comment/previous', (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
     const { sheetUrl, space } = z.object({ sheetUrl: z.string().min(1).max(2000), space: spaceSchema }).parse(req.body)
+    if (denyTestSpace(req, res, space)) return
     expireStaleSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
     const rows = listPreviousForSource(db, key, space)
@@ -247,6 +251,7 @@ router.post('/api/meegle/comment/row', writeLimiter, busyHandler('comment', b =>
       space: spaceSchema,
     }).parse(req.body)
     const { batchId, expectedRemoteHash, confirmedRemoteHash, allowRepeat, space, ...content } = body
+    if (denyTestSpace(req, res, space)) return
     const r = await withWritebackBusy('comment', batchId, content.workItemId, () => executeRow(req, ctx, batchId, space, content, { expectedRemoteHash, confirmedRemoteHash, allowRepeat }))
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
@@ -275,6 +280,7 @@ router.post('/api/meegle/comment/row/continue', writeLimiter, busyHandler('comme
 function ownedRow(req: Request, res: Response, ctx: Ctx, batchId: string, rowKey: string) {
   const row = getCommentRow(db, batchId, rowKey)
   if (!row || row.owner_email !== ctx.email) { res.status(404).json({ ok: false, message: '找不到這一列' }); return null }
+  if (denyTestSpace(req, res, rowSpace(row.space))) return null
   return row
 }
 
