@@ -26,7 +26,8 @@ import {
   hashOne, hashSources, RESTART_REQUIRED_SOURCES,
   compareAgentSources, type AgentUpdateStatus,
 } from '../agent-source-hash.js'
-import { MachineTestRunner } from '../machine-test/runner.js'
+import { AGENT_SEED_FILES, seedManifest } from '../agent-seeds.js'
+import { MachineTestRunner, noteOsmObservation } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
 import {
   broadcastToViewers,
@@ -37,7 +38,7 @@ import {
   getJobStatuses,
   agentConnections,
 } from '../agent-hub.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { bindHeavyTaskOwner, finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 import { disconnectAgentsByToken as disconnectAgentsByTokenIn } from '../agent-token-disconnect.js'
 
@@ -57,6 +58,7 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'lib/pc-cocos.ts':               join(SERVER_ROOT, 'lib', 'pc-cocos.ts'),
   'machine-test/runner.ts':        join(SERVER_ROOT, 'machine-test', 'runner.ts'),
   'machine-test/types.ts':         join(SERVER_ROOT, 'machine-test', 'types.ts'),
+  'machine-test/verdicts.ts':      join(SERVER_ROOT, 'machine-test', 'verdicts.ts'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
@@ -946,6 +948,7 @@ router.post('/api/machine-test/osm-status', (req, res) => {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
           osmMachineUpdatedAt.set(gm.id, lastOsmWebhookAt)
+          noteOsmObservation(gm.id, lastOsmWebhookAt)
           persistOsmMachineStatus(gm.id, gm.status)
           updates.push({ machineId: gm.id, status: gm.status })
         }
@@ -1045,6 +1048,9 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
 
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    // 2026-09-30：把鎖綁到 session（lock_key），批次工具 agent 斷線自動續跑時才能確認「這把殘留鎖是舊 session 的」再清；
+    // 只是紀錄用途，孤兒判定目前只對 autospin-agent 生效，不影響機台測試鎖的釋放
+    bindHeavyTaskOwner(heavyTask.token, sessionId)
     if (operator) sessionOperators.set(sessionId, operator)
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
     const profiles = rawProfiles.map(r => ({
@@ -1408,6 +1414,20 @@ function serveAgentSource(relPath: string) {
 for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
   router.get(`/api/machine-test/agent/source/${relPath}`, serveAgentSource(relPath))
 }
+
+/**
+ * 種子檔（server/agent-seeds.ts）：agent **缺檔才寫入**，已經有的一律不動——跟上面會覆寫的原始碼分開兩條路。
+ * 只開放清單內的檔名（key 比對，不拼路徑），回原始位元組
+ */
+router.get('/api/machine-test/agent/seed-manifest', (_req, res) => {
+  res.json({ ok: true, files: seedManifest() })
+})
+router.get(/^\/api\/machine-test\/agent\/seed\/(.+)$/, (req, res) => {
+  const rel = (req.params as Record<string, string>)[0]
+  const src = Object.prototype.hasOwnProperty.call(AGENT_SEED_FILES, rel) ? AGENT_SEED_FILES[rel] : undefined
+  if (!src || !existsSync(src)) return res.status(404).json({ ok: false, message: 'not a seed file' })
+  res.type('application/octet-stream').send(readFileSync(src))
+})
 
 /**
  * GET /api/machine-test/agent/source-manifest

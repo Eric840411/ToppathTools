@@ -45,6 +45,7 @@ import { getAuthAccount } from './auth-session.js'
 // Shared logger
 import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
 import { BACKUP_KEY, runDiscordRetireMigration } from './discord-retire-migration.js'
+import { ensureLocalSeeds } from './agent-seeds.js'
 
 dotenv.config()
 
@@ -69,6 +70,9 @@ try {
   console.error('[migration] Discord 退場搬遷失敗，設定未變動，server 不啟動：', e)
   process.exit(1)
 }
+
+// 機台測試種子檔：本機模式也會跑 runner，缺檔才補（已有的不動，見 agent-seeds.ts）
+try { const s = ensureLocalSeeds(); if (s.length) console.log(`[seeds] 補上機台測試種子檔：${s.join("、")}`) } catch (e) { console.warn("[seeds] 種子檔補檔失敗", e) }
 
 // ─── Express App ──────────────────────────────────────────────────────────────
 

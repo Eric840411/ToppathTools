@@ -19,9 +19,9 @@
 import WebSocket from 'ws'
 import { hostname, tmpdir } from 'os'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { createInterface } from 'node:readline'
 // UAT 網路量測與 pinus 攔截：共用模組放在 server/uat-runner/ 底下，
 // 因為那是唯一一份 Backend runner（純 node）、agent（tsx）、server（編譯後）
@@ -47,7 +47,7 @@ import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState, r
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
-import { MachineTestRunner } from './machine-test/runner.js'
+import { MachineTestRunner, noteOsmObservation } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
 import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
@@ -115,6 +115,39 @@ async function computeSourceHashes(): Promise<{ all: string; restartScoped: stri
   } catch {
     return null   // 算不出來就回報 undefined，server 會顯示「版本未知」而不是假裝最新
   }
+}
+
+/**
+ * 種子檔（server/agent-seeds.ts）：選單閘門設定、參考圖、CCTV 構圖範例這類**執行時讀、agent 自己會學會改**的檔案。
+ * **缺檔才寫入，已經有的一律不動**——本機學到的東西優先，伺服器那份只是新 agent 的起點（CodeX review 合併計畫）。
+ * 開機連上時與「更新程式碼」之後各跑一次。下載後先驗指紋再寫，驗不過就不寫（跟原始碼更新同一個原則：截斷的檔案比沒有更危險）
+ */
+async function ensureSeeds(): Promise<{ written: string[]; failed: string[] }> {
+  const out = { written: [] as string[], failed: [] as string[] }
+  try {
+    const baseUrl = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
+    const resp = await fetch(`${baseUrl}/api/machine-test/agent/seed-manifest`)
+    if (!resp.ok) return out   // 舊版 server 沒有這支：當成沒有種子檔
+    const mf = await resp.json() as { files?: Array<{ file: string; hash: string }> }
+    for (const { file, hash } of mf.files ?? []) {
+      // 只接受 machine-test/ 底下、沒有 .. 的相對路徑
+      if (!/^machine-test\/[\w./-]+$/.test(file) || file.includes('..')) { out.failed.push(file); continue }
+      const target = join(process.cwd(), 'server', ...file.split('/'))
+      if (existsSync(target)) continue
+      try {
+        const r = await fetch(`${baseUrl}/api/machine-test/agent/seed/${file}`)
+        if (!r.ok) { out.failed.push(file); continue }
+        const buf = Buffer.from(await r.arrayBuffer())
+        if (createHash('sha256').update(buf).digest('hex').slice(0, 16) !== hash) { out.failed.push(file); continue }
+        mkdirSync(dirname(target), { recursive: true })
+        writeFileSync(target, buf)
+        out.written.push(file)
+      } catch { out.failed.push(file) }
+    }
+    if (out.written.length) console.log(`[Agent:${AGENT_LABEL}] 補上缺少的種子檔 ${out.written.length} 個：${out.written.join('、')}`)
+    if (out.failed.length) console.warn(`[Agent:${AGENT_LABEL}] 種子檔沒補上：${out.failed.join('、')}`)
+  } catch { /* 種子檔失敗不擋連線 */ }
+  return out
 }
 
 /** 啟動當下那批「要重啟才生效」的檔案指紋。之後就算檔案被換掉，這個值也不變
@@ -2381,6 +2414,7 @@ function connect() {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
     // 每次連線都重算：可能是重連，而這期間 server 端的程式碼可能已經更新
     const bootHashes = await computeSourceHashes()
+    void ensureSeeds()
     // ⚠️ 只在第一次記下來。之後檔案被換掉這個值也不變——那正是
     //    「檔案是新的、但跑的還是舊的」的判斷依據；每次重連都更新就永遠測不出來。
     if (bootRestartHash === undefined) bootRestartHash = bootHashes?.restartScoped
@@ -2411,8 +2445,10 @@ function connect() {
     if (msg.type === 'osm_status_update') {
       const updates = (msg as { type: 'osm_status_update'; updates: { machineId: string; status: number }[] }).updates
       if (Array.isArray(updates)) {
+        const at = Date.now()
         for (const { machineId, status } of updates) {
           currentOsmMap.set(machineId, status)
+          noteOsmObservation(machineId, at)
         }
       }
       return
@@ -2854,6 +2890,7 @@ function connect() {
       // 更新完要回報新指紋，不然畫面上還是顯示落後，使用者會以為沒生效而重按。
       // ⚠️ bootRestartHash 刻意不更新——那個要重啟才會變，它正是「檔案新了但跑的是舊的」
       //    的判斷依據；在這裡跟著更新的話「需要重啟」就永遠不會被偵測到。
+      await ensureSeeds()
       const after = await computeSourceHashes()
       // 更新成功才記版本——部分失敗時記下去會宣稱自己是新版，實際上不是
       if (allOk) {
@@ -3074,6 +3111,9 @@ function connect() {
           console.log(`[Agent:${AGENT_LABEL}] 上一輪還在收尾（斷線前那台正在停止），等它結束再開始`)
           await prevLoop.catch(() => {})
         }
+        // 某台機台回報「必須人工處理」（退出 AFT 錯誤、Handpay、退出超時）後，後面的機台不再實際測試，
+        // 但仍要逐台領走並回報 job_done，session 才會正常結束、釋放重任務鎖與 agent busy。
+        let haltReason: string | null = null
         while (true) {
           // Request the next available machine from the central queue
           const code = await new Promise<string | null>((resolve) => {
@@ -3089,6 +3129,19 @@ function connect() {
 
           console.log(`[Agent:${AGENT_LABEL}] Claimed machine: ${code}`)
           let failed = false
+
+          if (haltReason) {
+            const skipped = {
+              machineCode: code, overall: 'fail' as const,
+              steps: [{ step: '測試流程', status: 'skip' as const, message: `未執行：前一台需人工處理（${haltReason}）`, durationMs: 0 }],
+              consoleLogs: [], startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+            }
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'event', sessionId, event: { type: 'machine_done', machineCode: code, status: 'fail', message: `${code} 未執行（批次已因前一台異常中止）`, result: skipped, ts: new Date().toISOString() } }))
+              ws.send(JSON.stringify({ type: 'job_done', sessionId, machineCode: code, failed: true }))
+            }
+            continue
+          }
 
           try {
             // Create a fresh runner for each machine (avoids stale state)
@@ -3106,6 +3159,10 @@ function connect() {
 
             // Agent always runs headless — ignore headedMode from main UI
             await runner.run({ ...session, sessionId, machineCodes: [code], headedMode: session.headedMode === true })
+            if (runner.haltReason) {
+              haltReason = runner.haltReason
+              console.log(`[Agent:${AGENT_LABEL}] Halting batch: ${haltReason}`)
+            }
           } catch (err) {
             console.error(`[Agent:${AGENT_LABEL}] Machine ${code} error:`, err)
             failed = true
