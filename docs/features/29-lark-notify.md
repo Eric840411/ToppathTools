@@ -10,8 +10,9 @@
 >   2. `discord_notify_enabled／fields／title_template／footer` → `autospin_notify_*`：**新 key 不存在才複製**，`'0'`（關閉）與空字串照樣搬
 >   3. 刪掉 `discord_webhook_url`、`autospin_discord_user_map`、`notify_outlets`、`discord_notify_*`
 >   4. 補送佇列 `notify_retry_queue` 裡 `side:'discord'` 的項目丟掉（不改送 Lark：那則多半已經在 Lark 發過）
->   失敗不擋開機（transaction 失敗＝什麼都沒動，下次啟動再試），log 會印 `[migration] Discord 退場`
-> - **部署順序**：停舊 server／worker → 換新版 → 啟動 server（migration 在這裡跑）→ 啟動 worker。不要讓舊版 worker 跟新版 server 同時跑（舊 worker 會讀已刪掉的設定）
+>   **失敗就不開機**（v5.13.1，CodeX review [P1]：AutoSpin 只讀新 key，帶著沒搬的設定服務會把全域關閉的通知變成啟用）。transaction 失敗＝什麼都沒動，修好再啟動。成功時 log 一定印 `[migration] Discord 退場 OK`
+>   寫入錯誤一定往外拋讓整段 rollback，只有佇列 JSON 壞掉才吞（v5.13.1，CodeX [P2]：原本 catch 連寫入一起包住，會「舊 key 已刪、佇列沒清、卻回報成功」）
+> - **部署順序**：停舊 server／worker → 換新版 → 啟動 server（migration 在這裡跑）→ **確認 log 有 `[migration] Discord 退場 OK`** → 啟動 worker。只看 server online 不夠。server 與 worker 必須共用同一個 data.db。不要讓舊版 worker 跟新版 server 同時跑（舊 worker 會讀已刪掉的設定）
 > - **退版**（回到 v5.12.x）：程式碼退回去之後，settings 裡的舊 key 已經不在了。要還原：
 >   ```sql
 >   -- 把備份裡的每個 key 寫回去（sqlite3 server/data.db）

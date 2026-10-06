@@ -59,11 +59,16 @@ process.on('unhandledRejection', (reason) => {
 })
 
 // ─── 一次性設定搬遷（v5.13.0 Discord 退場；重跑無副作用，見該檔檔頭）──────────────────
-// 失敗不擋開機：整段在 transaction 裡，失敗就是全部沒動，舊設定原樣留著，下次啟動再試
+// ⚠️ 失敗就不開機（CodeX review 82d926e [P1]）：AutoSpin 只讀新 key，搬遷失敗還照常服務的話，
+//    原本全域關閉（'0'）的通知會變成預設啟用。整段在 transaction 裡，失敗＝什麼都沒動，修好再啟動即可。
+//    部署時看到 log 的「[migration] Discord 退場 OK」才啟動 worker
 try {
   const r = runDiscordRetireMigration(db)
-  if (r.removed.length || r.droppedRetries) console.log(`[migration] Discord 退場：搬 ${r.copied.length} 個、刪 ${r.removed.length} 個設定（已備份到 ${BACKUP_KEY}）、丟 ${r.droppedRetries} 筆 Discord 補送`)
-} catch (e) { console.error('[migration] Discord 退場搬遷失敗（設定未變動）：', e) }
+  console.log(`[migration] Discord 退場 OK：搬 ${r.copied.length} 個、刪 ${r.removed.length} 個設定${r.backedUp ? `（已備份到 ${BACKUP_KEY}）` : ''}、丟 ${r.droppedRetries} 筆 Discord 補送`)
+} catch (e) {
+  console.error('[migration] Discord 退場搬遷失敗，設定未變動，server 不啟動：', e)
+  process.exit(1)
+}
 
 // ─── Express App ──────────────────────────────────────────────────────────────
 

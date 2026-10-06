@@ -8,6 +8,7 @@
  *  3. 刪掉舊 key：webhook URL、Discord 使用者對照表、通知出口、discord_notify_*
  *  4. 補送佇列裡 side:'discord' 的項目丟掉（不改送 Lark——那則多半已經在 Lark 發過，轉送會重複）
  *
+ * 失敗時整段 rollback 並往外拋；server 啟動遇到失敗會直接結束（見 index.ts），不帶著半套設定服務。
  * 純函式（傳入 db）。測試：npx tsx server/discord-retire-migration.test.ts
  */
 import type Database from 'better-sqlite3'
@@ -42,16 +43,14 @@ export function runDiscordRetireMigration(db: Database.Database, now = Date.now(
     }
     for (const k of result.removed) del.run(k)
 
+    // ⚠️ try 只包 JSON 解析：寫入錯誤要往外拋讓整段 rollback，吞掉的話會「舊 key 已刪、佇列沒清、卻回報成功」（CodeX review 82d926e [P2]）
     const rawQ = read(RETRY_KEY)
-    if (rawQ) {
-      try {
-        const q = JSON.parse(rawQ) as Array<{ side?: string }>
-        if (Array.isArray(q)) {
-          const kept = q.filter(it => it?.side !== 'discord')
-          result.droppedRetries = q.length - kept.length
-          if (result.droppedRetries) put.run(RETRY_KEY, JSON.stringify(kept))
-        }
-      } catch { /* 佇列壞掉交給 notify-outlet 的讀取（當成空的） */ }
+    let q: unknown = null
+    if (rawQ) { try { q = JSON.parse(rawQ) } catch { /* 佇列壞掉交給 notify-outlet 的讀取（當成空的） */ } }
+    if (Array.isArray(q)) {
+      const kept = (q as Array<{ side?: string }>).filter(it => it?.side !== 'discord')
+      result.droppedRetries = q.length - kept.length
+      if (result.droppedRetries) put.run(RETRY_KEY, JSON.stringify(kept))
     }
     return result
   }).immediate()

@@ -64,5 +64,23 @@ console.log('[交易：中途失敗全部退回]')
   check('沒有留下半套（新 key 沒建、舊 key 還在、沒備份）', val(db, 'autospin_notify_enabled') === undefined && val(db, 'discord_notify_enabled') === '0' && val(db, BACKUP_KEY) === undefined)
 }
 
+console.log('[佇列寫入失敗：要拋出並全部退回，不能吞掉回報成功]（CodeX review 82d926e [P2]）')
+{
+  const db = fresh({ discord_webhook_url: 'u', notify_retry_queue: JSON.stringify([{ id: '1', side: 'discord' }]) })
+  // put 是 INSERT OR REPLACE：只會觸發 INSERT trigger（REPLACE 的刪除不觸發 DELETE trigger）
+  db.exec(`CREATE TRIGGER boom BEFORE INSERT ON settings WHEN new.key = 'notify_retry_queue' BEGIN SELECT RAISE(ABORT, 'boom'); END`)
+  let threw = false
+  try { runDiscordRetireMigration(db, 0) } catch { threw = true }
+  check('有拋錯', threw)
+  check('舊 key 還在、佇列沒動、沒備份', val(db, 'discord_webhook_url') === 'u' && val(db, 'notify_retry_queue')!.includes('discord') && val(db, BACKUP_KEY) === undefined)
+}
+
+console.log('[佇列 JSON 壞掉：不擋搬遷]')
+{
+  const db = fresh({ discord_webhook_url: 'u', notify_retry_queue: '{not json' })
+  const r = runDiscordRetireMigration(db, 0)
+  check('照樣完成、佇列原樣留著', val(db, 'discord_webhook_url') === undefined && val(db, 'notify_retry_queue') === '{not json' && r.droppedRetries === 0)
+}
+
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)
