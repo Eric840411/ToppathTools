@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.25.1'
+export const APP_VERSION = '5.25.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.25.2', date: '2026-10-06', changes: ['fix(Meegle 批量更新狀態)：③ 逐列預覽名稱換兩行時，「目前 → 目標」那格底下多出一條橫線（那格比整列矮、底線畫在列中間）'] },
   { version: '5.25.1', date: '2026-10-06', changes: ['fix(Meegle 批量開單)：AI 產生任務名稱補回**範例預覽**（以前 Jira「AI 摘要生成」有）——選了欄位就用第一個勾選列顯示「[前綴] ＋ AI(內容前 40 字)」，內容欄那列是空的會標出來'] },
   { version: '5.25.0', date: '2026-10-06', changes: ['feat(Meegle 批量開單)：批量設定的其他欄位補上**關聯任務**（填 Meegle 單號、多個用逗號分隔）'] },
   { version: '5.24.1', date: '2026-10-06', changes: ['fix(Meegle 批量開單)：批量設定的其他欄位補上 Actual start／Actual end 與 RD 工時'] },

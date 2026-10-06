@@ -467,7 +467,8 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
                           onChange={e => setChecked(prev => { const n = new Set(prev); e.target.checked ? n.add(p.rowIndex) : n.delete(p.rowIndex); return n })} /></td>
                         <td className="mb-num">#{p.workItemId}</td>
                         <td className="mb-name">{p.summary || <span className="mb-muted">（沒有摘要）</span>}</td>
-                        <td className="ms-transition" onClick={e => e.stopPropagation()}>
+                        {/* flex 放內層：td 本身設 flex 會脫離表格格線，名稱換兩行時這格比整列矮、底線畫在列中間（使用者 1006） */}
+                        <td onClick={e => e.stopPropagation()}><div className="ms-transition">
                           <span className="ms-from">{p.cur.status === 'ok' ? p.cur.stateName : p.cur.status === 'error' ? '讀不到' : '讀取中…'}</span>
                           <Icon name="arrow" />
                           <select className="mb-select ms-target" value={overrides[p.rowIndex] ?? ''} aria-label={`#${p.workItemId} 目標狀態`}
@@ -475,7 +476,7 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
                             <option value="">{p.target.ok && p.target.source !== 'preview' ? p.target.name : '（未決定）'}</option>
                             {stateOptions}
                           </select>
-                        </td>
+                        </div></td>
                         <td>{p.issue && p.cur.status !== 'loading' && p.cur.status !== 'idle'
                           ? <span className="mb-badge mb-badge--bad" title={p.issue}>{p.target.ok ? (p.cur.status === 'error' ? '讀不到' : '日期格式錯') : '狀態對不到'}</span>
                           : p.target.ok ? <span className={`mb-badge ms-src ms-src--${p.target.source}`}>{SOURCE_TEXT[p.target.source]}</span> : <span className="mb-muted">—</span>}
