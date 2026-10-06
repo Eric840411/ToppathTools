@@ -702,8 +702,10 @@ async function writeBack(sheet, letters, m, date) {
     await putCell(sheet, `${L.I}${row}`, `${m.code.split('-').pop()} ${date} full session (${up.mb.toFixed(1)}MB): ${up.url}`)
     return 'ok'
   })
-  // 判定不出來就清掉舊值，避免留下上一輪的 J
-  await step('J', async () => { await putCell(sheet, `${L.J}${row}`, m.J ?? ''); return 'ok' })
+  // 判定不出來就清掉舊值，避免留下上一輪的 J。
+  // ⚠️ 要寫 null 不能寫 ''：J 是下拉欄，寫 '' Lark 會標「資料無效／請選擇下拉式清單中的選項」（紅角，畫面看起來是空的）；
+  //    values:[[null]] 才是真的清空（1006 osm-qa-agent 實測 J6/J9/J11 讀回 null）
+  await step('J', async () => { await putCell(sheet, `${L.J}${row}`, m.J ?? null); return 'ok' })
 }
 const wbDone = m => m.writeback && ['F', 'G', 'H', 'I', 'J'].every(k => m.writeback[k] === 'ok' || m.writeback[k] === 'n/a')
 const saveSummary = (f, s) => fs.writeFileSync(f, JSON.stringify(s, null, 1))
