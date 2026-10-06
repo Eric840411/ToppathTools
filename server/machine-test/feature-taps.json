@@ -2,6 +2,7 @@
   "ARUZE": {
     "waitMs": 3000,
     "minChange": 0.05,
+    "screenText": ["MATCH 3", "JACKPOT LEVEL", "SELECT A FEATURE", "FREE GAMES FEATURE"],
     "groups": [
       { "name": "JP 元寶", "taps": ["3,3", "6,3", "9,3", "13,3", "16,3", "3,5", "6,5", "9,5", "13,5", "16,5", "3,7", "6,7", "9,7", "13,7", "16,7"] },
       { "name": "FG 卡片", "taps": ["2,4", "6,4", "9,4", "13,4", "16,4"] }

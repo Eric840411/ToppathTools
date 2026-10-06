@@ -236,3 +236,14 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 流程在 `verdicts.ts runFeatureTaps`，探針 `npx tsx scripts/feature-taps-probe.ts`。
 
 ⚠️ `[unverified]`：座標還沒在真的 JP／FG 畫面點過；JP 結束後是否還要按 SPIN／TAKE WIN 待確認。
+
+### 決策紀錄（CodeX 1006 review，v5.17.1 補）
+
+- **iDeck 逾時後改點觸屏是例外**：0929 的規則是「開轉逾時後不可再點任何東西」。CodeX 只同意**確認處於 JP／FG 選擇畫面**時例外——
+  單靠 45 秒逾時不夠。做法：每一輪先截整頁跑 Gemini Vision OCR，命中 `feature-taps.json` 的 `screenText` 關鍵字（ARUZE：MATCH 3／JACKPOT LEVEL／SELECT A FEATURE／FREE GAMES FEATURE）才點；
+  **讀不到字、沒命中、OCR 失敗一律不點**。沒設 `screenText` 的機種整份不啟用。退出路徑同一道關卡，每台最多 OCR 5 次。
+  iDeck 按鍵本身仍然不補點。
+- **畫面變動只是「暫停觀察」訊號**，不能證明進了 FG（整頁比對、雜訊只量一次、門檻未校準）。退出路徑有進展後的 60 秒內**所有推進都不做**（SPIN、觸屏、盲推），只重試退出。
+- **量不到就停手**：點之前或點之後截圖失敗＝`unsure` → 立刻停止點觸屏、emit 🆘 交人工；不能把缺圖當成「沒變化」繼續點。
+- **每一下點之前再查一次**結束（moneyNtc end）／停止／時限，查到就不點。
+- 探針 `scripts/feature-taps-probe.ts` 17 項（含上面三條；拿掉「check unsure 就停」會紅在對應那項）。

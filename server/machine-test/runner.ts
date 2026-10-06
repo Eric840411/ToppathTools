@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, REF_MATCH, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -1064,17 +1064,21 @@ async function doTouchPoints(page: Page, profile: MachineProfile | undefined, em
 }
 // ── JP／FG 點選 fallback（1006 ARUZE 0335）：特殊流程沒結束時依機種點位清單逐格點，流程在 verdicts.ts runFeatureTaps ──
 // 清單放 feature-taps.json（機種＝代碼中段，例 873-ARUZE-0321 → ARUZE），跟 profile 的 touchPoints 分開——觸屏測試還在用那份。
-// waitMs＝每格點完等多久看進展；minChange＝畫面變動要比「點之前兩張的雜訊」多出多少才算畫面有進展。
+// waitMs＝每格點完等多久看進展；minChange＝畫面變動要比「點之前兩張的雜訊」多出多少才算畫面有進展（只當暫停觀察訊號）。
+// screenText＝「選擇畫面」的關鍵字。CodeX 1006：單靠逾時不夠，**OCR 確認畫面上真的是 JP／FG 選擇畫面才點**；
+//   讀不到字、沒命中、OCR 失敗一律不點（決策紀錄在 docs/features/04-machine-test.md）
 const FEATURE_TAPS_FILE = join(MACHINE_TEST_ROOT, 'feature-taps.json')
 /** iDeck 開局卡住後，觸屏推進最多花多久（含每次畫面有進展後等 moneyNtc end 的 30 秒） */
 const FEATURE_TAP_MAX_MS = 180_000
-type FeatureTapsCfg = { points: FeatureTapPoint[]; waitMs: number; minChange: number }
+type FeatureTapsCfg = { points: FeatureTapPoint[]; waitMs: number; minChange: number; screenText: string[] }
 function featureTapsConfig(machineCode: string): FeatureTapsCfg | null {
   try {
-    const all = JSON.parse(readFileSync(FEATURE_TAPS_FILE, 'utf8')) as Record<string, { groups?: Array<{ name: string; taps: string[] }>; waitMs?: number; minChange?: number }>
+    const all = JSON.parse(readFileSync(FEATURE_TAPS_FILE, 'utf8')) as Record<string, { groups?: Array<{ name: string; taps: string[] }>; waitMs?: number; minChange?: number; screenText?: string[] }>
     const c = all[machineCode.split('-').slice(1, -1).join('-').toUpperCase()]
     const points = (c?.groups ?? []).flatMap(g => (g.taps ?? []).map(t => t.trim()).filter(t => /^\d+,\d+$/.test(t)).map(t => ({ point: t, group: g.name })))
-    return points.length ? { points, waitMs: c?.waitMs ?? 3000, minChange: c?.minChange ?? 0.05 } : null
+    const screenText = (c?.screenText ?? []).filter(k => typeof k === 'string' && k.trim())
+    // 沒有關鍵字＝沒辦法確認畫面 → 整份不啟用（寧可不點）
+    return points.length && screenText.length ? { points, waitMs: c?.waitMs ?? 3000, minChange: c?.minChange ?? 0.05, screenText } : null
   } catch { return null }
 }
 /** 點一個「欄,列」觸屏格（.screen-touch 裡的透明 span，跟 doTouchPoints 同一種點法）；找不到回 false */
@@ -1088,7 +1092,8 @@ async function clickTouchCell(page: Page, pt: string): Promise<boolean> {
   return false
 }
 /**
- * 從 start 那格開始點，一有進展就回來（done＝moneyNtc end／ended()；screen＝畫面明顯變了）。
+ * 一輪：先 OCR 確認在選擇畫面 → 從 start 那格開始點，一有進展就回來。
+ * 回傳 result：done／screen／exhausted／stopped／unsure（截圖失敗，要交人工）／notOnScreen（沒確認是選擇畫面，一下都沒點）。
  * 每一下都 emit「點觸屏 x,y → 有／無進展」（0335 那次 batch log 沒有任何點擊紀錄）。
  */
 async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: FeatureTapsCfg, start: number, ended: () => boolean, stop: () => boolean, why: string) {
@@ -1101,30 +1106,52 @@ async function featureTapRound(page: Page, emit: (msg: string) => void, cfg: Fea
       if (vs.some(v => v && typeof v === 'object' && (v as Record<string, unknown>).reason === 'end')) sawEnd = true
     })
   }
+  const isOver = () => sawEnd || ended()
+  const halt = () => isOver() || stop()
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`
   const shot = () => page.screenshot({ type: 'png' }).catch(() => null)
-  await closeJackpotNotification(page, emit)
-  const n0 = await shot(); await sleep(1000); const n1 = await shot()
-  const noise = n0 && n1 ? diffRatio(n0, n1) : 0
-  emit(`🎯 ${why} → 依機種點位清單逐格點（第 ${start + 1}/${cfg.points.length} 格起，畫面雜訊 ${pct(noise)}）`)
-  let pre: Buffer | null = null
+  const none = (result: 'unsure' | 'notOnScreen' | 'stopped', note: string) => ({ cursor: start, result, log: [] as FeatureTapLog[], tapped: 0, note })
   page.on('console', onC)
   try {
+    await closeJackpotNotification(page, emit)
+    const n0 = await shot()
+    if (!n0) { emit(`🆘 ${why}：截圖失敗，沒辦法確認畫面 → 不點觸屏，請人工確認`); return none('unsure', '截圖失敗') }
+    let ocr = ''
+    try { ocr = (await callGeminiVisionViaProxy(BONUS_OCR_PROMPT, n0.toString('base64'))).trim() } catch (e) { emit(`（選擇畫面 OCR 失敗：${String(e).slice(0, 80)}）`) }
+    const hit = onFeatureSelectScreen(ocr, cfg.screenText)
+    if (!hit) {
+      emit(`${why}：OCR 沒看到 JP／FG 選擇畫面（「${ocr.replace(/\s+/g, ' ').slice(0, 100) || '讀不到字'}」）→ 不點觸屏`)
+      return none('notOnScreen', 'OCR 沒確認是選擇畫面')
+    }
+    await sleep(1000)
+    const n1 = await shot()
+    if (!n1) { emit(`🆘 ${why}：截圖失敗，量不到畫面雜訊 → 不點觸屏，請人工確認`); return none('unsure', '截圖失敗') }
+    const noise = diffRatio(n0, n1)
+    emit(`🎯 ${why} → OCR 命中「${hit}」，依機種點位清單逐格點（第 ${start + 1}/${cfg.points.length} 格起，畫面雜訊 ${pct(noise)}）`)
+    let pre: Buffer | null = null
     const r = await runFeatureTaps({
-      points: cfg.points, start, stop,
-      tap: async pt => { await closeJackpotNotification(page, emit); pre = await shot(); return clickTouchCell(page, pt) },
+      points: cfg.points, start, stop: halt,
+      tap: async pt => {
+        await closeJackpotNotification(page, emit)
+        pre = await shot()
+        if (!pre) return 'unsure'
+        if (halt()) return 'stop'   // CodeX 1006：真的點下去之前再查一次結束／停止／時限
+        return (await clickTouchCell(page, pt)) ? 'ok' : 'noElement'
+      },
       check: async () => {
         const until = Date.now() + cfg.waitMs
-        while (Date.now() < until && !(sawEnd || ended())) await sleep(250)
-        if (sawEnd || ended()) return { result: 'done' as const, note: 'moneyNtc end' }
+        while (Date.now() < until && !isOver()) await sleep(250)
+        if (isOver()) return { result: 'done' as const, note: 'moneyNtc end' }
         const post = await shot()
-        const ch = pre && post ? diffRatio(pre, post) : 0
+        if (!pre || !post) return { result: 'unsure' as const, note: '點之後截圖失敗' }
+        const ch = diffRatio(pre, post)
         const note = `畫面變動 ${pct(ch)}（雜訊 ${pct(noise)}）`
         return ch > noise + cfg.minChange ? { result: 'screen' as const, note } : { result: 'none' as const, note }
       },
-      onLog: (l: FeatureTapLog) => emit(`點觸屏 ${l.point}（${l.group}）→ ${l.result === 'done' || l.result === 'screen' ? '有進展' : '無進展'}${l.result === 'noElement' ? '（頁面找不到這格）' : l.note ? `｜${l.note}` : ''}`),
+      onLog: (l: FeatureTapLog) => emit(`點觸屏 ${l.point}（${l.group}）→ ${l.result === 'done' || l.result === 'screen' ? '有進展' : l.result === 'unsure' ? '量不到' : '無進展'}${l.result === 'noElement' ? '（頁面找不到這格）' : l.note ? `｜${l.note}` : ''}`),
     })
-    return { ...r, tapped: r.log.filter(l => l.result !== 'noElement').length }
+    if (r.result === 'unsure') emit(`🆘 ${why}：截圖失敗，停止點觸屏，請人工確認這台畫面`)
+    return { ...r, tapped: r.log.filter(l => l.result !== 'noElement' && !(l.result === 'unsure' && l.note?.startsWith('點之前'))).length, note: '' }
   } finally {
     page.off('console', onC)
   }
@@ -2916,14 +2943,16 @@ async function stepIdeck(
             const deadline = Date.now() + FEATURE_TAP_MAX_MS
             const all: FeatureTapLog[] = []
             let cursor = 0
+            let ftStop = ''
             while (!isEnd() && cursor < ft.points.length && Date.now() < deadline && !shouldStop?.()) {
               const r = await featureTapRound(page, emit, ft, cursor, isEnd, () => (shouldStop?.() ?? false) || Date.now() >= deadline, `${label} 開局 45 秒沒結束（可能卡在 JP／FG 選擇畫面）`)
               cursor = r.cursor; all.push(...r.log)
               if (r.result === 'screen') await until(isEnd, 30000)
-              if (r.result === 'stopped' || r.result === 'exhausted') break
+              if (r.result !== 'screen' && r.result !== 'done') { ftStop = r.result; break }
             }
             done = isEnd()
-            ftNote = `JP／FG 觸屏推進 ${all.filter(l => l.result !== 'noElement').length} 下（${featureTapSummary(all) || '沒點到'}）`
+            const why = ftStop === 'notOnScreen' ? '，OCR 沒確認是 JP／FG 選擇畫面所以沒點' : ftStop === 'unsure' ? '，截圖失敗已停手、請人工確認' : ''
+            ftNote = `JP／FG 觸屏推進 ${all.filter(l => l.result === 'done' || l.result === 'screen' || l.result === 'none').length} 下（${featureTapSummary(all) || '沒點到'}）${why}`
           }
           if (!done) { o.result = 'spinTimeout'; o.note = `${o.note ? o.note + '；' : ''}開局後 45 秒內沒等到 moneyNtc end（iDeck 不補點${ftNote ? '；' + ftNote + '仍未結束' : ''}）` }
           else o.note = `${o.note ? o.note + '；' : ''}有開局（moneyNtc begin→end）${ftNote ? '；' + ftNote : ''}`
@@ -4885,7 +4914,7 @@ export class MachineTestRunner extends EventEmitter {
             // 1006 ARUZE：退出被擋、遊戲進行中 → 先照機種點位清單點觸屏（JP 選元寶／FG 選卡），每格最多點一次；
             // 有進展後 60 秒內不再點（讓 FG 自己跑、走原本的推進流程），清單點完就只走原本流程
             const featureCfg = featureTapsConfig(machineCode)
-            let featureCursor = 0, featureHoldUntil = 0
+            let featureCursor = 0, featureHoldUntil = 0, featureOcrTries = 0
             const playbookTried = new Set<string>()   // 每條已學處理每台只試一次，試過還卡就交給人
             for (let attempt = 1; ; attempt++) {
               const trace: ExitTrace = { file: `${this.sessionPrefix}${machineCode}`, attempt, shots: [] }
@@ -4950,12 +4979,20 @@ export class MachineTestRunner extends EventEmitter {
               }
 
               retryStreak = 0
-              if (featureCfg && featureCursor < featureCfg.points.length && Date.now() >= featureHoldUntil && (profile?.bonusAction ?? 'spin') !== 'auto_wait' && !this.stopped) {
+              // CodeX 1006 P1：觸屏有進展後的 60 秒是「暫停觀察」——這段期間**所有**推進（SPIN／觸屏／盲推）都不做，只重試退出
+              if (Date.now() < featureHoldUntil) {
+                emit(`退出未完成（第 ${attempt} 次）：觸屏推進後觀察中（剩 ${Math.ceil((featureHoldUntil - Date.now()) / 1000)}s），不做任何推進，5 秒後再試退出`)
+                await sleep(5000)
+                continue
+              }
+              if (featureCfg && featureCursor < featureCfg.points.length && featureOcrTries < 5 && (profile?.bonusAction ?? 'spin') !== 'auto_wait' && !this.stopped) {
+                featureOcrTries++
                 const fr = await featureTapRound(page, emit, featureCfg, featureCursor, () => false, () => this.stopped, `退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）`)
                 featureCursor = fr.cursor
                 acts += fr.tapped
-                if (fr.result === 'done' || fr.result === 'screen') { featureHoldUntil = Date.now() + 60_000; await sleep(3000); continue }
-                emit(`觸屏點位清單點完（${featureCfg.points.length} 格）都沒有進展 → 改走設定檔推進`)
+                if (fr.result === 'done' || fr.result === 'screen') { featureHoldUntil = Date.now() + 60_000; featureOcrTries = 0; continue }
+                if (fr.result === 'unsure') featureCursor = featureCfg.points.length   // 量不到就不再點觸屏（交人工），下面照原本流程
+                else if (fr.result === 'exhausted') emit(`觸屏點位清單點完（${featureCfg.points.length} 格）都沒有進展 → 改走設定檔推進`)
               }
               emit(`退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）→ 依設定檔推進遊戲後再試退出`)
               if ((profile?.bonusAction ?? 'spin') === 'auto_wait') {

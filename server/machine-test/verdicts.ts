@@ -372,26 +372,31 @@ export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPre
 // 0335 iDeck BETx6 中 JP（SELECT 元寶）卡住，依設定檔推進只會按 SPIN，現場人工點完。清單在 feature-taps.json（不動 profile 的 touchPoints——觸屏測試還在用）。
 // 規則（使用者 10-06）：照清單順序一次點一格，每格點完看有沒有進展，一有進展就停；每一下都要留紀錄。
 //   · done＝呼叫端判定特殊流程已結束（moneyNtc end）→ 停
-//   · screen＝畫面明顯變了（例：FG 選完卡進入免費遊戲）→ 停，交回呼叫端等它跑完；還沒結束再從下一格接著點
+//   · screen＝畫面明顯變了 → 停、交回呼叫端「暫停觀察」（CodeX 1006：這只是暫停訊號，不能證明進了 FG）
 //   · none＝沒進展 → 點下一格（JP 翻一顆元寶畫面只動一小塊，多半落在這裡，正好繼續點下一顆）
-//   · noElement＝找不到這格（頁面沒有這個觸屏格）→ 記下、點下一格
+//   · noElement＝找不到這格 → 記下、點下一格
+//   · unsure＝量不到（截圖失敗）→ **立刻停手**，交人工（CodeX 1006 P1：不能把缺圖當成「沒變化」繼續點）
+// tap 自己在「真的點下去之前」再查一次結束／停止／時限（stop），查到就回 stop、不點。
 // cursor 由呼叫端保存：同一台同一段特殊流程裡，每格最多點一次。
 export type FeatureTapPoint = { point: string; group: string }
-export type FeatureTapLog = { point: string; group: string; result: 'done' | 'screen' | 'none' | 'noElement'; note?: string }
+export type FeatureTapLog = { point: string; group: string; result: 'done' | 'screen' | 'none' | 'noElement' | 'unsure'; note?: string }
 export async function runFeatureTaps(d: {
   points: FeatureTapPoint[]
   start: number
   stop: () => boolean
-  tap: (point: string) => Promise<boolean>
-  check: () => Promise<{ result: 'done' | 'screen' | 'none'; note?: string }>
+  tap: (point: string) => Promise<'ok' | 'noElement' | 'unsure' | 'stop'>
+  check: () => Promise<{ result: 'done' | 'screen' | 'none' | 'unsure'; note?: string }>
   onLog?: (l: FeatureTapLog) => void
-}): Promise<{ cursor: number; result: 'done' | 'screen' | 'exhausted' | 'stopped'; log: FeatureTapLog[] }> {
+}): Promise<{ cursor: number; result: 'done' | 'screen' | 'exhausted' | 'stopped' | 'unsure'; log: FeatureTapLog[] }> {
   const log: FeatureTapLog[] = []
   const push = (l: FeatureTapLog) => { log.push(l); d.onLog?.(l) }
   for (let i = d.start; i < d.points.length; i++) {
     if (d.stop()) return { cursor: i, result: 'stopped', log }
     const p = d.points[i]
-    if (!await d.tap(p.point)) { push({ ...p, result: 'noElement' }); continue }
+    const t = await d.tap(p.point)
+    if (t === 'stop') return { cursor: i, result: 'stopped', log }
+    if (t === 'unsure') { push({ ...p, result: 'unsure', note: '點之前截圖失敗，沒點' }); return { cursor: i, result: 'unsure', log } }
+    if (t === 'noElement') { push({ ...p, result: 'noElement' }); continue }
     const c = await d.check()
     push({ ...p, result: c.result, note: c.note })
     if (c.result !== 'none') return { cursor: i + 1, result: c.result, log }
@@ -399,4 +404,10 @@ export async function runFeatureTaps(d: {
   return { cursor: d.points.length, result: 'exhausted', log }
 }
 export const featureTapSummary = (log: FeatureTapLog[]) =>
-  log.map(l => `${l.point}→${{ done: '結束', screen: '畫面變化', none: '無', noElement: '找不到格' }[l.result]}`).join('、')
+  log.map(l => `${l.point}→${{ done: '結束', screen: '畫面變化', none: '無', noElement: '找不到格', unsure: '量不到' }[l.result]}`).join('、')
+/** 畫面上讀到的字有沒有命中這個機種的「選擇畫面」關鍵字（不分大小寫、忽略多餘空白） */
+export function onFeatureSelectScreen(ocr: string, keywords: string[]): string | null {
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim()
+  const t = norm(ocr)
+  return keywords.find(k => k.trim() && t.includes(norm(k))) ?? null
+}
