@@ -51,3 +51,14 @@
 | 下載 JSON | 下載單筆紀錄的 detail 資料 |
 
 ---
+
+## 頁面名稱表（v5.27.2）
+
+操作歷史頁（`src/pages/HistoryPage.tsx`）原本「篩選按鈕清單、型別、名稱、顏色」各寫一份，新功能只補了這份文件的對照表、沒補頁面，
+結果 meegle-batch-status／-edit／-backfill／-account、autospin、live-ledger、weekly-report、lark-notify、meter-reconcile、egm-daycount
+的紀錄顯示成原始代號、也沒有篩選按鈕（使用者 10/06 回報）。
+
+- 現在**只有 `FEATURE_LABELS` 一份**：篩選按鈕照它的順序產生，顏色沒給用預設灰
+- **新增歷史 key 時要加進 `FEATURE_LABELS`**（除了這份文件的對照表）
+- `npm run build` 會跑 `scripts/ui-checks/history-feature-labels.mjs`：掃 server 的 `addHistory('key'…)`／`feature: 'key'`，頁面沒有名稱就 build 失敗（注入驗過：拿掉 meegle-backfill 會紅）
+

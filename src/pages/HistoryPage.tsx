@@ -86,9 +86,18 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare' | 'meegle-batch-create' | 'meegle-batch-comment'
-
+/**
+ * 功能 key → 顯示名稱。**篩選按鈕直接用這張表的順序產生**（v5.27.2）：原本篩選清單、型別、名稱、顏色各寫一份，
+ * 新功能只加了一兩處，結果 meegle-batch-status／-edit／-backfill 等紀錄顯示成原始代號、也沒有篩選按鈕（使用者 10/06）。
+ * 新增功能的 history key 只要加在這裡（顏色沒給會用預設色）；`scripts/ui-checks/history-feature-labels.mjs` 會比對 server 有寫的 key
+ */
 const FEATURE_LABELS: Record<string, string> = {
+  'meegle-batch-create': 'Meegle 開單',
+  'meegle-batch-comment': 'Meegle 評論',
+  'meegle-batch-status': 'Meegle 狀態',
+  'meegle-batch-edit': 'Meegle 修改',
+  'meegle-backfill': 'Meegle 補回填',
+  'meegle-account': 'Meegle 綁定',
   'testcase': 'TestCase 生成',
   'machine-test': '機台測試',
   'ui-screenshot': 'UI 截圖',
@@ -108,13 +117,27 @@ const FEATURE_LABELS: Record<string, string> = {
   'gs-logchecker': 'GS Log 攔截',
   'gs-bonusv2': 'GS Bonus V2 統計',
   'osm-config-compare': 'Config 比對',
-  'meegle-batch-create': 'Meegle 開單',
-  'meegle-batch-comment': 'Meegle 評論',
+  'autospin': 'AutoSpin',
+  'live-ledger': 'Live Ledger 對帳',
+  'weekly-report': '週報彙整',
+  'lark-notify': 'Lark 通知設定',
+  'meter-reconcile': 'Meter 對帳',
+  'egm-daycount': 'Egm DayCount 對帳',
 }
+type FeatureFilter = 'all' | keyof typeof FEATURE_LABELS
+const DEFAULT_FEATURE_COLOR = '#64748b'
 
 const FEATURE_COLORS: Record<string, string> = {
   'meegle-batch-create': '#14b8a6',
   'meegle-batch-comment': '#0ea5a4',
+  'meegle-batch-status': '#10b981',
+  'meegle-batch-edit': '#f59e0b',
+  'meegle-backfill': '#38bdf8',
+  'meegle-account': '#94a3b8',
+  'autospin': '#e11d48',
+  'live-ledger': '#a16207',
+  'weekly-report': '#4f46e5',
+  'lark-notify': '#0284c7',
   'testcase': '#6366f1',
   'machine-test': '#0891b2',
   'ui-screenshot': '#0d9488',
@@ -214,16 +237,16 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'meegle-batch-create', 'meegle-batch-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', ...Object.keys(FEATURE_LABELS)] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
               style={{
                 padding: '6px 12px',
                 borderRadius: 6,
-                border: feature === f ? `1.5px solid ${f === 'all' ? '#6366f1' : FEATURE_COLORS[f]}` : '1.5px solid #2d3f55',
-                background: feature === f ? (f === 'all' ? 'rgba(99,102,241,0.15)' : `${FEATURE_COLORS[f]}28`) : '#1e293b',
-                color: feature === f ? (f === 'all' ? '#a5b4fc' : FEATURE_COLORS[f]) : '#94a3b8',
+                border: feature === f ? `1.5px solid ${f === 'all' ? '#6366f1' : (FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)}` : '1.5px solid #2d3f55',
+                background: feature === f ? (f === 'all' ? 'rgba(99,102,241,0.15)' : `${(FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)}28`) : '#1e293b',
+                color: feature === f ? (f === 'all' ? '#a5b4fc' : (FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)) : '#94a3b8',
                 fontWeight: feature === f ? 700 : 400,
                 cursor: 'pointer',
                 fontSize: 12,

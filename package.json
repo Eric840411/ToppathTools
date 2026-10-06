@@ -11,7 +11,7 @@
     "dev:stop": "powershell -Command \"foreach ($p in @(3000,5173)) { $id = (netstat -aon | sls (':'+$p+'\\s') | sls LISTENING | %{($_ -split '\\s+')[-1]} | select -f 1); if($id){ taskkill /PID $id /F } }; exit 0\"",
     "dev:stop:internal": "powershell -Command \"foreach ($p in @(3001,5174)) { $id = (netstat -aon | sls (':'+$p+'\\s') | sls LISTENING | %{($_ -split '\\s+')[-1]} | select -f 1); if($id){ taskkill /PID $id /F } }; exit 0\"",
     "start:all": "npm run dev:stop && concurrently -n \"API,Web\" -c \"cyan,magenta\" \"tsx server/index.ts\" \"vite\"",
-    "build": "tsc -b && npm run build:server && vite build",
+    "build": "tsc -b && node scripts/ui-checks/history-feature-labels.mjs && npm run build:server && vite build",
     "build:server": "node scripts/build-server.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
