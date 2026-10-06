@@ -764,7 +764,16 @@ export function resolveSiteTarget(target, rawSite, { defaultSite, siteUrls }) {
     if (written && o !== originOf(base)) throw new Error(`這一步寫站台 ${written.toUpperCase()}，網址卻是 ${o}——兩者衝突，拒絕執行（避免帳密送錯站）`);
     return { site: written || siteOfOrigin(o, siteUrls) || site, url: String(target) };
   }
-  return { site, url: new URL(String(target), base).toString() };
+  // ⚠️ 比的是**解析後**的 origin（CodeX 1006 P1）：`//nc.example/x`、`/\nc.example/x` 這種「看起來是相對路徑」的寫法
+  //    會被 URL 解析成別的站，只看字串開頭擋不住
+  const url = new URL(String(target), base).toString();
+  if (originOf(url) !== originOf(base)) throw new Error(`這一步的路徑「${target}」會被解析成別的站（${originOf(url)}），不是 ${site.toUpperCase()}——拒絕執行（避免帳密送錯站）`);
+  return { site, url };
+}
+
+/** 站台 → 那一站存的帳密（cpBackend／nchBackend）。runner 兩條登入路徑都用這一支，測試也測這一支 */
+export function credsForSite(site, credentials) {
+  return site === 'nc' ? credentials?.nchBackend : credentials?.cpBackend;
 }
 function siteOfOrigin(origin, siteUrls) {
   return Object.keys(siteUrls ?? {}).find(k => originOf(siteUrls[k]) === origin) ?? null;
@@ -795,6 +804,11 @@ export function sitesUsedBySteps(steps, defaultSite) {
  *     沒寫的那顆會回到執行預設站台，夾在跨站段落裡很容易看錯）
  * 回傳錯誤訊息陣列（空＝OK）。
  */
+/** 路徑解析後是不是還在同一站（拿一個假站台當底來解析；`//x`、`/\x`、完整網址都會跑到別的 origin） */
+function staysOnSite(path) {
+  const probe = 'http://site.invalid';
+  try { return new URL(String(path), probe).origin === probe; } catch { return false; }
+}
 export function checkOpenPageSites(steps) {
   const errors = [];
   const pages = [];
@@ -806,7 +820,7 @@ export function checkOpenPageSites(steps) {
         const s = stepSiteOf(step);
         pages.push({ where, s });
         if (s === null) errors.push(`${where}：站台「${step.site}」不認得（只能是 cp 或 nc）`);
-        else if (s && /^https?:\/\//i.test(String(step.path ?? ''))) errors.push(`${where}：寫了站台就要用相對路徑（例 /dashboard），不能用完整網址`);
+        else if (s && step.path !== undefined && step.path !== '' && !staysOnSite(step.path)) errors.push(`${where}：寫了站台就要用同站的相對路徑（例 /dashboard）——「${step.path}」會被解析到別的站`);
       }
       for (const k of ['steps', 'children']) if (Array.isArray(step[k])) walk(step[k], `${where} 裡的`);
     });
@@ -817,6 +831,20 @@ export function checkOpenPageSites(steps) {
     if (blank.length) errors.push(`這份腳本有跨站的開頁，每一顆「開啟後台頁面」都要選站台；沒選的：${blank.join('、')}`);
   }
   return errors;
+}
+
+/**
+ * 開跑前（b）的完整判斷，runner 兩條路都呼叫這一支（測試也測這一支）：
+ *   perScript＝每一份腳本／每一筆 TC 各自的步驟。**格式逐份檢查**（CodeX 1006 P2：合併後再套「每顆都要寫 site」，
+ *   各自合法的新舊 TC 一起選跑會互相拖累）；帳密需求合併掃。回傳要丟給使用者的錯誤訊息，null＝可以跑。
+ */
+export function sitePreflightError(perScript, defaultSite, credsOf) {
+  const many = perScript.length > 1;
+  const bad = perScript.flatMap((one, i) => checkOpenPageSites(one).map(e => (many ? `第 ${i + 1} 筆 TC：${e}` : e)));
+  if (bad.length) return `腳本的站台設定有問題：${bad.join('；')}`;
+  const missing = missingSiteCreds(perScript.flat(), defaultSite, credsOf);
+  if (missing.length) return `設定不足：這次會用到 ${missing.map(s => (s === 'nc' ? 'NC（uat-nc）' : 'CP')).join('、')} 後台，但「執行設定」沒有那一站的帳密——開跑前擋下，沒有執行任何步驟`;
+  return null;
 }
 
 /** 開跑前（b）：缺哪幾個站台的帳密。credsOf(site) 回 { username, password } */
@@ -831,10 +859,14 @@ export function missingSiteCreds(steps, defaultSite, credsOf) {
  */
 export async function openSitePage(deps, { url, site, waitMs = 1500, now = Date.now }) {
   const isLogin = () => { try { return /\/login(\/|$|\?)/i.test(new URL(deps.currentUrl()).pathname + '/'); } catch { return false; } };
+  const expected = originOf(url);
+  // CodeX 1006 P1：填帳密之前再看一次**實際頁面**在哪一站——目標頁可能轉址到別站的登入頁，那不能填這一站的帳密
+  const onExpectedSite = () => originOf(deps.currentUrl()) === expected;
   let navMark = now();
   await deps.goto(url);
   let relogged = false;
   if (isLogin()) {
+    if (!onExpectedSite()) throw new Error(`開「${url}」被轉到別站的登入頁（${originOf(deps.currentUrl())}）——不填 ${site.toUpperCase()} 的帳密，拒絕執行`);
     await deps.login(site);
     if (isLogin()) throw new Error(`${site.toUpperCase()} 後台登入失敗（送出帳密後仍在登入頁）——請確認「執行設定」裡 ${site.toUpperCase()} 的帳密`);
     relogged = true;
@@ -842,6 +874,8 @@ export async function openSitePage(deps, { url, site, waitMs = 1500, now = Date.
     await deps.goto(url);
     if (isLogin()) throw new Error(`${site.toUpperCase()} 登入後重開「${url}」又被導回登入頁——這個帳號可能沒有這一頁的權限`);
   }
+  // 最後停在別站（轉址）＝後面的點擊、斷言都不是在這一站做的 → 直接失敗，不要當成這一站的結果
+  if (!onExpectedSite()) throw new Error(`開「${url}」最後停在別站（${originOf(deps.currentUrl())}），不是 ${site.toUpperCase()}——拒絕繼續`);
   await deps.wait(waitMs);
   await deps.dismiss();
   return { site, origin: originOf(url), navMark, relogged };

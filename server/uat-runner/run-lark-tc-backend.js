@@ -11,7 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
-import { runSteps as runBlockSteps, countBucket, resolveSiteTarget, openSitePage, checkOpenPageSites, missingSiteCreds } from './block-engine.js';
+import { runSteps as runBlockSteps, countBucket, resolveSiteTarget, openSitePage, sitePreflightError, credsForSite } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 // ⚠️ 回寫時「那一列要寫什麼」只有一份（H5／PC 也要用同一套判定與欄位）。
 import { larkRecordFields } from './lark-writeback.js';
@@ -4362,17 +4362,16 @@ const BUILTIN_VERIFIERS = {
  */
 /** 站台 → 那一站存的帳密（cpBackend／nchBackend） */
 function siteCreds(site) {
-  return site === 'nc' ? TEST_PARAMS.credentials.nchBackend : TEST_PARAMS.credentials.cpBackend;
+  return credsForSite(site, TEST_PARAMS.credentials);
 }
 /**
  * 開跑前（1006 CodeX (b)）：站台設定有錯、或缺任一個會用到的站台帳密 → 擋下，一步都不跑。
  * 錯誤訊息給使用者看，不含帳密。
  */
-function preflightSites(steps) {
-  const bad = checkOpenPageSites(steps);
-  if (bad.length) throw new Error(`腳本的站台設定有問題：${bad.join('；')}`);
-  const missing = missingSiteCreds(steps, BACKEND_SITE, siteCreds);
-  if (missing.length) throw new Error(`設定不足：這次會用到 ${missing.map(s => s === 'nc' ? 'NC（uat-nc）' : 'CP').join('、')} 後台，但「執行設定」沒有那一站的帳密——開跑前擋下，沒有執行任何步驟`);
+function preflightSites(perScript) {
+  // 規則在 block-engine.js sitePreflightError（格式逐份查、帳密合併查——CodeX 1006 P2）
+  const err = sitePreflightError(perScript, BACKEND_SITE, siteCreds);
+  if (err) throw new Error(err);
 }
 /** 登入某一站（補登用）：填該站帳密、送出、等離開 /login；成不成功由呼叫端看網址 */
 async function loginBackendSite(p, site) {
@@ -5110,7 +5109,7 @@ async function runRecordedMultiScript() {
     if (!creds.username || !creds.password) {
       throw new Error(`尚未設定 ${BACKEND_SITE === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
     }
-    preflightSites(script.steps);
+    preflightSites([script.steps]);
     console.log(`後台站台：${BACKEND_SITE.toUpperCase()}（${BACKEND_URL}）`);
     /**
      * ⚠️ 「錄的站台」與「現在跑的站台」不一樣時**要講出來**。
@@ -5283,7 +5282,8 @@ async function main() {
   }
 
   // 1006 跨站：要跑的 TC 積木裡只要有 open_page 寫了 site，開跑前就查齊帳密
-  preflightSites(targets.flatMap(t => TC_REGISTRY[t.record_id]?.steps ?? []));
+  const tcStepLists = targets.map(t => TC_REGISTRY[t.record_id]?.steps ?? []);
+  preflightSites(tcStepLists);
   let { page, ctx } = await createLoginPage();
   console.log('✅ 後台登入完成\n');
 

@@ -6,7 +6,7 @@
  * 跑法：node server/uat-runner/backend-site.test.mjs
  */
 import {
-  runSteps, BLOCK_DEFS, stepSiteOf, resolveSiteTarget, sitesUsedBySteps, checkOpenPageSites, missingSiteCreds, openSitePage,
+  runSteps, BLOCK_DEFS, stepSiteOf, resolveSiteTarget, sitesUsedBySteps, checkOpenPageSites, missingSiteCreds, openSitePage, sitePreflightError, credsForSite,
 } from './block-engine.js';
 import { validateMultiTcScript } from './multi-tc.js';
 import { attachNetworkCapture } from './net-capture.js';
@@ -215,6 +215,57 @@ function siteCtx({ legacy = false } = {}) {
   check('晚回來的 CP 請求仍標成 CP（完成時頁面已在 NC）', byUrl['http://api.x/slow-from-cp']?.pageOrigin === CP, recs);
   check('NC 頁面發出的標成 NC', byUrl['http://api.x/from-nc']?.pageOrigin === NC, recs);
   check('有記發出時間', typeof byUrl['http://api.x/from-nc']?.requestedAt === 'number');
+}
+
+// ── CodeX 1006 第二輪 P1：「看起來是相對路徑」卻會解析到別站 ───────────────
+{
+  const d = { defaultSite: 'cp', siteUrls: SITE_URLS };
+  for (const p of ['//uat-nc.osmslot.org/login', '//nc.example/login', '/\\nc.example/x', '\\\\nc.example/x']) {
+    check(`site=cp、path=${JSON.stringify(p)} → 解析時拒絕`, /別的站|衝突/.test(await throwsMsg(() => resolveSiteTarget(p, 'cp', d)) ?? ''), p);
+    check(`site=cp、path=${JSON.stringify(p)} → 存檔就擋`, checkOpenPageSites([{ action: 'open_page', path: p, site: 'cp' }]).length === 1, p);
+  }
+  check('正常相對路徑（含 query）照樣過', checkOpenPageSites([{ action: 'open_page', path: '/egm/list?x=1', site: 'cp' }]).length === 0 && resolveSiteTarget('/egm/list?x=1', 'cp', d).url === `${CP}/egm/list?x=1`);
+}
+// 補登前驗實際頁面在哪一站（涵蓋轉址）
+{
+  const b = fakeBrowser();
+  const deps = { ...b.deps, async goto(u) { b.log.push(`goto ${u}`); await b.deps.goto(u.replace(CP, NC)); } };   // CP 的頁被轉到 NC
+  const msg = await throwsMsg(() => openSitePage(deps, { url: `${CP}/egm`, site: 'cp', now }));
+  check('CP 的頁被轉到 NC 的登入頁 → 拒絕，而且**沒有填任何帳密**', /別站的登入頁/.test(msg ?? '') && !b.log.some(x => x.startsWith('login')), { msg, log: b.log });
+}
+{
+  const b = fakeBrowser();
+  b.logged.add(CP); b.logged.add(NC);
+  const deps = { ...b.deps, async goto(u) { await b.deps.goto(u.replace(CP, NC)); } };
+  const msg = await throwsMsg(() => openSitePage(deps, { url: `${CP}/egm`, site: 'cp', now }));
+  check('最後停在別站（已登入、沒經過登入頁）→ 也拒絕', /最後停在別站/.test(msg ?? ''), msg);
+}
+
+// ── CodeX 1006 第二輪 P2：格式逐份查，帳密合併查 ──────────────────────
+{
+  const creds = { cp: { username: 'cpU', password: 'p' }, nc: { username: 'ncU', password: 'p' } };
+  const newTc = [{ action: 'open_page', path: '/a', site: 'cp' }, { action: 'open_page', path: '/b', site: 'nc' }];
+  const oldTc = [{ action: 'open_page', path: '/c' }];
+  check('新（全寫 site）＋舊（都沒寫）一起選跑 → 可以跑', sitePreflightError([newTc, oldTc], 'cp', s => creds[s]) === null, sitePreflightError([newTc, oldTc], 'cp', s => creds[s]));
+  const broken = [{ action: 'open_page', path: '/a', site: 'cp' }, { action: 'open_page', path: '/b' }];
+  const e = sitePreflightError([oldTc, broken], 'cp', s => creds[s]);
+  check('單一份自己混寫 → 擋，並指出是第幾筆 TC', /第 2 筆 TC/.test(e ?? '') && !/第 1 筆 TC/.test(e ?? ''), e);
+  const noNc = { cp: creds.cp, nc: { username: '', password: '' } };
+  check('帳密合併查：舊 TC 不需要 NC、新 TC 需要 → 缺 NC 擋', /NC（uat-nc）/.test(sitePreflightError([oldTc, newTc], 'cp', s => noNc[s]) ?? ''));
+  check('只跑舊 TC → 不要求 NC 帳密', sitePreflightError([oldTc], 'cp', s => noNc[s]) === null);
+}
+
+// ── CP／NC 用不同帳密（runner 兩條登入路徑都走 credsForSite） ──────────────
+{
+  const credentials = { cpBackend: { username: 'cp-user', password: 'cp-pw' }, nchBackend: { username: 'nc-user', password: 'nc-pw' } };
+  check('credsForSite：cp → cpBackend、nc → nchBackend', credsForSite('cp', credentials).username === 'cp-user' && credsForSite('nc', credentials).username === 'nc-user');
+  // 照 runner loginBackendSite 的寫法：login(site) 用 credsForSite(site) 填表——記下每一站實際填了誰
+  const b = fakeBrowser();
+  const filled = [];
+  const deps = { ...b.deps, async login(site) { filled.push(`${site}:${credsForSite(site, credentials).username}`); await b.deps.login(site); } };
+  await openSitePage(deps, { url: `${CP}/a`, site: 'cp', now });
+  await openSitePage(deps, { url: `${NC}/a`, site: 'nc', now });
+  check('CP→NC：各站填的是自己的帳號，沒有拿錯', filled.join(',') === 'cp:cp-user,nc:nc-user', filled);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
