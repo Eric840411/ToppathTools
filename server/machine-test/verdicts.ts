@@ -367,3 +367,80 @@ export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPre
   if (s.maxSpend - spent < s.spinCost) return { ok: false, reason: `剩餘額度不夠再付一把（已少 ${spent}）` }
   return { ok: true }
 }
+
+// ── 特殊流程卡在「選元寶／選卡」畫面 → 依機種點位清單逐格點（2026-10-06 ARUZE 0335）────────────────
+// 0335 iDeck BETx6 中 JP（SELECT 元寶）卡住，依設定檔推進只會按 SPIN，現場人工點完。清單在 feature-taps.json（不動 profile 的 touchPoints——觸屏測試還在用）。
+// 規則（使用者 10-06）：照清單順序一次點一格，每格點完看有沒有進展，一有進展就停；每一下都要留紀錄。
+//   · done＝呼叫端判定特殊流程已結束（moneyNtc end）→ 停
+//   · screen＝畫面明顯變了 → 停、交回呼叫端「暫停觀察」（CodeX 1006：這只是暫停訊號，不能證明進了 FG）
+//   · none＝沒進展 → 點下一格（JP 翻一顆元寶畫面只動一小塊，多半落在這裡，正好繼續點下一顆）
+//   · noElement＝找不到這格 → 記下、點下一格
+//   · unsure＝量不到（截圖失敗）→ **立刻停手**，交人工（CodeX 1006 P1：不能把缺圖當成「沒變化」繼續點）
+// tap 自己在「真的點下去之前」再查一次結束／停止／時限（stop），查到就回 stop、不點。
+// cursor 由呼叫端保存：同一台同一段特殊流程裡，每格最多點一次。
+export type FeatureTapPoint = { point: string; group: string }
+export type FeatureTapLog = { point: string; group: string; result: 'done' | 'screen' | 'none' | 'noElement' | 'unsure'; note?: string }
+export async function runFeatureTaps(d: {
+  points: FeatureTapPoint[]
+  start: number
+  stop: () => boolean
+  tap: (point: string) => Promise<'ok' | 'noElement' | 'unsure' | 'stop'>
+  check: () => Promise<{ result: 'done' | 'screen' | 'none' | 'unsure'; note?: string }>
+  onLog?: (l: FeatureTapLog) => void
+}): Promise<{ cursor: number; result: 'done' | 'screen' | 'exhausted' | 'stopped' | 'unsure'; log: FeatureTapLog[] }> {
+  const log: FeatureTapLog[] = []
+  const push = (l: FeatureTapLog) => { log.push(l); d.onLog?.(l) }
+  for (let i = d.start; i < d.points.length; i++) {
+    if (d.stop()) return { cursor: i, result: 'stopped', log }
+    const p = d.points[i]
+    const t = await d.tap(p.point)
+    if (t === 'stop') return { cursor: i, result: 'stopped', log }
+    if (t === 'unsure') { push({ ...p, result: 'unsure', note: '點之前截圖失敗，沒點' }); return { cursor: i, result: 'unsure', log } }
+    if (t === 'noElement') { push({ ...p, result: 'noElement' }); continue }
+    const c = await d.check()
+    push({ ...p, result: c.result, note: c.note })
+    if (c.result !== 'none') return { cursor: i + 1, result: c.result, log }
+  }
+  return { cursor: d.points.length, result: 'exhausted', log }
+}
+export const featureTapSummary = (log: FeatureTapLog[]) =>
+  log.map(l => `${l.point}→${{ done: '結束', screen: '畫面變化', none: '無', noElement: '找不到格', unsure: '量不到' }[l.result]}`).join('、')
+/** 畫面上讀到的字有沒有命中這個機種的「選擇畫面」關鍵字（不分大小寫、忽略多餘空白） */
+export function onFeatureSelectScreen(ocr: string, keywords: string[]): string | null {
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim()
+  const t = norm(ocr)
+  return keywords.find(k => k.trim() && t.includes(norm(k))) ?? null
+}
+
+// ── 退出路徑每一輪「要不要推進、怎麼推進」（CodeX 1006 第二輪 P1）──────────────────────────
+// runner 的退出迴圈每一輪只照這裡的回答做事；探針 scripts/feature-taps-probe.ts 用同一支模擬整段退出迴圈，
+// 驗「unsure 之後所有推進呼叫都是零」「觀察期間零推進」。
+//   · handOff＝觸屏推進時量不到（截圖失敗）→ **結束本台自動操作**、回傳待人工確認（不能只 emit，下面也不能再推）
+//   · hold＝觸屏有進展後的 60 秒觀察期 → 什麼都不推，只重試退出
+//   · featureTap＝跑一輪觸屏清單（還有沒點的格、OCR 次數沒用完）
+//   · legacy＝原本的推進流程（SPIN／盲推／OSMWatcher 補點）
+export const FEATURE_HOLD_MS = 60_000
+export const FEATURE_MAX_OCR = 5
+export type ExitFeatureState = { cursor: number; total: number; holdUntil: number; ocrTries: number; handOff: string | null }
+export const exitFeatureState = (total: number): ExitFeatureState => ({ cursor: 0, total, holdUntil: 0, ocrTries: 0, handOff: null })
+/** 觸屏推進後的觀察期。退出迴圈兩條分支（遊戲進行中／沒有證據的 retry＋手冊）都用這一支擋（CodeX 第三輪 P1：手冊動作之前就要攔住） */
+export const inFeatureHold = (s: ExitFeatureState, now: number) => now < s.holdUntil
+export function planExitAdvance(s: ExitFeatureState, now: number, enabled: boolean): 'handOff' | 'hold' | 'featureTap' | 'legacy' {
+  if (s.handOff) return 'handOff'
+  if (inFeatureHold(s, now)) return 'hold'
+  if (enabled && s.cursor < s.total && s.ocrTries < FEATURE_MAX_OCR) return 'featureTap'
+  return 'legacy'
+}
+/**
+ * 一輪觸屏推進的結果 → 新狀態，以及這一輪接下來：
+ *   handOff＝**當輪**就結束本台自動操作（CodeX 第三輪 P1：不能 continue——下一輪會先跑 stepExit、手冊動作，繞過交人工）
+ *   retryExit＝回去重試退出；legacy＝照原本流程推
+ */
+export function applyFeatureRound(s: ExitFeatureState, r: { result: string; cursor: number }, now: number): { state: ExitFeatureState; then: 'handOff' | 'retryExit' | 'legacy' } {
+  const state = { ...s, cursor: r.cursor, ocrTries: s.ocrTries + 1 }
+  if (r.result === 'done' || r.result === 'screen') return { state: { ...state, holdUntil: now + FEATURE_HOLD_MS, ocrTries: 0 }, then: 'retryExit' }
+  if (r.result === 'unsure') return { state: { ...state, handOff: '觸屏推進時截圖失敗，量不到畫面' }, then: 'handOff' }
+  // stopped：被停止／時限／動作上限擋下——回去重試退出，由退出迴圈原本的上限檢查收尾
+  if (r.result === 'stopped') return { state, then: 'retryExit' }
+  return { state, then: 'legacy' }   // notOnScreen／exhausted
+}

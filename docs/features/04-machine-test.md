@@ -210,3 +210,50 @@
 - 種子檔用**真的 agent-runner**（臨時目錄、`AGENT_LABEL=SEED-TEST`、只連本機）：全新安裝 14 個全補、位元組一致、重連不重寫；既有 agent：本機改過的 menu-gate.json 保留、刪掉的那張圖補回、只補 1 個；注入「拿掉缺檔才寫」→ 本機那份被蓋掉（測得到）
 - 臨時 agent 的 42 個原始碼指紋跟 server manifest 一致
 - ⚠️ **還沒驗**：正式站部署後，真 agent（CLAUDE-LOCAL）按「更新程式碼」→ 重啟 → 指紋一致、斷線不重複派工——等部署後由 osm-qa-agent 用短批 ARUZE 驗
+
+---
+
+## JP／FG 點選 fallback（v5.17.0，2026-10-06 ARUZE 0335）
+
+**問題**：ARUZE 不在影像辨識監控內，iDeck BET xN 開局可能中 JP（SELECT 元寶，15 顆）或 FG（SELECT A FEATURE，5 張卡），
+要**觸屏點**才會往下走；runner 只會「依設定檔推進」按 SPIN，0335 卡住後是現場人工點完的，batch log 也沒有點擊紀錄。
+
+**做法**：機種點位清單放 `server/machine-test/feature-taps.json`（機種＝代碼中段，`873-ARUZE-0321` → `ARUZE`），
+**跟 profile 的 `touchPoints` 分開**（觸屏測試還在用那份）。種子檔有 ARUZE 一份（agent 缺檔才寫入）；
+osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 `featureTaps` 區塊，batch 開跑前會同步過去（有 machine-test.json 的機種以它為準）。
+
+```json
+{ "ARUZE": { "waitMs": 3000, "minChange": 0.05,
+  "groups": [ { "name": "JP 元寶", "taps": ["3,3", "6,3", "…"] }, { "name": "FG 卡片", "taps": ["2,4", "…"] } ] } }
+```
+
+**觸發點**（只對清單裡有的機種）：
+- **iDeck**：按鍵開局後 45 秒沒等到 moneyNtc end → 逐格點，最多 3 分鐘；iDeck 按鍵本身仍不補點。結果訊息附「JP／FG 觸屏推進 N 下（3,3→無、6,3→結束）」
+- **退出**：被擋且有遊戲進行中證據 → 先點清單（每格最多點一次），有進展後 60 秒內不再點、走原本推進流程；清單點完都沒進展就只走原本流程。`auto_wait` 機種不點
+
+**每一格**：點之前截圖 → 點 → 等 `waitMs` 看 moneyNtc end（＝結束，停）→ 沒結束就比畫面變動，比「點之前兩張的雜訊」多出 `minChange` 以上＝畫面有進展（例：選完 FG 卡），停；
+否則點下一格（JP 翻一顆元寶畫面只動一小塊，正好繼續點下一顆）。每一下都 emit「點觸屏 x,y（群組）→ 有／無進展｜畫面變動 x%（雜訊 y%）」。
+流程在 `verdicts.ts runFeatureTaps`，探針 `npx tsx scripts/feature-taps-probe.ts`。
+
+⚠️ `[unverified]`：`feature-taps.json` 的座標與 `screenText` 關鍵字都**還沒在真的 JP／FG 畫面點過**；JP 結束後是否還要按 SPIN／TAKE WIN 待確認。**下次 ARUZE 自然觸發 JP／FG 時驗**（看 log 的 🎯 OCR 命中／「OCR 沒看到」與每一行「點觸屏 x,y」）。
+使用者 1006 決定不等 0335 真機（JP 無法隨時觸發）就合進 main（v5.17.3）；CodeX 原本的條件是真機驗過再合，已告知這是使用者的決定。
+
+### 決策紀錄（CodeX 1006 review，v5.17.1 補）
+
+- **iDeck 逾時後改點觸屏是例外**：0929 的規則是「開轉逾時後不可再點任何東西」。CodeX 只同意**確認處於 JP／FG 選擇畫面**時例外——
+  單靠 45 秒逾時不夠。做法：每一輪先截整頁跑 Gemini Vision OCR，命中 `feature-taps.json` 的 `screenText` 關鍵字（ARUZE：MATCH 3／JACKPOT LEVEL／SELECT A FEATURE／FREE GAMES FEATURE）才點；
+  **讀不到字、沒命中、OCR 失敗一律不點**。沒設 `screenText` 的機種整份不啟用。退出路徑同一道關卡，每台最多 OCR 5 次。
+  iDeck 按鍵本身仍然不補點。
+- **畫面變動只是「暫停觀察」訊號**，不能證明進了 FG（整頁比對、雜訊只量一次、門檻未校準）。退出路徑有進展後的 60 秒內**所有推進都不做**（SPIN、觸屏、盲推），只重試退出。
+- **量不到就停手**：點之前或點之後截圖失敗＝`unsure` → 立刻停止點觸屏、emit 🆘 交人工；不能把缺圖當成「沒變化」繼續點。
+- **每一下點之前再查一次**結束（moneyNtc end）／停止／時限，查到就不點。
+- **退出路徑每一輪怎麼推只聽 `verdicts.ts planExitAdvance`**（CodeX 第二輪 P1，v5.17.2）：
+  `handOff`（觸屏推進量不到）→ **結束本台自動操作**、退出測試回 FAIL「待人工確認」並設 halt（batch 換帳號），不再落入 SPIN／盲推；
+  `hold` → 只重試退出；`featureTap` → 跑一輪；`legacy` → 原本推進流程。
+- 退出路徑每一下點之前的 guard ＝ 停止 **＋整台時限（EXIT_MAX_MS）＋動作上限（EXIT_MAX_ACTS，含這一輪已點的）**。
+- **unsure 當輪就 FAIL＋halt**（CodeX 第三輪 P1，v5.17.3）：不能 `continue`——下一輪會先跑 `stepExit`（點 Cashout／Confirm），
+  可能直接回 PASS，或進 retry 分支套手冊動作，繞過待人工確認。`applyFeatureRound` 對 unsure 回 `then: 'handOff'`，runner 當場 return。
+- **觀察期也擋手冊**：沒有遊戲進行中證據的 retry 分支，在累計連續失敗與套手冊（exit-playbook）**之前**先查 `inFeatureHold`，觀察期內只等、不累計、不 halt。
+- 探針 `scripts/feature-taps-probe.ts` 27 項。退出迴圈模擬照 runner 的**實際順序**（stepExit → retry／手冊 → 遊戲進行中推進），
+  判定函式與 runner 同一支、迴圈膠水照抄——證明的是這個順序下不會繞過，runner 真實行為仍要 0335 真機驗。
+  注入：unsure 改回 `retryExit`（804b0e8 的寫法）紅 2 條；觀察期失效紅 3 條。
