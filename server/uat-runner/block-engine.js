@@ -780,8 +780,27 @@ function siteOfOrigin(origin, siteUrls) {
 }
 
 /** 走訪整份步驟（含巢狀 steps／children），回傳每一顆 open_page 用到的站台 */
+/**
+ * 開跑時先登入哪一站（2026-10-06 osm-qa-agent 實測回報）：第一顆（啟用的）開頁寫了 site 就用那一站，否則用執行設定的站台。
+ * 原本一律先登入執行設定那站——腳本全部都寫 nc、執行設定卻是 CP 時，會先去開 CP 登入頁，CP 連不到就整份受阻（其實根本用不到 CP）。
+ * 跨站腳本「每顆開頁都要寫 site」（checkOpenPageSites），所以第一顆有寫＝全部都有寫，執行設定的站台不會被用到。
+ */
+export function entrySiteOf(steps, defaultSite) {
+  let found = null;
+  const walk = (list) => {
+    for (const step of list ?? []) {
+      if (found !== null || !step || typeof step !== 'object') continue;
+      if (step.action === 'open_page' && step.disabled !== true) { found = stepSiteOf(step) || ''; return; }
+      for (const k of ['steps', 'children']) if (Array.isArray(step[k])) walk(step[k]);
+    }
+  };
+  walk(steps);
+  return found || defaultSite;
+}
+
 export function sitesUsedBySteps(steps, defaultSite) {
-  const out = new Set([defaultSite]);
+  // 開跑登入的那一站一定要有帳密；執行設定的站台只有在真的會用到時才算（見 entrySiteOf）
+  const out = new Set([entrySiteOf(steps, defaultSite)]);
   const walk = (list) => {
     for (const step of list ?? []) {
       if (!step || typeof step !== 'object') continue;

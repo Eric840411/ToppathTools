@@ -6,7 +6,7 @@
  * 跑法：node server/uat-runner/backend-site.test.mjs
  */
 import {
-  runSteps, BLOCK_DEFS, stepSiteOf, resolveSiteTarget, sitesUsedBySteps, checkOpenPageSites, missingSiteCreds, openSitePage, sitePreflightError, credsForSite,
+  runSteps, BLOCK_DEFS, stepSiteOf, resolveSiteTarget, sitesUsedBySteps, checkOpenPageSites, missingSiteCreds, openSitePage, sitePreflightError, credsForSite, entrySiteOf,
 } from './block-engine.js';
 import { validateMultiTcScript } from './multi-tc.js';
 import { attachNetworkCapture } from './net-capture.js';
@@ -67,6 +67,18 @@ const CP = 'http://uat-cp.osmslot.org', NC = 'http://uat-nc.osmslot.org';
   check('缺 NC 帳密 → 列出 nc', missingSiteCreds(steps, 'cp', s => creds[s]).join(',') === 'nc');
   check('沒用到 NC 就不要求 NC 帳密', missingSiteCreds([{ action: 'open_page', path: '/a' }], 'cp', s => creds[s]).length === 0);
   check('預設站台本身缺帳密也算', missingSiteCreds([], 'nc', s => creds[s]).join(',') === 'nc');
+}
+// 開跑先登入哪一站（2026-10-06 實測回報：腳本全寫 nc、執行設定是 CP → 原本先開連不到的 CP 登入頁，整份受阻）
+{
+  const allNc = [{ action: 'click', selector: 'x' }, { action: 'open_page', path: '/a', site: 'nc' }, { action: 'open_page', path: '/b', site: 'nc' }];
+  check('全部開頁都寫 nc、執行設定 cp → 先登入 nc', entrySiteOf(allNc, 'cp') === 'nc');
+  check('第一顆開頁寫 cp、後面 nc → 先登入 cp', entrySiteOf([{ action: 'open_page', path: '/a', site: 'cp' }, { action: 'open_page', path: '/b', site: 'nc' }], 'nc') === 'cp');
+  check('停用的開頁不算第一顆', entrySiteOf([{ action: 'open_page', path: '/a', site: 'cp', disabled: true }, { action: 'open_page', path: '/b', site: 'nc' }], 'cp') === 'nc');
+  check('沒寫 site 的舊腳本 → 執行設定的站台', entrySiteOf([{ action: 'open_page', path: '/a' }], 'cp') === 'cp');
+  check('沒有開頁 → 執行設定的站台', entrySiteOf([{ action: 'click', selector: 'x' }], 'nc') === 'nc');
+  const credsNoCp = { cp: { username: '', password: '' }, nc: { username: 'u', password: 'p' } };
+  check('全寫 nc → 不要求執行設定那站（cp）的帳密', missingSiteCreds(allNc, 'cp', s => credsNoCp[s]).length === 0, missingSiteCreds(allNc, 'cp', s => credsNoCp[s]));
+  check('全寫 nc → 用到的站台只有 nc', [...sitesUsedBySteps(allNc, 'cp')].join(',') === 'nc');
 }
 
 // ── 假瀏覽器：每個 origin 各自的登入狀態 ───────────────────────────

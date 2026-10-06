@@ -11,7 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
-import { runSteps as runBlockSteps, countBucket, resolveSiteTarget, openSitePage, sitePreflightError, credsForSite } from './block-engine.js';
+import { runSteps as runBlockSteps, countBucket, resolveSiteTarget, openSitePage, sitePreflightError, credsForSite, entrySiteOf } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 // ⚠️ 回寫時「那一列要寫什麼」只有一份（H5／PC 也要用同一套判定與欄位）。
 import { larkRecordFields } from './lark-writeback.js';
@@ -5105,12 +5105,15 @@ async function runRecordedMultiScript() {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     const page = await context.newPage();
     netCapture = attachNetworkCapture(page, { thresholds: NET_THRESHOLDS }); startStatsBroadcast();
-    const creds = BACKEND_SITE === 'nc' ? TEST_PARAMS.credentials.nchBackend : TEST_PARAMS.credentials.cpBackend;
+    // 先登入哪一站：腳本第一顆開頁寫了 site 就用那一站（2026-10-06 實測回報：全寫 nc、執行設定是 CP 時會先去開連不到的 CP）
+    const entrySite = entrySiteOf(script.steps, BACKEND_SITE);
+    const entryUrl = SITE_URLS[entrySite] || BACKEND_URL;
+    const creds = siteCreds(entrySite);
     if (!creds.username || !creds.password) {
-      throw new Error(`尚未設定 ${BACKEND_SITE === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
+      throw new Error(`尚未設定 ${entrySite === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
     }
     preflightSites([script.steps]);
-    console.log(`後台站台：${BACKEND_SITE.toUpperCase()}（${BACKEND_URL}）`);
+    console.log(`後台站台：${BACKEND_SITE.toUpperCase()}（${BACKEND_URL}）${entrySite !== BACKEND_SITE ? `｜腳本的開頁都指定站台，先登入 ${entrySite.toUpperCase()}（${entryUrl}）` : ''}`);
     /**
      * ⚠️ 「錄的站台」與「現在跑的站台」不一樣時**要講出來**。
      *    兩個站台的路徑一樣，所以腳本照樣跑得動、也可能照樣全綠——
@@ -5119,7 +5122,7 @@ async function runRecordedMultiScript() {
     if (script.recordedSite && script.recordedSite !== BACKEND_SITE) {
       console.log(`⚠️ 這份腳本是在 ${String(script.recordedSite).toUpperCase()} 錄的，現在跑在 ${BACKEND_SITE.toUpperCase()}——步驟照樣會跑，但驗的是另一個站台`);
     }
-    await page.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(`${entryUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 });
     await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', creds.username);
     await page.fill('input[type="password"]', creds.password);
     await page.click('button[type="submit"], button:has-text("Login")');

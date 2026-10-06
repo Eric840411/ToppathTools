@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.23.0'
+export const APP_VERSION = '5.23.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.23.1', date: '2026-10-06', changes: ['fix(UAT 後台跨站)：錄製腳本的開頁都指定站台時，開跑先登入那一站（原本一律先登入執行設定的站台；全寫 NC、執行設定是 CP 時會先去開連不到的 CP 而受阻），帳密也只要求真的會用到的站台'] },
   { version: '5.23.0', date: '2026-10-06', changes: ['feat(Meegle 批量開單)：**③ 批量設定可以設所有欄位**——分「必填／人員／其他欄位」三區，其他欄位自己挑（優先順序、難易度、測試頁、時間、開發說明、重新產生問題步驟、Gitlab），選項即時從 Meegle 讀；① 拿掉跟 ③ 重複的整批預設，只留「開單後推到」'] },
   { version: '5.22.1', date: '2026-10-06', changes: ['ui(Meegle 修改)：人員欄的固定值改成下拉選單＋搜尋、可選多人（跟開單的批量設定同一個元件），不用再手打人名'] },
   { version: '5.22.0', date: '2026-10-06', changes: ['feat(Meegle 批量更新狀態)：**「指定日期」時上C服時間／上線時間有填的都照寫**，不限目標狀態（原本只寫目標狀態那一欄，轉到完成時填的上C服時間會被略過）；多一個「其他日期」步驟，失敗分開記、可重試'] },
