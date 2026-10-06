@@ -185,6 +185,11 @@
 .mb-ai-col.is-on { border-color: var(--mb-primary); color: var(--mb-text); }
 .mb-ai-col input { margin: 0; }
 .mb-warn { color: var(--mb-warn); font-size: 12px; }
+.mb-ai-sample { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 10px; padding: 8px 12px; background: var(--mb-bg); border: 1px solid var(--mb-border); border-radius: 6px; font-size: 12.5px; font-family: ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.mb-ai-sample-label { color: var(--mb-muted); font-family: inherit; font-size: 11.5px; }
+.mb-ai-sample-prefix { color: var(--mb-primary); }
+.mb-ai-sample-plus { color: var(--mb-muted); }
+.mb-ai-sample-content { color: var(--mb-ok); }
 .mb-name-edit { display: flex; align-items: center; gap: 6px; }
 .mb-name-edit .mb-input { flex: 1; min-width: 160px; padding: 5px 8px; }
 @media (max-width: 860px) { .mb-ai-grid { grid-template-columns: 1fr; } }

@@ -358,15 +358,19 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   // ── 送出 ──
   /** Sheet 的欄名（給 AI 選前綴欄、內容欄） */
   const sheetColumns = useMemo(() => [...new Set((records ?? []).flatMap(r => Object.keys(r)))].filter(k => !k.startsWith('_') && k.trim()), [records])
+  const aiCell = (r: typeof rows[number], col: string) => String(r.rec[col] ?? '').trim()
+  /** 前綴＝勾選的欄位依序組成 [值1][值2]，空白略過。產生與上方範例預覽共用這一份 */
+  const aiPrefixOf = (r: typeof rows[number]) => aiPrefixCols.map(c => aiCell(r, c)).filter(Boolean).map(v => `[${v}]`).join('')
+  /** 範例預覽用第一個勾選的列（沒勾就不顯示——要產生的只有勾選列） */
+  const aiSampleRow = rows.find(r => selected.has(r.rec._rowIndex))
   async function generateNames() {
     if (!aiContentCol || aiRun?.running) return
     const targets = rows.filter(r => selected.has(r.rec._rowIndex))
     if (!targets.length) return
-    const cell = (r: typeof rows[number], col: string) => String(r.rec[col] ?? '').trim()
     setAiRun({ running: true, done: 0, total: targets.length, failed: [] })
     for (let i = 0; i < targets.length; i += 5) {
       const chunk = targets.slice(i, i + 5)
-      const payload = chunk.map(r => ({ rowIndex: r.rec._rowIndex, prefix: aiPrefixCols.map(c => cell(r, c)).filter(Boolean).map(v => `[${v}]`).join(''), content: cell(r, aiContentCol) }))
+      const payload = chunk.map(r => ({ rowIndex: r.rec._rowIndex, prefix: aiPrefixOf(r), content: aiCell(r, aiContentCol) }))
       try {
         const j = await api<{ results: Array<{ rowIndex: number; name?: string; error?: string }> }>('/api/meegle/batch/generate-names', { rows: payload })
         // 失敗的列不動（維持原本名稱），列進失敗清單
@@ -749,6 +753,21 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                     </div>
                   </div>
                 </div>
+                {/* 範例預覽（以前 Jira「AI 摘要生成」有，使用者 1006 指出少了） */}
+                {aiSampleRow && (aiPrefixCols.length > 0 || aiContentCol) && (() => {
+                  const prefix = aiPrefixOf(aiSampleRow)
+                  const content = aiContentCol ? aiCell(aiSampleRow, aiContentCol) : ''
+                  return (
+                    <div className="mb-ai-sample">
+                      <span className="mb-ai-sample-label">範例（第 {aiSampleRow.rec._rowIndex} 列）</span>
+                      {prefix && <span className="mb-ai-sample-prefix">{prefix}</span>}
+                      {prefix && <span className="mb-ai-sample-plus">＋</span>}
+                      {!aiContentCol ? <span className="mb-muted">還沒選內容欄</span>
+                        : content ? <span className="mb-ai-sample-content">AI（{content.length > 40 ? `${content.slice(0, 40)}…` : content}）</span>
+                        : <span className="mb-warn">內容欄「{aiContentCol}」這列是空的</span>}
+                    </div>
+                  )
+                })()}
                 <div className="mb-bulk-actions">
                   <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={!aiContentCol || !selected.size || !!aiRun?.running} onClick={() => void generateNames()}>
                     {aiRun?.running ? `產生中 ${aiRun.done}/${aiRun.total}` : `為勾選的 ${selected.size} 列產生名稱`}
