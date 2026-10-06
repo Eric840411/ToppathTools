@@ -4126,12 +4126,14 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
           } catch { /* ignore save error */ }
           if (machineCode) {
             try {
+              // Lark H 欄一律貼整頁（1006）：OCR 照樣用裁好的 CCTV 容器，存檔／上傳另截當下整個 viewport，跟失敗路徑的證據圖一致
+              const fullBuf = clipBox ? await page.screenshot({ type: 'png', fullPage: false }) : buf
               mkdirSync(CCTV_SAVE_DIR, { recursive: true })
               const cctvFilename = `${sessionPrefix}${machineCode}.png`
               const savePath = join(CCTV_SAVE_DIR, cctvFilename)
-              writeFileSync(savePath, buf)
+              writeFileSync(savePath, fullBuf)
               emit(`CCTV 截圖已複製：${savePath}`)
-              void uploadCctvToServer(buf, cctvFilename)
+              void uploadCctvToServer(fullBuf, cctvFilename)
             } catch { /* ignore save error */ }
           }
         }
