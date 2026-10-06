@@ -24,6 +24,7 @@ export const AGENT_SEED_FILES: Record<string, string> = {
   'machine-test/machine-layout.json':  join(MT, 'machine-layout.json'),
   'machine-test/touch-visual.json':    join(MT, 'touch-visual.json'),
   'machine-test/exit-playbook.json':   join(MT, 'exit-playbook.json'),
+  'machine-test/feature-taps.json':    join(MT, 'feature-taps.json'),
   'machine-test/menu-refs/JJBXGRAND.png':   join(MT, 'menu-refs', 'JJBXGRAND.png'),
   'machine-test/menu-refs/MONEYGONG.png':   join(MT, 'menu-refs', 'MONEYGONG.png'),
   'machine-test/menu-refs/COINCOMBO.png':   join(MT, 'menu-refs', 'COINCOMBO.png'),

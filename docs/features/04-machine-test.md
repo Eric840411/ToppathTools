@@ -208,3 +208,29 @@
 - 種子檔用**真的 agent-runner**（臨時目錄、`AGENT_LABEL=SEED-TEST`、只連本機）：全新安裝 14 個全補、位元組一致、重連不重寫；既有 agent：本機改過的 menu-gate.json 保留、刪掉的那張圖補回、只補 1 個；注入「拿掉缺檔才寫」→ 本機那份被蓋掉（測得到）
 - 臨時 agent 的 42 個原始碼指紋跟 server manifest 一致
 - ⚠️ **還沒驗**：正式站部署後，真 agent（CLAUDE-LOCAL）按「更新程式碼」→ 重啟 → 指紋一致、斷線不重複派工——等部署後由 osm-qa-agent 用短批 ARUZE 驗
+
+---
+
+## JP／FG 點選 fallback（v5.16.0，2026-10-06 ARUZE 0335）
+
+**問題**：ARUZE 不在影像辨識監控內，iDeck BET xN 開局可能中 JP（SELECT 元寶，15 顆）或 FG（SELECT A FEATURE，5 張卡），
+要**觸屏點**才會往下走；runner 只會「依設定檔推進」按 SPIN，0335 卡住後是現場人工點完的，batch log 也沒有點擊紀錄。
+
+**做法**：機種點位清單放 `server/machine-test/feature-taps.json`（機種＝代碼中段，`873-ARUZE-0321` → `ARUZE`），
+**跟 profile 的 `touchPoints` 分開**（觸屏測試還在用那份）。種子檔有 ARUZE 一份（agent 缺檔才寫入）；
+osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 `featureTaps` 區塊，batch 開跑前會同步過去（有 machine-test.json 的機種以它為準）。
+
+```json
+{ "ARUZE": { "waitMs": 3000, "minChange": 0.05,
+  "groups": [ { "name": "JP 元寶", "taps": ["3,3", "6,3", "…"] }, { "name": "FG 卡片", "taps": ["2,4", "…"] } ] } }
+```
+
+**觸發點**（只對清單裡有的機種）：
+- **iDeck**：按鍵開局後 45 秒沒等到 moneyNtc end → 逐格點，最多 3 分鐘；iDeck 按鍵本身仍不補點。結果訊息附「JP／FG 觸屏推進 N 下（3,3→無、6,3→結束）」
+- **退出**：被擋且有遊戲進行中證據 → 先點清單（每格最多點一次），有進展後 60 秒內不再點、走原本推進流程；清單點完都沒進展就只走原本流程。`auto_wait` 機種不點
+
+**每一格**：點之前截圖 → 點 → 等 `waitMs` 看 moneyNtc end（＝結束，停）→ 沒結束就比畫面變動，比「點之前兩張的雜訊」多出 `minChange` 以上＝畫面有進展（例：選完 FG 卡），停；
+否則點下一格（JP 翻一顆元寶畫面只動一小塊，正好繼續點下一顆）。每一下都 emit「點觸屏 x,y（群組）→ 有／無進展｜畫面變動 x%（雜訊 y%）」。
+流程在 `verdicts.ts runFeatureTaps`，探針 `npx tsx scripts/feature-taps-probe.ts`。
+
+⚠️ `[unverified]`：座標還沒在真的 JP／FG 畫面點過；JP 結束後是否還要按 SPIN／TAKE WIN 待確認。

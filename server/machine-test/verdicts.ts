@@ -367,3 +367,36 @@ export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPre
   if (s.maxSpend - spent < s.spinCost) return { ok: false, reason: `剩餘額度不夠再付一把（已少 ${spent}）` }
   return { ok: true }
 }
+
+// ── 特殊流程卡在「選元寶／選卡」畫面 → 依機種點位清單逐格點（2026-10-06 ARUZE 0335）────────────────
+// 0335 iDeck BETx6 中 JP（SELECT 元寶）卡住，依設定檔推進只會按 SPIN，現場人工點完。清單在 feature-taps.json（不動 profile 的 touchPoints——觸屏測試還在用）。
+// 規則（使用者 10-06）：照清單順序一次點一格，每格點完看有沒有進展，一有進展就停；每一下都要留紀錄。
+//   · done＝呼叫端判定特殊流程已結束（moneyNtc end）→ 停
+//   · screen＝畫面明顯變了（例：FG 選完卡進入免費遊戲）→ 停，交回呼叫端等它跑完；還沒結束再從下一格接著點
+//   · none＝沒進展 → 點下一格（JP 翻一顆元寶畫面只動一小塊，多半落在這裡，正好繼續點下一顆）
+//   · noElement＝找不到這格（頁面沒有這個觸屏格）→ 記下、點下一格
+// cursor 由呼叫端保存：同一台同一段特殊流程裡，每格最多點一次。
+export type FeatureTapPoint = { point: string; group: string }
+export type FeatureTapLog = { point: string; group: string; result: 'done' | 'screen' | 'none' | 'noElement'; note?: string }
+export async function runFeatureTaps(d: {
+  points: FeatureTapPoint[]
+  start: number
+  stop: () => boolean
+  tap: (point: string) => Promise<boolean>
+  check: () => Promise<{ result: 'done' | 'screen' | 'none'; note?: string }>
+  onLog?: (l: FeatureTapLog) => void
+}): Promise<{ cursor: number; result: 'done' | 'screen' | 'exhausted' | 'stopped'; log: FeatureTapLog[] }> {
+  const log: FeatureTapLog[] = []
+  const push = (l: FeatureTapLog) => { log.push(l); d.onLog?.(l) }
+  for (let i = d.start; i < d.points.length; i++) {
+    if (d.stop()) return { cursor: i, result: 'stopped', log }
+    const p = d.points[i]
+    if (!await d.tap(p.point)) { push({ ...p, result: 'noElement' }); continue }
+    const c = await d.check()
+    push({ ...p, result: c.result, note: c.note })
+    if (c.result !== 'none') return { cursor: i + 1, result: c.result, log }
+  }
+  return { cursor: d.points.length, result: 'exhausted', log }
+}
+export const featureTapSummary = (log: FeatureTapLog[]) =>
+  log.map(l => `${l.point}→${{ done: '結束', screen: '畫面變化', none: '無', noElement: '找不到格' }[l.result]}`).join('、')

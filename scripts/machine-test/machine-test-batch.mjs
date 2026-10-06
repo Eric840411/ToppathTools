@@ -786,9 +786,9 @@ async function startSession(lobbyUrl, codes, stepList, agentId) {
 }
 // ── 機種知識：設定同步＋注意事項（1003，使用者：「依 gmid 取用機種知識」「需要做到」）────────────────
 // 單一來源＝knowledge/games/<機種>/automation/machine-test.json（menuGate／touchVisual／bonusSequence／layout＋參考圖）。
-// 開跑前同步到 agent 的 menu-gate.json／touch-visual.json／bonus-sequence.json／machine-layout.json／menu-refs／touch-refs
+// 開跑前同步到 agent 的 menu-gate.json／touch-visual.json／bonus-sequence.json／machine-layout.json／feature-taps.json／menu-refs／touch-refs
 // （runner 每次用到才讀檔，不用重啟 agent）。有 machine-test.json 的機種以它為準：檔裡沒有的區塊，agent 那邊也刪掉。
-const GAME_SECTIONS = { menuGate: ['menu-gate.json', 'menu-refs'], touchVisual: ['touch-visual.json', 'touch-refs'], bonusSequence: ['bonus-sequence.json'], layout: ['machine-layout.json'] }
+const GAME_SECTIONS = { menuGate: ['menu-gate.json', 'menu-refs'], touchVisual: ['touch-visual.json', 'touch-refs'], bonusSequence: ['bonus-sequence.json'], layout: ['machine-layout.json'], featureTaps: ['feature-taps.json'] }
 export const gameDir = type => path.join(ROOT, 'knowledge', 'games', type, 'automation')
 export function syncGameConfigs(types, agentMtDir = path.join(CFG.agentDir, 'server', 'machine-test')) {
   const out = []
