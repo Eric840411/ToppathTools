@@ -10,6 +10,7 @@ import './MeegleBatchStatusTab.css'
 import './MeegleBatchEditTab.css'
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import { MeeglePeoplePicker } from '../components/MeeglePeoplePicker'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -334,7 +335,9 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
     )
     if (f.kind === 'date') return <input type="date" className="mb-input" value={value.replace(/\//g, '-')} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
     if (f.kind === 'multi') return <textarea className="mb-input me-fixed-text" rows={2} value={value} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
-    return <input className="mb-input" value={value} placeholder={f.kind === 'role' ? '人名，多人用逗號分隔' : ''} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
+    // 人員：下拉＋搜尋、可複選（使用者 2026-10-06），跟開單的批量設定同一個元件；名單是人員對照表（下方 datalist）
+    if (f.kind === 'role') return <MeeglePeoplePicker listId="me-people-options" label={`${f.label} 固定值`} value={value} onChange={onChange} emptyText="選人或打字搜尋" />
+    return <input className="mb-input" value={value} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
   }
 
   const pv = focusRow ? previews[focusRow.rowIndex] : undefined
@@ -344,6 +347,8 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
   return (
     <div className="mb-page mc-page ms-page me-page">
       {prodModal}
+      {/* 人員固定值的下拉名單（人員對照表）：value＝對照表的別名（送出時後端照別名對人），顯示名字 */}
+      <datalist id="me-people-options">{[...new Map(people.map(p => [p.alias, p])).values()].map(p => <option key={p.alias} value={p.alias}>{p.name}{p.email ? `（${p.email}）` : ''}</option>)}</datalist>
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量修改</h2>

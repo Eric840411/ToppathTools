@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.22.0'
+export const APP_VERSION = '5.22.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.22.1', date: '2026-10-06', changes: ['ui(Meegle 修改)：人員欄的固定值改成下拉選單＋搜尋、可選多人（跟開單的批量設定同一個元件），不用再手打人名'] },
   { version: '5.22.0', date: '2026-10-06', changes: ['feat(Meegle 批量更新狀態)：**「指定日期」時上C服時間／上線時間有填的都照寫**，不限目標狀態（原本只寫目標狀態那一欄，轉到完成時填的上C服時間會被略過）；多一個「其他日期」步驟，失敗分開記、可重試'] },
   { version: '5.21.0', date: '2026-10-06', changes: ['feat(Meegle 批量評論)：**評論也帶圖片**——圖片另外上傳成評論附件、嵌在評論文字最後（Meegle 規定評論裡的圖要用評論附件的網址，測試說明那份不能用）；關掉「覆寫測試頁」時評論照樣帶圖'] },
   { version: '5.20.0', date: '2026-10-06', changes: ['feat(Meegle 批量評論)：**影片也放進測試頁**（Meegle 放不了內嵌影片，放成可點的檔案連結；評論附件照舊）；逐列預覽多一個「**覆寫測試頁**」開關（預設開，關掉＝測試頁不動、只發評論與影片評論）', 'fix(操作歷史)：Meegle 評論的影片步驟顯示成「影片 NaN」'] },
