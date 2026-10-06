@@ -369,7 +369,7 @@ export function JackpotPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <b style={{ color: '#cbd5e1' }}>門檻來源：list.json</b>
             {watch?.never
-              ? <span style={{ color: '#ef4444' }}>從未取得——目前全部用手動設定／內建預設</span>
+              ? <span style={{ color: '#ef4444' }}>從未取得——目前全部用手動設定／內建預設{watch.lastError ? `（原因：${watch.lastError}${/未設定/.test(watch.lastError) ? '——server 環境變數要設 OSM_WATCH_URL 與 OSM_WATCH_TOKEN' : ''}）` : ''}</span>
               : watch?.stale
               ? <span style={{ color: '#f59e0b' }}>更新失敗，沿用 {fmtTime(watch.fetchedAt)} 的讀取值{watch.lastError ? `（${watch.lastError}）` : ''}</span>
               : watch

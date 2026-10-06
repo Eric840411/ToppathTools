@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.28.5'
+export const APP_VERSION = '5.28.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.28.6', date: '2026-10-06', changes: ['ui(Jackpot 監控)：門檻來源「從未取得」時顯示原因（例如「OSM_WATCH_URL 未設定」並提示要設的環境變數）；原本只有「更新失敗」才顯示原因，正式站一直顯示從未取得卻看不出為什麼'] },
   { version: '5.28.5', date: '2026-10-06', changes: ['fix(UAT 後台 站台警告彈窗)：CodeX 596f4df [P2]——判斷「還有其他對話框開著、遮罩要留著」時只看 el-dialog，漏了 MessageBox 確認框與 drawer；站台警告＋MessageBox 同時開著會把確認框的遮罩拿掉。補上兩者與回歸測試'] },
   { version: '5.28.4', date: '2026-10-06', changes: ['fix(UAT 後台)：站台「機台異常」警告彈窗的關閉規則統一成一支（site-warning.js，CodeX 定案）——只認「標題 Warnning／Warning＋內文 machines are abnormal」，真的 Warning 確認框不再被藏；遮罩只在沒有其他對話框開著時才拿掉。後台設定片段開頁與點擊前也會關這個彈窗（原本沒關，片段第一下點擊被遮罩擋到逾時，claude-osm-2 回報）。uat-cp 實測：標題 Warnning、內文 Currently 20 machines are abnormal，關得掉'] },
   { version: '5.28.3', date: '2026-10-06', changes: ['fix(Meegle 補回填：補回被清掉的回填)：CodeX 補審 60c61d3 兩個問題——[P1] 讀單號、判定、寫入改在同一把 Sheet 鎖裡（原本鎖外先讀，排隊期間那一列被換成別張單仍會被蓋）；[P2]「最近一次」改看操作完成時間不看回填時間（原本補過一次再補，處理階段會從「已修改欄位」倒退成「已開單」）。兩條都補了回歸測試，拿掉修正會紅'] },
