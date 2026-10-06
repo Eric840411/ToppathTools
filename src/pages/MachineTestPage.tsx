@@ -1769,7 +1769,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             >
               {running
                 ? reconnecting ? '更新 重新連線中...' : '⏳ 測試進行中...'
-                : `▶ 開始測試（${machineCodes.length} 台 × ${lobbyUrls.filter(u => u.trim()).length} Worker${agentStatus.length > 0 ? ` + ${agentStatus.length} Agent` : ''}）`}
+                : `︎ 開始測試（${machineCodes.length} 台 × ${lobbyUrls.filter(u => u.trim()).length} Worker${agentStatus.length > 0 ? ` + ${agentStatus.length} Agent` : ''}）`}
             </button>
             {!running && (
               <button

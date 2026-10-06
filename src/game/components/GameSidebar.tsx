@@ -288,7 +288,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                 </span>
                 {item.children && (
                   <span style={{ fontSize: 8, color: 'var(--text-dim)', flexShrink: 0 }}>
-                    {isExpanded ? '▼' : '▶'}
+                    {isExpanded ? '▼' : '︎'}
                   </span>
                 )}
               </button>

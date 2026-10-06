@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.28.1'
+export const APP_VERSION = '5.28.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.28.2', date: '2026-10-06', changes: ['ui(週報)：「定時備稿提醒」的展開箭頭 ▶ 在 Mac／Lark 被畫成彩色 emoji，改成線條箭頭；其他頁面的 ▶／◀（AutoSpin、機台測試、OSM、GS Log、UAT 前台、AI 設定、遊戲版側欄）加文字呈現字元，不再顯示成 emoji', 'docs(週報)：撈 Meegle 單的說明改成「專案看關聯需求」（v5.27.0 改了規則，說明沒跟上）'] },
   { version: '5.28.1', date: '2026-10-06', changes: ['change(機台測試 batch)：音檔等證據改上傳到使用者指定的 Lark Drive 資料夾（InhAftoJglxUzjdrYonl6a2bgBd；可用 MT_LARK_DRIVE_FOLDER 或 secrets 的 larkDriveFolder 換），原本傳到應用程式自己的根目錄。一般上傳與 >20MB 分片上傳都改；分片路徑實測 21MB 進得去該資料夾'] },
   { version: '5.28.0', date: '2026-10-06', changes: ['feat(UAT 前台「讀成變數」)：**可以只取一段**——選填擷取規則（正規式，存第 1 個擷取群組），例如降級提示「…less than 300, the VIP level…」只存 300，才能跟後台表格的金額比（claude-osm-2 T-008 要的）。對不到、或對到但取到空的一律讓這步失敗並顯示讀到的整句，不存空值；沒填照舊存整段'] },
   { version: '5.27.4', date: '2026-10-06', changes: ['fix(Meegle 批量評論)：**影片在 Meegle 不能線上播放、只能下載**——上傳時 CLI 用本機檔案的副檔名判斷類型，我們傳的是附件快取檔（沒有副檔名），一律被標成 application/octet-stream。改成依原始檔名明確帶 --content-type（video/mp4、image/png…）。實測：同一個無副檔名檔案，不帶回 octet-stream、帶了回 video/mp4。已經上傳的舊影片不會變，要重送才會'] },

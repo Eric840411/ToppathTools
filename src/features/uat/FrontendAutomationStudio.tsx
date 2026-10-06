@@ -561,7 +561,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     await runScriptQueue<never>(entries, {
       start: async item => {
         const script = picked.find(row => row.id === item.id)!
-        setLogs(lines => [...lines, `▶ ${script.name}`])
+        setLogs(lines => [...lines, `︎ ${script.name}`])
         return { sessionId: await startRun({ id: script.id, name: script.name, steps: parseSteps(script.steps) }) }
       },
       status: async sessionId => {

@@ -616,7 +616,7 @@ function ChannelRow({
       <div className="osm-channel-row-meta">
         <span className="osm-channel-row-time">{result.syncTime ? result.syncTime.slice(5, 16) : '—'}</span>
         {hasOffTarget && <span className="osm-badge osm-badge--warn">{onlineOffTarget.length}</span>}
-        <span className="osm-channel-row-arrow">{selected ? '◀' : '▶'}</span>
+        <span className="osm-channel-row-arrow">{selected ? '︎' : '︎'}</span>
       </div>
     </div>
   )

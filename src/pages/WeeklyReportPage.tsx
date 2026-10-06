@@ -1106,7 +1106,10 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', marginBottom: 14 }}>
         <button onClick={() => setReminderOpen(o => !o)}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-          <span style={{ color: '#64748b', fontSize: 10 }}>{reminderOpen ? '▼' : '▶'}</span>
+          {/* 用線條箭頭不用 ▶：▶ 在 Mac／Lark 會被畫成彩色 emoji 按鈕（使用者 10/06） */}
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden style={{ color: '#64748b', flexShrink: 0, transform: reminderOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
+            <path d="M3 1.5 7 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
           <span>定時備稿提醒</span>
           {reminder && (
             <span style={{ fontSize: 11, fontWeight: 500, color: reminder.enabled ? 'var(--cr-cyan)' : '#64748b' }}>
@@ -1398,7 +1401,7 @@ function BatchScanSection({
         </button>
         {jiraPanelOpen && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內有建立或更新」的任務項；專案取標題第一個中括號。撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內有建立或更新」的任務項；專案看單子的「關聯需求」（沒有關聯需求才看標題第一個中括號）。撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
               {jiraAccountList.map(a => {
                 const checked = jiraSelectedEmails.has(a.email)

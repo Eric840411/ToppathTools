@@ -428,12 +428,12 @@ export function AutoSpinNotifySettingsPage() {
           <div className="discord-notify-preview">
             <div className="discord-notify-preview-embed">
               <div className="discord-notify-preview-title">
-                ▶ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
+                ︎ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
               </div>
               <div className="discord-notify-preview-fields">
                 <div>
                   <div className="discord-notify-preview-field-name">狀態</div>
-                  <div className="discord-notify-preview-field-value">▶ 執行中</div>
+                  <div className="discord-notify-preview-field-value">︎ 執行中</div>
                 </div>
                 {fields.spinCount && (
                   <div>

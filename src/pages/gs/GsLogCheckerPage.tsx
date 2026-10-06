@@ -46,7 +46,7 @@ const LOG_COMPARE_HTML = `<div class="page-wrap">
     <label style="margin-bottom:10px;">忽略欄位（逗號分隔）<input id="cmp-ignore-fields" type="text" value="timestamp,_capturedAt,trace_id,token,host"></label>
     <label style="margin-bottom:12px;">排除事件（逗號分隔，event 含關鍵字即略過）<input id="cmp-exclude-events" type="text" value="connecting,connected,disconnecting,disconnected,client.video.join,client.video.leave"></label>
     <label class="row-checkbox" style="margin-bottom:14px;"><input id="cmp-only-has-function-name" type="checkbox" checked>僅驗證有 function_name 的資料（空值直接跳過；若要檢查 function_name 缺失請取消勾選）</label>
-    <div class="compare-actions"><button id="cmp-run" class="lcw-btn-primary">▶ 開始比對</button><button id="cmp-download" class="lcw-btn-muted" disabled>⬇ 下載差異 CSV</button></div>
+    <div class="compare-actions"><button id="cmp-run" class="lcw-btn-primary">︎ 開始比對</button><button id="cmp-download" class="lcw-btn-muted" disabled>⬇ 下載差異 CSV</button></div>
     <div id="cmp-summary" class="compare-summary"></div>
   </div>
   <div id="cmp-tabs" class="cmp-tabs hidden"><button class="cmp-tab-btn active" data-tab="all">全部明細</button><button class="cmp-tab-btn" data-tab="missing-group">整組缺失</button><button class="cmp-tab-btn" data-tab="jsondata">jsondata 結構差異</button><button class="cmp-tab-btn" data-tab="outer">data/root 欄位差異</button></div>

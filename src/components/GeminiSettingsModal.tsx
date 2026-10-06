@@ -489,7 +489,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: '#cbd5e1' }}>
                             {k.label}
                             {k.isEnv && <span style={{ marginLeft: 6, padding: '1px 6px', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', borderRadius: 4, fontSize: 11, fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)' }}>.env</span>}
-                            {nextRrLabel === k.label && <span style={{ marginLeft: 6, padding: '1px 6px', background: 'rgba(52,211,153,0.12)', color: '#34d399', borderRadius: 4, fontSize: 11, fontWeight: 600, border: '1px solid rgba(52,211,153,0.3)' }}>▶ 下一個</span>}
+                            {nextRrLabel === k.label && <span style={{ marginLeft: 6, padding: '1px 6px', background: 'rgba(52,211,153,0.12)', color: '#34d399', borderRadius: 4, fontSize: 11, fontWeight: 600, border: '1px solid rgba(52,211,153,0.3)' }}>︎ 下一個</span>}
                           </td>
                           <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: '#64748b' }}>{k.keyMasked}</td>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{statusBadge}</td>

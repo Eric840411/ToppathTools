@@ -781,7 +781,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
         <button style={tabStyle('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
+        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
       </div>
 
       {/* ── 對帳台（Live Ledger）───────────────────────────────────────────────
