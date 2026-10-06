@@ -133,5 +133,11 @@ eq('已開單、沒有目標狀態 → 不接回', isRestorablePrevious({ create
   eq('舊呼叫（沒給 meta）→ 行為不變', planRow({ record: rec }, defaults, reqs, map).blocks, [])
 }
 
+// ── 逐列名稱覆寫（AI 產生／手改，2026-10-06）──
+eq('名稱覆寫優先於 Sheet 摘要', planRow({ record: rec, nameOverride: '[OSM] AI 產生的標題' }, defaults, reqs, map).name, '[OSM] AI 產生的標題')
+eq('覆寫是空白 → 回到 Sheet 摘要', planRow({ record: rec, nameOverride: '  ' }, defaults, reqs, map).name, 'Free Bet Record頁面內 缺少文字')
+eq('覆寫裡的換行換成空白', planRow({ record: rec, nameOverride: 'A\nB' }, defaults, reqs, map).name, 'A B')
+eq('Sheet 摘要空白但有覆寫 → 不擋', planRow({ record: { ...rec, 摘要: '', 標題: '' }, nameOverride: 'X' }, defaults, reqs, map).blocks.some(b => b.includes('任務名稱')), false)
+
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

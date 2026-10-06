@@ -40,6 +40,8 @@ import { matchRoster, type RosterMatch, type RosterPerson } from '../../shared/m
 import { MEEGLE_ROLE_DEFS, normAlias, pickTaskType, type MeegleRoleKey } from '../../shared/meegle-batch-rules.js'
 import { CREATE_EXTRA_FIELDS, CREATE_SELECT_KEYS, resolveCreateExtras } from '../../shared/meegle-create-fields.js'
 import { listSelectOptions } from '../meegle-edit-ops.js'
+import { callLLM } from './gemini.js'
+import { withRequestOperation } from '../request-context.js'
 
 export const router = Router()
 initMeegleBatchSchema(db)
@@ -105,6 +107,39 @@ router.get('/api/meegle/batch/meta', async (req, res, next) => {
       extraFields: CREATE_EXTRA_FIELDS.map(f => ({ key: f.key, label: f.label, group: f.group, kind: f.kind, options: f.kind === 'select' && extraOpts.kind === 'ok' ? extraOpts.value[f.key] ?? [] : undefined })),
       extraFieldsError: extraOpts.kind === 'ok' ? null : extraOpts.message,
     })
+  } catch (e) { next(e) }
+})
+
+/**
+ * POST /api/meegle/batch/generate-names —— AI 產生任務名稱（2026-10-06 使用者：跟以前 Jira 批次開單的「AI 摘要生成」一樣）。
+ * prompt 照 Jira 版；前綴（[欄值][欄值]）前端組好帶來、接在 AI 標題前面。
+ * 一次最多 3 列並行、批次之間停 2.5 秒（Jira 版踩過 Gemini 429 RESOURCE_EXHAUSTED）。
+ * **失敗不回假名稱**：回 error、不給 name，前端那列維持原本的名稱（原本 Jira 版失敗會回前綴或內容前 50 字當標題，等於把垃圾當結果）。
+ */
+router.post('/api/meegle/batch/generate-names', async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res)
+    if (!ctx) return
+    const body = z.object({
+      rows: z.array(z.object({ rowIndex: z.number().int(), prefix: z.string().max(500).default(''), content: z.string().max(20000) })).min(1).max(20),
+      modelSpec: z.string().max(200).optional(),
+    }).parse(req.body)
+    const out: Array<{ rowIndex: number; name?: string; error?: string }> = []
+    for (let i = 0; i < body.rows.length; i += 3) {
+      const batch = body.rows.slice(i, i + 3)
+      out.push(...await Promise.all(batch.map(async row => {
+        if (!row.content.trim()) return { rowIndex: row.rowIndex, error: '內容欄是空的' }
+        try {
+          const prompt = `你是一個 QA 工程師，請根據以下 Bug 描述，生成一個簡短的 Jira issue 標題。\n要求：\n- 繁體中文\n- 不超過 30 個字\n- 不要加前綴、括號或任何多餘說明\n- 直接輸出標題文字，不要有換行或引號\n\nBug 描述：${row.content.trim()}`
+          const title = (await withRequestOperation('Meegle 開單：AI 產生任務名稱', () => callLLM(prompt, body.modelSpec))).trim().replace(/[\r\n]+/g, ' ').replace(/^["「『]|["」』]$/g, '').trim()
+          if (!title) return { rowIndex: row.rowIndex, error: 'AI 沒有回內容' }
+          return { rowIndex: row.rowIndex, name: row.prefix ? `${row.prefix} ${title}` : title }
+        } catch (e) { return { rowIndex: row.rowIndex, error: (e as Error).message.slice(0, 200) } }
+      })))
+      if (i + 3 < body.rows.length) await new Promise(r => setTimeout(r, 2500))
+    }
+    log('info', getClientIP(req), ctx.email, 'Meegle 開單', `AI 產生任務名稱 ${out.filter(r => r.name).length}／${out.length} 列`)
+    res.json({ ok: true, results: out })
   } catch (e) { next(e) }
 })
 

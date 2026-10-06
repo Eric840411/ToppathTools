@@ -30,7 +30,8 @@ type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: st
 // targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
 type Previous = RowResult & { name: string; owner: string }
-type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>>; taskType?: string; fields?: Record<string, string> }
+/** name：逐列任務名稱（AI 產生或手改；空＝用 Sheet 摘要／標題）；nameByAi＝目前這個名稱是 AI 產生的（顯示 AI 標記用） */
+type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>>; taskType?: string; fields?: Record<string, string>; name?: string; nameByAi?: boolean }
 /** 後端猜人結果（只是建議；寫入一律走 verify）。bulkOk＝完整名字＋名單唯一＋租戶名錄也唯一，才能進「全部確認」 */
 type Suggestion = { alias: string; status: 'unique' | 'ambiguous' | 'none'; confidence?: 'exact' | 'partial'; user?: RosterPerson; users?: RosterPerson[]; bulkOk: boolean; note: string }
 
@@ -149,6 +150,11 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   // 批量填寫：對已勾選的列一次寫入逐列覆寫（留空的欄位不動）
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulk, setBulk] = useState<{ requirementId: string; taskType: string; roles: Partial<Record<MeegleRoleKey, string>>; fields: Record<string, string> }>({ requirementId: '', taskType: '', roles: {}, fields: {} })
+  // AI 產生任務名稱（2026-10-06：跟以前 Jira 批次開單的「AI 摘要生成」一樣）：前綴欄位（[值][值]）＋內容欄餵 AI
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiPrefixCols, setAiPrefixCols] = useState<string[]>([])
+  const [aiContentCol, setAiContentCol] = useState('')
+  const [aiRun, setAiRun] = useState<{ running: boolean; done: number; total: number; failed: string[] } | null>(null)
   /** 批量設定裡使用者加進來的其他欄位（照加入順序） */
   const [bulkFieldKeys, setBulkFieldKeys] = useState<string[]>([])
   const [bulkMsg, setBulkMsg] = useState('')
@@ -212,7 +218,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const requirements = meta?.requirements ?? []
   /** 一列的計畫＝planRow（名稱／需求／任務類型／人員）＋其他欄位（換不出來的併進 blocks，整列擋）。預覽與送出前重驗共用 */
   const planFor = (rec: SheetRecord, ov: Override, m: Meta | null) => {
-    const p = planRow({ record: rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType }, defaults, m?.requirements ?? [], personMap, m?.taskType ?? null)
+    const p = planRow({ record: rec, requirementOverride: ov.requirementId, roleOverrides: ov.roles, taskTypeOverride: ov.taskType, nameOverride: ov.name }, defaults, m?.requirements ?? [], personMap, m?.taskType ?? null)
     const opts = Object.fromEntries((m?.extraFields ?? []).filter(f => f.options).map(f => [f.key, f.options!]))
     const ex = resolveCreateExtras(ov.fields, opts)
     const plan: RowPlan = ex.issues.length ? { ...p, blocks: [...p.blocks, ...ex.issues] } : p
@@ -350,6 +356,36 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   }
 
   // ── 送出 ──
+  /** Sheet 的欄名（給 AI 選前綴欄、內容欄） */
+  const sheetColumns = useMemo(() => [...new Set((records ?? []).flatMap(r => Object.keys(r)))].filter(k => !k.startsWith('_') && k.trim()), [records])
+  async function generateNames() {
+    if (!aiContentCol || aiRun?.running) return
+    const targets = rows.filter(r => selected.has(r.rec._rowIndex))
+    if (!targets.length) return
+    const cell = (r: typeof rows[number], col: string) => String(r.rec[col] ?? '').trim()
+    setAiRun({ running: true, done: 0, total: targets.length, failed: [] })
+    for (let i = 0; i < targets.length; i += 5) {
+      const chunk = targets.slice(i, i + 5)
+      const payload = chunk.map(r => ({ rowIndex: r.rec._rowIndex, prefix: aiPrefixCols.map(c => cell(r, c)).filter(Boolean).map(v => `[${v}]`).join(''), content: cell(r, aiContentCol) }))
+      try {
+        const j = await api<{ results: Array<{ rowIndex: number; name?: string; error?: string }> }>('/api/meegle/batch/generate-names', { rows: payload })
+        // 失敗的列不動（維持原本名稱），列進失敗清單
+        setOverrides(o => {
+          const next = { ...o }
+          for (const res of j.results) if (res.name) next[res.rowIndex] = { ...(next[res.rowIndex] ?? {}), name: res.name, nameByAi: true }
+          return next
+        })
+        const bad = j.results.filter(res => !res.name).map(res => `第 ${res.rowIndex} 列：${res.error ?? '失敗'}`)
+        setAiRun(a => a && { ...a, done: a.done + chunk.length, failed: [...a.failed, ...bad] })
+      } catch (e) {
+        setAiRun(a => a && { ...a, done: a.done + chunk.length, failed: [...a.failed, ...chunk.map(r => `第 ${r.rec._rowIndex} 列：${(e as Error).message}`)] })
+      }
+    }
+    setAiRun(a => a && { ...a, running: false })
+  }
+  const setRowName = (idx: number, name: string) => setOverrides(o => ({ ...o, [idx]: { ...(o[idx] ?? {}), name, nameByAi: false } }))
+  const clearRowName = (idx: number) => setOverrides(o => { const cur = { ...(o[idx] ?? {}) }; delete cur.name; delete cur.nameByAi; return { ...o, [idx]: cur } })
+
   function rowPayload(r: typeof rows[number], plan: RowPlan = r.plan) {
     const roles = {} as Record<MeegleRoleKey, string[]>
     for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = plan.roles[d.key].aliases
@@ -690,8 +726,39 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                 已勾選 <b>{selected.size}</b> 列
               </label>
               <button type="button" className={`mb-btn mb-btn--small mb-btn--outline${bulkOpen ? ' is-on' : ''}`} disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}><Icon name="gear" /> 批量設定</button>
+              <button type="button" className={`mb-btn mb-btn--small mb-btn--outline${aiOpen ? ' is-on' : ''}`} onClick={() => setAiOpen(o => !o)}>✦ AI 產生任務名稱</button>
               <span className="mb-selbar-hint">留空不改・僅套用勾選列</span>
             </div>
+
+            {aiOpen && (
+              <div className="mb-bulk mb-ai">
+                <div className="mb-ai-grid">
+                  <div className="mb-field"><span>內容欄（給 AI 讀，必選）</span>
+                    <select className="mb-select" value={aiContentCol} onChange={e => setAiContentCol(e.target.value)}>
+                      <option value="">選擇 Sheet 欄位</option>
+                      {sheetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="mb-field"><span>前綴欄（可多選，依序組成 [值1][值2]，空白自動略過）</span>
+                    <div className="mb-ai-cols">
+                      {sheetColumns.map(c => (
+                        <label key={c} className={`mb-ai-col${aiPrefixCols.includes(c) ? ' is-on' : ''}`}>
+                          <input type="checkbox" checked={aiPrefixCols.includes(c)} onChange={e => setAiPrefixCols(cs => e.target.checked ? [...cs, c] : cs.filter(x => x !== c))} />{c}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-bulk-actions">
+                  <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={!aiContentCol || !selected.size || !!aiRun?.running} onClick={() => void generateNames()}>
+                    {aiRun?.running ? `產生中 ${aiRun.done}/${aiRun.total}` : `為勾選的 ${selected.size} 列產生名稱`}
+                  </button>
+                  <span className="mb-muted">產生後可以在下面表格直接改；「還原」回到 Sheet 的摘要。</span>
+                  {aiRun && !aiRun.running && <span className={aiRun.failed.length ? 'mb-warn' : 'mb-muted'}>完成 {aiRun.total - aiRun.failed.length}／{aiRun.total} 列{aiRun.failed.length ? `，${aiRun.failed.length} 列失敗（維持原名稱）` : ''}</span>}
+                </div>
+                {aiRun && aiRun.failed.length > 0 && !aiRun.running && <div className="mb-hint mb-hint--warn">{aiRun.failed.slice(0, 5).join('；')}{aiRun.failed.length > 5 ? `…等 ${aiRun.failed.length} 列` : ''}</div>}
+              </div>
+            )}
 
             {bulkOpen && (
               <div className="mb-bulk">
@@ -825,7 +892,13 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                         <td className="mb-col-check"><input type="checkbox" disabled={!isSelectable(r)} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
                           onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
                         <td className="mb-num">{idx}</td>
-                        <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}{r.extras.length > 0 && <div className="mb-muted mb-extras" title={r.extras.map(x => `${x.label}：${x.value}`).join(String.fromCharCode(10))}>{r.extras.map(x => `${x.label} ${x.value.length > 16 ? x.value.slice(0, 16) + '…' : x.value}`).join('・')}</div>}</td>
+                        <td className="mb-name">{overrides[idx]?.name !== undefined ? (
+                          <div className="mb-name-edit">
+                            {overrides[idx]?.nameByAi && <span className="mb-badge mb-badge--ok" title="AI 產生">AI</span>}
+                            <input className="mb-input" value={overrides[idx]?.name ?? ''} aria-label={`第 ${idx} 列任務名稱`} onChange={e => setRowName(idx, e.target.value)} />
+                            <button type="button" className="mb-btn mb-btn--small mb-btn--outline" title="回到 Sheet 的摘要" onClick={() => clearRowName(idx)}>還原</button>
+                          </div>
+                        ) : (r.plan.name || <span className="mb-muted">（空白）</span>)}{r.extras.length > 0 && <div className="mb-muted mb-extras" title={r.extras.map(x => `${x.label}：${x.value}`).join(String.fromCharCode(10))}>{r.extras.map(x => `${x.label} ${x.value.length > 16 ? x.value.slice(0, 16) + '…' : x.value}`).join('・')}</div>}</td>
                         <td className="mb-req">{r.plan.requirement ? r.plan.requirement.name : <span className="mb-muted">—</span>}{r.plan.taskType && <div className="mb-muted">類型 {r.plan.taskType}</div>}</td>
                         <td className="mb-people">
                           {filled.length ? filled.map((d, i) => (

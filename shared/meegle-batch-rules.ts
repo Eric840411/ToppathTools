@@ -90,6 +90,7 @@ export type RowInput = {
   requirementOverride?: string                              // 畫面上逐列覆寫（需求 ID）
   roleOverrides?: Partial<Record<MeegleRoleKey, string[]>>  // 畫面上逐列覆寫（人名）
   taskTypeOverride?: string                                 // 畫面上逐列覆寫（任務類型選項名稱）
+  nameOverride?: string                                     // 畫面上逐列覆寫的任務名稱（AI 產生或手改，2026-10-06）
 }
 
 export type BatchDefaults = {
@@ -159,7 +160,8 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
   const blocks: string[] = []
   const warnings: string[] = []
 
-  const name = (str(rec['摘要']).trim() || str(rec['標題']).trim()).replace(/[\r\n]+/g, ' ').trim()
+  // 名稱：逐列覆寫（AI 產生／手改）優先，空白才用 Sheet 摘要→標題
+  const name = ((input.nameOverride ?? '').trim() || str(rec['摘要']).trim() || str(rec['標題']).trim()).replace(/[\r\n]+/g, ' ').trim()
   if (isRepeatedHeaderRow(rec)) blocks.push('這列是重複的標題列，不是資料')
   else if (!name) blocks.push('沒有摘要／標題，無法當任務名稱')
   const description = str(rec['描述'])

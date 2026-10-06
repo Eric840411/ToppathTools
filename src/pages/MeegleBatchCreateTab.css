@@ -178,6 +178,16 @@
 .mb-bulk-extra-x { padding: 4px 10px; }
 .mb-bulk-textarea { resize: vertical; min-height: 64px; }
 .mb-extras { margin-top: 2px; font-size: 11.5px; line-height: 1.4; }
+/* AI 產生任務名稱（v5.24.0） */
+.mb-ai-grid { display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); gap: 12px; margin-bottom: 10px; }
+.mb-ai-cols { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto; }
+.mb-ai-col { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--mb-border); border-radius: 999px; font-size: 12.5px; color: var(--mb-muted); cursor: pointer; }
+.mb-ai-col.is-on { border-color: var(--mb-primary); color: var(--mb-text); }
+.mb-ai-col input { margin: 0; }
+.mb-warn { color: var(--mb-warn); font-size: 12px; }
+.mb-name-edit { display: flex; align-items: center; gap: 6px; }
+.mb-name-edit .mb-input { flex: 1; min-width: 160px; padding: 5px 8px; }
+@media (max-width: 860px) { .mb-ai-grid { grid-template-columns: 1fr; } }
 @media (max-width: 860px) {
   .mb-bulk-grid { grid-template-columns: 1fr; }
   .mb-bulk-extra { grid-template-columns: 1fr; }
