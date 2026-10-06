@@ -393,7 +393,9 @@ export function judge(rawResult, stepsRun) {
   const fails = cls.filter(x => x.c === 'fail').map(x => x.name)
   if (fails.length) return { verdict: `驗證未過：${fails.join('、')}`, J: '驗證未過' }
   const checks = cls.filter(x => x.c === 'check').map(x => x.name)
-  if (checks.length) return { verdict: `待人工確認：${checks.join('、')}`, J: null }
+  // 1006 使用者：待人工確認（CCTV 編號不符、退出未確認…）J 一律填「驗證未過」，不再留空；verdict 文字照舊。
+  // 其他不填的（舊 agent、已在遊戲內、只跑部分、必驗未驗、少結果）沒有跟著改
+  if (checks.length) return { verdict: `待人工確認：${checks.join('、')}`, J: '驗證未過' }
   if (stepsRun.length < ALL_STEPS.length) return { verdict: `只跑部分測項（${stepsRun.join(',')}），不判定整台`, J: null }
   const naRequired = cls.filter(x => x.c === 'na' && !x.touchNoCfg).map(x => x.name)
   if (naRequired.length) return { verdict: `有必驗項目未驗：${naRequired.join('、')}`, J: null }
