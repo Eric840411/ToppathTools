@@ -36,6 +36,21 @@ check('兩窗同時存在 → 站台警告藏掉', !(await vis('#site')));
 check('兩窗同時存在 → 真的 Warning 確認框留著', await vis('#confirm'));
 check('兩窗同時存在 → 共用遮罩留著', await vis('.v-modal'));
 
+// CodeX 596f4df [P2]：MessageBox（$confirm）與 drawer 也共用 .v-modal
+const MSGBOX = `<div class="el-message-box__wrapper" id="msgbox" style="position:fixed;inset:0;z-index:2002"><div class="el-message-box">
+  <div class="el-message-box__header"><div class="el-message-box__title"><span>Warning</span></div></div>
+  <div class="el-message-box__content">Confirm to delete?</div></div></div>`;
+const DRAWER = '<div class="el-drawer__wrapper" id="drawer" style="position:fixed;inset:0;z-index:2002"><div class="el-drawer rtl">Edit Machine</div></div>';
+await page.setContent(`<body>${SITE}${MSGBOX}${MODAL}</body>`);
+await dismissSiteWarning(page, 0);
+check('站台警告＋MessageBox 確認框 → 警告藏掉、確認框與遮罩留著', !(await vis('#site')) && await vis('#msgbox') && await vis('.v-modal'));
+await page.setContent(`<body>${SITE}${DRAWER}${MODAL}</body>`);
+await dismissSiteWarning(page, 0);
+check('站台警告＋drawer → 警告藏掉、drawer 與遮罩留著', !(await vis('#site')) && await vis('#drawer') && await vis('.v-modal'));
+await page.setContent(`<body>${SITE}<div class="el-message-box__wrapper" id="mbclosed" style="display:none"></div>${MODAL}</body>`);
+await dismissSiteWarning(page, 0);
+check('關著的 MessageBox 不算 → 遮罩照樣拿掉', !(await vis('.v-modal')));
+
 await page.setContent(`<body>${CONFIRM}${MODAL}</body>`);
 check('只有標題 Warning 的確認框 → 不認、不動', await dismissSiteWarning(page, 0) === false && await vis('#confirm') && await vis('.v-modal'));
 

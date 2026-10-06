@@ -41,9 +41,12 @@ export async function dismissSiteWarning(page, waitMs = 3000) {
     document.querySelectorAll('[data-uat-site-warning="1"]').forEach(w => {
       if (w.style.display !== 'none') { w.style.display = 'none'; found = true; }
     });
-    // 還有其他開著的對話框 → 共用遮罩留著
-    const othersOpen = [...document.querySelectorAll('.el-dialog__wrapper')]
-      .some(w => !w.hasAttribute('data-uat-site-warning') && w.style.display !== 'none' && getComputedStyle(w).display !== 'none');
+    // 還有其他開著、會用共用遮罩的元件 → 遮罩留著。不只 el-dialog：MessageBox 確認框（$confirm）與 drawer
+    // 也共用 .v-modal（CodeX 596f4df [P2]：只查 .el-dialog__wrapper 的話，站台警告＋MessageBox 確認框同時開著時
+    // 會把確認框的遮罩拿掉）
+    const shown = el => el.style.display !== 'none' && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden';
+    const othersOpen = [...document.querySelectorAll('.el-dialog__wrapper, .el-message-box__wrapper, .el-drawer__wrapper')]
+      .some(w => !w.hasAttribute('data-uat-site-warning') && shown(w));
     if (found && !othersOpen) document.querySelectorAll('.v-modal').forEach(m => { m.style.display = 'none'; });
     return found;
   });
