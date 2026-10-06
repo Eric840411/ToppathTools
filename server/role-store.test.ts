@@ -1,6 +1,6 @@
 /** 角色管理資料層。跑法：npx tsx server/role-store.test.ts（記憶體 DB，不動 data.db） */
 import Database from 'better-sqlite3'
-import { adminTargetError, createRole, deleteAccountGuarded, deleteRole, updateAccountGuarded, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole, withAssignableRole } from './role-store.js'
+import { adminTargetError, createRole, roleDisplay, roleNameMap, deleteAccountGuarded, deleteRole, updateAccountGuarded, initRoles, isMultiRole, listRoles, roleExists, rolePermissionMap, setRolePermissions, updateRole, usersOfRole, withAssignableRole } from './role-store.js'
 
 let pass = 0
 const fails: string[] = []
@@ -72,6 +72,9 @@ eq('不存在的帳號 → 404', (updateAccountGuarded(db, 'nope@x', { label: 'x
 db.prepare("INSERT OR REPLACE INTO jira_accounts (email, label, role, status) VALUES ('adm@x', 'A', 'admin', 'active')").run()
 eq('管理員：改角色／停用 → 400，改名可以', [updateAccountGuarded(db, 'adm@x', { role: 'qa' }).ok, updateAccountGuarded(db, 'adm@x', { status: 'disabled' }).ok, updateAccountGuarded(db, 'adm@x', { label: 'A2' }).ok, acct('adm@x')], [false, false, true, { label: 'A2', role: 'admin', status: 'active', pin_hash: null }])
 eq('刪帳號：管理員擋、一般帳號可刪、不存在 404', [deleteAccountGuarded(db, 'adm@x').ok, deleteAccountGuarded(db, 'd@x').ok, !!acct('d@x'), (deleteAccountGuarded(db, 'd@x') as { status: number }).status], [false, true, false, 404])
+{ const r = createRole(db, { label: '外包測試', color: '#123456' }) as { ok: true; role: { key: string } }
+  const names = roleNameMap(db)
+  eq('角色顯示名稱：自建顯示名稱、不顯示 r_ key；內建／管理員大寫；多角色用「、」', [roleDisplay(r.role.key, names), roleDisplay('admin', names), roleDisplay('qa', names), roleDisplay(`qa,${r.role.key}`, names), roleDisplay('r_gone', names)], ['外包測試', 'ADMIN', 'QA', 'QA、外包測試', 'R_GONE']) }
 eq('多角色判斷', [isMultiRole('pm,qa'), isMultiRole('qa'), isMultiRole(' qa , ')], [true, false, false])
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

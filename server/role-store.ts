@@ -48,6 +48,19 @@ export const roleExists = (db: DB, key: string): boolean =>
 export const roleParts = (role: string): string[] => String(role ?? '').split(',').map(s => s.trim()).filter(Boolean)
 export const isMultiRole = (role: string) => roleParts(role).length > 1
 /** 帳號是不是管理員（含舊的逗號多角色裡有 admin 的） */
+/**
+ * 角色的顯示名稱（v5.10.4 登入畫面；v5.27.1 搬來這裡，Dashboard 在線列表也用）。自建角色的 key 是產生的 r_xxxx，
+ * 直接顯示會變成「r_muv0r…」（使用者 10/05、10/06 回報）。內建與管理員維持原本的大寫代號（QA／PM／OTHER／ADMIN），
+ * 自建的顯示管理員取的名稱；舊的多角色用「、」接起來
+ */
+export const roleNameMap = (db: DB) => new Map(listRoles(db).map(r => [r.key, { label: r.label, builtin: r.builtin }]))
+export function roleDisplay(role: string, names: Map<string, { label: string; builtin: number }>): string {
+  return roleParts(role).map(k => {
+    const r = names.get(k)
+    return k === 'admin' || !r || r.builtin ? k.toUpperCase() : r.label
+  }).join('、')
+}
+
 export const isAdminRole = (role: string | undefined | null) => roleParts(String(role ?? '')).includes(ADMIN_ROLE)
 
 /**

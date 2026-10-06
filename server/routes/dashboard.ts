@@ -2,6 +2,7 @@ import { cpus, freemem, totalmem } from 'os'
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import { getActiveAuthSessions, getAuthAccount } from '../auth-session.js'
 import { db, getClientIP, getCultivationInfo, getCultivationLeaderboard } from '../shared.js'
+import { roleDisplay, roleNameMap } from '../role-store.js'
 
 export const router = Router()
 
@@ -331,9 +332,13 @@ router.get('/api/dashboard/summary', async (req, res) => {
         systemTotal: formatBytes(workerMemory.systemTotal ?? 0),
       } : null,
     },
-    users: [...presence.values()]
-      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-      .slice(0, 8),
+    users: (() => {
+      const names = roleNameMap(db)
+      return [...presence.values()]
+        .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+        .slice(0, 8)
+        .map(u => ({ ...u, roleLabel: roleDisplay(u.role, names) }))
+    })(),
     tasks: activeHeavyTasks.slice(0, 5),
     events: dashboardEvents.slice(0, 6),
   })

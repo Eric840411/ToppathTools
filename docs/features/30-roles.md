@@ -43,6 +43,7 @@
 
 ### v5.10.4
 - 登入畫面的帳號清單原本直接把 role 轉大寫顯示，自建角色會變成「R_MUV0RVWH2KNI」。`GET /api/accounts` 多回 `roleLabel`：自建角色顯示名稱，內建／管理員維持 QA／PM／OTHER／ADMIN，舊多角色用「、」接
+- v5.27.1：Dashboard 在線使用者列表的角色也直接顯示 key（r_muv0r…，使用者 10/06 回報）。`roleDisplay`／`roleNameMap` 從 routes/accounts.ts 搬到 `server/role-store.ts`，`/api/dashboard` 的 users 多回 `roleLabel`，兩處共用同一份規則
 
 ### 檔案
 | 檔案 | 內容 |

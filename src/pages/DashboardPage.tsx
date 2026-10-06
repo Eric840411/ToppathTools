@@ -63,6 +63,8 @@ type DashboardSummary = {
     userKey: string
     userLabel: string
     role: string
+    /** 角色顯示名稱（自建角色顯示名稱，不顯示 r_xxxx key） */
+    roleLabel?: string
     page: string
     ip: string
     lastSeenAt: number
@@ -346,7 +348,7 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
                     </td>
                     <td><span className="dashboard-page-badge">{user.page}</span></td>
                     <td>{user.ip}</td>
-                    <td><span className="dashboard-chip dashboard-chip--blue">{user.role}</span></td>
+                    <td><span className="dashboard-chip dashboard-chip--blue">{user.roleLabel ?? user.role}</span></td>
                     <td>{formatAgo(user.lastSeenAt, tick)}</td>
                   </tr>
                 ))}
