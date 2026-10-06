@@ -610,3 +610,10 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 **驗證**：
 - `npx tsx shared/meegle-batch-rules.test.ts`（52 項）、`npx tsx server/meegle-workitem.test.ts`（86 項，含兩空間 fixture、預覽後多必填、選項被刪、metadata 讀取失敗）
 - 實開：`npx tsx scripts/meegle-tasktype-live-check.ts`（主機登入、只准測試空間）→ #15244721，回讀任務類型＝BUG、template 自動帶「一般流程」。**正式空間沒有實開過**（只用 fixture 驗 key／option_id）
+
+## 操作手冊（v5.27.3，2026-10-06 使用者要求）
+
+- `docs/manual-meegle/meegle-manual.html`：單檔 HTML（截圖以 webp 內嵌），可直接轉傳；原稿 `manual.src.html`＋截圖 png，重新產生用 `{{名稱}}` 換成 data URI（見 v5.27.3 commit）
+- 截圖：`node scripts/ui-checks/meegle-manual-shots.mjs [create|comment|status|edit|backfill]`，普通版、真 Sheet、真讀 Meegle；**所有寫入請求一律假掉**，結束時列出每個非 GET 請求標「真／假」供核對
+- 同時修正頁面內建「使用說明」：①已沒有整批預設需求／受托人（v5.23.0 移到③批量設定），補任務類型欄與 AI 產生任務名稱
+- 功能改了版面要重拍，不然手冊會跟畫面對不上

@@ -44,7 +44,8 @@ function CreatePane({ isAdmin }: { isAdmin: boolean }) {
         <thead><tr><th>欄名</th><th /><th>用途</th></tr></thead>
         <tbody>
           <tr><td><code>摘要</code> 或 <code>標題</code></td><Req /><td>任務名稱。兩欄都空白的列不能送</td></tr>
-          <tr><td><code>關聯需求</code></td><Opt /><td>填需求名稱或 ID。<b>沒填</b>就用畫面上的「整批預設需求」；<b>填了但找不到／同名多筆</b>那列會被擋，不會改用預設</td></tr>
+          <tr><td><code>關聯需求</code></td><Opt /><td>填需求名稱或 ID（Meegle 必填）。<b>沒填</b>就在③「批量設定」選；<b>填了但找不到／同名多筆</b>那列會被擋，不會改用批量設定的值</td></tr>
+          <tr><td><code>任務類型</code></td><Opt /><td>例如 BUG（Meegle 必填）。沒填就在③「批量設定」選；填了但不是 Meegle 的選項那列會被擋</td></tr>
           <tr><td><code>描述</code></td><Opt /><td>單子的描述</td></tr>
           <tr><td><code>回報者</code>／<code>回報人</code>／<code>填寫人</code></td><Opt /><td>回報者（有其中一個欄名就好）</td></tr>
           <tr><td><code>RD負責人</code>／<code>RD</code></td><Opt /><td>RD 負責人</td></tr>
@@ -53,14 +54,15 @@ function CreatePane({ isAdmin }: { isAdmin: boolean }) {
       </table>
       <ul className="mgd-list">
         <li>人名寫暱稱就好（Dean、zen），一格多人用<b>逗號、頓號或換行</b>分開。第一次出現的名字要在②「人員對照」配一次，之後會記住</li>
-        <li><b>受托人、Code Review</b> Sheet 沒有欄位：在①選整批預設，③可以逐列改</li>
+        <li><b>受托人、Code Review</b> Sheet 沒有欄位：在③勾選列後用「批量設定」填</li>
         <li>「進度」欄不會被讀（不等於 Meegle 狀態）</li>
       </ul>
     </div>
     <div className="mgd-col">
       <Sec icon="options">畫面上的選項會怎樣</Sec>
       <ul className="mgd-list">
-        <li><b>整批預設需求</b>：Sheet「關聯需求」空白的列用它</li>
+        <li><b>③ 批量設定</b>：先勾列，再選關聯需求、任務類型、人員或其他欄位（優先順序、時間、Gitlab…）→「套用到已勾選的列」；留空的不改</li>
+        <li><b>③ AI 產生任務名稱</b>：選內容欄給 AI 讀、可加前綴欄組成 [值1][值2]；產生後可直接改，「還原」回到 Sheet 摘要</li>
         <li><b>開單後推到</b>：選了就開完單接著推到那個狀態；<b>不選＝不推</b>，停在初始狀態</li>
         {isAdmin && <li><b>Meegle 空間</b>（只有管理員看得到）：測試或正式。正式送出前會再確認一次；同一份 Sheet 只能用一個空間</li>}
         <li>③ 預覽：之前開過的列標「已開過」不會重開；被擋的列寫出原因</li>
@@ -71,7 +73,7 @@ function CreatePane({ isAdmin }: { isAdmin: boolean }) {
           <thead><tr><th>摘要</th><th>關聯需求</th><th>回報者</th><th>RD</th><th>QA驗證人員</th></tr></thead>
           <tbody>
             <tr><td>[OSM] 彈窗按鈕改為 Confirm</td><td>OSM 10 月版本</td><td>Dean</td><td>zen</td><td>Tim, Siara</td></tr>
-            <tr><td>[OSM] 匯出報表欄位錯位</td><td className="mgd-opt">（空白→用預設）</td><td>Dean</td><td>James Chang</td><td>Tim</td></tr>
+            <tr><td>[OSM] 匯出報表欄位錯位</td><td className="mgd-opt">（空白→③批量設定）</td><td>Dean</td><td>James Chang</td><td>Tim</td></tr>
           </tbody>
         </table>
       </div>

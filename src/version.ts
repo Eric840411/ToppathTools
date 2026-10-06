@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.27.2'
+export const APP_VERSION = '5.27.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.27.3', date: '2026-10-06', changes: ['docs(Meegle 開單使用說明)：頁面內建說明還寫「在①選整批預設需求／受托人」（v5.23.0 已移到③批量設定）——改成③批量設定、補「任務類型」欄與 AI 產生任務名稱；另做一份附截圖的操作手冊（docs/manual-meegle/，截圖腳本 scripts/ui-checks/meegle-manual-shots.mjs，寫入一律假掉）'] },
   { version: '5.27.2', date: '2026-10-06', changes: ['fix(操作歷史)：Meegle 狀態／修改／補回填／綁定，以及 AutoSpin、Live Ledger、週報、Lark 通知、Meter／Egm DayCount 對帳的紀錄顯示成原始代號（meegle-batch-status…）、也沒有篩選按鈕——篩選按鈕改成直接用名稱表產生，補齊名稱；build 多一道檢查：server 有寫的歷史 key 頁面一定要有名稱'] },
   { version: '5.27.1', date: '2026-10-06', changes: ['fix(Dashboard)：在線使用者列表的「角色」顯示自建角色的 key（r_muv0r…），改成顯示角色名稱；跟登入畫面共用同一個顯示規則（搬到 server/role-store.ts 的 roleDisplay）'] },
   { version: '5.27.0', date: '2026-10-06', changes: ['change(週報)：**撈 Meegle 的單，專案改看「關聯需求」**（原本看標題第一個中括號，[QA]／[Client]／[後端] 都對不到專案）——「P7-002 系統Bug」對到 Base 的「P7-002-系統Bug」；名稱不同時用編號（P7-043）找，同編號只有一個帶名稱的選項才用；對不到一樣標未選專案。沒有關聯需求的舊單才用標題中括號', 'fix(週報)：**固定撈 Meegle 正式空間**——原本沒指定空間，server 沒設定時預設是測試空間（本機實測同一週測試 37 筆、多是「工具測試請忽略」，正式 22 筆）；單號兩個空間共用流水號，事後分不出來', '⚠️ CodeX 用量到上限，使用者確認後先做、事後補審'] },

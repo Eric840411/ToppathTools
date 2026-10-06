@@ -1,0 +1,281 @@
+<title>Meegle 批量工具手冊</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --ground: #f3f5f9;
+  --paper: #ffffff;
+  --ink: #16213a;
+  --ink-2: #4a5876;
+  --rule: #d9dfeb;
+  --accent: #2563d6;
+  --accent-soft: #e5eefc;
+  --ok: #138a52;
+  --ok-soft: #e3f5ec;
+  --warn: #a96300;
+  --warn-soft: #fdf1dc;
+  --bad: #c2353a;
+  --code: #eef1f7;
+  --shot-edge: #1b2740;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1424; --paper: #131c30; --ink: #e6ecf7; --ink-2: #a3b0c8; --rule: #26324b;
+    --accent: #6aa2ff; --accent-soft: #1a2b4d; --ok: #4fd08f; --ok-soft: #12301f; --warn: #f2b34d; --warn-soft: #33260f;
+    --bad: #ff8086; --code: #1b2640; --shot-edge: #33415f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0d1424; --paper: #131c30; --ink: #e6ecf7; --ink-2: #a3b0c8; --rule: #26324b;
+  --accent: #6aa2ff; --accent-soft: #1a2b4d; --ok: #4fd08f; --ok-soft: #12301f; --warn: #f2b34d; --warn-soft: #33260f;
+  --bad: #ff8086; --code: #1b2640; --shot-edge: #33415f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif; font-size: 15.5px; line-height: 1.75; padding-inline: 16px; padding-block: 0 64px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; gap: 0; } .toc { position: static !important; } }
+code, .mono { font-family: "IBM Plex Mono", Consolas, monospace; font-size: .88em; }
+code { background: var(--code); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.3; margin: 0; }
+p { margin: 0; max-width: 68ch; }
+
+header.top { max-width: 1120px; margin: 0 auto; padding-block: 40px 28px; border-bottom: 1px solid var(--rule); margin-bottom: 32px; }
+.eyebrow { font-size: 12px; letter-spacing: .14em; color: var(--accent); font-weight: 700; }
+header.top h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; margin-top: 6px; }
+header.top p { color: var(--ink-2); margin-top: 10px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; font-size: 13px; color: var(--ink-2); }
+
+.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; font-size: 14px; }
+.toc b { display: block; font-size: 12px; letter-spacing: .12em; color: var(--ink-2); margin-bottom: 8px; }
+.toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.toc a { color: var(--ink); text-decoration: none; display: block; padding: 4px 10px; border-left: 2px solid var(--rule); }
+.toc a:hover, .toc a:focus-visible { border-left-color: var(--accent); color: var(--accent); outline: none; }
+.toc .sub a { padding-left: 22px; font-size: 13px; color: var(--ink-2); }
+
+main { display: grid; gap: 56px; min-width: 0; }
+section > h2 { font-size: 24px; font-weight: 900; padding-bottom: 10px; border-bottom: 2px solid var(--ink); margin-bottom: 18px; }
+section > .lead { color: var(--ink-2); margin-bottom: 20px; }
+h3 { font-size: 18px; font-weight: 700; margin: 30px 0 10px; display: flex; align-items: baseline; gap: 10px; }
+h3 .n { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--paper); background: var(--accent); border-radius: 4px; padding: 1px 7px; font-weight: 500; }
+
+.path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 14px; font-size: 13.5px; }
+.path span { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 10px; font-weight: 500; }
+.path i { font-style: normal; color: var(--ink-2); }
+.path .last { border-color: var(--accent); color: var(--accent); }
+
+figure { margin: 14px 0 6px; }
+figure img { display: block; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--shot-edge); border-radius: 8px; }
+figure.narrow img { max-width: 760px; }
+figcaption { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+
+ul.steps { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; max-width: 72ch; }
+.table-wrap { overflow-x: auto; margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; min-width: 520px; background: var(--paper); font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12.5px; color: var(--ink-2); font-weight: 700; letter-spacing: .04em; background: var(--code); }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; }
+.tag.req { background: var(--accent-soft); color: var(--accent); }
+.tag.opt { background: var(--code); color: var(--ink-2); }
+
+.note { border: 1px solid var(--rule); background: var(--paper); border-radius: 8px; padding: 12px 16px; margin: 14px 0; max-width: 78ch; }
+.note b:first-child { margin-right: 6px; }
+.note.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--rule)); background: var(--warn-soft); }
+.note.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--rule)); background: var(--ok-soft); }
+.wb { font-size: 14px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+a { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<header class="top">
+  <div class="eyebrow">TOPPATH TOOLS · 操作手冊</div>
+  <h1>Meegle 批量工具</h1>
+  <p>從 Lark Sheet 一次對 Meegle 任務項開單、加評論、改狀態、改欄位，做完自動回寫 Sheet。這份手冊照實際畫面一步一步走。</p>
+  <div class="meta"><span>版本 v5.27.x</span><span>更新 2026-10-06</span><span>截圖為普通版；修仙版位置相同、只換配色</span></div>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="目錄">
+    <b>目錄</b>
+    <ol>
+      <li><a href="#prep">開始之前</a></li>
+      <li><a href="#entry">入口在哪</a></li>
+      <li><a href="#create">開單</a></li>
+      <li class="sub"><a href="#create-1">① 讀取</a></li>
+      <li class="sub"><a href="#create-2">② 人員對照</a></li>
+      <li class="sub"><a href="#create-3">③ 預覽與勾選</a></li>
+      <li class="sub"><a href="#create-4">④ 送出結果</a></li>
+      <li><a href="#comment">評論</a></li>
+      <li><a href="#status">更新狀態</a></li>
+      <li><a href="#edit">修改欄位</a></li>
+      <li><a href="#backfill">補回填</a></li>
+      <li><a href="#faq">常見狀況</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="prep">
+      <h2>開始之前</h2>
+      <p class="lead">兩件事做一次就好。</p>
+      <h3>綁定自己的 Meegle</h3>
+      <p>工具會用<strong>你本人的 Meegle 身分</strong>開單、評論、改狀態，所以第一次要把 Meegle 的 Token 貼進來。</p>
+      <div class="path"><span>側欄</span><i>›</i><span>個人帳號</span><i>›</i><span class="last">Meegle 綁定</span></div>
+      <ul class="steps">
+        <li>在 Lark 開啟 <strong>Meegle</strong>，首頁「MCP &amp; CLI」卡片 → <strong>MCP 設定</strong></li>
+        <li>切到 <code>HTTP Header</code> 分頁，按「複製 Token」，貼到個人帳號頁的 Meegle 綁定</li>
+        <li>Token 等同你的 Meegle 身分，不要貼到聊天室。本站加密保存，綁定後不會再顯示</li>
+      </ul>
+      <div class="note">沒綁定時打開批量工具，頁面會直接出現「還沒綁定 Meegle」的提示卡，按「前往綁定 →」就會帶你過去。</div>
+      <h3>準備 Lark Sheet</h3>
+      <p>工具用<strong>欄名</strong>找欄位，欄名要<strong>一字不差</strong>（前後多一個空白也對不到）。每個工具需要的欄位寫在各自那一節；做完會在 Sheet 上自動加這幾欄（沒有就加在最右邊）：</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>回寫欄</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td><code>Meegle 單號</code></td><td>#單號（可點連結）。評論、狀態、修改都靠這欄認單</td></tr>
+          <tr><td><code>處理階段</code></td><td>做到哪：已開單（Meegle）／添加評論／已切換狀態／已修改欄位</td></tr>
+          <tr><td><code>處理時間</code></td><td>寫回的時間</td></tr>
+          <tr><td><code>單子標題貼這</code></td><td>開單時寫「#單號＋任務名稱」；已經有別張單就不覆蓋</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="entry">
+      <h2>入口在哪</h2>
+      <div class="path"><span>側欄</span><i>›</i><span>Meegle 批量工具</span><i>（修仙版叫「卷宗管理」）</i><i>›</i><span class="last">上方分頁</span></div>
+      <figure><img src="{{00-entry}}" alt="Meegle 批量工具入口：側欄與上方五個分頁"><figcaption>上方五個分頁：開單、評論、狀態、修改、補回填。每個分頁下方都有可收合的「使用說明」。</figcaption></figure>
+      <div class="note"><b>空間</b>「Meegle 空間：測試／正式」那條<strong>只有管理員看得到</strong>。一般帳號一律送到正式空間，不用選。</div>
+    </section>
+
+    <section id="create">
+      <h2>開單</h2>
+      <p class="lead">Sheet 每一列開成一張 Meegle 任務項，開完把單號寫回 Sheet。</p>
+      <div class="path"><span>Meegle 批量工具</span><i>›</i><span class="last">Meegle 開單</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Sheet 欄名</th><th></th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>摘要</code> 或 <code>標題</code></td><td><span class="tag req">必填</span></td><td>任務名稱（可以在 ③ 用 AI 重新產生或手改）</td></tr>
+          <tr><td><code>關聯需求</code></td><td><span class="tag opt">選填</span></td><td>需求名稱或 ID；沒填就在 ③ 批量設定選。<strong>Meegle 必填</strong></td></tr>
+          <tr><td><code>任務類型</code></td><td><span class="tag opt">選填</span></td><td>例如 BUG；沒填就在 ③ 批量設定選。<strong>Meegle 必填</strong></td></tr>
+          <tr><td><code>描述</code></td><td><span class="tag opt">選填</span></td><td>單子的描述</td></tr>
+          <tr><td><code>回報者</code>／<code>回報人</code>／<code>填寫人</code></td><td><span class="tag opt">選填</span></td><td>回報者（有其中一欄就好）</td></tr>
+          <tr><td><code>RD負責人</code>／<code>RD</code></td><td><span class="tag opt">選填</span></td><td>RD 負責人</td></tr>
+          <tr><td><code>QA驗證人員</code></td><td><span class="tag opt">選填</span></td><td>可以多人，用逗號、頓號或換行分開</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3 id="create-1"><span class="n">01</span>讀取 Sheet</h3>
+      <p>貼上 Sheet 網址（網址要帶 <code>?sheet=</code> 指定工作表）→ 按「讀取 Sheet」。「開單後推到」選了狀態，開完會接著推過去；不選就停在初始狀態。</p>
+      <figure><img src="{{c1-load}}" alt="開單 ① 讀取 Sheet"></figure>
+
+      <h3 id="create-2"><span class="n">02</span>人員對照</h3>
+      <p>Sheet 上寫的是暱稱（Aaron、Tim），要對到 Meegle 帳號。工具會自動猜，<strong>建議只是預填</strong>，要按「驗證」或「全部確認」才會記住；對照一次以後都會記得。找不到的人直接輸入 email。</p>
+      <figure><img src="{{c2-people}}" alt="開單 ② 人員對照"><figcaption>名單讀取約 20 秒。沒對照的人那個角色會留空，不擋送出。</figcaption></figure>
+
+      <h3 id="create-3"><span class="n">03</span>預覽與勾選</h3>
+      <p>每一列會寫出能不能送、為什麼被擋。剛讀進來通常整片被擋，因為還沒指定關聯需求跟任務類型：</p>
+      <figure><img src="{{c3-preview}}" alt="開單 ③ 一開始被擋的列"></figure>
+      <p style="margin-top:14px"><strong>批量設定</strong>：先勾要開的列 → 按「批量設定」→ 選關聯需求、任務類型（也能設人員、優先順序、時間、Gitlab 等其他欄位，用右上「＋ 新增欄位」挑）→「套用到已勾選的列」。留空的不會改。</p>
+      <figure class="narrow"><img src="{{c3-bulk}}" alt="批量設定面板"></figure>
+      <p style="margin-top:14px"><strong>AI 產生任務名稱</strong>（選用）：選「內容欄」給 AI 讀，可勾「前綴欄」組成 <code>[值1][值2]</code>，面板會用第一個勾選的列顯示範例。產生後可以在表格直接改，「還原」回到 Sheet 原本的摘要。</p>
+      <figure class="narrow"><img src="{{c3-ai}}" alt="AI 產生任務名稱面板"></figure>
+      <p style="margin-top:14px">設定好之後那幾列會變「可送出」，按右下「送出 N 列」：</p>
+      <figure><img src="{{c3-ready}}" alt="開單 ③ 可送出"><figcaption>黃色是警告（例如人員沒對照），仍可送出；紅色才會擋。之前開過的列標「已開過」，不會重開。</figcaption></figure>
+
+      <h3 id="create-4"><span class="n">04</span>送出結果</h3>
+      <p>每一列顯示單號、開單、推狀態、回寫 Sheet 的結果，可以「匯出結果」。回寫失敗的列會有「補寫回」按鈕。</p>
+      <figure><img src="{{c4-result}}" alt="開單 ④ 送出結果"><figcaption>這張圖的結果是模擬資料（截圖時沒有真的開單）。</figcaption></figure>
+    </section>
+
+    <section id="comment">
+      <h2>評論</h2>
+      <p class="lead">對 Sheet 上已有單號的單，整理「測試說明」並發一則評論，圖片、影片一起帶上去。</p>
+      <div class="path"><span>Meegle 批量工具</span><i>›</i><span class="last">Meegle 評論</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Sheet 欄名</th><th></th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>Meegle 單號</code></td><td><span class="tag req">必填</span></td><td>格子第一個字要是 <code>#數字</code>（開單會自動回填）</td></tr>
+          <tr><td>評論內容欄</td><td><span class="tag req">必填</span></td><td>② 選哪一欄當內容（例如「備註」）</td></tr>
+          <tr><td>附件欄</td><td><span class="tag opt">選填</span></td><td>欄名有「附件」或「截圖」會自動選上；圖片嵌進測試說明，影片放成連結</td></tr>
+          <tr><td>填寫人欄</td><td><span class="tag opt">選填</span></td><td>用那個人的身分送（對方要綁定 Meegle、你要有代理授權）；沒有就用你自己</td></tr>
+          <tr><td><code>處理階段</code></td><td><span class="tag opt">選填</span></td><td>空白或「已開單…」的列預設勾選</td></tr>
+        </tbody>
+      </table></div>
+      <h3><span class="n">01</span>讀取與選列</h3>
+      <figure><img src="{{m1-load}}" alt="評論 ① 讀取與選列"></figure>
+      <h3><span class="n">02</span>欄位與身分</h3>
+      <p>選評論內容欄、附件欄；下方會檢查每一列要用誰的身分送、能不能用。</p>
+      <figure><img src="{{m2-fields}}" alt="評論 ② 欄位與身分"></figure>
+      <h3><span class="n">03</span>逐列預覽 → 送出</h3>
+      <p>左邊選列，中間是要寫進 Meegle「測試說明」的內容，右邊是評論。兩邊都可以改；評論預設跟測試說明一樣，手改過評論後就不會再跟著變。</p>
+      <figure><img src="{{m3-preview}}" alt="評論 ③ 逐列預覽"><figcaption>上方紅條提醒：測試說明會<strong>整格覆寫</strong>。不想動測試頁就取消勾「覆寫測試頁」，只發評論。</figcaption></figure>
+    </section>
+
+    <section id="status">
+      <h2>更新狀態</h2>
+      <p class="lead">批量把單轉到某個狀態（例如完成、C服），同時處理上C服時間、上線時間。</p>
+      <div class="path"><span>Meegle 批量工具</span><i>›</i><span class="last">Meegle 狀態</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Sheet 欄名</th><th></th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>Meegle 單號</code></td><td><span class="tag req">必填</span></td><td>同評論</td></tr>
+          <tr><td><code>目標狀態</code></td><td><span class="tag opt">選填</span></td><td>狀態名稱要完全一樣；空白就用整批預設</td></tr>
+          <tr><td>日期欄</td><td><span class="tag opt">選填</span></td><td>選「指定日期」時才用；空白的列保留原值</td></tr>
+        </tbody>
+      </table></div>
+      <h3><span class="n">01</span>讀取與選列</h3>
+      <figure><img src="{{s1-load}}" alt="狀態 ① 讀取與選列"></figure>
+      <h3><span class="n">02</span>狀態與日期</h3>
+      <p>選整批的目標狀態，以及日期怎麼處理：<strong>保留原值</strong>（預設）／用 Meegle 自動帶入的今天／指定日期。優先順序：③ 手改 ＞ Sheet「目標狀態」欄 ＞ 整批預設。</p>
+      <figure><img src="{{s2-target}}" alt="狀態 ② 狀態與日期"></figure>
+      <h3><span class="n">03</span>逐列預覽</h3>
+      <p>每列顯示「目前 → 目標」，可以逐列改目標；右邊是那一列日期的原值 → 預計值。</p>
+      <figure><img src="{{s3-preview}}" alt="狀態 ③ 逐列預覽"></figure>
+      <h3><span class="n">04</span>送出結果</h3>
+      <figure><img src="{{s4-result}}" alt="狀態 ④ 送出結果"><figcaption>模擬資料。Meegle 轉狀態後幾秒會自動改日期，工具會等它跑完再讀回確認；沒看到就標「日期待確認」，可以按「只補日期」。</figcaption></figure>
+    </section>
+
+    <section id="edit">
+      <h2>修改欄位</h2>
+      <p class="lead">批量改已開好的單：名稱、描述（可附圖）、優先順序、人員、嚴重性、日期、開發說明、Gitlab 連結等。</p>
+      <div class="path"><span>Meegle 批量工具</span><i>›</i><span class="last">Meegle 修改</span></div>
+      <h3><span class="n">01</span>讀取與選列</h3>
+      <figure><img src="{{e1-load}}" alt="修改 ① 讀取與選列"></figure>
+      <h3><span class="n">02</span>欄位與人員</h3>
+      <p>每個欄位各自選四種之一：<strong>不修改</strong>／<strong>讀 Sheet 某一欄</strong>／<strong>固定值</strong>／<strong>明確清空</strong>。</p>
+      <figure><img src="{{e2-fields}}" alt="修改 ② 欄位與人員"></figure>
+      <div class="note warn"><b>注意</b>選「Sheet 欄」時，那一格<strong>空白＝不改</strong>，不是清空。真的要清空請選「明確清空」。</div>
+      <h3><span class="n">03</span>預覽 → 送出</h3>
+      <p>每張單列出「原值 → 新值」，可以點鉛筆單列調整。送出前後端會再算一次，Meegle 上的值被別人改過就要重新預覽。</p>
+      <figure><img src="{{e3-preview}}" alt="修改 ③ 預覽"></figure>
+    </section>
+
+    <section id="backfill">
+      <h2>補回填</h2>
+      <p class="lead">Meegle 那邊已經完成、但 Sheet 沒寫回去的列，在這裡補。</p>
+      <div class="path"><span>Meegle 批量工具</span><i>›</i><span class="last">Meegle 補回填</span></div>
+      <div class="grid2">
+        <div class="note"><b>待補清單</b>上面那塊。回寫失敗或卡住的列會自動出現，依 Sheet 分組；勾選後按「補寫回」。自己手動處理好的可以「移出清單」。</div>
+        <div class="note"><b>Sheet 上被清掉的回填</b>下面那塊。回寫成功過、但後來 Sheet 上的單號／處理階段被刪掉的列。貼網址按「掃描」，勾要補的列按「補回」。</div>
+      </div>
+      <figure><img src="{{b1-backfill}}" alt="補回填頁面"><figcaption>「單號格現在是別張單」的列不會覆蓋；不是用開單工具開的單（單號是手打的）沒辦法補單號，請手動填。掃描結果<strong>不預設勾選</strong>——單號被清掉也可能是故意的。</figcaption></figure>
+    </section>
+
+    <section id="faq">
+      <h2>常見狀況</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>看到</th><th>怎麼辦</th></tr></thead>
+        <tbody>
+          <tr><td>還沒綁定 Meegle／綁定已失效</td><td>到個人帳號重新貼 Token（在 Meegle 按過「重置 Token」舊的就失效）</td></tr>
+          <tr><td>被擋：沒有關聯需求／任務類型</td><td>③ 勾那幾列 → 批量設定選好 → 套用；或在 Sheet 補欄位後重新讀取</td></tr>
+          <tr><td>警告：某某未對照</td><td>回 ② 對照那個名字，或不管它（那個角色會留空）</td></tr>
+          <tr><td>已開過</td><td>同一份 Sheet、同一列已經開過單，不會重開</td></tr>
+          <tr><td>回寫失敗：列已變動</td><td>Sheet 插列或刪列了，工具找不到原本那列，所以沒寫。確認 Sheet 後到「補回填」補</td></tr>
+          <tr><td>重複單號</td><td>同一張單出現在兩列，先修 Sheet</td></tr>
+          <tr><td>讀不到某一欄</td><td>欄名要一字不差，檢查前後空白與全形半形</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</div>
