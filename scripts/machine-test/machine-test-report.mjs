@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { classify, STEP_ZH, ROOT } from './machine-test-batch.mjs'
+import { loadIdeckCrop } from './ideck-screen-check.mjs'
 import { toEn } from './machine-test-report-i18n.mjs'
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -33,13 +34,9 @@ export function ideckCropCfg(code) {
   const type = (String(code).split('-').find(p => /^[A-Z]+$/.test(p)) ?? '').toUpperCase()
   if (!type) return null
   if (!ideckCropCache.has(type)) {
-    let cfg = null
-    try {
-      const c = JSON.parse(fs.readFileSync(path.join(ROOT, 'knowledge', 'games', type, 'automation', 'ideck-crop.json'), 'utf8'))
-      const okRect = r => r && ['x', 'y', 'w', 'h'].every(k => typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) && r.w > 0 && r.h > 0 && r.x + r.w <= 1.0001 && r.y + r.h <= 1.0001
-      if (okRect(c.area) && okRect(c.bar)) cfg = { area: c.area, bar: c.bar, barScale: Math.min(6, Math.max(1, Number(c.barScale) || 3)) }
-    } catch { /* 沒有設定或格式壞掉 → 整張 */ }
-    ideckCropCache.set(type, cfg)
+    // 讀設定跟 batch 的 iDeck 反應判定共用一支（ideck-screen-check.mjs），不另外寫一份
+    const c = loadIdeckCrop(ROOT, type)
+    ideckCropCache.set(type, c && c.area && c.bar ? { area: c.area, bar: c.bar, barScale: c.barScale } : null)
   }
   return ideckCropCache.get(type)
 }

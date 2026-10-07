@@ -23,6 +23,7 @@
 //
 // 輸出：reports/machine-test-<sessionId>/{summary.json, report.html}，最後一行印 `SUMMARY <path>`
 
+import { evaluateIdeckScreens, loadIdeckCrop } from './ideck-screen-check.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -365,16 +366,69 @@ export function gameRules(type) {
   }
   return gameRulesCache.get(type)
 }
+// ── iDeck 機台反應證據（1007 主使用者抓到：server 全部回應、機台底部列完全沒變也判 PASS）────────────
+// 規則 osm-qa-agent 實測＋CodeX 定案，見 ideck-screen-check.mjs 與 docs/features/04-machine-test.md：
+//   ① 已校準機種（ideck-crop.json 有 credit／marker／bet）：面額、注額分組，整組最大差異都低於門檻 → FAIL ideck no response；
+//      缺圖／讀圖失敗 → 未驗；超過門檻只代表沒觸發攔截
+//   ② 「iDeck 開局 0 顆」：沒有其他機台反應證據就是未驗（不能 PASS）。ideck-timing.json confirmed 的不開局按鈕只豁免「要開局」，
+//      畫面反應仍要驗（CodeX）——所以全部 confirmed 不開局、又沒有校準過畫面的機種會是未驗
+//   ③ 既有 FAIL 不會被未驗蓋掉
+const ideckTimingCache = new Map()
+export function ideckConfirmedNoRound(type) {
+  if (!ideckTimingCache.has(type)) {
+    let set = null
+    try {
+      const t = JSON.parse(fs.readFileSync(path.join(gameDir(type), 'ideck-timing.json'), 'utf8'))
+      if (t.status === 'confirmed' && Array.isArray(t.noRoundButtons)) set = new Set(t.noRoundButtons)
+    } catch { /* 沒有學習值 */ }
+    ideckTimingCache.set(type, set)
+  }
+  return ideckTimingCache.get(type)
+}
+const ideckScreenCache = new WeakMap()
+export function ideckScreenVerdict(step, type) {
+  if (ideckScreenCache.has(step)) return ideckScreenCache.get(step)
+  let shots = [], expected = []
+  try { shots = JSON.parse(step.extraData?.ideckShots ?? '[]') } catch { /* 舊版 agent */ }
+  try { expected = (JSON.parse(step.extraData?.learn ?? '{}').actions ?? []).map(a => a.name).filter(Boolean) } catch { /* 舊版 agent */ }
+  const v = evaluateIdeckScreens({ expected, shots, crop: loadIdeckCrop(ROOT, type) })
+  ideckScreenCache.set(step, v)
+  return v
+}
+function applyIdeckEvidence(s, type) {
+  if (s.step !== 'iDeck 測試' || (s.status !== 'pass' && s.status !== 'warn')) return s
+  const m = String(s.message ?? '')
+  const screen = ideckScreenVerdict(s, type)
+  if (screen.kind === 'no-response') return { ...s, status: 'fail', message: `${m}｜判定：no response（機台畫面沒反應：${screen.why}）` }
+  if (screen.kind === 'unverified') return { ...s, status: 'skip', message: `${m}｜未驗：機台反應證據不足（${screen.why}）` }
+  const rounds = Number(m.match(/iDeck 開局 (\d+) 顆/)?.[1] ?? NaN)
+  if (rounds === 0) {
+    let names = []
+    try { names = (JSON.parse(s.extraData?.learn ?? '{}').actions ?? []).map(a => a.name) } catch { /* 舊版 agent */ }
+    const conf = ideckConfirmedNoRound(type)
+    const allConfirmed = !!conf && names.length > 0 && names.every(n => n && conf.has(n))
+    if (screen.kind === 'reacted' && allConfirmed) return s
+    return { ...s, status: 'skip', message: `${m}｜未驗：iDeck 開局 0 顆，沒有機台反應的證據${allConfirmed ? '（按鈕都是已確認不開局，但這個機種畫面還沒校準）' : ''}` }
+  }
+  return s
+}
 export function applyGameRules(result) {
   const type = String(result?.machineCode ?? '').split('-')[1]?.toUpperCase()
   const rules = gameRules(type)
-  if (!Array.isArray(result?.steps) || !(rules.ideckNoRoundIsNoResponse || rules.noMenuGate)) return result
+  if (!Array.isArray(result?.steps)) return result
   return {
     ...result,
-    steps: result.steps.map(s => {
+    steps: result.steps.map(s0 => {
+      let s = s0
       const m = String(s.message ?? '')
       if (rules.ideckNoRoundIsNoResponse && s.step === 'iDeck 測試' && (s.status === 'pass' || s.status === 'warn') && /iDeck 開局 0 顆/.test(m))
         return { ...s, status: 'fail', message: `${m}｜判定：no response（${type} 機種規則：會開局的鍵都沒開局）` }
+      s = applyIdeckEvidence(s, type)
+      if (s !== s0) return s
+      // 1007 osm-qa-agent（SUPERBURSTLINK 0359）：選單閘門確認機台停在選面額選單、又沒有關選單的方法 → runner 判「選單狀態未知」只記 WARN，
+      // Spin 其實沒測到。選單**確實開著**（閘門比對到參考圖、前端選面額後仍開著）就改成未驗，不能算通過；既有 FAIL 不動
+      if (s.step === 'Spin 測試' && s.status !== 'fail' && /前端選面額等 \d+ 秒選單仍開著/.test(m))
+        return { ...s, status: 'skip', message: `${m}｜未驗：機台停在選面額選單，Spin 沒有真的測到` }
       // noMenuGate：這個機種沒有選面額選單 → runner 的「選單狀態未知」不構成懷疑理由，
       // 按了 SPIN、餘額沒變、moneyNtc begin 0 次就是 spin no response（有 begin 的照舊不算）
       if (rules.noMenuGate && s.step === 'Spin 測試' && /選單狀態未知/.test(m))

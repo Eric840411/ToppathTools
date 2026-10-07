@@ -436,3 +436,31 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 程式：`machine-test-report.mjs` 的 `ideckCropCfg`／`ideckFigure`（PIL 裁切）。資料根目錄沿用 batch 的 `ROOT`（MT_HOME），從 batch export，不另外寫一份
 - 驗證：用 0345 的真截圖渲染過，紅框看得到 CREDIT／WIN／BET 和 P5／P1／P2 標記；沒有設定的機種是整張
 - 截圖本身是 page 截圖（約 428 寬），放大只是把像素放大，不會變清楚
+
+## iDeck 機台反應證據＋SUPERBURSTLINK 選單閘門（v5.31.2，2026-10-07 主使用者抓到、osm-qa-agent 實測、CodeX 定案）
+- **漏洞**：iDeck 只看 server 有沒有全部回應，機台畫面沒變也判 PASS。SUPERBURSTLINK 那批（w66du）有 8 台按完 10 顆，底部列完全沒變、開局 0 顆，卻全是 PASS
+- **判定放在 batch**（`applyGameRules`，裁切設定只有 batch 拿得到），在回寫之前就判。共用模組是 `scripts/machine-test/ideck-screen-check.mjs`，report 讀裁切設定也改用它
+  - ① **已校準的機種**：ideck-crop.json 要有 credit／marker／bet 子區塊，避開 WIN 數字的動畫
+    - 面額鍵（DenomN）看 credit 和 marker，**兩塊各算比例**；注額鍵（BetN）看 bet。兩組分開判，一組有動也不能掩蓋另一組失效
+    - 每組以第一張為基準，其餘每張都跟它比，取最大值；最大值低於門檻 → FAIL「ideck no response」
+    - 超過門檻只代表沒觸發這道攔截，**不代表通過**
+    - 原尺寸、固定公式：|ΔR|+|ΔG|+|ΔB| > 60 的像素比例
+    - 門檻：面額 8%、注額 5%，可以在 ideck-crop.json 用 denomThreshold／betThreshold 覆寫
+  - ② 預期要按的按鈕缺圖、圖檔讀不了、或一組只有一顆按鈕 → **未驗**
+  - ③ 「iDeck 開局 0 顆」又沒有其他機台反應證據 → 未驗，不能 PASS
+    - ideck-timing.json 裡 confirmed 的不開局按鈕只豁免「要開局」這個要求，畫面反應還是要驗（CodeX）
+    - ⚠️ 所以 JJBXGRAND 這種全部 confirmed 不開局、畫面又還沒校準的機種，iDeck 會是未驗，要等量好子區塊才會恢復
+  - ④ 已經是 FAIL 的不會被未驗蓋掉；ARUZE 原本的 ideckNoRoundIsNoResponse 規則照舊
+- **校準**（w66du 那批 18 台，原尺寸）：
+  - 有反應：面額 12.5～13.9%、注額 8.2～23.3%
+  - 沒反應：面額 2.3～6.3%、注額 0.7～4.1%
+  - 判出來是 0346／0347／0353／0355／0356／0359／0361／0362 這 8 台沒反應，跟人工判讀一致
+  - 曾經試過、會跟正常機台重疊的做法：整條 bar（WIN 有動畫）、相鄰兩張互比、3 倍放大後再比。這三種都不用
+- **SUPERBURSTLINK 選單閘門**（knowledge `games/SUPERBURSTLINK/automation/machine-test.json` 的 menuGate 與 menu-ref.png）：
+  - 參考圖是 0359 卡在 SELECT DENOMINATION 時的 main 推流，237×422，取自 iDeck 截圖、只裁推流框。osm 原本給的整頁截圖不能用，因為上面蓋了前端的「Inserting credits」遮罩
+  - 比對區 [0.12,0.735,0.88,0.85]。用 runner 的 regionDiff（門檻 0.2）驗過：0359、0362 是 0.000，同批另外 16 台 ≥ 0.449
+  - taps 先留空，還不知道怎麼關這個選單
+  - batch 新增規則：Spin 訊息裡有「前端選面額等 N 秒選單仍開著」（閘門確認選單是開著的、又關不掉）→ Spin 改成**未驗**。原本只記 WARN 就過了；已經是 FAIL 的不動
+- 驗證：`node scripts/ui-checks/ideck-screen-check.test.mjs`，用合成 PNG 跑 16 條，涵蓋兩組分開判、只有 marker 變、缺圖、圖檔壞掉、開局 0 顆、既有 FAIL、Spin 卡選單
+- 第二期（還沒做，CodeX 同意方向）：runner 每一顆都拍按前、按後的穩定圖（要有收斂條件和逾時，逾時算未驗），初始圖也要帶進來，改成逐顆比對
+
