@@ -167,3 +167,20 @@ export const NEVER_BLOCK_IN_PAGE = (rules) => {
   }
   for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'touchstart', 'touchend']) window.addEventListener(type, stop, { capture: true, passive: false })
 }
+
+/**
+ * 頁面內：元素所在的提示框（最外層那個，跟 POPUP_SNAPSHOT_IN_PAGE 一樣）＋按鈕字（給 el.evaluate 用）。
+ * ⚠️ 放在 .js 不放 runner.ts：tsx 會把 TS 裡具名的箭頭函式包成 __name(...)，頁面裡沒有 __name → evaluate 丟錯被吞掉、檢查整個失效
+ */
+export const ELEMENT_BOX_INFO_IN_PAGE = (node, { probe, boxSel }) => {
+  let box = null
+  for (let e = node; e; e = e.parentElement) { try { if (e.matches(boxSel)) box = e } catch { /* bad selector */ } }
+  const btn = node.closest('button,[class*=btn],a') ?? node
+  const has = sel => { try { return !!box && (box.matches(sel) || !!box.querySelector(sel)) } catch { return false } }
+  return {
+    text: (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+    selectors: probe.filter(s => { try { return !!node.closest(s) } catch { return false } }),
+    boxText: box ? (box.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 300) : '',
+    boxSelectors: probe.filter(has), inBox: !!box,
+  }
+}

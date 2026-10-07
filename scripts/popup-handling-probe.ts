@@ -178,6 +178,92 @@ try {
   await g.scan({ act: true, why: '同步' })
   ok((await ran(page)).includes('cashout'), '退出時 Cash out credit → 按 Confirm')
   detachPopupGuard(page)
+  // ── CodeX 56e3d1b 回歸 ──
+  const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p.then(v => ({ v, timeout: false })), sleep(ms).then(() => ({ v: undefined as T | undefined, timeout: true }))])
+  // 10. [P1] 面額框：scan（持鎖）→ dismissDenomOverlay → uiAct 不能互等
+  await setup(page, `<script>
+    function pickDenom(el){ __ran.push('denom'); el.parentNode.innerHTML = '<div class="my-button" style="width:80px;height:40px" onclick="pickYes()">YES</div><div class="my-button" style="width:80px;height:40px" onclick="pickNo()">NO</div>' }
+    function pickYes(){ __ran.push('yes'); document.querySelector('.select-main').remove() }
+    function pickNo(){ __ran.push('no') }
+  </script><div class="select-main" style="position:fixed;left:20px;top:100px;width:380px;height:400px;background:#333">
+    <div class="select-btn" style="width:100px;height:40px" onclick="pickDenom(this)">1</div></div>`)
+  g = attachPopupGuard(page, emit, 'probe-10')
+  const r10 = await within(g.scan({ act: true, why: '同步' }), 8000)
+  ok(!r10.timeout, '[P1] 面額框在 scan 裡關 → 沒有死鎖', r10.timeout ? 'timeout' : 'ok')
+  ok(JSON.stringify(await ran(page)) === '["denom","yes"]', '面額兩階段：選面額 → YES（不按 NO）', await ran(page))
+  const sp10 = await page.$('.spin-btn')
+  const r10b = await within(uiAct(page, 'game', 'SPIN', sp10, () => sp10!.click({ timeout: 1000 })), 3000)
+  ok(!r10b.timeout && r10b.v === 'clicked', '之後的 SPIN 還拿得到鎖', r10b.v ?? 'timeout')
+  detachPopupGuard(page)
+
+  // 11. [P1] 退出的 Confirm 不能按到未知框
+  await setup(page, BOX('Brand new mystery box', `<button class="box-btn_text2" onclick="__ran.push('mystery-confirm')">Confirm</button>`))
+  g = attachPopupGuard(page, emit, 'probe-11')
+  await g.scan({ act: true, why: '同步' })
+  g.phase = 'exit'
+  const c11 = await page.$('text=Confirm')
+  ok((await uiAct(page, 'exit', '退出 Confirm', c11, () => c11!.click({ timeout: 1000 }))) === 'blocked' && !(await ran(page)).includes('mystery-confirm'), '[P1] 退出時未知框裡的 Confirm → blocked、handler 沒跑')
+  detachPopupGuard(page)
+  // 框外的 Confirm、但畫面上有未知框 → 也不按
+  await setup(page, BOX('Brand new mystery box', '') + `<button class="loose" style="position:absolute;left:10px;top:10px;width:90px;height:30px" onclick="__ran.push('loose')">Confirm</button>`)
+  g = attachPopupGuard(page, emit, 'probe-11b')
+  await g.scan({ act: true, why: '同步' })
+  const c11b = await page.$('.loose')
+  ok((await uiAct(page, 'exit', '退出 Confirm', c11b, () => c11b!.click({ timeout: 1000 }))) === 'blocked' && !(await ran(page)).includes('loose'), '畫面有未知框時，框外的 Confirm → blocked')
+  detachPopupGuard(page)
+  // 已辨識的退出框（Cash out credit）→ 退出時照按
+  await setup(page, BOX('Tips Cash out credit: 1,999,736', `<button class="box-btn_text2" onclick="__ran.push('cashout')">Confirm</button>`))
+  g = attachPopupGuard(page, emit, 'probe-11c')
+  g.phase = 'exit'
+  const c11c = await page.$('text=Confirm')
+  ok((await uiAct(page, 'exit', '退出 Confirm', c11c, () => c11c!.click({ timeout: 1000 }))) === 'clicked' && (await ran(page)).includes('cashout'), '退出時 Cash out credit 框的 Confirm → 照按')
+  // stop 類的框（別處登入）→ 退出也不按它的 Confirm
+  await setup(page, BOX('Your account is logged in from another device', `<button class="box-btn_text2" onclick="__ran.push('od')">Confirm</button>`))
+  const c11d = await page.$('text=Confirm')
+  ok((await uiAct(page, 'exit', '退出 Confirm', c11d, () => c11d!.click({ timeout: 1000 }))) === 'blocked' && !(await ran(page)).includes('od'), 'stop 類的框 → 退出的 Confirm 也不按')
+  detachPopupGuard(page)
+
+  // 12. [P2] 退出前等未知框：消失就放行；一直在就等到 30 秒門檻
+  await setup(page, BOX('Brand new mystery box', ''))
+  g = attachPopupGuard(page, emit, 'probe-12')
+  await g.scan({ act: true, why: '同步' })
+  setTimeout(() => { void page.evaluate(() => document.querySelector('.box-content')?.remove()) }, 300)
+  const r12 = await within(g.settleUnknown(() => false, 100), 5000)
+  ok(!r12.timeout && !g.unknown, '[P2] 未知框退出前消失 → 解除、不判定')
+  await setup(page, BOX('Brand new mystery box', ''))
+  await g.scan({ act: true, why: '同步' })
+  g.unknown!.since = Date.now() - 29_500
+  const r12b = await within(g.settleUnknown(() => false, 100), 5000)
+  ok(!r12b.timeout && g.unknownExpired(), '[P2] 未知框一直在 → 等到滿 30 秒才往下（之後 popupStepBlock 記 unknown popup）')
+  const stopFlag = { v: false }
+  g.unknown!.since = Date.now()
+  setTimeout(() => { stopFlag.v = true }, 300)
+  const r12c = await within(g.settleUnknown(() => stopFlag.v, 100), 3000)
+  ok(!r12c.timeout, '[P2] 等的期間按停止 → 立刻不等')
+  detachPopupGuard(page)
+
+  // 13. 背景計時器在鎖裡啟動，也不能繼承鎖（不然會插隊）
+  await setup(page, '')
+  g = attachPopupGuard(page, emit, 'probe-13')
+  await g.withLock(async () => { g.startWatch(30) })
+  const order13: string[] = []
+  const sp13 = await page.$('.spin-btn')
+  await uiAct(page, 'game', 'SPIN（慢）', sp13, async () => {
+    await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', `<div class="box-content"><div class="box-title">Do you want to reserve this machine?</div><span class="btn-close" onclick="__ran.push('x');this.parentNode.remove()">X</span></div>`) })
+    await sleep(250)
+    order13.push(`fn-end:${(await ran(page)).includes('x')}`)
+  })
+  await sleep(150)
+  ok(order13[0] === 'fn-end:false' && (await ran(page)).includes('x'), '鎖裡啟動的背景掃描 → 仍然排隊，不插隊', order13)
+  detachPopupGuard(page)
+
+  // 14. CCTV 前的 Lucky hour bonus：只按它自己框裡的 Confirm（旁邊的 Cash out 框不碰）
+  await setup(page, BOX('Tips Lucky hour bonus has been transferred to the machine', `<span class="box-btn_text2" onclick="__ran.push('lhb');this.parentNode.remove()">Confirm</span>`)
+    + `<div class="my-dialog" style="position:fixed;left:24px;top:480px;width:380px;height:200px;background:#432;color:#fff"><div>Cash out credit: 1,000</div><span class="box-btn_text2" onclick="__ran.push('cashout')">Confirm</span></div>`)
+  g = attachPopupGuard(page, emit, 'probe-14')
+  await g.scan({ act: true, why: 'CCTV 前' })
+  ok(JSON.stringify(await ran(page)) === '["lhb"]', 'Lucky hour bonus → 只按它的 Confirm、Cash out 不碰', await ran(page))
+  detachPopupGuard(page)
 } finally {
   await browser.close()
 }

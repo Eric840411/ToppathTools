@@ -11,13 +11,14 @@
  */
 
 import { EventEmitter } from 'events'
+import { AsyncLocalStorage } from 'async_hooks'
 import { spawn } from 'child_process'
 import { readFileSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs'
 import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED } from '../uat-runner/popup-catalog.js'
+import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
@@ -1004,9 +1005,16 @@ export class PopupGuard {
   private shots = 0
   private timer: ReturnType<typeof setInterval> | null = null
   constructor(readonly page: Page, private emit: (msg: string) => void, private file: string) {}
-  /** 操作鎖：背景掃描與步驟點擊序列化（CodeX：拿鎖後重查才點） */
+  /**
+   * 操作鎖：背景掃描與步驟點擊序列化（CodeX：拿鎖後重查才點）。
+   * **可重入**（CodeX 56e3d1b P1）：已經在這把鎖裡（例 scan 關面額 → dismissDenomOverlay → uiAct）就直接執行，
+   * 不再排隊等自己——原本會互等死鎖，連退出都卡住。用 AsyncLocalStorage 認「是不是同一串呼叫」
+   */
+  private held = new AsyncLocalStorage<PopupGuard>()
   withLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.tail.then(fn, fn)
+    if (this.held.getStore() === this) return fn()
+    const inner = () => this.held.run(this, fn)
+    const run = this.tail.then(inner, inner)
     this.tail = run.catch(() => {})
     return run
   }
@@ -1017,6 +1025,13 @@ export class PopupGuard {
     return null
   }
   unknownExpired(now = Date.now()): boolean { return !!this.unknown && now - this.unknown.since >= 30_000 }
+  /** 退出前：未知框還沒滿 30 秒 → 每 stepMs 重查，直到框消失、滿 30 秒、或使用者停止（CodeX 56e3d1b P2） */
+  async settleUnknown(stopped: () => boolean, stepMs = 2000): Promise<void> {
+    while (!stopped() && this.unknown && !this.unknownExpired()) {
+      await sleep(stepMs)
+      await this.scan({ act: true, why: '退出前等未知框' }).catch(() => {})
+    }
+  }
   note(msg: string) { if (!this.seen.has(msg)) { this.seen.add(msg); this.pending.push(msg); this.emit(msg) } }
   drain(): string { const s = this.pending.join('｜'); this.pending = []; return s }
   pause() { this.paused++ }
@@ -1024,7 +1039,8 @@ export class PopupGuard {
   async resume() { this.paused = Math.max(0, this.paused - 1); if (!this.paused) await this.scan({ act: true, why: '擷取後補掃' }).catch(() => {}) }
   startWatch(intervalMs = 2000) {
     if (this.timer) return
-    this.timer = setInterval(() => { if (!this.paused) void this.scan({ act: true, why: '背景' }).catch(() => {}) }, intervalMs)
+    // exit()：計時器不繼承建立當下的鎖上下文（不然背景掃描會被當成「已在鎖裡」直接插隊）
+    this.timer = this.held.exit(() => setInterval(() => { if (!this.paused) void this.scan({ act: true, why: '背景' }).catch(() => {}) }, intervalMs))
   }
   stopWatch() { if (this.timer) clearInterval(this.timer); this.timer = null }
   /** 掃一次。act＝要不要點 close／ack（背景與同步都會點，但都在鎖裡、點之前重查） */
@@ -1125,17 +1141,36 @@ async function describeCover(el: ElementHandle | null): Promise<string> {
   } catch { return '' }
 }
 /** 這個元素（或祖先）是不是禁點（在頁面裡判，跟 popup-catalog 的 NEVER_CLICK 同一份規則） */
-async function neverClickOf(el: ElementHandle | null, inMachine: boolean): Promise<string | null> {
+type ElBoxInfo = { text: string; selectors: string[]; boxText: string; boxSelectors: string[]; inBox: boolean }
+/** 元素所在的提示框（最外層那個，跟 POPUP_SNAPSHOT_IN_PAGE 一樣只算最外層）＋按鈕字。讀不到回 null */
+async function elementBoxInfo(el: ElementHandle | null): Promise<ElBoxInfo | null> {
   if (!el) return null
   try {
-    const info = await el.evaluate((node: Element, probe: string[]) => {
-      const box = node.closest('[data-mt-popup],.van-dialog,.my-dialog,.el-dialog,[class*=popup],[class*=dialog]')
-      const btn = (node.closest('button,[class*=btn],a') ?? node) as HTMLElement
-      return { text: (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40), selectors: probe.filter(s => { try { return !!node.closest(s) } catch { return false } }), boxText: box ? ((box as HTMLElement).innerText || '').slice(0, 300) : '', inBox: !!box }
-    }, POPUP_PROBE_SELECTORS)
-    // selector 類（.view 等）只在提示框裡才算（CodeX：避免誤傷大廳別處的同名 class）
-    return isNeverClick({ text: info.text, selectors: info.inBox ? info.selectors : [] }, info.boxText, { inMachine })
+    return await el.evaluate(ELEMENT_BOX_INFO_IN_PAGE as (node: Element, a: { probe: string[]; boxSel: string }) => ElBoxInfo, { probe: POPUP_PROBE_SELECTORS, boxSel: ['[data-mt-popup]', ...POPUP_BOX_SELECTORS].join(',') })
   } catch { return null }
+}
+/** 這個元素（或祖先）是不是禁點（跟 popup-catalog 的 NEVER_CLICK 同一份規則） */
+function neverClickOf(info: ElBoxInfo | null, inMachine: boolean): string | null {
+  if (!info) return null
+  // selector 類（.view 等）只在提示框裡才算（CodeX：避免誤傷大廳別處的同名 class）
+  return isNeverClick({ text: info.text, selectors: info.inBox ? info.selectors : [] }, info.boxText, { inMachine })
+}
+const CONFIRMISH = /^(confirm|ok|yes|確認|确定|確定|是)$/i
+/**
+ * 退出／關框類點擊的框限制（CodeX 56e3d1b P1）：按鈕在提示框裡 → 那個框要是**已辨識、而且這個階段可以按**的（ack／close）；
+ * 認不得（unknown）或 stop 的框一律不按。按鈕不在任何框裡、但畫面上有未知框時，Confirm／OK 類也不按（可能就是未知框的鍵、只是框沒被認出來）
+ */
+function unrecognizedBoxBlock(info: ElBoxInfo | null, phase: PopupPhase, g: PopupGuard | undefined): string | null {
+  // 讀不到元素資訊（evaluate 失敗）時不能當成「沒問題」：畫面上有未知／stop 框就不按（fail closed）
+  if (!info) return g?.unknown || g?.stop ? '讀不到按鈕所在的框，畫面上又有未處理的提示框' : null
+  if (info.inBox) {
+    const d = decidePopup(matchPopup({ text: info.boxText, selectors: info.boxSelectors }), info.boxText, phase)
+    if (d.kind === 'unknown') return `框沒辨識出來（${info.boxText.slice(0, 40)}）`
+    if (d.kind === 'stop') return `框是「${d.id}」（${d.verdict}），只記錄不按`
+    return null
+  }
+  if (g?.unknown && CONFIRMISH.test(info.text)) return `畫面有未知提示框，不按「${info.text}」`
+  return null
 }
 export type UiActResult = 'clicked' | 'blocked' | 'none'
 /**
@@ -1149,9 +1184,14 @@ export async function uiAct(page: Page, kind: PopupAct, label: string, el: Eleme
   const g = popupGuardOf(page)
   const run = async (): Promise<UiActResult> => {
     if (kind === 'game' && g?.blockReason()) { g.note(`⛔ 擋下「${label}」：${g.blockReason()}`); return 'blocked' }
+    const info = await elementBoxInfo(el)
     // 大廳的 Join 是正常操作；guard 只在進機台之後才掛，所以「有 guard」＝在機台裡
-    const never = await neverClickOf(el, !!g)
+    const never = neverClickOf(info, !!g)
     if (never) { g?.note(`⛔ 擋下「${label}」：禁點（${never}）`); return 'blocked' }
+    if (kind === 'exit' || kind === 'popup') {
+      const why = unrecognizedBoxBlock(info, kind === 'exit' ? 'exit' : (g?.phase ?? 'test'), g)
+      if (why) { g?.note(`⛔ 擋下「${label}」：${why}`); return 'blocked' }
+    }
     // 第二層（頁面內 capture 攔截）：fn 前後比對該 frame 的 __mtBlockedClicks，有增加＝事件被頁面內攔下，不算點到
     const blockedCount = async () => el ? el.evaluate(() => ((window as unknown as { __mtBlockedClicks?: unknown[] }).__mtBlockedClicks ?? []).length).catch(() => 0) : 0
     const before = await blockedCount()
@@ -2063,6 +2103,10 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
                 const cls = typeof el.className === 'string' ? el.className : ''
                 if (!SAFE.some(s => cls.includes(s))) continue
                 if (panel && panel.contains(el)) continue        // Preview 自己的關閉鈕，跳過
+                // 1007（CodeX 56e3d1b）：只關「中獎廣播卡」——卡片裡要有 View／PLAY NOW／JACKPOT 字樣；別的框的 X 不碰
+                const card = el.closest('.content,[class*=notification],[class*=popup],[class*=dialog],[class*=card]')
+                if (!card || card === document.body) continue
+                if (!card.querySelector('.view') && !/play now|jackpot/i.test((card as HTMLElement).innerText || '')) continue
                 const r = el.getBoundingClientRect()
                 if (r.width < 8 || r.height < 8) continue
                 ;(el as HTMLElement).click()
@@ -2369,21 +2413,26 @@ async function dismissDenomOverlay(page: Page, emit: (msg: string) => void, sour
       const btns = await frame.$$('.select-main .select-btn, .select-main .my-button')
       if (btns.length > 0) {
         emit(`${source} → 面額選擇遮罩（${btns.length} 選項），點擊第一個...`)
-        await uiAct(page, 'popup', '面額選單第一個', btns[0], () => btns[0].evaluate((node: Element) => (node as HTMLElement).click()))
+        if ((await uiAct(page, 'popup', '面額選單第一個', btns[0], () => btns[0].evaluate((node: Element) => (node as HTMLElement).click()))) === 'blocked') return false
         await sleep(800)
         // 2026-10-01 JJBXGRAND 實測（0342 重新進場）：選面額是兩階段——選完面額後同一個遮罩變成 **YES / NO** 確認（約 1.5 秒內出現、
         // 不按就一直停著），按 YES 後約 1.5 秒機台的 SELECT A DENOMINATION 才關、SPIN 才有作用。原本只點一下，第二階段從沒按過
         // → 0338／0343 選單整輪關不掉。這裡等最多 3 秒，出現 YES 就按（**絕不按 NO**）
+        // 1007（CodeX 56e3d1b）：找到 YES 之後走 uiAct（同一把鎖、禁點檢查、限 .select-main 框裡），被擋就不按
         for (let t = 0; t < 6; t++) {
-          const yes = await frame.evaluate(() => {
+          const yesEl = (await frame.evaluateHandle(() => {
             for (const e of Array.from(document.querySelectorAll('.select-main *'))) {
               if (e.children.length || (e.textContent ?? '').trim().toUpperCase() !== 'YES') continue
               const r = e.getBoundingClientRect(); if (r.width <= 0 || r.height <= 0) continue
-              ;((e.closest('.select-btn,.my-button') ?? e) as HTMLElement).click(); return true
+              return e.closest('.select-btn,.my-button') ?? e
             }
-            return false
-          }).catch(() => false)
-          if (yes) { emit(`${source} → 面額確認（第二階段）按 YES`); await sleep(1500); break }
+            return null
+          }).catch(() => null))?.asElement() as ElementHandle | null | undefined
+          if (yesEl) {
+            const r = await uiAct(page, 'popup', '面額確認 YES', yesEl, () => yesEl.evaluate((node: Element) => (node as HTMLElement).click())).catch(() => 'none' as const)
+            if (r === 'blocked') { emit(`${source} → 面額確認 YES 被擋下，沒有按`); return false }
+            emit(`${source} → 面額確認（第二階段）按 YES`); await sleep(1500); break
+          }
           await sleep(500)
         }
         return true
@@ -4386,29 +4435,11 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     // 還被判成「畫面模糊／偵測到異常文字」——看起來像攝影機有問題，其實只是前景有彈窗。
     // ⚠️ 故意**只認這一句**，不做通用的「點掉所有 Confirm」——
     //    Cash Out／退出確認框上的 Confirm 按下去會直接把機台退掉。
+    // 1007（CodeX 56e3d1b）：改走 PopupGuard.scan——lhb-transfer 已在目錄裡（ack Confirm），Confirm 限定在命中的那個框裡；
+    // 原本頁面內往上找所有 div 祖先，不能保證只點到這個框
     try {
-      const dismissed = await page.evaluate(() => {
-        const visible = (el: Element) => {
-          const r = el.getBoundingClientRect()
-          const s = getComputedStyle(el)
-          return r.width > 40 && r.height > 40 && s.display !== 'none' && s.visibility !== 'hidden'
-        }
-        for (const box of Array.from(document.querySelectorAll('div'))) {
-          if (!visible(box)) continue
-          const txt = (box.textContent || '')
-          if (!/bonus has been transferred to the machine/i.test(txt)) continue
-          if (/cash\s*out|exit|quit/i.test(txt)) continue   // 保險：帶退出字樣的一律不碰
-          const btns = Array.from(box.querySelectorAll('div,span,button')).filter(b => {
-            const c = typeof b.className === 'string' ? b.className : ''
-            const t = (b.textContent || '').trim()
-            return (c.includes('box-btn_text2') || t === 'Confirm') && visible(b)
-          })
-          const deepest = btns.filter(b => !btns.some(o => o !== b && b.contains(o)))
-          if (deepest.length) { (deepest[0] as HTMLElement).click(); return true }
-        }
-        return false
-      })
-      if (dismissed) { emit(`已關閉「Lucky hour bonus 已轉入機台」提示框`); await sleep(1200) }
+      const ds = await (popupGuardOf(page) ?? new PopupGuard(page, emit, `cctv-${Date.now()}`)).scan({ act: true, why: 'CCTV 前' })
+      if (ds.some(d => d.id === 'lhb-transfer')) { emit(`已處理「Lucky hour bonus 已轉入機台」提示框`); await sleep(1200) }
     } catch { /* 關不掉就照原本流程走 */ }
 
     // Dismiss any animation overlays / floating popups that may cover the CCTV view.
@@ -5330,6 +5361,8 @@ export class MachineTestRunner extends EventEmitter {
             if (isExit) popupGuard.phase = 'exit'
             // 步驟之前同步掃一次（close／ack 會在這裡點掉）
             if (!this.stopped) await popupGuard.scan({ act: true, why: `${name}之前` }).catch(() => {})
+            // CodeX 56e3d1b P2：未知框還沒滿 30 秒就到退出 → 原本直接退出、判定永遠不會記。改成每 2 秒重查，直到框消失或滿 30 秒
+            if (isExit) await popupGuard.settleUnknown(() => this.stopped)
             flushPopupNotes()
             const pb = popupStepBlock({ stop: popupGuard.stop, unknown: popupGuard.unknown, unknownExpired: popupGuard.unknownExpired(), isExit })
             if (pb) {

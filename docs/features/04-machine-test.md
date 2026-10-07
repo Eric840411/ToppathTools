@@ -359,3 +359,22 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 這支探針抓到一個真 bug：`(g?.note ?? …)(...)` 會丟掉 this
 - 突變：見 commit 訊息
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
+
+### CodeX 審 56e3d1b（v5.30.1 修）
+- [P1] **面額框會死鎖**：scan 拿著鎖呼叫 `dismissDenomOverlay`，它裡面的 `uiAct` 又去等同一把鎖，連退出都卡住。修法：
+  - `PopupGuard.withLock` 改成可重入，用 AsyncLocalStorage 判斷是不是同一串呼叫
+  - `startWatch` 的計時器用 `held.exit()` 建立，不會繼承呼叫當下的鎖
+- [P1] **退出時在整頁找 Confirm，可能按到未知框**：`uiAct` 的 exit／popup 類點擊加了 `unrecognizedBoxBlock`：
+  - 按鈕所在的最外層框，必須是已辨識、而且這個階段可以按的（ack／close）
+  - unknown 框、stop 框都不按
+  - 按鈕不在框裡、但畫面上有未知框時，Confirm／OK 類也不按
+  - 讀不到框資訊時，只要畫面有未處理的框就不按（fail closed）
+  - 實際退出時的 Confirm 在「Tips｜Cash out credit」框裡，這個框已在目錄（batch log 892-COINCOMBO 退出紀錄可證）
+- [P2] **未知框未滿 30 秒就進退出，判定永遠不會記**：新增 `settleUnknown`，退出前每 2 秒重查，直到框消失、滿 30 秒或使用者停止
+- 例外收斂：
+  - 面額 YES 改走 uiAct，被擋就停
+  - 大廳的 SAFE close 只關中獎廣播卡（卡片裡要有 `.view`／PLAY NOW／JACKPOT）
+  - CCTV 前的 Lucky hour bonus 改走 `scan`（lhb-transfer，Confirm 限定在框裡）
+- ⚠️ **坑**：頁面內函式（`el.evaluate(fn)`）不要在 runner.ts 裡寫具名箭頭函式。tsx 會把它包成 `__name(...)`，頁面裡沒有 `__name`，evaluate 一丟錯就被 catch 吞掉，整個檢查靜默失效。這次就踩到了，所以 `ELEMENT_BOX_INFO_IN_PAGE` 改放在 popup-catalog.js
+- 探針增加到 63 條：死鎖、面額兩階段、未知框和 stop 框的 Confirm、框外 Confirm、退出前等未知框（消失／滿 30 秒／停止）、鎖裡啟動的計時器不插隊、Lucky hour bonus 只按自己的框
+- 突變 5 條全紅：鎖不可重入、退出不限框、計時器繼承鎖、退出前不等、框資訊改回 TS 內聯
