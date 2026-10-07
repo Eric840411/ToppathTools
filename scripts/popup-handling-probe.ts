@@ -4,7 +4,7 @@
 import { chromium, type Page } from 'playwright'
 import { matchPopup, isNeverClick, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED } from '../server/uat-runner/popup-catalog.js'
 import { decidePopup, popupStepBlock } from '../server/machine-test/verdicts.js'
-import { attachPopupGuard, detachPopupGuard, uiAct, nativeClick, popupGuardOf, clearCctvOverlays } from '../server/machine-test/runner.js'
+import { attachPopupGuard, detachPopupGuard, uiAct, nativeClick, popupGuardOf, clearCctvOverlays, saveCctvEvidenceShot } from '../server/machine-test/runner.js'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${got !== undefined ? `：${typeof got === 'string' ? got : JSON.stringify(got)}` : ''}`) }
@@ -293,6 +293,19 @@ try {
   g = attachPopupGuard(page, emit, 'probe-16b')
   const r16b = await clearCctvOverlays(page, emit)
   ok(r16b.blocked.length === 0 && JSON.stringify(await ran(page)) === '["inside-close"]', '一般遮罩 → 按它自己的關閉鍵', await ran(page))
+  detachPopupGuard(page)
+  // 17. CodeX 2993fdf：同一輪多個遮罩——第一個被擋就整個停，後面的遮罩（float-layer 裡有自己的關閉鍵）也不處理
+  await setup(page, `<div class="bonus-popup-layer" style="position:fixed;left:20px;top:100px;width:380px;height:300px;background:#a60" onclick="__ran.push('body')">BIG WIN</div>
+    <div class="float-layer" style="position:fixed;left:20px;top:420px;width:380px;height:200px;background:#063"><button class="close-btn" style="width:60px;height:30px" onclick="__ran.push('float-close')">X</button></div>`)
+  g = attachPopupGuard(page, emit, 'probe-17')
+  const r17 = await clearCctvOverlays(page, emit)
+  ok(r17.blocked.length === 1 && (await ran(page)).length === 0, '[P2] 第一個遮罩被擋 → 同一輪後面的遮罩也不點', { blocked: r17.blocked, ran: await ran(page) })
+  // 被擋的留證：照當下畫面截，連 JACKPOT 廣播卡的 X 都不點
+  await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', `<div class="content" style="position:fixed;left:20px;top:20px;width:300px;height:60px"><span class="view">View</span><span class="notification-close" style="display:inline-block;width:20px;height:20px" onclick="__ran.push('jp-close')">x</span></div>`) })
+  const ev17 = await saveCctvEvidenceShot(page, emit, 'PROBE-17', 'probe-', true)
+  ok(!!ev17 && !(await ran(page)).includes('jp-close'), '[P2] 被擋的留證 → 零點擊（JP 卡的 X 也不按）', { ev: ev17, ran: await ran(page) })
+  const ev17b = await saveCctvEvidenceShot(page, emit, 'PROBE-17', 'probe-', false)
+  ok(!!ev17b && (await ran(page)).includes('jp-close'), '一般留證 → 照舊先關 JP 卡（對照組）', await ran(page))
   detachPopupGuard(page)
 } finally {
   await browser.close()

@@ -4407,8 +4407,7 @@ export async function clearCctvOverlays(page: Page, emit: (msg: string) => void)
 
     // 1007（CodeX 19d3b6b）：任何一下被擋（遮罩沒辨識出來／禁點）→ 這個遮罩不再換別種方式（本體、Escape）硬關，
     // 整個 CCTV 記「未驗：被遮擋」並留證，不拿被擋住的畫面去比號碼
-    const blockedOverlays: string[] = []
-    for (let round = 0; round < 3 && !blockedOverlays.length; round++) {
+    for (let round = 0; round < 3; round++) {
       const overlays = await findOverlays()
       if (overlays.length === 0) break
       emit(`清除彈窗第 ${round + 1} 輪（${overlays.length} 個）...`)
@@ -4432,11 +4431,11 @@ export async function clearCctvOverlays(page: Page, emit: (msg: string) => void)
           if (r === 'blocked') blocked = true
           else if (r === 'clicked') emit(`已 force-click 彈窗本體：${sel}`)
         }
-        if (blocked) { blockedOverlays.push(sel); emit(`⛔ CCTV 前的遮罩 ${sel} 沒辨識出來／被擋下，不點、不改用其他方式關`) }
+        // CodeX 2993fdf：被擋就**整個停**——同一輪後面的遮罩也不處理（原本只停這一個，接著還點了 float-layer 的關閉鍵）
+        if (blocked) { emit(`⛔ CCTV 前的遮罩 ${sel} 沒辨識出來／被擋下，不點、不改用其他方式關，停止清遮罩`); return { blocked: [sel] } }
       }
-      if (!blockedOverlays.length) await sleep(1000)
+      await sleep(1000)
     }
-    if (blockedOverlays.length) return { blocked: [...new Set(blockedOverlays)] }
 
     await page.keyboard.press('Escape').catch(() => {})
     const remaining = await findOverlays()
@@ -4450,19 +4449,22 @@ export async function clearCctvOverlays(page: Page, emit: (msg: string) => void)
   }
 }
 
+/** CCTV 證據截圖。asIs：照當下畫面截、什麼都不點（被遮罩擋下時用——CodeX 2993fdf：留證前不能再點，要保留被擋當下的畫面） */
+export async function saveCctvEvidenceShot(page: Page, emit: (msg: string) => void, machineCode: string, sessionPrefix: string, asIs = false): Promise<string> {
+  if (!machineCode) return ''
+  try {
+    mkdirSync(CCTV_SAVE_DIR, { recursive: true })
+    const p = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
+    if (!asIs) await closeJackpotNotification(page, emit)
+    writeFileSync(p, await page.screenshot({ type: 'png', fullPage: false }))
+    emit(`CCTV 沒畫面，已存當下畫面當證據：${p}`)
+    return '（已截圖留證）'
+  } catch { return '' }
+}
+
 async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '', sessionPrefix = ''): Promise<StepResult> {
   // 失敗路徑的證據：整個畫面存成跟正常 CCTV 截圖同一個檔名（batch 的 evidence.cctv 會讀到並貼 H 欄）
-  const saveCctvEvidence = async () => {
-    if (!machineCode) return ''
-    try {
-      mkdirSync(CCTV_SAVE_DIR, { recursive: true })
-      const p = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
-      await closeJackpotNotification(page, emit)
-      writeFileSync(p, await page.screenshot({ type: 'png', fullPage: false }))
-      emit(`CCTV 沒畫面，已存當下畫面當證據：${p}`)
-      return '（已截圖留證）'
-    } catch { return '' }
-  }
+  const saveCctvEvidence = (asIs = false) => saveCctvEvidenceShot(page, emit, machineCode, sessionPrefix, asIs)
   const t0 = Date.now()
   try {
     // 1003：切 CCTV 之前先留一張遊戲推流畫面——拿來跟 CCTV 拍到的機台螢幕比對（使用者懷疑 1560/1561 的 CCTV 拍的是同一台）。
@@ -4523,7 +4525,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     {
       const { blocked: blockedOverlays } = await clearCctvOverlays(page, emit)
       if (blockedOverlays.length) {
-        const ev = await saveCctvEvidence()
+        const ev = await saveCctvEvidence(true)
         return { step: 'CCTV 號碼比對', status: 'skip', message: `未驗：CCTV 畫面被未辨識的遮罩擋住（${blockedOverlays.join('、')}），沒有點${ev}`, durationMs: Date.now() - t0 }
       }
     }

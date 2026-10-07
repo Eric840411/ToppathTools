@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.3'
+export const APP_VERSION = '5.30.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.4', date: '2026-10-07', changes: ['fix(機台測試 CCTV)：CodeX 審 2993fdf 兩個 P2——清遮罩時第一個遮罩被擋後，同一輪仍會去點下一個遮罩的關閉鍵，改成立刻整個停；被擋的留證截圖前原本還會先關 JACKPOT 廣播卡，改成照當下畫面截、什麼都不點'] },
   { version: '5.30.3', date: '2026-10-07', changes: ['fix(機台測試 CCTV)：CodeX 審 19d3b6b——CCTV 截圖前清遮罩：遮罩裡找不到關閉鍵時原本會搜整個 frame，可能按到別處的關閉鍵，拿掉；點遮罩被擋下（未辨識）時原本仍記「已 force-click」還送 Escape，改成立刻停手、CCTV 記「未驗：被未辨識的遮罩擋住」並留證，不拿被擋住的畫面比號碼'] },
   { version: '5.30.2', date: '2026-10-07', changes: ['fix(機台測試 提示框處理)：CodeX 複審 c3831fe——[P1] 讀不到按鈕所在的框時，原本只在已記到未知框才擋，新框還沒被掃到就會放行；改成退出／關框類點擊讀不到就一律不按。[P2] 只排除 unknown／stop，「Quit game, please wait」這類等待框的 Confirm 仍會按；改成只放行 ack／close'] },
   { version: '5.30.1', date: '2026-10-07', changes: ['fix(機台測試 提示框處理)：CodeX 審 56e3d1b——[P1] 遇到面額框會死鎖（背景掃描持鎖關面額、關面額又等同一把鎖，連退出都卡住）：操作鎖改成可重入，背景計時器不繼承鎖；[P1] 退出時整頁找 Confirm 可能按到未知框：退出／關框類點擊只能落在已辨識、這個階段可按的框裡，未知框與 stop 框都不按，畫面有未知框時框外的 Confirm 也不按；[P2] 未知框未滿 30 秒就退出、判定漏記：退出前持續重查到消失或滿 30 秒。另外：面額 YES 改走 uiAct、大廳關彈窗只限中獎廣播卡、CCTV 前的 Lucky hour bonus 改走 scan（Confirm 限框裡）'] },

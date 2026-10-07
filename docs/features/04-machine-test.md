@@ -394,3 +394,9 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - stepCctv 收到 blocked 就記 skip「未驗：CCTV 畫面被未辨識的遮罩擋住」，存一張證據截圖，不拿被擋住的畫面去比號碼
 - 探針 68 條：未辨識的 bonus-popup 加上框外的關閉鍵 → 零操作、沒有 Escape；一般遮罩（div.bg）→ 按它自己裡面的關閉鍵
 - 突變 2 條全紅：恢復搜整個 frame、本體被擋照樣往下
+
+### CodeX 審 2993fdf（v5.30.4 修）
+- [P2] 第一個遮罩被擋之後，同一輪還會處理下一個遮罩：原本只跳過這一個，接著又按了 float-layer 的關閉鍵。現在 `clearCctvOverlays` 只要有一個被擋就立刻 return
+- [P2] 留證之前仍會點東西：`saveCctvEvidence` 截圖前會先關 JACKPOT 廣播卡。截圖改抽成 `saveCctvEvidenceShot(…, asIs)`，被擋的路徑用 `asIs=true`，照當下畫面截、什麼都不點，保留被擋住那一刻的畫面
+- 探針 71 條：同一輪多個遮罩、被擋時留證零點擊、一般留證照舊會關 JP 卡（對照組）
+- 突變 2 條全紅
