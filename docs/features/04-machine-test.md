@@ -470,3 +470,25 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - ⚠️ D（iDeck 時間學習，還沒 commit）的種子也是用按鈕字寫的，runner 卻拿 action name 去比，同樣對不上，D 動工前要先改
 - 第二期（還沒做，CodeX 同意方向）：runner 每一顆都拍按前、按後的穩定圖（要有收斂條件和逾時，逾時算未驗），初始圖也要帶進來，改成逐顆比對
 
+## iDeck 判定：ARUZE（Fu Lai Cai Lai）看 WILD 排（v5.31.4，2026-10-07 主使用者確認、osm-qa-agent 實測、CodeX 定案）
+- ARUZE **不能套** SUPERBURSTLINK 那套底部列像素規則：PLAY 11～88 Credits 按了不會開局，底部列也不會變（BET 一直是 88），套下去會把正常的機台判死
+- **遊戲身分**（runner `readGameIdentity`）：
+  - 進場成功後讀 /game iframe 左上角 `.header-top .gm-info-box .gm-info` 的 `.machine-id`（例 Wild Luxury-CP0332）和 `.game-id`（例 Fu Lai Cai Lai），存進 entry 的 extraData：gameMachineName、gameName
+  - 讀不到就留空並寫 gameNameWhy，**不沿用上一次的值**；同一台機台可能換遊戲，所以每次進場都讀
+  - DOM 備援的進場成功路徑也會讀
+  - 不寫死機台清單：ARUZE 機種底下至少有 Fu Lai Cai Lai 和 Triple Festival 兩款遊戲（後者沒有 WILD 排）
+- **iDeck 每顆有沒有開局**：learn.actions 多一個 `round` 欄位，讓 BET 鍵可以逐顆確認，不用整段開局總數替每一顆背書
+- **batch**（`ideck-screen-check.mjs` 的 `evaluateWildRow`，設定在 knowledge `games/ARUZE/automation/ideck-wildrow.json`＋參考圖 wildrow-coin-ref.png、wildrow-wild-ref.png）：
+  - 遊戲名正規化空白後要**完全等於** gameName（Fu Lai Cai Lai）才套。遊戲不符、讀不到名稱、或是舊資料 → PLAY 鍵未驗
+  - PLAY 鍵看捲軸上方 4 格：WILD 盾牌還是銅錢。預期 11→0、33→1、55→2、66→3、88→4 個 WILD（從右往左亮）。按鈕識別用按鈕字去掉空白
+  - **拒判**：某一格離最近的參考圖超過 maxDist（40），或兩種參考圖的距離差不到 minMargin（20）→ 這格算認不出來 → 未驗。大廳、彈窗、Triple Festival 的畫面都不會被硬分成 0～4；PLAY11 的「0 個 WILD」也必須四格都認出是銅錢
+  - WILD 數不符 → 第一期先算**未驗**（0332 那種情況：中獎動畫還在跑時按下去）。要等 runner 做到「可以操作之後重按、畫面穩定再驗」，才能判 FAIL
+  - BET 鍵（roundButtons `^BETx[0-9]+$`）逐顆要有開局；有一顆沒開局 → FAIL「no response」；舊資料沒記 → 未驗
+  - PLAY 未驗不會被 BET 通過蓋掉
+- **校準**：
+  - 參考圖用 0333（k83qh）的 PLAY11（全銅錢）和 PLAY88（全 WILD）
+  - 0332、0335、0336 的 PLAY 截圖：每格離最近參考 ≤ 31，兩種參考的差距 ≥ 32；大廳、彈窗、Triple Festival 的畫面 ≥ 44
+  - 實跑結果：0333、0335、0336 判 ok（0／1／2／3／4），0332 判未驗（PLAY11 是 4 個 WILD）
+- 驗證：`node scripts/ui-checks/ideck-wildrow.test.mjs`（合成圖 12 條：遊戲不符、讀不到名稱、大廳截圖、數不符、缺圖、BET 逐顆、舊資料、PLAY 未驗不被蓋掉）
+- ⚠️ runner 有改（讀遊戲名、記每顆有沒有開局），要部署 Spug，agent 也要「更新程式碼」，新規則才有資料可以判。舊結果沒有 gameName，ARUZE 的 PLAY 會是未驗
+- 第二期：BET 鍵比對扣款（moneyNtc 要綁定該顆的 begin，不能只比操作前後的淨餘額，否則派彩會把扣款抵掉）；PLAY 鍵在可以操作之後重按、畫面穩定再驗

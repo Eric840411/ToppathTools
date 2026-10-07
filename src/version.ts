@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.3'
+export const APP_VERSION = '5.31.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.4', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定 ARUZE)：主使用者確認——ARUZE 不能套底部列像素規則（PLAY 鍵按了底部列不變）。runner 進場後讀 /game 左上角的機台名與遊戲名（.gm-info 的 .machine-id／.game-id）存進 entry 結果，每顆 iDeck 記有沒有開局；batch 依遊戲名分流：Fu Lai Cai Lai 的 PLAY 鍵看捲軸上方 4 格 WILD 數（11→0、33→1、55→2、66→3、88→4），格子認不出來或遊戲不符算未驗，數不符第一期先未驗（可能動畫中）；BET 鍵逐顆要有開局，沒開局判 no response。osm-qa-agent 實測、CodeX 定案'] },
   { version: '5.31.3', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：CodeX 審 ee40495 兩個 P2——① 報告與明細行還在讀原始結果（結論 iDeck 未過、明細寫 PASS、看不到像素失敗原因）：report 的統計／明細與 larkLine 改用套用規則後的結果；② confirmed 不開局清單用的是按鈕字（BETx1／PLAY18Credits），runner 的 action name 是 BetMultiple1／Bet18，永遠對不上：識別統一用「按鈕字去空白」；BetMultipleN 也算注額組'] },
   { version: '5.31.2', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：主使用者抓到——iDeck 只看 server 回應，機台畫面沒變也判 PASS（SUPERBURSTLINK 8 台）。batch 改成要有機台反應證據：已校準機種比面額鍵（CREDIT＋面額標記）與注額鍵（BET）的畫面差異，整組低於門檻判 ideck no response；缺圖未驗；開局 0 顆又沒有反應證據未驗（不能 PASS）。SUPERBURSTLINK 加選單閘門（0359 卡 SELECT DENOMINATION），確認卡在選單時 Spin 改未驗。osm-qa-agent 實測、CodeX 定案'] },
   { version: '5.31.1', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：CodeX 審 a26744e 三個 P2——① 上次結果把未驗顯示成綠色「上次通過 0/1」：改成只有每一筆都 pass 才顯示通過，其他顯示未驗；② 拖曳排序遇到 409 只換「我的」、沒重取腳本，別的分頁新建的腳本會被濾掉、之後一直衝突：409 改成整份清單重新載入；③「別人的」用清單第一個建立者猜登入者，會把自己的標成別人的：改用 server 回傳的登入帳號'] },

@@ -23,7 +23,7 @@
 //
 // 輸出：reports/machine-test-<sessionId>/{summary.json, report.html}，最後一行印 `SUMMARY <path>`
 
-import { evaluateIdeckScreens, loadIdeckCrop } from './ideck-screen-check.mjs'
+import { evaluateIdeckScreens, loadIdeckCrop, evaluateWildRow, loadWildRow } from './ideck-screen-check.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -409,9 +409,31 @@ export function ideckAllConfirmed(step, conf) {
   const keys = (learn.actions ?? []).map(a => ideckButtonKey(textOf.get(a.label), a.name))
   return keys.length > 0 && keys.every(k => k && conf.has(k))
 }
-function applyIdeckEvidence(s, type) {
+const wildRowCache = new Map()
+const wildRowOf = type => { if (!wildRowCache.has(type)) wildRowCache.set(type, loadWildRow(ROOT, type)); return wildRowCache.get(type) }
+const wildVerdictCache = new WeakMap()
+/** 1007 ARUZE：有 ideck-wildrow.json 的機種，PLAY 鍵看 WILD 數、BET 鍵逐顆要有開局（見 ideck-screen-check.mjs evaluateWildRow） */
+export function ideckWildRowVerdict(s, type, gameName) {
+  if (wildVerdictCache.has(s)) return wildVerdictCache.get(s)
+  let learn = {}, shots = []
+  try { learn = JSON.parse(s.extraData?.learn ?? '{}') } catch { /* 舊版 agent */ }
+  try { shots = JSON.parse(s.extraData?.ideckShots ?? '[]') } catch { /* 舊版 agent */ }
+  const textOf = new Map((learn.buttons ?? []).map(b => [b.label, b.text]))
+  const buttons = (learn.actions ?? []).map(a => ({ key: ideckButtonKey(textOf.get(a.label), a.name), name: a.name, round: a.round }))
+  const v = evaluateWildRow({ gameName, buttons, shots, cfg: wildRowOf(type) })
+  wildVerdictCache.set(s, v)
+  return v
+}
+function applyIdeckEvidence(s, type, gameName) {
   if (s.step !== 'iDeck 測試' || (s.status !== 'pass' && s.status !== 'warn')) return s
   const m = String(s.message ?? '')
+  // 有畫面指標設定（ARUZE）的機種走這條，不套底部列像素規則（PLAY 鍵按了底部列不會變）
+  if (wildRowOf(type)) {
+    const w = ideckWildRowVerdict(s, type, gameName)
+    if (w.kind === 'fail') return { ...s, status: 'fail', message: `${m}｜判定：no response（${w.why}）` }
+    if (w.kind === 'unverified') return { ...s, status: 'skip', message: `${m}｜未驗：${w.why}` }
+    return { ...s, message: `${m}｜${w.why}` }
+  }
   const screen = ideckScreenVerdict(s, type)
   if (screen.kind === 'no-response') return { ...s, status: 'fail', message: `${m}｜判定：no response（機台畫面沒反應：${screen.why}）` }
   if (screen.kind === 'unverified') return { ...s, status: 'skip', message: `${m}｜未驗：機台反應證據不足（${screen.why}）` }
@@ -431,10 +453,11 @@ export function applyGameRules(result) {
     ...result,
     steps: result.steps.map(s0 => {
       let s = s0
+      const gameName = result.steps.find(x => x.step === '進入機台')?.extraData?.gameName ?? ''
       const m = String(s.message ?? '')
       if (rules.ideckNoRoundIsNoResponse && s.step === 'iDeck 測試' && (s.status === 'pass' || s.status === 'warn') && /iDeck 開局 0 顆/.test(m))
         return { ...s, status: 'fail', message: `${m}｜判定：no response（${type} 機種規則：會開局的鍵都沒開局）` }
-      s = applyIdeckEvidence(s, type)
+      s = applyIdeckEvidence(s, type, gameName)
       if (s !== s0) return s
       // 1007 osm-qa-agent（SUPERBURSTLINK 0359）：選單閘門確認機台停在選面額選單、又沒有關選單的方法 → runner 判「選單狀態未知」只記 WARN，
       // Spin 其實沒測到。選單**確實開著**（閘門比對到參考圖、前端選面額後仍開著）就改成未驗，不能算通過；既有 FAIL 不動

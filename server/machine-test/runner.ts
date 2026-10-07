@@ -2243,7 +2243,9 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
             ...(extraData ? { extraData } : {}),
           }
         }
-        return { step: '進入機台', status: 'pass', message: '成功進入遊戲（enterGMNtc errcode=0）', durationMs: Date.now() - t0, extraData }
+        const ident = await readGameIdentity(page)
+        if (ident.gameName) emit(`遊戲：${ident.gameName}（${ident.gameMachineName}）`)
+        return { step: '進入機台', status: 'pass', message: '成功進入遊戲（enterGMNtc errcode=0）', durationMs: Date.now() - t0, extraData: { ...(extraData ?? {}), ...ident } }
       }
       return { step: '進入機台', status: 'fail', message: `進入失敗：enterGMNtc errcode=${enterEv.errcode} — ${enterEv.errcodedes}`, durationMs: Date.now() - t0, extraData }
     }
@@ -2251,16 +2253,48 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
     // No GMN event received — fall back to DOM detection
     emit(`未收到 enterGMNtc，改用 DOM 偵測...`)
     if (await isInGame(page)) {
-      return { step: '進入機台', status: 'warn', message: '成功進入遊戲（未收到 enterGMNtc，DOM 偵測）', durationMs: Date.now() - t0 }
+      return { step: '進入機台', status: 'warn', message: '成功進入遊戲（未收到 enterGMNtc，DOM 偵測）', durationMs: Date.now() - t0, extraData: await readGameIdentity(page) }
     }
     await sleep(3000)
     if (await isInGame(page)) {
-      return { step: '進入機台', status: 'warn', message: '成功進入遊戲（未收到 enterGMNtc，DOM 偵測）', durationMs: Date.now() - t0 }
+      return { step: '進入機台', status: 'warn', message: '成功進入遊戲（未收到 enterGMNtc，DOM 偵測）', durationMs: Date.now() - t0, extraData: await readGameIdentity(page) }
     }
     return { step: '進入機台', status: 'fail', message: '已點擊機台但遊戲未載入（找不到 Spin 或 Balance 元素，且無 enterGMNtc）', durationMs: Date.now() - t0 }
   } catch (e) {
     return { step: '進入機台', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }
+}
+
+/**
+ * 1007 遊戲身分（CodeX 定案）：進場成功後讀 /game iframe 左上角的機台名與遊戲名（H5 DOM，不用 OCR）。
+ * `.header-top .gm-info-box .gm-info` 底下 `.machine-id`（例「Wild Luxury-CP0332」）與 `.game-id`（例「Fu Lai Cai Lai」）——
+ * osm-qa-agent 實抓 0345 的 DOM。同一台機台可能換遊戲，所以**每次進場都讀**，batch 依遊戲名決定套哪套 iDeck 規則。
+ * 等名稱載入（最多 8 秒）；讀不到就留空並寫原因，**不沿用上一次的值**。
+ */
+export async function readGameIdentity(page: Page, waitMs = 8000): Promise<Record<string, string>> {
+  const end = Date.now() + waitMs
+  let why = '找不到 /game 的 iframe'
+  while (Date.now() < end) {
+    for (const f of page.frames()) {
+      if (!/\/game\b/.test(f.url())) continue
+      why = '/game 裡找不到 .gm-info 的 .machine-id／.game-id'
+      try {
+        const r = await f.evaluate(() => {
+          // ⚠️ 頁面內不寫具名箭頭函式：tsx 會包成 __name()，頁面裡沒有 → evaluate 丟錯被吞掉（1007 踩過）
+          const box = document.querySelector('.header-top .gm-info-box .gm-info')
+          if (!box) return null
+          return {
+            machine: (box.querySelector('.machine-id')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+            game: (box.querySelector('.game-id')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+          }
+        })
+        if (r && r.game) return { gameMachineName: r.machine, gameName: r.game }
+        if (r) why = '.game-id 是空的（可能還沒載入）'
+      } catch { why = '讀 /game iframe 失敗（frame 換頁中）' }
+    }
+    await sleep(500)
+  }
+  return { gameMachineName: '', gameName: '', gameNameWhy: why }
 }
 
 async function stepStream(
@@ -3514,7 +3548,7 @@ async function stepIdeck(
     const acked = outcomes.filter(o => o.result === 'ack').length
     const shots = [...outcomes, ...(restore ? [restore] : [])].filter(o => o.shot).map(o => ({ label: o.label, name: o.name, text: o.text, path: o.shot! }))
     const learnI = { extraData: {
-      learn: JSON.stringify({ v: LEARN_VER, source: (profile?.ideckXpaths ?? []).length > 0 ? 'profileXpaths' : (betRandomXpaths?.length ? 'betRandom' : 'auto'), buttons: buttons.map(b => ({ label: b.label, xpath: b.xpath, text: btnTexts[b.label] ?? '' })), serverAcked: acked, actions: outcomes.map(o => ({ label: o.label, name: o.name, actionid: o.actionid, isspin: o.isspin, result: o.result })), boxAccepted: apiErr ? null : ideckEntries.length, boxCmds, apiErr }),
+      learn: JSON.stringify({ v: LEARN_VER, source: (profile?.ideckXpaths ?? []).length > 0 ? 'profileXpaths' : (betRandomXpaths?.length ? 'betRandom' : 'auto'), buttons: buttons.map(b => ({ label: b.label, xpath: b.xpath, text: btnTexts[b.label] ?? '' })), serverAcked: acked, actions: outcomes.map(o => ({ label: o.label, name: o.name, actionid: o.actionid, isspin: o.isspin, result: o.result, round: /有開局/.test(o.note) })), boxAccepted: apiErr ? null : ideckEntries.length, boxCmds, apiErr }),
       ideckShots: JSON.stringify(shots),
     } }
 

@@ -90,3 +90,88 @@ export function evaluateIdeckScreens({ expected, shots, crop, decode = p => PNG.
   if (real.some(g => g.kind === 'unverified')) return { kind: 'unverified', why, groups }
   return { kind: 'reacted', why, groups }
 }
+
+// ── 依「畫面指標」判 PLAY 鍵（1007 ARUZE／Fu Lai Cai Lai，主使用者確認、CodeX 定案）────────────────
+// 捲軸上方一排 4 格：WILD 盾牌或銅錢。PLAY11→0 個 WILD、33→1、55→2、66→3、88→4。
+// 設定在 knowledge/games/<機種>/automation/ideck-wildrow.json：
+//   gameName：只有進場讀到的遊戲名（entry extraData.gameName，正規化空白後精確比對）相符才套
+//   cells／y0／y1：格子位置（page 截圖比例）；refs：全銅錢、全 WILD 的參考截圖（同一套座標裁）
+//   maxDist／minMargin：拒判門檻——離最近參考太遠、或兩種參考差不多近 → 這格認不出來 → 未驗（不能硬分成 0～4）
+//   expected：按鈕識別鍵（按鈕字去空白）→ 預期 WILD 數
+export function loadWildRow(root, type) {
+  try {
+    const dir = path.join(root, 'knowledge', 'games', String(type).toUpperCase(), 'automation')
+    const c = JSON.parse(fs.readFileSync(path.join(dir, 'ideck-wildrow.json'), 'utf8'))
+    if (!c.gameName || !Array.isArray(c.cells) || !c.refs?.coin || !c.refs?.wild || !c.expected) return null
+    return { ...c, refPaths: { coin: path.join(dir, c.refs.coin), wild: path.join(dir, c.refs.wild) } }
+  } catch { return null }
+}
+const normName = s => String(s ?? '').replace(/\s+/g, ' ').trim()
+function cellBox(img, cfg, i) {
+  const c = cfg.cells[i]
+  return { x: Math.round((c.cx - c.w / 2) * img.width), y: Math.round(cfg.y0 * img.height), w: Math.round(c.w * img.width), h: Math.round((cfg.y1 - cfg.y0) * img.height) }
+}
+function meanAbs(A, B, box) {
+  let sum = 0, n = 0
+  for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) {
+    const i = (y * A.width + x) * 4
+    sum += (Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2])) / 3
+    n++
+  }
+  return n ? sum / n : Infinity
+}
+/** 一張截圖的 WILD 數；有任何一格認不出來回 { count: null, why } */
+export function countWilds(img, coinRef, wildRef, cfg) {
+  if (img.width !== coinRef.width || img.height !== coinRef.height || img.width !== wildRef.width || img.height !== wildRef.height) return { count: null, why: '截圖尺寸跟參考圖不同' }
+  let count = 0
+  const maxDist = Number(cfg.maxDist) || 40, minMargin = Number(cfg.minMargin) || 20
+  for (let i = 0; i < cfg.cells.length; i++) {
+    const box = cellBox(img, cfg, i)
+    const dc = meanAbs(img, coinRef, box), dw = meanAbs(img, wildRef, box)
+    if (Math.min(dc, dw) > maxDist || Math.abs(dc - dw) < minMargin) return { count: null, why: `第 ${i + 1} 格認不出來（離銅錢 ${dc.toFixed(0)}、離 WILD ${dw.toFixed(0)}）` }
+    if (dw < dc) count++
+  }
+  return { count }
+}
+/**
+ * PLAY 鍵依 WILD 數判、BET 鍵逐顆要有開局。
+ * @param {{ gameName: string, buttons: {key: string, name: string, round?: boolean}[], shots: {name: string, path: string}[], cfg: any, decode?: (p: string) => any }} p
+ * @returns {{ kind: 'na'|'fail'|'unverified'|'ok', why: string, detail: string[] }}
+ */
+export function evaluateWildRow({ gameName, buttons, shots, cfg, decode = p => PNG.sync.read(fs.readFileSync(p)) }) {
+  if (!cfg) return { kind: 'na', why: '', detail: [] }
+  const fails = [], unv = [], detail = []
+  const plays = buttons.filter(b => Object.prototype.hasOwnProperty.call(cfg.expected, b.key))
+  const roundRe = cfg.roundButtons ? new RegExp(cfg.roundButtons) : null
+  const bets = roundRe ? buttons.filter(b => roundRe.test(b.key)) : []
+  // BET 鍵：逐顆要有開局（不能拿整段開局總數替所有 BET 背書）
+  for (const b of bets) {
+    if (b.round === undefined) unv.push(`${b.key}：舊版 agent 沒記每顆有沒有開局`)
+    else if (!b.round) fails.push(`${b.key} 沒開局`)
+  }
+  // PLAY 鍵：遊戲名相符才套
+  if (plays.length) {
+    if (!normName(gameName)) unv.push(`PLAY 鍵：進場沒讀到遊戲名，不能套 ${cfg.gameName} 的規則`)
+    else if (normName(gameName) !== normName(cfg.gameName)) unv.push(`PLAY 鍵：遊戲是「${normName(gameName)}」，不是 ${cfg.gameName}，沒有對應的判法`)
+    else {
+      let coinRef, wildRef
+      try { coinRef = decode(cfg.refPaths.coin); wildRef = decode(cfg.refPaths.wild) } catch (e) { unv.push(`參考圖讀不到：${e.message}`) }
+      if (coinRef && wildRef) for (const b of plays) {
+        const shot = shots.find(s => s.name === b.name)
+        if (!shot?.path || !fs.existsSync(shot.path)) { unv.push(`${b.key} 缺圖`); continue }
+        let img
+        try { img = decode(shot.path) } catch (e) { unv.push(`${b.key} 讀圖失敗`); continue }
+        const r = countWilds(img, coinRef, wildRef, cfg)
+        const want = cfg.expected[b.key]
+        if (r.count === null) { unv.push(`${b.key}：${r.why}`); continue }
+        detail.push(`${b.key}=${r.count}`)
+        // 數不對：可能是按的時候中獎動畫還在跑（0332），第一期先算未驗，要等 runner 能「可操作後重按」才判 FAIL（CodeX）
+        if (r.count !== want) unv.push(`${b.key} 的 WILD ${r.count} 個（預期 ${want}），可能按的時候動畫還在跑，要重測`)
+      }
+    }
+  }
+  const tail = detail.length ? `｜WILD：${detail.join(' ')}` : ''
+  if (fails.length) return { kind: 'fail', why: fails.join('；') + (unv.length ? `；另外未驗：${unv.join('；')}` : '') + tail, detail }
+  if (unv.length) return { kind: 'unverified', why: unv.join('；') + tail, detail }
+  return { kind: 'ok', why: `PLAY 鍵 WILD 數都對、BET 鍵都有開局${tail}`, detail }
+}
