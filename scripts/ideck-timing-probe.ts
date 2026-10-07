@@ -122,7 +122,7 @@ try {
 
   // CodeX 139aa8d [P1]：最後一顆（沒有倍數鍵、不會還原）短等待後才晚開局、45 秒都沒結束 → 不能 PASS
   const tail = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 120000 }])
-  ok(tail.r.status !== 'pass' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })
+  ok(tail.r.status === 'fail' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })
   // CodeX 139aa8d [P2]：中止（noAck 停手）時畫面上有 JP 廣播卡 → 收尾截圖照原樣截，不點卡片的 X
   const jp = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, ack: false, jp: true }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }], { code: '873-ZZPROBE-0001' })
   ok(jp.clicks.length === 1 && jp.jpClosed === 0, '中止時有 JP 卡 → 零後續點擊（連 JP 卡的 X 都不點）', { clicks: jp.clicks.map(c => c.name), jpClosed: jp.jpClosed, status: jp.r.status })
