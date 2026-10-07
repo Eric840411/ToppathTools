@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.35.0'
+export const APP_VERSION = '5.35.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.35.1', date: '2026-10-07', changes: ['fix(機台測試報告 人工複核)：CodeX 補審 acce0d6 [P1]——覆核過的步驟換 session 重算時，上一次套用留下的 manualApplied 沒清掉，classify 仍回 pass；附 before 的原判 FAIL 在 session 不符時也沒恢復。改成每次先清掉衍生標記、用原始資料重算，不採用時有 before 就整個回到覆核前'] },
   { version: '5.35.0', date: '2026-10-07', changes: ['feat(機台測試報告)：**人工複核優先於自動判定**（osm-qa-agent 回報、CodeX 定案）——summary 步驟帶結構化 manualReview（by／at／sessionId／before）就不再被機種規則與 classify 的關鍵字判回 N/V、check；只能把 N/V、check 改成 pass，FAIL 不放行；其他次執行的覆核不沿用；manualReview:true 或「［人工複核」前綴為舊資料相容。fix（CodeX 補審）：WILD 排沒有按鈕對得上／有規則外按鈕／PLAY 鍵沒按到改判未驗（原本回 ok）；learn 指標的還原與重複按鍵不算第二顆、候選全淘汰就作廢；H5／PC 佇列派工前重查，排隊途中被刪的腳本不執行；有 owner_email 的腳本編輯只認登入帳號或管理員'] },
   { version: '5.34.0', date: '2026-10-07', changes: ['feat(UAT H5／PC 腳本清單)：使用者經 claude-osm-2 定——頁籤只剩「全部」「我的」（拿掉「公開」與「允許其他使用者執行此腳本」勾選）；「我的」是個人清單（新建自動加入、可加別人的、拖曳排序、移除不刪腳本），跟後台分開、依平台分頁，規則跟後台同一份程式（createMineStore）；刪除改軟刪除、不二次確認，權限改看登入帳號（新欄位 owner_email，created_by 是瀏覽器填的字串不能當身分），舊腳本只有管理員能刪。佇列修正：刪掉的腳本不再卡在「腳本執行順序」（重新載入時清掉並告知幾份），每列多一顆 ✕ 可從執行順序移除'] },
   { version: '5.33.0', date: '2026-10-07', changes: ['feat(機台測試 learn 指標)：0345 第一次真 learn 不能用（17 區、雜訊 64%、獎池／WIN 被學進來、₱5 與 352／880 學不到）→ 用那次的圖離線重調：雜訊改記幅度（idle＋按鈕之間的空檔，每顆自己的動畫只影響自己）、格子看「明顯變了的像素」、每顆各自分群再合併、同組至少兩顆動到才算；新增**來回按**（拍攝模式下每組 A→B→再按回 A，變回去的 verified、沒變回去的降級成雜訊；開過局的不拿來當回程鍵；按回不影響判定）；只提少量候選（每顆最多 3 區），由人挑選確認；idle 改 4 張隔 3 秒。0345 離線：面額鍵→CREDIT＋面額標記（＋會跟面額走的獎池金額）、注額鍵→BET'] },

@@ -567,6 +567,7 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `skip → na` 的對應不變；沒有複核標記的步驟原封不動
 - ⚠️ uyxqr 的 0216「音頻檢測」是人工複核（使用者現場聽到有聲音；錄音連兩次數位全零、同時段其他台正常，判為錄音端問題），自動判定是 FAIL（靜音）。照 CodeX 的邊界，這個旗標不能把它改成通過，要等「FAIL 覆核流程」另外設計。目前它是舊格式，沒有 before，看不出原本是 FAIL，所以畫面上仍是 pass
 - 驗證：`node scripts/ui-checks/manual-review.test.mjs`，14 條，含真 summary uyxqr 的 6 個複核步驟（只讀）
+- **CodeX 補審 acce0d6（v5.35.1 修）[P1]**：換 session 時，上一次套用留下的 `manualApplied` 沒清掉，classify 仍回 pass；附 before 的原判 FAIL 在 session 不符時也沒恢復。現在每次先清掉衍生標記、用原始資料重算；不採用時有 before 就整個回到覆核前。另補 3 條回歸測試（共 17 條），拿掉修正會紅
 
 ### CodeX 補審 v5.31.4～v5.34.0 的修正
 - **[P1] WILD 排**（`evaluateWildRow`）：沒有任何按鈕對得上規則、有規則外的按鈕、規則列的 PLAY 鍵沒按到，都改判未驗。原本會回 ok。真資料 ARUZE 0321～0330 的按鈕全部對得上，不受影響

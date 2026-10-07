@@ -53,6 +53,14 @@ ok(aruze.status === 'fail' && classify(aruze) === 'fail' && /人工複核未採�
 const other = one('873-ZZNOCFG-0001', reviewed(ideckStep, { by: 'x', at: 'y', sessionId: 'mt_old_run', before: { status: 'pass', message: ideckOrig } }))
 ok(other.status === 'skip' && classify(other) === 'na' && /另一次執行/.test(other.message), '覆核記錄屬於另一次執行 → 不沿用，照自動判定', other)
 
+// CodeX 補審 acce0d6 [P1]：覆核通過過的步驟換 session 重算 → 衍生標記要清掉、回到原始判定
+const cOther = run('892-ZZNOCFG-0347', [c1], 'mt_another_run').steps[0]
+ok(classify(cOther) === 'check' && !cOther.manualApplied && /另一次執行/.test(cOther.message), 'CCTV 覆核通過後換 session → 不再是 pass（回到 check，manualApplied 清掉）', cOther)
+const audioRev = { ...reviewed(silent), manualReview: { by: 'x', at: 'y', sessionId: SID, before: { status: 'warn', message: silent.message } } }
+const aOther = one('892-ZZNOCFG-0210', audioRev, 'mt_another_run')
+ok(aOther.status === 'warn' && classify(aOther) === 'fail', '原判 FAIL、改成 pass 附 before，session 不符 → 恢復 before、仍是 FAIL', aOther)
+const aOther2 = one('892-ZZNOCFG-0210', aOther, 'mt_another_run')
+ok(classify(aOther2) === 'fail' && (aOther2.message.match(/人工複核未採用/g) ?? []).length === 1, '再重算一次仍是 FAIL、訊息不重複疊加', aOther2)
 // ── 沒覆核、但狀態本來就 pass 的：不受影響 ──
 const plain = { step: 'Spin 測試', status: 'pass', message: 'Spin 正常' }
 ok(JSON.stringify(one('873-ZZNOCFG-0001', plain)) === JSON.stringify(plain), '沒有複核標記的步驟原封不動')

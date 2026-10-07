@@ -488,19 +488,28 @@ export function manualReviewOf(step) {
   if (mr === true || MANUAL_PREFIX.test(String(step?.message ?? ''))) return { legacy: true }
   return null
 }
-export function applyManualReview(s0, ruleStep, sessionId) {
+export function applyManualReview(sIn, ruleStep, sessionId) {
+  // CodeX 補審 acce0d6 [P1]：上一次套用留下的衍生標記（manualApplied／manualRejected）一律先清掉、用原始資料重算——
+  // 不清的話「換 session 被拒絕」時 classify 仍看到 manualApplied 回 pass
+  const { manualApplied: _applied, manualRejected: _rejected, ...s0 } = sIn
   const mr = manualReviewOf(s0)
   const auto0 = ruleStep(s0)
   if (!mr) return auto0
-  const reject = (why, back) => ({ ...(back ?? auto0), manualRejected: why, message: `${(back ?? auto0).message ?? ''}｜人工複核未採用：${why}` })
-  if (mr.sessionId && sessionId && mr.sessionId !== sessionId) return reject(`覆核記錄屬於另一次執行（${mr.sessionId}），重新測試不能沿用`)
   // 覆核前的最終自動判定：有 before 就用原始 status／message 重算；舊資料只能用改完的步驟
-  const before = mr.before && typeof mr.before === 'object' && mr.before.status ? ruleStep({ ...s0, status: mr.before.status, message: mr.before.message ?? s0.message }) : auto0
-  const autoCls = classify(before)
-  if (autoCls === 'fail') return reject('自動判定是 FAIL，人工複核旗標不能直接改成通過（要另走有理由與證據的覆核流程）', mr.before?.status ? before : undefined)
+  const beforeStep = mr.before && typeof mr.before === 'object' && mr.before.status ? ruleStep({ ...s0, status: mr.before.status, message: mr.before.message ?? s0.message }) : null
+  // 不採用：有 before 就整個回到覆核前（狀態與訊息都用原始的），沒有就照改完的步驟套規則
+  const reject = why => {
+    const back = beforeStep ?? auto0
+    const m = String(back.message ?? '')
+    return { ...back, manualRejected: why, message: m.includes(`人工複核未採用：${why}`) ? m : `${m}｜人工複核未採用：${why}` }
+  }
+  if (mr.sessionId && sessionId && mr.sessionId !== sessionId) return reject(`覆核記錄屬於另一次執行（${mr.sessionId}），重新測試不能沿用`)
+  const autoCls = classify(beforeStep ?? auto0)
+  if (autoCls === 'fail') return reject('自動判定是 FAIL，人工複核旗標不能直接改成通過（要另走有理由與證據的覆核流程）')
   if (s0.status !== 'pass') return auto0
-  if (!['na', 'check'].includes(autoCls)) return { ...auto0, manualApplied: { by: mr.by ?? null, at: mr.at ?? null, auto: autoCls, legacy: mr.legacy } }
-  return { ...s0, status: 'pass', manualApplied: { by: mr.by ?? null, at: mr.at ?? null, auto: autoCls, legacy: mr.legacy } }
+  const applied = { by: mr.by ?? null, at: mr.at ?? null, auto: autoCls, legacy: mr.legacy }
+  if (!['na', 'check'].includes(autoCls)) return { ...auto0, manualApplied: applied }
+  return { ...s0, status: 'pass', manualApplied: applied }
 }
 export function judge(rawResult, stepsRun) {
   const result = applyGameRules(rawResult)
