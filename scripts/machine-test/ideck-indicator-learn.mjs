@@ -104,7 +104,8 @@ export function learnIndicators({ idle, buttons, menuOpen = false, cell = 4, th 
     if ([pre, p1, p2].some(im => im.width !== W || im.height !== H)) { if (b.backOf) continue; return { ok: false, why: `${b.key} 的圖尺寸跟 idle 不一致` } }
     seq.push({ ...b, pre, p1, p2 })
   }
-  const btns = seq.filter(b => !b.backOf)
+  // 還原（idx restore＝最後再按一次 BetMultiple1）跟來回按的「按回」一樣不算另一顆按鈕（CodeX 補審：同一顆按兩次會湊滿「兩顆」）
+  const btns = seq.filter(b => !b.backOf && b.idx !== 'restore')
   if (!btns.length) return { ok: false, why: '沒有任何按鈕的拍攝' }
   // ① 雜訊幅度（1007 0345 真 learn 後改）：原本是「有變過的格子整格遮掉」，三個問題——
   //   所有按鈕 post1/post2 聯集 → 遮到 64%；CREDIT 底下有微弱光暈（idle 差 18～27），整格遮掉後面額鍵學不到 CREDIT；
@@ -164,7 +165,10 @@ export function learnIndicators({ idle, buttons, menuOpen = false, cell = 4, th 
   //   開局的按鈕（round）不套這條，照實記（捲軸、CREDIT、獎池本來就會因為開局動）
   const groupOf = b => String(b.name ?? b.key).replace(/\d+$/, '')
   const cnt = new Map()
-  btns.forEach((b, i) => { if (b.round) return; for (const r of regions) if (r.by.has(i)) { const k = `${groupOf(b)}|${regions.indexOf(r)}`; cnt.set(k, (cnt.get(k) ?? 0) + 1) } })
+  //   計數用「不同的按鈕」（key），同一顆出現兩次只算一次
+  const seen = new Map()
+  btns.forEach((b, i) => { if (b.round) return; for (const r of regions) if (r.by.has(i)) { const k = `${groupOf(b)}|${regions.indexOf(r)}`; const ks = seen.get(k) ?? new Set(); ks.add(b.key); seen.set(k, ks) } })
+  for (const [k, ks] of seen) cnt.set(k, ks.size)
   // ⑤ 來回按（osm-qa-agent／主使用者 1007）：A → B → 再按回 A。這一區 A 跟 B 長得不一樣、按回 A 又變回 A 的樣子＝真指標（verified）；
   //   B 有動到、按回 A 卻沒變回去＝獎池／動畫這類自己會跑的東西 → 沒開局的按鈕都不再用這區（降級成雜訊；它不是任何按鈕的狀態）。A 跟 B 在這區本來就一樣＝比不出來，不動它
   const fracIn = (r, a, b) => { const d = cd(a, b); let k = 0; for (const i of r.set) if (d[i] > gNeed(i)) k++; return k / r.set.size }
@@ -188,6 +192,8 @@ export function learnIndicators({ idle, buttons, menuOpen = false, cell = 4, th 
   const grpCnt = (b, r) => cnt.get(`${groupOf(b)}|${regions.indexOf(r)}`) ?? 0
   const pick = btns.map((b, i) => regions.filter(r => keepRaw(b, i, r)).sort((x, y) => (y.verified ? 1 : 0) - (x.verified ? 1 : 0) || grpCnt(b, y) - grpCnt(b, x) || (y.n.get(i) ?? 0) - (x.n.get(i) ?? 0)).slice(0, maxPerButton))
   const used = regions.filter(r => pick.some(p => p.includes(r)))
+  // CodeX 補審：候選全被淘汰（一致性、來回按）就作廢，不能回 ok 寫一份空的提案
+  if (!used.length) return { ok: false, why: '有畫面變化，但沒有任何區塊通過同組一致性／來回按，提不出高把握的候選（這次 learn 作廢）' }
   const renum = new Map(used.map((r, k) => [r, `r${k + 1}`]))
   const outButtons = btns.map((b, i) => ({ key: b.key, name: b.name ?? null, ...(b.round ? { round: true } : {}), changes: used.filter(r => pick[i].includes(r)).map(r => renum.get(r)) }))
   const idOf = r => renum.get(r) ?? '（沒選進候選）'

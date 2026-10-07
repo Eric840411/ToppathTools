@@ -144,6 +144,10 @@ export function evaluateWildRow({ gameName, buttons, shots, cfg, decode = p => P
   const plays = buttons.filter(b => Object.prototype.hasOwnProperty.call(cfg.expected, b.key))
   const roundRe = cfg.roundButtons ? new RegExp(cfg.roundButtons) : null
   const bets = roundRe ? buttons.filter(b => roundRe.test(b.key)) : []
+  // CodeX 補審（P1）：沒有任何按鈕對得上規則、有不認得的按鈕、或規則列的 PLAY 鍵沒按到 → 未驗，不能回 ok
+  if (!plays.length && !bets.length) unv.push('沒有任何按鈕對得上 WILD 規則（PLAY／BET 鍵都沒找到）')
+  for (const b of buttons) if (!plays.includes(b) && !bets.includes(b)) unv.push(`${b.key}：不在 WILD 規則裡，不知道該怎麼判`)
+  for (const k of Object.keys(cfg.expected)) if (!plays.some(b => b.key === k)) unv.push(`${k}：規則有列、這次沒按到`)
   // BET 鍵：逐顆要有開局（不能拿整段開局總數替所有 BET 背書）
   for (const b of bets) {
     if (b.round === undefined) unv.push(`${b.key}：舊版 agent 沒記每顆有沒有開局`)

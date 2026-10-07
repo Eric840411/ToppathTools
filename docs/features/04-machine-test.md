@@ -554,3 +554,24 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `verdicts-probe.ts`：70 條，含來回按的順序
   - `ideck-learn-capture-probe.ts`：7 條，真瀏覽器，含 back-1
 - ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」。重跑 0345 learn 會真下注，osm-qa-agent 要先問主使用者
+
+## 人工複核優先於自動判定＋CodeX 補審修正（v5.35.0，2026-10-07）
+### 人工複核（osm-qa-agent 回報、CodeX 定案）
+- **問題**：summary 裡把步驟改成 pass、訊息開頭加「［人工複核」之後，重產報告時 `applyGameRules`／`applyIdeckEvidence` 還是照原訊息的「iDeck 開局 0 顆」判回 N/V，`classify` 也照「影像編號不符／構圖待人工確認」判回 check（COINCOMBO uyxqr、SBL 0347／0354）
+- **做法**（`applyManualReview`，在 `applyGameRules` 裡每一步都會經過；`classify` 認 `manualApplied`）：
+  - 正式格式是結構化的 `step.manualReview = { by, at, sessionId, before: { status, message }, note }`
+  - `before` 是覆核前 runner 的原始 status／message，用來重算「覆核前的最終自動判定」，記在 `manualApplied.auto`
+  - `manualReview: true` 或訊息以「［人工複核」開頭：舊資料相容，標 `legacy`。只能用改完的步驟重算，原本是不是 FAIL 看不出來
+  - **只能把 N/V、check 改成 pass**。自動判定是 FAIL 的不採用：有 `before` 就把狀態恢復成原本的，訊息加「人工複核未採用：…」。CodeX：FAIL 是誤判要另走有理由與證據的覆核流程，這個旗標不能直接放行
+  - `manualReview.sessionId` 跟這次結果的 sessionId 不同就不採用：重新測試不能沿用舊的覆核
+  - `skip → na` 的對應不變；沒有複核標記的步驟原封不動
+- ⚠️ uyxqr 的 0210「音頻檢測」是人工複核（使用者現場有聲音），但錄音全零，自動判定是 FAIL（靜音）。照 CodeX 的邊界，這個旗標不能把它改成通過，要等「FAIL 覆核流程」另外設計。目前它是舊格式，沒有 before，看不出原本是 FAIL，所以畫面上仍是 pass
+- 驗證：`node scripts/ui-checks/manual-review.test.mjs`，14 條，含真 summary uyxqr 的 6 個複核步驟（只讀）
+
+### CodeX 補審 v5.31.4～v5.34.0 的修正
+- **[P1] WILD 排**（`evaluateWildRow`）：沒有任何按鈕對得上規則、有規則外的按鈕、規則列的 PLAY 鍵沒按到，都改判未驗。原本會回 ok。真資料 ARUZE 0321～0330 的按鈕全部對得上，不受影響
+- **[P2] learn 指標**：
+  - 還原（idx `restore`，最後再按一次 BetMultiple1）不算另一顆按鈕
+  - 同組一致性改成算「不同的按鈕」（key），同一顆按兩次不能湊滿兩顆
+  - 候選全被淘汰時整份 learn 作廢，不寫空的提案
+- 驗證：`ideck-wildrow.test.mjs` 15 條、`ideck-indicator-learn.test.mjs` 25 條；拿掉修正會紅

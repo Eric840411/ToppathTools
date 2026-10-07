@@ -72,6 +72,13 @@ if (r.ok) {
   const winR = r.regions.find(x => x.rect.y > 0.55 && x.rect.y < 0.7)
   ok(r.ok && !winR && r.buttons.find(b => b.key === 'Denom0').changes.length === 0, '只有一顆動到的區（上一局的 WIN 被清掉）→ 不算指標', r)
 }
+// CodeX 補審：同一顆按兩次（還原 restore、或同 key 出現兩次）不能湊滿「兩顆」；候選全被淘汰 → 作廢
+{
+  const r = learnRun([['BetMultiple1', { bet: 2 }], ['BetMultiple2', {}], ['BetMultiple1', { bet: 3 }, { idx: 'restore' }]])
+  ok(r.ok === false && /提不出高把握的候選/.test(r.why), '只有一顆在動、靠還原再按一次 → 不算兩顆，候選全淘汰 → 作廢', r)
+  const r2 = learnRun([['Bet1', { bet: 2 }], ['Bet1', { bet: 3 }]])
+  ok(r2.ok === false, '同一顆（同 key）出現兩次 → 只算一顆', r2)
+}
 // 開局的按鈕照實記，不套同組一致性；每顆最多 maxPerButton 區
 {
   const r = learnRun([['Denom0', { marker: 0 }], ['Denom1', { marker: 1 }], ['Bet0', { bet: 2, jp: 7 }, { round: true }]], {}, { marker: 0, bet: 1, jp: 0 })

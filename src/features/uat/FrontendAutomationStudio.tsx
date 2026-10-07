@@ -585,8 +585,9 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scriptId: script.id, scriptName: script.name, platform, ranBy: actor, totalSteps: executable.length, result: 'running', startedAt: Date.now() }),
     })
-    const createData = await createResponse.json().catch(() => ({})) as { run?: { id: string } }
-    if (!createData.run?.id) throw new Error('建立執行紀錄失敗')
+    const createData = await createResponse.json().catch(() => ({})) as { run?: { id: string }; message?: string }
+    // 1007：排隊途中被刪掉的腳本，server 會回 410 和原因（佇列那一份標失敗、寫出原因）
+    if (!createData.run?.id) throw new Error(createData.message ?? '建立執行紀錄失敗')
     const runId = createData.run.id
     activeRunId.current = runId
     setRunning(true)

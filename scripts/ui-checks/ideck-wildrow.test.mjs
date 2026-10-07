@@ -69,6 +69,13 @@ ok(r.kind === 'fail' && /BETx2 沒開局/.test(r.why), 'BET 有一顆沒開局 �
 ok(ev({ buttons: [...plays.map(([key, name]) => ({ key, name })), { key: 'BETx1', name: 'BetMultiple1' }] }).kind === 'unverified', '舊資料沒記每顆有沒有開局 → 未驗')
 // PLAY 未驗不能被 BET 通過蓋掉
 ok(ev({ gameName: 'Triple Festival' }).kind === 'unverified', 'BET 全部有開局、PLAY 未驗 → 整體仍未驗')
+// CodeX 補審 P1：沒有任何按鈕對得上、有不認得的按鈕、規則列的 PLAY 鍵沒按到 → 未驗（原本回 ok）
+r = ev({ buttons: [{ key: 'MAXBET', name: 'X' }], shots: [] })
+ok(r.kind === 'unverified' && /沒有任何按鈕對得上 WILD 規則/.test(r.why), '沒有任何按鈕對得上規則 → 未驗，不是 ok', r)
+r = ev({ buttons: [...buttons, { key: 'AUTO', name: 'Auto' }] })
+ok(r.kind === 'unverified' && /AUTO：不在 WILD 規則裡/.test(r.why), '有不認得的按鈕 → 未驗', r)
+r = ev({ buttons: buttons.filter(b => b.key !== 'PLAY55Credits') })
+ok(r.kind === 'unverified' && /PLAY55Credits：規則有列、這次沒按到/.test(r.why), '規則列的 PLAY 鍵沒按到 → 未驗', r)
 // 沒設定 → na
 ok(evaluateWildRow({ gameName: 'x', buttons, shots: goodShots, cfg: null }).kind === 'na', '機種沒有 WILD 設定 → na')
 // countWilds 尺寸不一致 → 認不出來

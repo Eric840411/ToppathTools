@@ -336,6 +336,8 @@ export function sessionAudioStats(file) {
 }
 export function classify(step) {
   const m = String(step.message ?? '')
+  // 1007 人工複核已採用（applyManualReview）→ 照 status，不再看原訊息裡的關鍵字
+  if (step.manualApplied && step.status === 'pass') return 'pass'
   if (step.status === 'skip') return 'na'
   if (step.step === '觸屏測試' && step.status === 'fail' && /未設定 touchPoints/.test(m)) return 'na'
   if (step.step === 'CCTV 號碼比對' && /影像編號不符/.test(m)) return 'check'
@@ -450,27 +452,55 @@ export function applyGameRules(result) {
   const type = String(result?.machineCode ?? '').split('-')[1]?.toUpperCase()
   const rules = gameRules(type)
   if (!Array.isArray(result?.steps)) return result
-  return {
-    ...result,
-    steps: result.steps.map(s0 => {
-      let s = s0
-      const gameName = result.steps.find(x => x.step === '進入機台')?.extraData?.gameName ?? ''
-      const m = String(s.message ?? '')
-      if (rules.ideckNoRoundIsNoResponse && s.step === 'iDeck 測試' && (s.status === 'pass' || s.status === 'warn') && /iDeck 開局 0 顆/.test(m))
-        return { ...s, status: 'fail', message: `${m}｜判定：no response（${type} 機種規則：會開局的鍵都沒開局）` }
-      s = applyIdeckEvidence(s, type, gameName)
-      if (s !== s0) return s
-      // 1007 osm-qa-agent（SUPERBURSTLINK 0359）：選單閘門確認機台停在選面額選單、又沒有關選單的方法 → runner 判「選單狀態未知」只記 WARN，
-      // Spin 其實沒測到。選單**確實開著**（閘門比對到參考圖、前端選面額後仍開著）就改成未驗，不能算通過；既有 FAIL 不動
-      if (s.step === 'Spin 測試' && s.status !== 'fail' && /前端選面額等 \d+ 秒選單仍開著/.test(m))
-        return { ...s, status: 'skip', message: `${m}｜未驗：機台停在選面額選單，Spin 沒有真的測到` }
-      // noMenuGate：這個機種沒有選面額選單 → runner 的「選單狀態未知」不構成懷疑理由，
-      // 按了 SPIN、餘額沒變、moneyNtc begin 0 次就是 spin no response（有 begin 的照舊不算）
-      if (rules.noMenuGate && s.step === 'Spin 測試' && /選單狀態未知/.test(m))
-        return { ...s, message: m.replace(/｜?選單狀態未知：[^｜]*/g, `｜（${type} 沒有選面額選單，不視為選單干擾）`) }
-      return s
-    }),
+  const gameName = result.steps.find(x => x.step === '進入機台')?.extraData?.gameName ?? ''
+  const ruleStep = s0 => {
+    let s = s0
+    const m = String(s.message ?? '')
+    if (rules.ideckNoRoundIsNoResponse && s.step === 'iDeck 測試' && (s.status === 'pass' || s.status === 'warn') && /iDeck 開局 0 顆/.test(m))
+      return { ...s, status: 'fail', message: `${m}｜判定：no response（${type} 機種規則：會開局的鍵都沒開局）` }
+    s = applyIdeckEvidence(s, type, gameName)
+    if (s !== s0) return s
+    // 1007 osm-qa-agent（SUPERBURSTLINK 0359）：選單閘門確認機台停在選面額選單、又沒有關選單的方法 → runner 判「選單狀態未知」只記 WARN，
+    // Spin 其實沒測到。選單**確實開著**（閘門比對到參考圖、前端選面額後仍開著）就改成未驗，不能算通過；既有 FAIL 不動
+    if (s.step === 'Spin 測試' && s.status !== 'fail' && /前端選面額等 \d+ 秒選單仍開著/.test(m))
+      return { ...s, status: 'skip', message: `${m}｜未驗：機台停在選面額選單，Spin 沒有真的測到` }
+    // noMenuGate：這個機種沒有選面額選單 → runner 的「選單狀態未知」不構成懷疑理由，
+    // 按了 SPIN、餘額沒變、moneyNtc begin 0 次就是 spin no response（有 begin 的照舊不算）
+    if (rules.noMenuGate && s.step === 'Spin 測試' && /選單狀態未知/.test(m))
+      return { ...s, message: m.replace(/｜?選單狀態未知：[^｜]*/g, `｜（${type} 沒有選面額選單，不視為選單干擾）`) }
+    return s
   }
+  return { ...result, steps: result.steps.map(s0 => applyManualReview(s0, ruleStep, result.sessionId)) }
+}
+// ── 1007 人工複核（osm-qa-agent 回報、CodeX 定案）────────────────────────────
+// 人工複核要優先於自動判定，不然重產報告又被機種規則／classify 的關鍵字判回 N/V、check（COINCOMBO uyxqr、SBL 0347／0354）。
+// CodeX 的邊界：
+//   - 只能把 N/V、check 改成 pass。自動判定是 FAIL 的，這個旗標**不放行**（要另走有理由、證據的覆核流程）
+//   - 正式依據是結構化的 step.manualReview：{ by, at, sessionId, before: { status, message }, note }
+//     before＝覆核前 runner 的原始 status／message，用它重算「覆核前的最終自動判定」；只看改完的 pass 不知道原本是不是 fail
+//   - manualReview:true 或訊息以「［人工複核」開頭＝舊資料相容：只能用改完的步驟重算（原本是 fail 的看不出來），標 legacy
+//   - 綁定該次執行：manualReview.sessionId 跟結果的 sessionId 不同 → 不採用（重新測試不能沿用）
+//   - classify 也要認（manualApplied），兩處只修一處仍會被另一處改判；未複核的照舊
+export const MANUAL_PREFIX = /^［人工複核/
+export function manualReviewOf(step) {
+  const mr = step?.manualReview
+  if (mr && typeof mr === 'object') return { ...mr, legacy: false }
+  if (mr === true || MANUAL_PREFIX.test(String(step?.message ?? ''))) return { legacy: true }
+  return null
+}
+export function applyManualReview(s0, ruleStep, sessionId) {
+  const mr = manualReviewOf(s0)
+  const auto0 = ruleStep(s0)
+  if (!mr) return auto0
+  const reject = (why, back) => ({ ...(back ?? auto0), manualRejected: why, message: `${(back ?? auto0).message ?? ''}｜人工複核未採用：${why}` })
+  if (mr.sessionId && sessionId && mr.sessionId !== sessionId) return reject(`覆核記錄屬於另一次執行（${mr.sessionId}），重新測試不能沿用`)
+  // 覆核前的最終自動判定：有 before 就用原始 status／message 重算；舊資料只能用改完的步驟
+  const before = mr.before && typeof mr.before === 'object' && mr.before.status ? ruleStep({ ...s0, status: mr.before.status, message: mr.before.message ?? s0.message }) : auto0
+  const autoCls = classify(before)
+  if (autoCls === 'fail') return reject('自動判定是 FAIL，人工複核旗標不能直接改成通過（要另走有理由與證據的覆核流程）', mr.before?.status ? before : undefined)
+  if (s0.status !== 'pass') return auto0
+  if (!['na', 'check'].includes(autoCls)) return { ...auto0, manualApplied: { by: mr.by ?? null, at: mr.at ?? null, auto: autoCls, legacy: mr.legacy } }
+  return { ...s0, status: 'pass', manualApplied: { by: mr.by ?? null, at: mr.at ?? null, auto: autoCls, legacy: mr.legacy } }
 }
 export function judge(rawResult, stepsRun) {
   const result = applyGameRules(rawResult)

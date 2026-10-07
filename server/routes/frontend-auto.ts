@@ -138,7 +138,14 @@ function canMutateScript(req: express.Request, script: ScriptRow | undefined, ac
   if (!script) return false
   const adminPin = process.env.ADMIN_PIN
   const headerPin = req.header('x-admin-pin')
-  return script.created_by === actor || (!!adminPin && headerPin === adminPin)
+  if (!!adminPin && headerPin === adminPin) return true
+  // 1007 CodeX 補審：有 owner_email 的（新腳本）只認登入帳號或管理員，不再信瀏覽器傳的 created_by。
+  // 舊腳本沒有登入帳號可比，維持原本的字串比對（不然所有人都改不了自己的舊腳本）——這是已知限制
+  if (script.owner_email) {
+    const account = getAuthAccount(req)
+    return !!account && (account.role === 'admin' || account.email.toLowerCase() === script.owner_email.toLowerCase())
+  }
+  return script.created_by === actor
 }
 
 router.use('/api/frontend-auto/images', express.static(imageDir))
@@ -266,7 +273,7 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
 router.put('/api/frontend-auto/scripts/:id', (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
-    const existing = db.prepare('SELECT id, created_by FROM frontend_auto_scripts WHERE id = ? AND deleted_at IS NULL').get(req.params.id) as ScriptRow | undefined
+    const existing = db.prepare('SELECT id, created_by, owner_email FROM frontend_auto_scripts WHERE id = ? AND deleted_at IS NULL').get(req.params.id) as ScriptRow | undefined
     const actor = text(body.createdBy, 'unknown')
     if (!canMutateScript(req, existing, actor)) return res.status(existing ? 403 : 404).json({ ok: false, message: existing ? 'forbidden' : 'script not found' })
     const name = text(body.name)
@@ -451,10 +458,19 @@ router.get('/api/frontend-auto/runs/:id', (req, res) => {
   res.json({ ok: true, run, running: activeRuns.has(req.params.id) })
 })
 
+/** 1007 CodeX 補審：佇列用的是開始時的快照，排隊途中被別人刪掉的腳本不能照跑——派工（建立 run、執行）前都重查 */
+function deletedScriptMessage(scriptId: string): string | null {
+  if (!scriptId) return null   // 還沒存檔的草稿
+  const row = db.prepare('SELECT name, deleted_at FROM frontend_auto_scripts WHERE id = ?').get(scriptId) as { name: string; deleted_at: number | null } | undefined
+  return row?.deleted_at ? `腳本「${row.name}」已被刪除，不執行` : null
+}
+
 router.post('/api/frontend-auto/runs', (req, res) => {
   const body = req.body as Record<string, unknown>
   const platform = asPlatform(body.platform)
   if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
+  const gone = deletedScriptMessage(text(body.scriptId))
+  if (gone) return res.status(410).json({ ok: false, message: gone })
   const id = text(body.id, randomUUID())
   db.prepare(`
     INSERT INTO frontend_auto_runs
@@ -1911,6 +1927,9 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const requestedAgentId = text(body.agentId)
 
   if (activeRuns.has(runId)) return res.status(409).json({ ok: false, message: 'already running' })
+  const runScript = db.prepare('SELECT script_id FROM frontend_auto_runs WHERE id = ?').get(runId) as { script_id: string } | undefined
+  const goneExec = deletedScriptMessage(runScript?.script_id ?? '')
+  if (goneExec) return res.status(410).json({ ok: false, message: goneExec })
 
   // 後台設定片段：id → 真正的步驟。⚠️ 解析不到一律擋下來，
   // 不能讓那一步變成空的照樣跑過去（「設定沒做但測試綠燈」是最糟的結果）。

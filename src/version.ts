@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.34.0'
+export const APP_VERSION = '5.35.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.35.0', date: '2026-10-07', changes: ['feat(機台測試報告)：**人工複核優先於自動判定**（osm-qa-agent 回報、CodeX 定案）——summary 步驟帶結構化 manualReview（by／at／sessionId／before）就不再被機種規則與 classify 的關鍵字判回 N/V、check；只能把 N/V、check 改成 pass，FAIL 不放行；其他次執行的覆核不沿用；manualReview:true 或「［人工複核」前綴為舊資料相容。fix（CodeX 補審）：WILD 排沒有按鈕對得上／有規則外按鈕／PLAY 鍵沒按到改判未驗（原本回 ok）；learn 指標的還原與重複按鍵不算第二顆、候選全淘汰就作廢；H5／PC 佇列派工前重查，排隊途中被刪的腳本不執行；有 owner_email 的腳本編輯只認登入帳號或管理員'] },
   { version: '5.34.0', date: '2026-10-07', changes: ['feat(UAT H5／PC 腳本清單)：使用者經 claude-osm-2 定——頁籤只剩「全部」「我的」（拿掉「公開」與「允許其他使用者執行此腳本」勾選）；「我的」是個人清單（新建自動加入、可加別人的、拖曳排序、移除不刪腳本），跟後台分開、依平台分頁，規則跟後台同一份程式（createMineStore）；刪除改軟刪除、不二次確認，權限改看登入帳號（新欄位 owner_email，created_by 是瀏覽器填的字串不能當身分），舊腳本只有管理員能刪。佇列修正：刪掉的腳本不再卡在「腳本執行順序」（重新載入時清掉並告知幾份），每列多一顆 ✕ 可從執行順序移除'] },
   { version: '5.33.0', date: '2026-10-07', changes: ['feat(機台測試 learn 指標)：0345 第一次真 learn 不能用（17 區、雜訊 64%、獎池／WIN 被學進來、₱5 與 352／880 學不到）→ 用那次的圖離線重調：雜訊改記幅度（idle＋按鈕之間的空檔，每顆自己的動畫只影響自己）、格子看「明顯變了的像素」、每顆各自分群再合併、同組至少兩顆動到才算；新增**來回按**（拍攝模式下每組 A→B→再按回 A，變回去的 verified、沒變回去的降級成雜訊；開過局的不拿來當回程鍵；按回不影響判定）；只提少量候選（每顆最多 3 區），由人挑選確認；idle 改 4 張隔 3 秒。0345 離線：面額鍵→CREDIT＋面額標記（＋會跟面額走的獎池金額）、注額鍵→BET'] },
   { version: '5.32.0', date: '2026-10-07', changes: ['feat(機台測試 learn)：**learn 自動找 iDeck 畫面指標**（主使用者要求、osm-qa-agent 規格）——batch --learn 時 runner 多拍 main 推流框：第一顆按之前不按任何鍵連拍 idle×3、每顆按之前 pre、按完 post1／post2；batch 用 idle 與 post1↔post2 做動畫雜訊遮罩，排除後剩下的變化分群成反應區，記下每顆按鈕會動哪幾區，寫成 knowledge 的 ideck-indicator.json（status: proposed）＋框線圖，人確認後才 confirmed。選單沒關掉、資料不足、一顆都沒反應的 learn 整份作廢；已 confirmed 的不蓋；按到已選中的那顆學成「不需變化」。一般批次不多拍。驗證端（拿指標判每顆有沒有反應）等真的 learn 資料出來再做'] },
