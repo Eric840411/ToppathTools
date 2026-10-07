@@ -3586,7 +3586,8 @@ export async function stepIdeck(
       return o
     }
     const shotAndReport = async (o: Outcome, idx: string, asIs = false) => {
-      o.shot = await shoot(`ideck-${idx}${o.name ? '-' + o.name.replace(/[^\w-]/g, '') : ''}`)
+      // CodeX 139aa8d [P2]：asIs（中止／逾時的收尾）要傳給 shoot——不然還是會去點 JP 廣播卡的 X
+      o.shot = await shoot(`ideck-${idx}${o.name ? '-' + o.name.replace(/[^\w-]/g, '') : ''}`, asIs)
       const tag = { ack: '✅ server 已回應', mismatch: '❌ actionid 對不上', noAck: '❌ 有送出但 server 沒回應', notSent: '❌ 前端沒送出 dealGMActionReq', noElement: '⚠️ 找不到元素', spinTimeout: '❌ 開轉後沒等到結束' }[o.result]
       emit(`iDeck 按鈕 ${o.label}「${o.text}」${o.name ? `(${o.name})` : ''} → ${tag}${o.seq !== null ? `（seq ${o.seq}, actionid ${o.actionid ?? '?'}, isspin ${o.isspin ?? '?'}）` : ''}${o.note ? '｜' + o.note : ''}`)
     }
@@ -3673,7 +3674,8 @@ export async function stepIdeck(
       // 1007：最後一顆（或還原）是短等待 → 等它的保守窗口滿，再看有沒有晚到的 begin（沒有下一顆的關卡可以抓）
       if (!aborted && prev && prev.fast && !shouldStop?.()) {
         const g = await gateBeforePress()
-        if (g.ok === false) { aborted = true; emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}` }
+        // CodeX 139aa8d [P1]：收尾抓到晚開局、45 秒沒結束 → 那一顆要記成開轉逾時，不能留著 ack（沒有倍數鍵時 verdict 會放行成 PASS）
+        if (g.ok === false) { aborted = true; emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}`; prev.outcome.result = 'spinTimeout'; prev.outcome.halt = g.why }
       }
       // 歸屬不明：等局結束（被動、不點），之後交回 stepGate 接觸屏／CCTV／退出；逾時不算完成——還沒結束的局由下一步的 checkOsm（疑似特殊遊戲）接手
       if (ambiguous && !shouldStop?.()) {

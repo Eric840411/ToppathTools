@@ -641,6 +641,10 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - runner 改回用 action name 查 → 4 條紅
   - 拿掉靜默窗 → 3 條紅
   - gate 不檢查空閒 → 2 條紅
+- **CodeX 審 139aa8d（v5.36.1 修）**：
+  - [P1] 收尾時抓到最後一顆晚開局、45 秒沒結束：原本只標中止、補一句 note，結果仍是 ack，沒有倍數鍵時 verdict 會放行成 PASS。現在那一顆改記開轉逾時（spinTimeout＋halt）
+  - [P2] 中止／逾時收尾的 `shotAndReport(…, asIs)` 沒把 asIs 傳給 `shoot`，停手後還是會去點 JP 廣播卡的 X。已補傳
+  - 探針新增兩個情境（共 38 條）：末顆晚開局不結束、中止時畫面上有 JP 卡。把兩個修正各自拿掉，對應那條都會紅
 - ⚠️ 還沒真機驗。需要部署 Spug，agent 要「更新程式碼」
 - 一個已知缺口：同一批同時有多台 agent 時，別台 agent 要等 batch 把撤銷寫回中控之後，下一次 start 才會讀到
 

@@ -32,11 +32,12 @@ ok(attributeBegin({ beginTs: 5500, prev: { clickTs: 1000, fast: false }, nextCli
 // ── 真的 stepIdeck ──
 // 1008：按鈕上的字跟 SEND 的 action name 照正式環境分開（PLAY 11 Credits ↔ Bet11、BETx1 ↔ BetMultiple1）——
 //   原本兩個寫成一樣，runner 拿 action name 查按鈕字的清單這個 bug 測不出來
-type Btn = { name: string; text?: string; aid: number; ack?: boolean; beginAfter?: number; roundMs?: number }
+type Btn = { name: string; text?: string; jp?: boolean; aid: number; ack?: boolean; beginAfter?: number; roundMs?: number }
 const page_ = (btns: Btn[], pre: string) => `<!doctype html><script>
 window.__moneyLog = []; window.__clicks = []; let mseq = 0, rseq = 100;
 function money(reason){ window.__moneyLog.push({ seq: ++mseq, coin: 1000, reason, ts: Date.now() }); console.log('moneyNtc', { reason, coin: 1000 }) }
 function press(i){ const b = BTNS[i]; window.__clicks.push({ name: b.name, ts: Date.now() }); const s = ++rseq;
+  if (b.jp) document.body.insertAdjacentHTML('beforeend', '<div class="content"><div class="view">View</div><div class="notification-close" style="width:24px;height:24px;background:#c00" onclick="window.__jpClosed=(window.__jpClosed||0)+1">x</div></div>')
   console.log('dealGMActionReq: ' + s + ' ' + b.name + ' ' + b.aid)
   console.log('SEND: ' + s + ' hall.hallHandler.dealGMActionReq', { actionid: b.aid, isspin: 1 })
   if (b.ack !== false) setTimeout(() => console.log('ON: ' + s + ' hall.hallHandler.dealGMActionReq', { actionid: b.aid }), 80)
@@ -46,17 +47,18 @@ const BTNS = ${JSON.stringify(btns)};
 ${pre}
 </script>${btns.map((b, i) => `<div class="btn_bet" style="width:80px;height:40px;margin:4px" onclick="press(${i})">${b.text ?? b.name}</div>`).join('')}`
 let html = ''
-async function run(page: Page, btns: Btn[], o: { cfg?: IdeckTimingCfg | null; revoked?: string | null; pre?: string; noQuiet?: boolean } = {}) {
+async function run(page: Page, btns: Btn[], o: { cfg?: IdeckTimingCfg | null; revoked?: string | null; pre?: string; noQuiet?: boolean; code?: string } = {}) {
   html = page_(btns, o.pre ?? "money('begin'); money('end')")
   await page.goto(`http://probe.local/game/${Date.now()}`)
   const revokes: string[] = []
   const t0 = Date.now()
-  const r = await stepIdeck(page, () => {}, '', undefined, undefined, undefined, () => false, undefined, 'probe-', undefined,
+  const r = await stepIdeck(page, () => {}, o.code ?? '', undefined, undefined, undefined, () => false, undefined, 'probe-', undefined,
     { cfg: o.cfg === undefined ? cfg : o.cfg, revoked: o.revoked ?? null, onRevoke: why => revokes.push(why), _probeNoQuietWindow: o.noQuiet })
   const clicks = await page.evaluate(() => (window as any).__clicks as { name: string; ts: number }[])
   const log = await page.evaluate(() => (window as any).__moneyLog as { seq: number; reason: string; ts: number }[])
   const t = JSON.parse(r.extraData?.ideckTiming ?? '{}')
-  return { r, clicks, log, revokes, t, ms: Date.now() - t0 }
+  const jpClosed = await page.evaluate(() => (window as any).__jpClosed ?? 0) as number
+  return { r, clicks, log, revokes, t, ms: Date.now() - t0, jpClosed }
 }
 
 const browser = await chromium.launch({ headless: true })
@@ -117,6 +119,13 @@ try {
   ok(amb.r.status === 'skip' && /ideck not verified \(timing ambiguous\)/.test(amb.r.message), '歸屬不明 → not verified（不是 fail、也不是 pass）', amb.r.status)
   ok(amb.clicks.length === 2 && !amb.clicks.some(c => c.name === 'BetMultiple1'), '歸屬不明之後 iDeck 零點擊', amb.clicks.map(c => c.name))
   ok(amb.revokes.length === 1 && /歸屬不明/.test(amb.revokes[0]), '歸屬不明也撤銷', amb.revokes)
+
+  // CodeX 139aa8d [P1]：最後一顆（沒有倍數鍵、不會還原）短等待後才晚開局、45 秒都沒結束 → 不能 PASS
+  const tail = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 120000 }])
+  ok(tail.r.status !== 'pass' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })
+  // CodeX 139aa8d [P2]：中止（noAck 停手）時畫面上有 JP 廣播卡 → 收尾截圖照原樣截，不點卡片的 X
+  const jp = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, ack: false, jp: true }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }], { code: '873-ZZPROBE-0001' })
+  ok(jp.clicks.length === 1 && jp.jpClosed === 0, '中止時有 JP 卡 → 零後續點擊（連 JP 卡的 X 都不點）', { clicks: jp.clicks.map(c => c.name), jpClosed: jp.jpClosed, status: jp.r.status })
 } finally {
   await browser.close()
 }
