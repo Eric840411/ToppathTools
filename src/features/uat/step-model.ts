@@ -87,35 +87,45 @@ export function createStep(action = 'goto'): AutoStep {
   return step
 }
 
+/**
+ * 讀進來的步驟：**保留所有欄位**，只檢查已知欄位的型別（型別不對就丟掉那一欄）。
+ *
+ * 🚨 1007 claude-osm-2 回報：原本這裡（和下面的 cleanStep）是**白名單**，只複製列出來的欄位，其他一律默默丟掉——
+ *    settleMs／as／from／reason／pattern／until／timeoutMs／matchMode／expect／容差／overwrite／nodeName… 全部消失。
+ *    從畫面按「執行」走 parseSteps → compileExecutableSteps，送出去的步驟就少了這些欄位
+ *    （assert_row_match 少了 from、require_precondition 少了 reason、goto 的 settleMs:0 變回預設 3 秒），
+ *    畫面上一存檔也會把 API 寫進去的欄位清掉。用 API 直接派工的不經過這裡，所以那邊一直是好的。
+ *    白名單＝每加一個欄位就要記得改兩處，漏了沒有任何錯誤；改成「預設保留、已知的才驗」。
+ *    守門：scripts/ui-checks/step-model-roundtrip.test.ts（每種 action、每個欄位都要原封不動地存回來）
+ */
+const STRING_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason'] as const
+const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs'] as const
+// 原本就會去頭尾空白、空的不存的欄位（行為不變）；其他字串欄位原樣保留——pattern／expect 的空白可能有意義
+const TRIM_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const
+const BOOLEAN_KEYS = ['overwrite', 'allowDangerous', 'collapsed'] as const
+const ENUMS: Record<string, readonly string[]> = {
+  expectStatus: ['2xx', 'any', 'exact'],
+  until: ['visible', 'hidden', 'text', 'node'],
+  matchMode: ['contains', 'equals', 'regex', 'number'],
+}
 function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof item === 'string') return { ...createStep('wait'), name: item, value: '1000' }
   if (!item || typeof item !== 'object') return { ...createStep('wait'), name: `步驟 ${index + 1}`, value: '1000' }
   const row = item as Record<string, unknown>
   const rawAction = typeof row.action === 'string' && row.action ? row.action : 'wait'
   const action = rawAction === 'fill' ? 'type' : rawAction
-  const step = createStep(action)
-  step.id = typeof row.id === 'string' && row.id ? row.id : step.id
-  step.name = typeof row.name === 'string' ? row.name : typeof row.title === 'string' ? row.title : step.name
-  if (typeof row.value === 'string') step.value = row.value
-  if (typeof row.selector === 'string') step.selector = row.selector
-  if (typeof row.x === 'number') step.x = row.x
-  if (typeof row.y === 'number') step.y = row.y
-  if (typeof row.baselineId === 'string') step.baselineId = row.baselineId
-  if (typeof row.threshold === 'number') step.threshold = row.threshold
-  if (typeof row.scrollStep === 'number') step.scrollStep = row.scrollStep
-  if (typeof row.maxScrolls === 'number') step.maxScrolls = row.maxScrolls
-  if (typeof row.urlPattern === 'string') step.urlPattern = row.urlPattern
-  if (typeof row.snippetId === 'string') step.snippetId = row.snippetId
-  if (typeof row.tcId === 'string') step.tcId = row.tcId
-  if (row.expectStatus === '2xx' || row.expectStatus === 'any' || row.expectStatus === 'exact') step.expectStatus = row.expectStatus
-  if (typeof row.statusCode === 'number') step.statusCode = row.statusCode
-  if (typeof row.minCount === 'number') step.minCount = row.minCount
-  if (typeof row.selectorStrategy === 'string') step.selectorStrategy = row.selectorStrategy
-  if (typeof row.selectorCheck === 'string') step.selectorCheck = row.selectorCheck
-  if (typeof row.selectorCheckReason === 'string') step.selectorCheckReason = row.selectorCheckReason
-  if (typeof row.retryCount === 'number') step.retryCount = row.retryCount
-  if (row.failureMode === 'continue' || row.failureMode === 'stop' || row.failureMode === 'retry') step.failureMode = row.failureMode
-  if (Array.isArray(row.children)) step.children = row.children.map(normalizeOne)
+  const base = createStep(action)
+  const { children: rawChildren, title, ...rest } = row
+  const step = { ...base, ...rest, action } as AutoStep & Record<string, unknown>
+  step.id = typeof row.id === 'string' && row.id ? row.id : base.id
+  step.name = typeof row.name === 'string' ? row.name : typeof title === 'string' ? title : base.name
+  // 已知欄位型別不對 → 丟掉那一欄（有預設值的退回預設）
+  for (const k of STRING_KEYS) if (k in step && typeof step[k] !== 'string') delete step[k]
+  for (const k of NUMBER_KEYS) if (k in step && (typeof step[k] !== 'number' || !Number.isFinite(step[k] as number))) delete step[k]
+  for (const k of BOOLEAN_KEYS) if (k in step && typeof step[k] !== 'boolean') delete step[k]
+  for (const [k, ok] of Object.entries(ENUMS)) if (k in step && !ok.includes(step[k] as string)) { if (k in base) step[k] = (base as unknown as Record<string, unknown>)[k]; else delete step[k] }
+  if (!['inherit', 'continue', 'stop', 'retry'].includes(step.failureMode as string)) step.failureMode = 'inherit'
+  if (Array.isArray(rawChildren)) step.children = rawChildren.map(normalizeOne)
   return step
 }
 
@@ -132,19 +142,18 @@ export function serializeSteps(steps: AutoStep[]) {
   return JSON.stringify(steps.map(cleanStep))
 }
 
+/** 存回去的步驟：**保留所有欄位**（見 normalizeOne 的說明），只做整理——原本那幾個字串欄位去頭尾空白、空的不存；collapsed（畫面狀態）不存 */
 function cleanStep(step: AutoStep): Record<string, unknown> {
-  const row: Record<string, unknown> = { id: step.id, name: step.name.trim() || actionLabel(step.action), action: step.action }
-  // ⚠️ 新增參數欄位時**這兩行一定要一起加**。漏了的話步驟在畫面上編得好好的，
-  //    存檔（serialize）之後參數就消失了，而且不會有任何錯誤——重新載入才發現變空的。
-  //
-  // 🚨 **上面 `normalizeOne()` 那一長串也要一起加。** 白名單有兩份——寫出去一份、
-  //    讀回來一份——只補這裡的話欄位存得進去卻讀不回來，症狀一模一樣（重載後變空的），
-  //    但查起來更難，因為資料庫裡明明看得到。`snippetId` 就這樣漏過一次。
-  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
-  for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
-  if (step.expectStatus) row.expectStatus = step.expectStatus
-  if (step.failureMode && step.failureMode !== 'inherit') row.failureMode = step.failureMode
-  if (CONTAINER_ACTIONS.has(step.action)) row.children = (step.children ?? []).map(cleanStep)
+  const { collapsed: _collapsed, children, ...rest } = step
+  const row: Record<string, unknown> = { ...rest, name: step.name.trim() || actionLabel(step.action) }
+  for (const k of TRIM_KEYS) {
+    const v = row[k]
+    if (typeof v === 'string' && v.trim()) row[k] = v.trim()
+    else delete row[k]
+  }
+  for (const [k, v] of Object.entries(row)) if (v === undefined) delete row[k]
+  if (!step.failureMode || step.failureMode === 'inherit') delete row.failureMode
+  if (CONTAINER_ACTIONS.has(step.action)) row.children = (children ?? []).map(cleanStep)
   return row
 }
 
