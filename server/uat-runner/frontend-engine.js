@@ -370,7 +370,7 @@ export async function runFrontendStep(step, ctx) {
   if (step.action === 'click') {
     // 🚨 守衛要在**動作之前**（CodeX 2026-09-20）：點完才警告就來不及了，
     //    機台已經被預約、錢已經轉出去。見 dangerous-actions.js。
-    guardDangerousStep({ step, what: { selector: step.selector, text: step.name }, startUrl: ctx.startUrl });
+    guardDangerousStep({ step, what: { selector: step.selector, text: step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
     markWsBefore(ctx);
     await log(`⏳ ${idx} ${label}`);
     /**
@@ -604,7 +604,7 @@ export async function runFrontendStep(step, ctx) {
     const pc = requirePc(ctx, 'PC 點節點');
     const want = (step.value ?? '').trim();
     if (!want) throw new Error('要填節點名稱或標籤文字，例如 `btn-road`（節點名）或 `Road`（畫面上的字）');
-    guardDangerousStep({ step, what: { node: want, text: step.name }, startUrl: ctx.startUrl });
+    guardDangerousStep({ step, what: { node: want, text: step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
     await log(`⏳ ${idx} ${label} → ${want}`);
     // 點之前關一次彈窗：中獎彈窗會把整個畫面的點擊吃掉（見 pc-cocos.ts 的說明）
     const closed = await pc.closePopups(page);
@@ -930,7 +930,7 @@ export async function runFrontendStep(step, ctx) {
 
   if (step.action === 'click_xy') {
     const underXy = await pcNodeAtPoint(page, step.x ?? 0, step.y ?? 0).catch(() => null);
-    guardDangerousStep({ step, what: { node: underXy?.id ?? underXy?.name ?? '', text: underXy?.label || step.name }, startUrl: ctx.startUrl });
+    guardDangerousStep({ step, what: { node: underXy?.id ?? underXy?.name ?? '', text: underXy?.label || step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
     markWsBefore(ctx);
     await log(`⏳ ${idx} ${label}`);
     await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 });
@@ -945,7 +945,7 @@ export async function runFrontendStep(step, ctx) {
      *    這裡先把座標反查成節點再判斷；反查不到就只剩步驟名稱可看（弱訊號，不擋）。
      */
     const under = await pcNodeAtPoint(page, step.x ?? 0, step.y ?? 0).catch(() => null);
-    guardDangerousStep({ step, what: { node: under?.id ?? under?.name ?? '', text: under?.label || step.name }, startUrl: ctx.startUrl });
+    guardDangerousStep({ step, what: { node: under?.id ?? under?.name ?? '', text: under?.label || step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
     markWsBefore(ctx);
     await log(`⏳ ${idx} ${label}${under?.name ? `（這個位置是節點 ${under.name}）` : ''}`);
     await page.mouse.click(step.x ?? 0, step.y ?? 0);

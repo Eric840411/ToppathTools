@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.5'
+export const APP_VERSION = '5.30.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.6', date: '2026-10-07', changes: ['fix(UAT 執行安全)：CodeX 審 af25442——[P1] 危險操作守衛判斷正式環境原本對**整條網址**找 qat／uat／test 字樣，正式網址加 ?note=uat 就被放行；改成只看 hostname、只認已知測試環境（*.osmslot.org 帶 qat／uat／test／stg 且不帶 prod），其他一律當正式；而且操作當下的實際網址也要是測試環境（起始 QAT、中途導到正式站也擋）。[P2] 執行入口先清掉 baselineUrl／baselineName／baselineThreshold／snippetSteps／snippetTitle 這些只能由 server 產生的欄位，再從 DB 重建——前端改成保留所有欄位後，畫面路徑也能帶進假的基準圖網址或片段步驟'] },
   { version: '5.30.5', date: '2026-10-07', changes: ['fix(UAT 前台工作台)：**從畫面按執行／存檔，步驟會默默少掉欄位**——步驟讀寫原本是白名單，沒列到的一律丟掉：settleMs、as、from、reason、pattern、until、timeoutMs、matchMode、expect、容差、overwrite、nodeName…。症狀：表格要有一筆符合說「要填表格變數」、前置條件說「要填不成立時的說明」、前往頁面的 settleMs:0 變回 3 秒（載入畫面截不到）；在畫面上存檔也會把 API 寫進去的欄位清掉。用 API 直接派工的不受影響。改成預設保留所有欄位、只驗已知欄位的型別，加來回存讀的檢查（每種 action、每個欄位）。claude-osm-2 回報'] },
   { version: '5.30.4', date: '2026-10-07', changes: ['fix(機台測試 CCTV)：CodeX 審 2993fdf 兩個 P2——清遮罩時第一個遮罩被擋後，同一輪仍會去點下一個遮罩的關閉鍵，改成立刻整個停；被擋的留證截圖前原本還會先關 JACKPOT 廣播卡，改成照當下畫面截、什麼都不點'] },
   { version: '5.30.3', date: '2026-10-07', changes: ['fix(機台測試 CCTV)：CodeX 審 19d3b6b——CCTV 截圖前清遮罩：遮罩裡找不到關閉鍵時原本會搜整個 frame，可能按到別處的關閉鍵，拿掉；點遮罩被擋下（未辨識）時原本仍記「已 force-click」還送 Escape，改成立刻停手、CCTV 記「未驗：被未辨識的遮罩擋住」並留證，不拿被擋住的畫面比號碼'] },

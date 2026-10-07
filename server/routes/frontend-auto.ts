@@ -1,6 +1,7 @@
 ﻿import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'crypto'
+import { stripServerDerivedFields } from './frontend-step-sanitize.js'
 // 跟 agent-runner.ts 用同一份共用模組（見 net-capture.js 檔頭說明為什麼放 uat-runner/）
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
 import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
@@ -1855,7 +1856,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   // 不能讓那一步變成空的照樣跑過去（「設定沒做但測試綠燈」是最糟的結果）。
   let parsedSteps: StepObj[] = []
   try { parsedSteps = JSON.parse(stepsRaw) as StepObj[] } catch { parsedSteps = [] }
-  const resolved = resolveBackendSnippets(Array.isArray(parsedSteps) ? parsedSteps : [])
+  const resolved = resolveBackendSnippets(stripServerDerivedFields(Array.isArray(parsedSteps) ? parsedSteps : []) as StepObj[])
   if (resolved.errors.length) {
     return res.status(400).json({ ok: false, message: resolved.errors.join('；') })
   }

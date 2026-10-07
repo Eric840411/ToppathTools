@@ -129,10 +129,18 @@ export function classifyDanger(what = {}) {
  *    不是給人拿來在正式站上預約機台的。判斷寧可寬——不確定就當成正式。
  */
 export function isProdLike(url = '') {
-  const u = String(url).toLowerCase()
-  if (!u) return true
-  if (/qat|uat|test|stg|staging/.test(u)) return false
-  return /prod|osm-h5\.|osm-pc\.|osmslot\.com/.test(u) || !/osmslot\.org/.test(u)
+  // 1007 CodeX（af25442 審查 P1）：原本對**整條網址**找 qat／uat／test 字樣——正式網址加 `?note=uat` 就被當成測試環境放行。
+  // 改成只看 **hostname**，而且只認已知的測試環境，其他（含讀不出 hostname）一律當正式：
+  //   - *.osmslot.org 且 hostname 帶 qat／uat／test／stg／staging、又不帶 prod
+  //   - osm-redirect.osmslot.org（QAT 的導轉入口，沿用既有判定）
+  //   - 測試用保留網域（*.test、*.example、localhost、127.0.0.1）——探針的假頁面
+  let host = ''
+  try { host = new URL(String(url)).hostname.toLowerCase() } catch { return true }
+  if (!host) return true
+  if (host === 'localhost' || host === '127.0.0.1' || /\.(test|example)$/.test(host)) return false
+  if (!host.endsWith('.osmslot.org') || /prod/.test(host)) return true
+  if (host === 'osm-redirect.osmslot.org') return false
+  return !/qat|uat|test|stg|staging/.test(host)
 }
 
 /**
@@ -140,11 +148,12 @@ export function isProdLike(url = '') {
  *
  * @param {{ step: object, what: object, startUrl?: string }} args
  */
-export function guardDangerousStep({ step = {}, what = {}, startUrl = '' }) {
+export function guardDangerousStep({ step = {}, what = {}, startUrl = '', currentUrl }) {
   const danger = classifyDanger(what)
   if (!danger || danger.strength !== 'strong') return danger
   const label = `「${step.name || step.action}」${danger.why}`
-  if (isProdLike(startUrl)) {
+  // 1007 CodeX：起始網址是 QAT、中途導頁到正式站也要擋——**操作當下**的實際網址也要是測試環境
+  if (isProdLike(startUrl) || (currentUrl !== undefined && isProdLike(currentUrl))) {
     throw new Error(`${label}——這裡看起來是正式環境，**任何放行都不接受**。要測請改用 QAT/UAT 的網址`)
   }
   // ⚠️ 後台的參數表單沒有勾選框，只有下拉，所以字串 'yes' 也算放行。

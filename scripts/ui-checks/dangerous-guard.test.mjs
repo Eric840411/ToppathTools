@@ -95,5 +95,13 @@ check('弱訊號不擋人', !throws(() => guardDangerousStep({ step: { action: '
   check('後台積木：放行之後點得下去', clicked === 1 && r2.criticalFails.length === 0, `點了 ${clicked} 次｜${r2.notes}`);
 }
 
+// 1007 CodeX（af25442 審查 P1）：正式／測試只看 hostname，未知一律當正式；操作當下的網址也要是測試環境
+check('⑤ 正式網址帶 ?note=uat 不能被當成測試環境', isProdLike('https://osm-h5.osmslot.com/?note=uat') === true && isProdLike('https://osm-h5-prod.osmslot.org/?env=qat') === true);
+check('⑤ 路徑裡有 test 也不算', isProdLike('https://osm-h5.osmslot.com/test/page') === true);
+check('⑤ 認得的測試 hostname 照舊', isProdLike('https://uat-osm-redirect.osmslot.org/x') === false && isProdLike('https://qat-cp.osmslot.org') === false && isProdLike(QAT) === false);
+check('⑤ 別人的網域帶 uat 字樣也當正式', isProdLike('https://uat.evil.com') === true && isProdLike('not a url') === true);
+check('⑤ 起始是 QAT、操作當下已導到正式站 → 擋（放行也不接受）', !!throws(() => guardDangerousStep({ step: { ...reserveStep, allowDangerous: true }, what: { selector: reserveStep.selector }, startUrl: QAT, currentUrl: 'https://osm-h5.osmslot.com/game' })));
+check('⑤ 起始與當下都是 QAT → 放行可以過', !throws(() => guardDangerousStep({ step: { ...reserveStep, allowDangerous: true }, what: { selector: reserveStep.selector }, startUrl: QAT, currentUrl: 'https://uat-h5.osmslot.org/game' })));
+
 console.log(`\n${fail ? '❌' : '✅'} ${pass} 過 / ${fail} 失敗`);
 assert.equal(fail, 0, '危險操作守衛測試有失敗項');
