@@ -145,20 +145,36 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [recApiCalls, setRecApiCalls] = useState<{ method?: string; url: string; urlPattern?: string; status?: number | null }[]>([])
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState('')
-  // 1007 使用者：目標網址記住上一次輸入的（不用每次重貼）。H5／PC 分開記（PC 要填 uat-pc 網址），存在這台瀏覽器（localStorage），
-  // 不跟著腳本走——同一個人換腳本通常還是測同一個站。讀寫都包 try/catch：無痕／被擋時就是不記，不影響執行
-  const urlKey = `uat-target-url-${platform}`
-  const savedUrl = () => { try { return localStorage.getItem(urlKey) ?? '' } catch { return '' } }
-  const [runConfig, setRunConfig] = useState(() => ({
-    url: savedUrl(), resolution: platform === 'h5' ? '500x877' : '1366x768', failureMode: 'continue', headed: false,
-  }))
-  // 切換 H5／PC 時換成那個平台記住的網址
-  useEffect(() => { setRunConfig(value => ({ ...value, url: savedUrl() })) }, [urlKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  // ⚠️ 只在使用者自己輸入（或錄製時填入）的當下存，不用 effect 追 runConfig.url——切平台那一刻 effect 會拿舊平台的網址存進新平台的 key
-  const setTargetUrl = (url: string) => {
-    setRunConfig(value => ({ ...value, url }))
-    try { if (url.trim()) localStorage.setItem(urlKey, url.trim()) } catch { /* 存不了就算了 */ }
+  // 1007 使用者：執行設定記住上一次的（目標網址、解析度、失敗處理、顯示瀏覽器視窗），重整後不用重填。
+  // H5／PC 分開記（PC 要填 uat-pc 網址、解析度選項也不同），存在這台瀏覽器（localStorage），不跟著腳本走。
+  // 讀寫都包 try/catch：無痕／被擋時就是不記，不影響執行。讀回來的值逐欄驗過（解析度不在這個平台的選項裡就用預設）
+  const runKey = `uat-run-config-${platform}`
+  const resolutions = platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']
+  const defaultRun = { url: '', resolution: platform === 'h5' ? '500x877' : '1366x768', failureMode: 'continue', headed: false }
+  const savedRun = () => {
+    let saved: Partial<typeof defaultRun> = {}
+    try { saved = JSON.parse(localStorage.getItem(runKey) ?? '{}') ?? {} } catch { saved = {} }
+    let oldUrl = ''
+    try { oldUrl = localStorage.getItem(`uat-target-url-${platform}`) ?? '' } catch { /* 沒有 */ }   // v5.31.6 只記網址的舊 key
+    return {
+      url: typeof saved.url === 'string' ? saved.url : oldUrl,
+      resolution: typeof saved.resolution === 'string' && resolutions.includes(saved.resolution) ? saved.resolution : defaultRun.resolution,
+      failureMode: saved.failureMode === 'stop' || saved.failureMode === 'continue' ? saved.failureMode : defaultRun.failureMode,
+      headed: typeof saved.headed === 'boolean' ? saved.headed : defaultRun.headed,
+    }
   }
+  const [runConfig, setRunConfig] = useState(savedRun)
+  // 切換 H5／PC 時換成那個平台記住的設定
+  useEffect(() => { setRunConfig(savedRun()) }, [runKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ⚠️ 只在使用者自己改（或錄製時填入網址）的當下存，不用 effect 追 runConfig——切平台那一刻 effect 會拿舊平台的設定存進新平台的 key
+  const updateRunConfig = (patch: Partial<typeof defaultRun>) => {
+    setRunConfig(value => {
+      const next = { ...value, ...patch }
+      try { localStorage.setItem(runKey, JSON.stringify({ ...next, url: next.url.trim() })) } catch { /* 存不了就算了 */ }
+      return next
+    })
+  }
+  const setTargetUrl = (url: string) => updateRunConfig({ url })
 
   const loadScripts = useCallback(async (preferId?: string) => {
     const response = await fetch(`/api/frontend-auto/scripts?platform=${platform}`)
@@ -925,11 +941,11 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
         <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '啟陣設定' : '執行設定'}</h3><small>{xianxia ? '套用至本次推演' : '套用至本次執行'}</small></div></div>
         <div className="uat-backend-settings-form">
           <label id="uat-focus-url">{'目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setTargetUrl(event.target.value)} placeholder="https://..." /></label>
-          <label>{'解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select>
+          <label>{'解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => updateRunConfig({ resolution: event.target.value })}>{resolutions.map(value => <option key={value}>{value}</option>)}</select>
             <small>{'瀏覽器視窗大小。太小的話畫面外的東西點不到，PC 版尤其明顯。'}</small></label>
-          <label>{'失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{'繼續執行'}</option><option value="stop">{'立即停止'}</option></select>
+          <label>{'失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => updateRunConfig({ failureMode: event.target.value })}><option value="continue">{'繼續執行'}</option><option value="stop">{'立即停止'}</option></select>
             <small>{'某一步失敗時：「繼續執行」會把剩下的步驟跑完（看得到後面還有沒有問題），「立即停止」則當場中斷。'}</small></label>
-          <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{'顯示瀏覽器視窗'}
+          <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => updateRunConfig({ headed: event.target.checked })} />{'顯示瀏覽器視窗'}
             <small>{'看得到瀏覽器實際在做什麼（查問題用）；不開就在背景跑，比較快。'}</small></label>
           <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{'允許其他使用者執行此腳本'}
             <small>{'關掉之後只有你看得到這份腳本（清單的「我的／公開」就是在分這個）。'}</small></label>

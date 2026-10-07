@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.6'
+export const APP_VERSION = '5.31.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.7', date: '2026-10-07', changes: ['feat(UAT H5／PC 執行設定)：使用者要求頁面資訊都記住、重整不用重填——除了目標網址，解析度、失敗處理、顯示瀏覽器視窗也記住；H5／PC 分開記、存這台瀏覽器；讀回來逐欄驗過（解析度不在這個平台的選項裡就用預設），v5.31.6 只記網址的舊資料也讀得到'] },
   { version: '5.31.6', date: '2026-10-07', changes: ['feat(UAT H5／PC 執行設定)：使用者要求——「目標網址」記住上一次輸入的，下次打開不用重貼。H5、PC 分開記（PC 要填 uat-pc 網址），存在這台瀏覽器；只在自己輸入或錄製填入時才存'] },
   { version: '5.31.5', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：使用者回報版面跟 mockup 不一樣——清單窄（約 370px）時腳本名稱被擠成 0、meta 那行變成綠色膠囊被截掉、出現橫向捲軸。改成 mockup 的兩行：名稱一行（粗體、過長省略），下面一行灰字 meta（可換行），只套在腳本清單'] },
   { version: '5.31.4', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定 ARUZE)：主使用者確認——ARUZE 不能套底部列像素規則（PLAY 鍵按了底部列不變）。runner 進場後讀 /game 左上角的機台名與遊戲名（.gm-info 的 .machine-id／.game-id）存進 entry 結果，每顆 iDeck 記有沒有開局；batch 依遊戲名分流：Fu Lai Cai Lai 的 PLAY 鍵看捲軸上方 4 格 WILD 數（11→0、33→1、55→2、66→3、88→4），格子認不出來或遊戲不符算未驗，數不符第一期先未驗（可能動畫中）；BET 鍵逐顆要有開局，沒開局判 no response。osm-qa-agent 實測、CodeX 定案'] },
