@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.10'
+export const APP_VERSION = '5.31.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.0', date: '2026-10-07', changes: ['feat(UAT 後台錄製腳本清單)：使用者經 claude-osm-2 提出——改成跟 H5／PC 一樣一列一份（名稱＋建立者 · 幾步 · 綁幾個 TC · 上次結果），頁籤「全部／我的」。全部：所有人的腳本照名稱開頭的編號排（T-007 → T-A-001… → 範本 → 純數字），下方「加入我的」「刪除」（建立者或管理員、可多筆、沒有二次確認、沒刪成的列出原因）。我的：個人清單，自己建立／新錄的自動加入、可加別人的、拖曳排序，下方「移除」只從清單拿掉。資料做法 CodeX 定案（獨立表、清單版本號、補種持久標記、只重排看得到的列），見 docs/decisions.md'] },
   { version: '5.30.10', date: '2026-10-07', changes: ['fix(機台測試／UAT 大廳關彈窗)：CodeX 審 2f7d69f [P2]——共用的 lobby-popup 禁點字樣漏了 PLAY GAME，一顆 class 剛好是 closeBtn、尺寸在 80px 內的 PLAY GAME 會被點（跳去別的遊戲）；補上 PLAY GAME。測試原本用 150px 的按鈕，尺寸就先擋掉了、證明不了文字護欄，改成 70×24 的 closeBtn 按鈕（PLAY GAME／PLAY NOW／Join）驗零點擊'] },
   { version: '5.30.9', date: '2026-10-07', changes: ['change(機台測試 報告)：主使用者 1007——report.html 的 iDeck 每顆按鈕不再放整張截圖，改成「機台底部 CREDIT／WIN／BET 列放大（紅框）＋下半畫面與 iDeck 按鈕（黃框）」，用來確認面額有沒有真的切到；裁切比例依機種放在 knowledge/games/<機種>/automation/ideck-crop.json（osm-qa-agent 量的，目前只有 SUPERBURSTLINK），沒有設定或裁切失敗的機種照舊放整張；之後只出 report.html'] },
   { version: '5.30.8', date: '2026-10-07', changes: ['fix(機台測試 進場)：osm-qa-agent 回報 873-SUPERBURSTLINK-0345——① Game Preview 上的新遊戲廣告（右上 ✕＋PLAY GAME）蓋住 Join 時沒關：改用跟 UAT 共用的大廳關彈窗規則（只點 class 完全等於 closeBtn／notification-close 的 ✕，PLAY GAME／PLAY NOW／JOIN 一律不點），判 Occupied 之前一定先關一次並留 log；② 帳號離開機台後約 10 秒內 Preview 會顯示 Occupied：看到 Occupied 不馬上判，每 1.5 秒重找 Join（含關廣告）、一出現就點，最多 20 秒還是沒有才判 Occupied（不加固定等待）'] },

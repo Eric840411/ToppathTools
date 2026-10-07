@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { db, writeLimiter } from './shared.js'
 import { getAuthAccount } from './auth-session.js'
 import { validateMultiTcScript, reviewMultiTcScript } from './uat-runner/multi-tc.js'
+import { initScriptMine, readMine, addToMine, removeFromMine, reorderMine, bumpOwnersHolding, addNewScriptToMineTx } from './uat-script-mine.js'
 
 export { tcBindingSchema } from '../shared/uat-recording-schema.js'
 import { scriptSchema, recordingSaveErrors } from '../shared/uat-recording-schema.js'
@@ -56,6 +57,9 @@ for (const [table, col, ddl] of [
   if (!cols.some(c => c.name === col)) db.exec(ddl)
 }
 
+// 1007「我的」清單：建表＋一次性補種（持久標記）。**要在範本種子之前**——之後真的新增的範本才走「加進建立者清單」
+initScriptMine(db)
+
 /* ── 範本腳本的種子（2026-09-21）─────────────────────────────────────────────
    🚨 **錄好的腳本存在各環境自己的 DB，不會跟著 git 走。**`server/data.db` 在
       `.gitignore` 裡（本來就該如此——那裡面有執行紀錄與帳號資料），所以
@@ -83,7 +87,12 @@ for (const [table, col, ddl] of [
       let added = 0
       for (const s of seed.scripts ?? []) {
         if (!s?.id || !s?.title || !s?.document) continue
-        added += ins.run(s.id, s.owner || 'seed', s.title, JSON.stringify(s.document), Date.now()).changes
+        // 1007：只有**真的新增**的範本才加進建立者的「我的」；已經存在的（changes＝0）不加回（使用者可能已經移除）
+        db.transaction(() => {
+          const n = ins.run(s.id, s.owner || 'seed', s.title, JSON.stringify(s.document), Date.now()).changes
+          if (n) addNewScriptToMineTx(db, s.owner || 'seed', s.id)
+          added += n
+        })()
       }
       if (added > 0) console.log(`[DB] 已從 uat-recorded-scripts-seed.json 補上 ${added} 份範本腳本`)
     } catch (e) { console.error('[DB] 範本腳本種子讀取失敗：', e) }
@@ -239,8 +248,25 @@ export function registerRecordedScriptRoutes(router: Router) {
     // 執行鎖的細節（誰、哪一輪、何時開始）只給管理員：人工解除只有管理員能做，而且要帶 sessionId。
     // 2026-10-05 正式站有一份腳本被部署重啟打斷、鎖殘留三天，管理員拿不到 sessionId 就解不開（osm-qa-agent 回報）
     const isAdmin = account.role === 'admin'
+    // 1007：最近一次執行的摘要（清單上顯示「上次通過／失敗」）
+    const lastRuns = new Map<string, { at: number; pass: number; fail: number; blocked: number; total: number; dryRun: boolean; stopped: boolean }>()
+    for (const r of db.prepare(`SELECT script_id, payload, created_at FROM uat_recorded_script_runs r
+      WHERE created_at = (SELECT MAX(created_at) FROM uat_recorded_script_runs WHERE script_id = r.script_id)`).all() as { script_id: string; payload: string; created_at: number }[]) {
+      try {
+        const p = JSON.parse(r.payload) as { results?: { outcome?: string; pass?: boolean }[]; dryRun?: boolean; stopped?: boolean }
+        const res = p.results ?? []
+        lastRuns.set(r.script_id, {
+          at: r.created_at, total: res.length,
+          pass: res.filter(x => x.outcome === 'pass' || (x.outcome === undefined && x.pass)).length,
+          fail: res.filter(x => x.outcome === 'fail').length,
+          blocked: res.filter(x => x.outcome === 'blocked').length,
+          dryRun: !!p.dryRun, stopped: !!p.stopped,
+        })
+      } catch { /* 壞掉的紀錄不顯示 */ }
+    }
     res.json({
       ok: true,
+      mine: readMine(db, account.email),
       scripts: rows.map(r => {
         const id = (JSON.parse(r.document) as RecordedScript).id
         const lock = id ? getScriptLock(id) : null
@@ -251,6 +277,7 @@ export function registerRecordedScriptRoutes(router: Router) {
           createdBy: r.owner,
           updatedBy: r.updated_by,
           running: !!lock,
+          lastRun: id ? lastRuns.get(id) ?? null : null,
           ...(isAdmin && lock ? { lock } : {}),
         }
       }),
@@ -273,8 +300,12 @@ export function registerRecordedScriptRoutes(router: Router) {
 
     if (!value.id) {
       const script = { ...value, id: randomUUID() }
-      db.prepare('INSERT INTO uat_recorded_scripts(id, owner, title, document, updated_at, revision, updated_by) VALUES (?, ?, ?, ?, ?, 1, ?)')
-        .run(script.id, account.email, script.title, JSON.stringify(script), Date.now(), account.email)
+      // 1007：建立腳本、加到建立者「我的」最後、清單版本遞增——同一個 transaction
+      db.transaction(() => {
+        db.prepare('INSERT INTO uat_recorded_scripts(id, owner, title, document, updated_at, revision, updated_by) VALUES (?, ?, ?, ?, ?, 1, ?)')
+          .run(script.id, account.email, script.title, JSON.stringify(script), Date.now(), account.email)
+        addNewScriptToMineTx(db, account.email, script.id)
+      })()
       return res.json({ ok: true, script, revision: 1, review: reviewMultiTcScript(script) })
     }
 
@@ -323,9 +354,41 @@ export function registerRecordedScriptRoutes(router: Router) {
     }
     // 執行中禁刪：跟取得執行資格走同一張鎖表，不是另外查一份狀態
     if (isScriptRunning(id)) return res.status(409).json({ ok: false, message: '這份腳本正在執行，結束後才能刪除' })
-    db.prepare('UPDATE uat_recorded_scripts SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL')
-      .run(Date.now(), account.email, id)
+    db.transaction(() => {
+      const n = db.prepare('UPDATE uat_recorded_scripts SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL')
+        .run(Date.now(), account.email, id).changes
+      // 1007：從每個人的「我的」消失（資料列保留，還原時回到原位）→ 有它的清單版本遞增
+      if (n) bumpOwnersHolding(db, id)
+    })()
     res.json({ ok: true })
+  })
+
+  // ── 1007「我的」清單 ──────────────────────────────────────────────
+  const idsBody = z.object({ ids: z.array(z.string().min(1).max(100)).min(1).max(500) })
+  router.post('/api/osm-uat/recorded-scripts/mine/add', writeLimiter, (req, res) => {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const p = idsBody.safeParse(req.body)
+    if (!p.success) return res.status(400).json({ ok: false, message: '要帶 ids' })
+    res.json({ ok: true, ...addToMine(db, account.email, p.data.ids) })
+  })
+  router.post('/api/osm-uat/recorded-scripts/mine/remove', writeLimiter, (req, res) => {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const p = idsBody.safeParse(req.body)
+    if (!p.success) return res.status(400).json({ ok: false, message: '要帶 ids' })
+    res.json({ ok: true, ...removeFromMine(db, account.email, p.data.ids) })
+  })
+  router.put('/api/osm-uat/recorded-scripts/mine/order', writeLimiter, (req, res) => {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const p = z.object({ ids: z.array(z.string().min(1).max(100)).max(500), expectedRevision: z.number().int() }).safeParse(req.body)
+    if (!p.success) return res.status(400).json({ ok: false, message: '要帶 ids 與 expectedRevision' })
+    const r = reorderMine(db, account.email, p.data.ids, p.data.expectedRevision)
+    if (r.ok === false) {
+      return res.status(409).json({ ...r, message: r.code === 'revision_conflict' ? '你的「我的」清單在別的分頁被改過了，已重新載入，請再拖一次' : '清單內容跟伺服器不一致，已重新載入' })
+    }
+    res.json(r)
   })
 
   router.post('/api/osm-uat/recorded-scripts/:id/force-unlock', writeLimiter, (req, res) => {

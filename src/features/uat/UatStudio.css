@@ -1723,3 +1723,15 @@ button.uat-launch-block { text-align: left; }
 .uat-script-lock { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 6px 26px; font-size: 12px; color: #f5b73b; }
 .uat-script-lock-confirm { flex-basis: 100%; border: 1px solid rgba(245, 183, 59, .45); background: rgba(245, 183, 59, .08); border-radius: 8px; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .uat-script-lock-confirm p { flex-basis: 100%; margin: 0; color: #fde68a; line-height: 1.6; }
+
+/* 1007 後台錄製腳本清單改版：頁籤、拖曳、標籤、上次結果 */
+.uat-script-select-bar { flex-wrap: wrap; }
+.uat-row-tag { flex: none; font-size: 11px; color: var(--uat-muted); border: 1px solid var(--uat-border-strong); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.uat-drag-grip { flex: none; color: var(--uat-muted); cursor: grab; letter-spacing: -2px; user-select: none; font-size: 13px; }
+.uat-drag-grip.is-off { opacity: .3; cursor: not-allowed; }
+.uat-script-select-row.is-dragging { opacity: .45; }
+.uat-script-select-row[draggable="true"] { cursor: grab; }
+.uat-last-run { font-weight: 400; }
+.uat-last-run.is-ok { color: #4ade80; }
+.uat-last-run.is-bad { color: var(--uat-danger); }
+.uat-last-run.is-warn { color: #fbbf24; }
