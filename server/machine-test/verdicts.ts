@@ -558,3 +558,77 @@ export function stepGateBlock(s: { stopped: boolean; halt: string | null; isExit
   if (s.stopped && !s.isExit) return { status: 'skip', message: '未執行：使用者已停止' }
   return null
 }
+
+// ── 提示框處理（1007，規格 spec-mt-popup-handling-1007；CodeX 定案）──────────────────────────────────
+// 辨識（哪一種框）在 uat-runner/popup-catalog.js，兩邊共用；這裡是**機台測試**的處理方式（category／action／verdict）。
+// 優先序：stop ＞ unknown ＞ ack／close ＞ wait。stop 有 scope：account（換帳號續跑，帳號池空了才停批）／machine（本台判定、受限退出、換台）。
+export type PopupPhase = 'test' | 'exit'
+export type PopupDecision =
+  | { kind: 'ack'; id: string; click: 'confirm' | 'exitToLobby' | 'yes' }
+  | { kind: 'close'; id: string; click: 'closeX' | 'denom' | 'closeBtn' | 'recommendClose' }
+  | { kind: 'wait'; id: string; maxMs: number }
+  | { kind: 'stop'; id: string; verdict: string; scope: 'machine' | 'account' }
+  | { kind: 'unknown'; id: string; text: string }
+type Rule = { test?: PopupDecision | null; exit?: PopupDecision | null }
+const MT_POPUP_POLICY: Record<string, Rule> = {
+  'bonus-15min': { test: { kind: 'ack', id: 'bonus-15min', click: 'confirm' }, exit: { kind: 'ack', id: 'bonus-15min', click: 'confirm' } },
+  // 代表 FG／JP 進行中：按掉 Confirm，後續交給特殊遊戲流程
+  'cannot-quit': { test: { kind: 'ack', id: 'cannot-quit', click: 'confirm' }, exit: { kind: 'ack', id: 'cannot-quit', click: 'confirm' } },
+  'reserve-panel': { test: { kind: 'close', id: 'reserve-panel', click: 'closeX' }, exit: { kind: 'ack', id: 'reserve-panel', click: 'exitToLobby' } },
+  'quit-wait': { test: { kind: 'wait', id: 'quit-wait', maxMs: 15_000 }, exit: { kind: 'wait', id: 'quit-wait', maxMs: 15_000 } },
+  // 只有退出時按 Confirm；其他時候出現＝誤觸 Cash Out → 不按、當未知框擋操作
+  'cashout-credit': { test: null, exit: { kind: 'ack', id: 'cashout-credit', click: 'confirm' } },
+  'game-exception': { test: { kind: 'stop', id: 'game-exception', verdict: 'game exception', scope: 'machine' }, exit: { kind: 'stop', id: 'game-exception', verdict: 'game exception', scope: 'machine' } },
+  'other-device': { test: { kind: 'stop', id: 'other-device', verdict: 'account in use', scope: 'account' }, exit: { kind: 'stop', id: 'other-device', verdict: 'account in use', scope: 'account' } },
+  'conn-timeout': { test: { kind: 'stop', id: 'conn-timeout', verdict: 'AFT error', scope: 'machine' }, exit: { kind: 'stop', id: 'conn-timeout', verdict: 'AFT error', scope: 'machine' } },
+  'lhb-transfer': { test: { kind: 'ack', id: 'lhb-transfer', click: 'confirm' }, exit: { kind: 'ack', id: 'lhb-transfer', click: 'confirm' } },
+  'no-machine': { test: { kind: 'stop', id: 'no-machine', verdict: 'offline', scope: 'machine' }, exit: null },
+  'no-permission': { test: { kind: 'ack', id: 'no-permission', click: 'confirm' }, exit: { kind: 'ack', id: 'no-permission', click: 'confirm' } },
+  'entry-1044': { test: { kind: 'stop', id: 'entry-1044', verdict: '進入失敗：機台配置不一致(1044)', scope: 'machine' }, exit: null },
+  'entry-10006': { test: { kind: 'stop', id: 'entry-10006', verdict: '進入失敗：機台維護(10006)', scope: 'machine' }, exit: null },
+  'denom': { test: { kind: 'close', id: 'denom', click: 'denom' }, exit: { kind: 'close', id: 'denom', click: 'denom' } },
+  'play-game-char': { test: { kind: 'close', id: 'play-game-char', click: 'closeBtn' }, exit: { kind: 'close', id: 'play-game-char', click: 'closeBtn' } },
+  'recommend': { test: { kind: 'close', id: 'recommend', click: 'recommendClose' }, exit: { kind: 'close', id: 'recommend', click: 'recommendClose' } },
+}
+const RANK: Record<PopupDecision['kind'], number> = { stop: 0, unknown: 1, ack: 2, close: 2, wait: 3 }
+/**
+ * 一個框命中的目錄 id（matchPopup 的結果）→ 機台測試要怎麼處理（純函式）。
+ * 沒命中任何 id、或命中的在這個階段沒有設定（例 cashout-credit 在測試中）→ unknown：不點、擋操作、留證
+ */
+export function decidePopup(ids: string[], text: string, phase: PopupPhase): PopupDecision {
+  const ds = ids.map(id => MT_POPUP_POLICY[id]?.[phase]).filter((d): d is PopupDecision => !!d)
+  if (!ds.length) return { kind: 'unknown', id: ids[0] ?? 'unknown', text: String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) }
+  return ds.sort((a, b) => RANK[a.kind] - RANK[b.kind])[0]
+}
+/** 這些決定會不會擋遊戲操作（stop／unknown 出現就擋；30 秒只是 unknown 的結案門檻，不是放行條件） */
+export function popupBlocksGame(ds: PopupDecision[]): PopupDecision | null {
+  return ds.find(d => d.kind === 'stop') ?? ds.find(d => d.kind === 'unknown') ?? null
+}
+
+/**
+ * 提示框造成的步驟關卡（純函式，1007）。
+ * - stop（scope account：帳號在別處登入）→ 所有步驟含退出都不做；回 accountHalt 讓 batch 換帳號續跑（帳號池空了才停）
+ * - stop（scope machine：AFT error／game exception／offline／進場錯誤碼）→ 本台判定；測試步驟不做，退出照走（受限：遊戲操作都被擋）
+ * - unknown 30 秒還在 → 本台判 unknown popup；測試步驟不做，退出照走
+ * - unknown 還沒滿 30 秒 → 這一步不做（遊戲操作本來就被擋）；退出照走
+ */
+export function popupStepBlock(s: {
+  stop: { id: string; verdict: string; scope: 'machine' | 'account' } | null
+  unknown: { text: string } | null
+  unknownExpired: boolean
+  isExit: boolean
+}): { skip?: { status: 'skip' | 'fail'; message: string }; verdictStep?: string; accountHalt?: string } | null {
+  if (s.stop?.scope === 'account') {
+    return { accountHalt: `${s.stop.verdict}（提示框 ${s.stop.id}）`, verdictStep: `判定：${s.stop.verdict}（提示框 ${s.stop.id}）——這個帳號不能再用，換帳號續跑`, skip: { status: s.isExit ? 'fail' : 'skip', message: `未執行：${s.stop.verdict}，帳號不能再用` } }
+  }
+  if (s.stop) {
+    const v = `判定：${s.stop.verdict}（提示框 ${s.stop.id}）`
+    return s.isExit ? { verdictStep: v } : { verdictStep: v, skip: { status: 'skip', message: `未執行：${s.stop.verdict}（提示框 ${s.stop.id}），只做退出` } }
+  }
+  if (s.unknown && s.unknownExpired) {
+    const v = `判定：unknown popup (${s.unknown.text.replace(/\s+/g, ' ').slice(0, 30)})`
+    return s.isExit ? { verdictStep: v } : { verdictStep: v, skip: { status: 'skip', message: `未執行：未知提示框 30 秒還在（${s.unknown.text.slice(0, 60)}），只做退出` } }
+  }
+  if (s.unknown && !s.isExit) return { skip: { status: 'skip', message: `未執行：畫面有未知提示框（${s.unknown.text.slice(0, 60)}），不操作遊戲` } }
+  return null
+}

@@ -17,7 +17,8 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED } from '../uat-runner/popup-catalog.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -874,12 +875,12 @@ async function waitForNormalStatus(
   return { waited: maxWait, label }
 }
 
+/** 退出流程用（kind 'exit'：提示框擋著時仍可退出，但禁點名單照擋） */
 async function safeClick(page: Page, selector: string): Promise<boolean> {
   try {
     const el = await page.$(selector)
     if (!el) return false
-    await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
-    return true
+    return (await uiAct(page, 'exit', selector, el, () => page.evaluate((e: Element) => (e as HTMLElement).click(), el))) === 'clicked'
   } catch {
     return false
   }
@@ -890,8 +891,7 @@ async function safeClickXPath(page: Page, xpath: string): Promise<boolean> {
     const els = await page.$$(xpath)
     for (const el of els) {
       if (await el.isVisible()) {
-        await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
-        return true
+        return (await uiAct(page, 'exit', xpath, el, () => page.evaluate((e: Element) => (e as HTMLElement).click(), el))) === 'clicked'
       }
     }
     return false
@@ -916,22 +916,25 @@ const SPIN_SELECTORS = [
  *    同一顆鈕用真滑鼠按一下就開始轉。stepSpin 一直用原生 click，所以一般 Spin 沒這問題。
  * 回傳用了哪一種方式；找不到可見元素回 null。
  */
-export async function nativeClick(page: Page, selectors: string[]): Promise<'native' | 'force' | 'mouse' | null> {
+export async function nativeClick(page: Page, selectors: string[]): Promise<'native' | 'force' | 'mouse' | 'blocked' | null> {
+  // 1007：每一種點法都走 uiAct（遊戲操作）；被擋就**整串停下**回 'blocked'，不改用 force／座標再點（CodeX）
   for (const sel of selectors) {
     let els: import('playwright').ElementHandle[] = []
     try { els = await page.$$(sel) } catch { continue }
     for (const el of els) {
       try { if (!await el.isVisible()) continue } catch { continue }
-      try { await el.click({ timeout: 3000 }); return 'native' } catch { /* try next */ }
-      try { await el.click({ force: true, timeout: 3000 }); return 'force' } catch { /* try next */ }
+      try { const r = await uiAct(page, 'game', sel, el, () => el.click({ timeout: 3000 })); if (r === 'blocked') return 'blocked'; return 'native' } catch { /* try next */ }
+      try { const r = await uiAct(page, 'game', sel, el, () => el.click({ force: true, timeout: 3000 })); if (r === 'blocked') return 'blocked'; return 'force' } catch { /* try next */ }
       try {
         const box = await el.boundingBox()
-        if (box) { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'mouse' }
+        if (box) { const r = await uiAct(page, 'game', sel, el, () => page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)); return r === 'blocked' ? 'blocked' : 'mouse' }
       } catch { /* give up on this element */ }
     }
   }
   return null
 }
+/** nativeClick 的結果算不算真的點到（'blocked' 不算） */
+export const nativeClicked = (h: Awaited<ReturnType<typeof nativeClick>>): boolean => h === 'native' || h === 'force' || h === 'mouse'
 
 /**
  * 遊戲自己跳的「Tips」確認框，會蓋住 Spin／Exit，讓後面所有點擊都落空。
@@ -940,7 +943,6 @@ export async function nativeClick(page: Page, selectors: string[]): Promise<'nat
  *   - 「Game is running and cannot be quit」：遊戲進行中按了 Quit
  * 回傳命中的訊息（呼叫端用它判斷「遊戲是否進行中」），沒有就回 null。
  */
-const GAME_TIP_PATTERNS = [/complete the bonus game/i, /cannot be quit/i]
 /**
  * 0930 使用者回報（BZZF）：退出被擋時，按過的 Exit（.reserve-btn-gray）會留下「Want to reserve this machine?」預約面板，
  * 我們只關了 cannot be quit 提示框、沒關這個面板 → 之後的 SPIN 全按在面板上（手動推 0254 時也中過）。
@@ -955,7 +957,7 @@ export async function closeReservePanel(page: Page, emit: (msg: string) => void)
     const n = await xs.count()
     for (let i = 0; i < n; i++) {
       const x = xs.nth(i)
-      if (await x.isVisible()) { await x.click({ timeout: 3000 }); emit('關閉預約面板（點 X，不預約）'); await sleep(500); return true }
+      if (await x.isVisible()) { const h = await x.elementHandle(); await uiAct(page, 'popup', '預約面板 X', h, () => x.click({ timeout: 3000 })); emit('關閉預約面板（點 X，不預約）'); await sleep(500); return true }
     }
   } catch { /* 關不掉就讓呼叫端照原流程走 */ }
   emit('⚠️ 預約面板開著但找不到可見的 X（.btn-close）')
@@ -984,21 +986,213 @@ export async function closeJackpotNotification(page: Page, emit?: (msg: string) 
   return n > 0
 }
 
-export async function dismissGameTips(page: Page, emit: (msg: string) => void): Promise<string | null> {
-  await closeJackpotNotification(page, emit)
-  await closeReservePanel(page, emit)
-  let text = ''
-  try { text = await page.evaluate(() => document.body?.innerText ?? '') } catch { return null }
-  const hit = GAME_TIP_PATTERNS.map(p => text.match(p)?.[0]).find(Boolean)
-  if (!hit) return null
+// ── 提示框處理（1007，規格 spec-mt-popup-handling-1007，CodeX 定案）──────────────────────────────────
+// 辨識在 uat-runner/popup-catalog.js（兩邊共用），機台測試的處理方式在 verdicts.ts decidePopup。
+// - scan()：掃**所有 frame** 的可見框 → close／ack 只點命中那個框裡的指定按鈕；stop／unknown 只記錄＋擋遊戲操作；wait 不動
+// - 背景每 2 秒也掃（同一把操作鎖，拿到鎖後重查才點；擷取／錄音期間暫停），stop／never／unknown 背景只記錄
+// - 所有遊戲操作的點擊都走 uiAct：被擋就回 blocked（不算成功、呼叫端不得改用 force／座標重試），逾時寫出蓋住它的前三層元素
+export type PopupAct = 'game' | 'popup' | 'exit' | 'lobby'
+export class PopupGuard {
+  phase: PopupPhase = 'test'
+  stop: Extract<PopupDecision, { kind: 'stop' }> | null = null
+  unknown: { key: string; text: string; since: number; shot: string | null } | null = null
+  /** 給步驟訊息用：上次 drain 之後遇到的框（一個框只記一次） */
+  private pending: string[] = []
+  private seen = new Set<string>()
+  private tail: Promise<unknown> = Promise.resolve()
+  private paused = 0
+  private shots = 0
+  private timer: ReturnType<typeof setInterval> | null = null
+  constructor(readonly page: Page, private emit: (msg: string) => void, private file: string) {}
+  /** 操作鎖：背景掃描與步驟點擊序列化（CodeX：拿鎖後重查才點） */
+  withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.tail.then(fn, fn)
+    this.tail = run.catch(() => {})
+    return run
+  }
+  /** stop／unknown 出現就擋遊戲操作（unknown 的 30 秒只是結案門檻） */
+  blockReason(): string | null {
+    if (this.stop) return `提示框「${this.stop.id}」：${this.stop.verdict}`
+    if (this.unknown) return `未知提示框：${this.unknown.text.slice(0, 60)}`
+    return null
+  }
+  unknownExpired(now = Date.now()): boolean { return !!this.unknown && now - this.unknown.since >= 30_000 }
+  note(msg: string) { if (!this.seen.has(msg)) { this.seen.add(msg); this.pending.push(msg); this.emit(msg) } }
+  drain(): string { const s = this.pending.join('｜'); this.pending = []; return s }
+  pause() { this.paused++ }
+  /** 擷取／錄音結束：恢復背景掃描並立刻補掃一次 */
+  async resume() { this.paused = Math.max(0, this.paused - 1); if (!this.paused) await this.scan({ act: true, why: '擷取後補掃' }).catch(() => {}) }
+  startWatch(intervalMs = 2000) {
+    if (this.timer) return
+    this.timer = setInterval(() => { if (!this.paused) void this.scan({ act: true, why: '背景' }).catch(() => {}) }, intervalMs)
+  }
+  stopWatch() { if (this.timer) clearInterval(this.timer); this.timer = null }
+  /** 掃一次。act＝要不要點 close／ack（背景與同步都會點，但都在鎖裡、點之前重查） */
+  scan(o: { act: boolean; why: string }): Promise<PopupDecision[]> {
+    return this.withLock(async () => {
+      if (this.paused && o.why === '背景') return []
+      const page = this.page
+      if (popupGuardOf(page) === this) setInMachineFlag(page, true)   // 進機台後才載入／換頁的 frame 補設
+      await closeJackpotNotification(page, this.emit)   // 全站 JP 廣播卡：只點 X（原本的處理）
+      const found: Array<{ frame: import('playwright').Frame; box: PopupBox; d: PopupDecision }> = []
+      for (const frame of page.frames()) {
+        let boxes: PopupBox[] = []
+        try { boxes = await frame.evaluate(POPUP_SNAPSHOT_IN_PAGE, { boxSelectors: POPUP_BOX_SELECTORS, probeSelectors: POPUP_PROBE_SELECTORS, minArea: POPUP_MIN_AREA }) as PopupBox[] } catch { continue }
+        if (!Array.isArray(boxes)) continue
+        for (const box of boxes) found.push({ frame, box, d: decidePopup(matchPopup(box), box.text, this.phase) })
+      }
+      // unknown：畫面上沒有任何認不得的框 → 解除；同一個框持續 → 保留起算時間
+      const unk = found.find(f => f.d.kind === 'unknown')
+      if (!unk) this.unknown = null
+      else {
+        const key = unk.box.text.slice(0, 80)
+        if (!this.unknown || this.unknown.key !== key) {
+          const shot = await this.evidence('unknown')
+          this.unknown = { key, text: unk.box.text, since: Date.now(), shot }
+          this.note(`未知提示框：${unk.box.text.slice(0, 200)}（class ${unk.box.cls.slice(0, 60)}）——不點，先擋遊戲操作${shot ? `｜截圖 ${shot}` : ''}`)
+        }
+      }
+      for (const f of found) {
+        const d = f.d
+        if (d.kind === 'stop' && !this.stop) {
+          this.stop = d
+          const shot = await this.evidence(d.id)
+          this.note(`🛑 提示框「${d.id}」：${f.box.text.slice(0, 120)} → 判定 ${d.verdict}（${d.scope === 'account' ? '換帳號' : '本台'}），停止遊戲操作${shot ? `｜截圖 ${shot}` : ''}`)
+        }
+        if (d.kind === 'wait') this.note(`提示框「${d.id}」：${f.box.text.slice(0, 80)} → 等它自己消失（最多 ${d.maxMs / 1000} 秒）`)
+        if (!o.act || (d.kind !== 'ack' && d.kind !== 'close')) continue
+        if (d.kind === 'close' && d.click === 'denom') { await dismissDenomOverlay(page, this.emit, `提示框（${o.why}）`); continue }
+        const btn = pickPopupButton(f.box, d)
+        if (!btn) { this.note(`提示框「${d.id}」：框裡找不到要按的鍵（${f.box.buttons.map(b => b.text || b.cls).join('／').slice(0, 80)}），不點`); continue }
+        const never = isNeverClick(btn, f.box.text, { inMachine: true })
+        if (never) { this.note(`⛔ 提示框「${d.id}」：要按的鍵「${btn.text}」在禁點名單（${never}），不點`); continue }
+        // 點之前重查：同一個框、同一顆鍵還在（背景掃到之後畫面可能已經變了）
+        const loc = f.frame.locator(`[data-mt-popup="${f.box.ref}"] [data-mt-btn="${btn.ref}"]`)
+        const still = await loc.count().catch(() => 0)
+        if (!still) continue
+        const r = await clickLocatorCenter(page, loc)
+        this.note(`提示框「${d.id}」（${o.why}）→ 按「${btn.text || btn.cls}」${r === 'clicked' ? '' : `失敗（${r}）`}`)
+      }
+      return found.map(f => f.d)
+    })
+  }
+  private async evidence(tag: string): Promise<string | null> {
+    if (this.shots >= 20) return null
+    try {
+      mkdirSync(POPUP_SAVE_DIR, { recursive: true })
+      const p = join(POPUP_SAVE_DIR, `${this.file}-${++this.shots}-${tag}.png`)
+      writeFileSync(p, await this.page.screenshot({ type: 'png' }))
+      return p
+    } catch { return null }
+  }
+}
+type PopupBox = { ref: string; text: string; cls: string; selectors: string[]; buttons: Array<{ ref: string; text: string; selectors: string[]; cls: string }>; rect: { x: number; y: number; w: number; h: number } }
+const POPUP_SAVE_DIR = join(MACHINE_TEST_ROOT, 'popup-saves')
+/** 依決定挑框裡要按的那顆（Confirm 限定在這個框裡，優先 .box-btn_text2） */
+export function pickPopupButton(box: PopupBox, d: PopupDecision): PopupBox['buttons'][number] | null {
+  const b = box.buttons
+  if (d.kind === 'ack' && d.click === 'confirm') return b.find(x => x.selectors.includes('.box-btn_text2')) ?? b.find(x => /^(confirm|ok|確認|确定)$/i.test(x.text)) ?? null
+  if (d.kind === 'ack' && d.click === 'exitToLobby') return b.find(x => /^exit to lobby$/i.test(x.text)) ?? null
+  if (d.kind === 'ack' && d.click === 'yes') return b.find(x => /^yes$/i.test(x.text)) ?? null
+  if (d.kind === 'close' && d.click === 'closeX') return b.find(x => x.selectors.includes('.btn-close')) ?? null
+  if (d.kind === 'close' && d.click === 'closeBtn') return b.find(x => x.selectors.includes('.closeBtn')) ?? null
+  if (d.kind === 'close' && d.click === 'recommendClose') return b.find(x => x.selectors.includes('.recommend-close')) ?? null
+  return null
+}
+const POPUP_GUARDS = new WeakMap<Page, PopupGuard>()
+export function popupGuardOf(page: Page): PopupGuard | undefined { return POPUP_GUARDS.get(page) }
+export function attachPopupGuard(page: Page, emit: (msg: string) => void, file: string): PopupGuard {
+  const g = new PopupGuard(page, emit, file)
+  POPUP_GUARDS.set(page, g)
+  setInMachineFlag(page, true)
+  return g
+}
+export function detachPopupGuard(page: Page) { POPUP_GUARDS.get(page)?.stopWatch(); POPUP_GUARDS.delete(page); setInMachineFlag(page, false) }
+/** 頁面內攔截的 inMachineOnly 規則（Join）只在機台裡生效：所有 frame 設 window.__mtInMachine（frame 換頁會重設成 undefined＝不擋，偏安全的方向是 runner 那層仍會擋） */
+function setInMachineFlag(page: Page, on: boolean) {
+  for (const f of page.frames()) f.evaluate((v: boolean) => { (window as unknown as { __mtInMachine?: boolean }).__mtInMachine = v }, on).catch(() => {})
+}
+
+/** 元素中心點最上層前三個元素（tag.class「字」），給點擊逾時的錯誤訊息用 */
+async function describeCover(el: ElementHandle | null): Promise<string> {
+  if (!el) return ''
   try {
-    const btns = page.getByText('Confirm', { exact: true })
-    const n = await btns.count()
-    for (let i = 0; i < n; i++) {
-      const b = btns.nth(i)
-      if (await b.isVisible()) { await b.click({ timeout: 3000 }); emit(`關閉遊戲提示框：「${hit}」`); break }
+    return await el.evaluate((node: Element) => {
+      const r = node.getBoundingClientRect()
+      const x = r.left + r.width / 2, y = r.top + r.height / 2
+      return document.elementsFromPoint(x, y).slice(0, 3).map(e => `${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}${(e as HTMLElement).innerText ? `「${(e as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 20)}」` : ''}`).join(' ＞ ')
+    })
+  } catch { return '' }
+}
+/** 這個元素（或祖先）是不是禁點（在頁面裡判，跟 popup-catalog 的 NEVER_CLICK 同一份規則） */
+async function neverClickOf(el: ElementHandle | null, inMachine: boolean): Promise<string | null> {
+  if (!el) return null
+  try {
+    const info = await el.evaluate((node: Element, probe: string[]) => {
+      const box = node.closest('[data-mt-popup],.van-dialog,.my-dialog,.el-dialog,[class*=popup],[class*=dialog]')
+      const btn = (node.closest('button,[class*=btn],a') ?? node) as HTMLElement
+      return { text: (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40), selectors: probe.filter(s => { try { return !!node.closest(s) } catch { return false } }), boxText: box ? ((box as HTMLElement).innerText || '').slice(0, 300) : '', inBox: !!box }
+    }, POPUP_PROBE_SELECTORS)
+    // selector 類（.view 等）只在提示框裡才算（CodeX：避免誤傷大廳別處的同名 class）
+    return isNeverClick({ text: info.text, selectors: info.inBox ? info.selectors : [] }, info.boxText, { inMachine })
+  } catch { return null }
+}
+export type UiActResult = 'clicked' | 'blocked' | 'none'
+/**
+ * **所有點擊的唯一入口**（CodeX：38 處收斂）。kind：game＝遊戲操作（提示框擋著時不准）、exit＝退出流程、popup＝關框、lobby＝大廳。
+ * - game 且 PopupGuard 有 stop／unknown → 'blocked'（不執行 fn）
+ * - el 命中禁點名單 → 'blocked'
+ * - 在操作鎖裡執行（背景掃描不會同時點）；fn 拋錯若像逾時，錯誤訊息補上蓋住它的前三層元素
+ * 回 'blocked' 時呼叫端**不得**當成功、也不得改用 force／座標再點一次。
+ */
+export async function uiAct(page: Page, kind: PopupAct, label: string, el: ElementHandle | null, fn: () => Promise<unknown>): Promise<UiActResult> {
+  const g = popupGuardOf(page)
+  const run = async (): Promise<UiActResult> => {
+    if (kind === 'game' && g?.blockReason()) { g.note(`⛔ 擋下「${label}」：${g.blockReason()}`); return 'blocked' }
+    // 大廳的 Join 是正常操作；guard 只在進機台之後才掛，所以「有 guard」＝在機台裡
+    const never = await neverClickOf(el, !!g)
+    if (never) { g?.note(`⛔ 擋下「${label}」：禁點（${never}）`); return 'blocked' }
+    // 第二層（頁面內 capture 攔截）：fn 前後比對該 frame 的 __mtBlockedClicks，有增加＝事件被頁面內攔下，不算點到
+    const blockedCount = async () => el ? el.evaluate(() => ((window as unknown as { __mtBlockedClicks?: unknown[] }).__mtBlockedClicks ?? []).length).catch(() => 0) : 0
+    const before = await blockedCount()
+    try {
+      await fn()
+      if ((await blockedCount()) > before) { g?.note(`⛔ 擋下「${label}」：頁面內攔截（禁點）`); return 'blocked' }
+      return 'clicked'
+    } catch (e) {
+      const msg = String(e instanceof Error ? e.message : e)
+      if (/timeout|intercepts pointer events/i.test(msg)) {
+        const cover = await describeCover(el)
+        const err = new Error(`點「${label}」逾時${cover ? `：被 ${cover} 蓋住` : ''}（${msg.split('\n')[0].slice(0, 120)}）`)
+        if (e instanceof Error) err.name = e.name   // 呼叫端用 String(err) 判 TimeoutError
+        throw err
+      }
+      throw e
     }
-  } catch { /* 關不掉就算了，呼叫端仍拿得到 hit */ }
+  }
+  return g ? g.withLock(run) : run()
+}
+/** 觸屏格／遊戲元素的 force click（原本散在各處的 `t.click({ force: true, timeout: 5000 }).catch(() => {})`）。回 blocked＝沒點 */
+export async function gameTap(page: Page, el: ElementHandle, label: string): Promise<UiActResult> {
+  return uiAct(page, 'game', label, el, () => el.click({ force: true, timeout: 5000 })).catch(() => 'none' as const)
+}
+
+/** 用元素中心點一次真滑鼠點（提示框按鈕用；Locator 版） */
+async function clickLocatorCenter(page: Page, loc: import('playwright').Locator): Promise<'clicked' | 'none'> {
+  try {
+    const box = await loc.first().boundingBox()
+    if (!box) return 'none'
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    return 'clicked'
+  } catch { return 'none' }
+}
+
+export async function dismissGameTips(page: Page, emit: (msg: string) => void): Promise<string | null> {
+  // 1007：改走 PopupGuard.scan（所有 frame、處理表、Confirm 限定在命中的框裡）。沒有 guard（還沒進機台）時用一次性的
+  const g = popupGuardOf(page) ?? new PopupGuard(page, emit, `adhoc-${Date.now()}`)
+  const ds = await g.scan({ act: true, why: '同步' })
+  // 回傳值沿用原本的意思：遊戲進行中的那兩種 Tips（decideExit 用「cannot be quit」判斷要不要推進）
+  const hit = ds.find(d => d.id === 'cannot-quit') ? 'Game is running and cannot be quit' : ds.find(d => d.id === 'bonus-15min') ? 'Complete the bonus game within 15 minutes' : null
   return hit
 }
 
@@ -1025,12 +1219,13 @@ async function doBonusAction(page: Page, profile: MachineProfile | undefined, em
     await dismissDenomOverlay(page, emit, '特殊流程')
     const how = await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])
     if (!how) emit(`（特殊流程：找不到可見的 Spin 按鈕）`)
-    return how !== null
+    if (how === 'blocked') emit(`（特殊流程：提示框擋著，不按 SPIN）`)
+    return nativeClicked(how)
   }
   if (action === 'takewin') {
     const how = await nativeClick(page, ['.btn_takewin', '[class*="takewin"]', '[class*="take-win"]', '[class*="take_win"]'])
-    if (how) emit(`（執行特殊流程：TakeWin）`)
-    return how !== null
+    if (nativeClicked(how)) emit(`（執行特殊流程：TakeWin）`)
+    return nativeClicked(how)
   }
   if (action === 'touchscreen') {
     // 流程（含兩段式「觸屏後 SPIN」的保護）在 verdicts.ts runTouchThenSpin，探針 scripts/touch-then-spin-probe.ts
@@ -1040,7 +1235,7 @@ async function doBonusAction(page: Page, profile: MachineProfile | undefined, em
       guard: extraSpinGuard,
       pressSpin: async () => {
         await dismissDenomOverlay(page, emit, '特殊流程（觸屏後 SPIN）')
-        return (await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])) !== null
+        return nativeClicked(await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS]))
       },
     })
     if (r.spin === 'pressed') emit('（兩段式特殊流程：觸屏後按 SPIN）')
@@ -1060,7 +1255,8 @@ async function doTouchPoints(page: Page, profile: MachineProfile | undefined, em
       try {
         const els = await page.$$(`//span[normalize-space(text())='${pt}']`)
         if (els.length > 0) {
-          await page.evaluate((el: Element) => (el as HTMLElement).click(), els[0])
+          const r = await uiAct(page, 'game', `觸屏 ${pt}`, els[0], () => page.evaluate((el: Element) => (el as HTMLElement).click(), els[0]))
+          if (r === 'blocked') { emit(`（觸屏「${pt}」被擋：提示框／禁點）`); break }
           emit(`（觸屏點擊: "${pt}"）`)
           any = true
         } else {
@@ -1070,7 +1266,7 @@ async function doTouchPoints(page: Page, profile: MachineProfile | undefined, em
       await sleep(800)
     }
     if (profile?.clickTake) {
-      if (await nativeClick(page, ['.my-button.btn_take', '.btn_take'])) { emit(`（點擊 Take）`); any = true }
+      if (nativeClicked(await nativeClick(page, ['.my-button.btn_take', '.btn_take']))) { emit(`（點擊 Take）`); any = true }
     }
     if (pts.length > 0) emit(`（特殊流程觸屏完成: ${pts.join(' → ')}）`)
     return any
@@ -1103,8 +1299,7 @@ async function clickTouchCell(page: Page, pt: string, mustStop?: () => Promise<b
       if (!els.length) continue
       // 1007 CodeX 4c320d4 [P1]：查元素是非同步的，查的期間可能收到 end——找到之後、真的點之前再重查
       if (mustStop && await mustStop()) return false
-      await els[0].evaluate((e: Element) => (e as HTMLElement).click())
-      return true
+      return (await uiAct(page, 'game', `觸屏 ${pt}`, els[0], () => els[0].evaluate((e: Element) => (e as HTMLElement).click()))) === 'clicked'
     } catch { /* frame detached */ }
   }
   return false
@@ -1245,7 +1440,10 @@ async function guardedClick(page: Page, selectors: string[], mustStop: () => Pro
       try { if (!await el.isVisible()) continue; box = await el.boundingBox() } catch { continue }
       if (!box || box.width < 1 || box.height < 1) continue
       if (await mustStop()) return 'stopped'
-      try { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'clicked' } catch { return 'none' }
+      try {
+        const r = await uiAct(page, 'game', sel, el, () => page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2))
+        return r === 'blocked' ? 'stopped' : 'clicked'
+      } catch { return 'none' }
     }
   }
   return 'none'
@@ -1382,7 +1580,7 @@ async function bonusStallRescue(page: Page, emit: (msg: string) => void, machine
       if (!isSpecial()) { emit('🧩 特殊狀態已結束，停止試點'); break }
       const t = await findTouchTarget(page, c)
       if (!t) continue
-      await t.click({ force: true, timeout: 5000 }).catch(() => {})
+      await gameTap(page, t, '觸屏')
       await sleep(2500)
       const s1 = await grab(`touch-${c.replace(',', '_')}`)
       if (!s1) continue
@@ -1824,7 +2022,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
       const title = await item.getAttribute('title')
       if (title && title.includes(machineCode)) {
         await item.scrollIntoViewIfNeeded()
-        await page.evaluate((el: Element) => (el as HTMLElement).click(), item)
+        await uiAct(page, 'lobby', `機台卡片 ${title}`, item, () => page.evaluate((el: Element) => (el as HTMLElement).click(), item))
         emit(`點擊機台卡片: ${title}`)
         await sleep(1500)
         found = true
@@ -1838,7 +2036,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
             const joinEls = await page.$$("//div[contains(@class,'gm-info-box')]//span[normalize-space(text())='Join']")
             for (const j of joinEls) {
               if (await j.isVisible()) {
-                await page.evaluate((el: Element) => (el as HTMLElement).click(), j)
+                if ((await uiAct(page, 'lobby', 'Join', j, () => page.evaluate((el: Element) => (el as HTMLElement).click(), j))) === 'blocked') return false
                 emit(`點擊 Join 按鈕`)
                 await sleep(3000)
                 return true
@@ -1905,7 +2103,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
         emit(`  等待元素「${pos}」...`)
         const el = await waitForSpanText(page, pos, 10000)
         if (el) {
-          await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
+          await uiAct(page, 'lobby', `進入觸屏 ${pos}`, el, () => page.evaluate((e: Element) => (e as HTMLElement).click(), el))
           emit(`  ✅ 已點擊「${pos}」`)
           await sleep(400)
         } else {
@@ -1922,7 +2120,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
         emit(`  等待元素「${pos}」...`)
         const el = await waitForSpanText(page, pos, 10000)
         if (el) {
-          await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
+          await uiAct(page, 'lobby', `進入觸屏 ${pos}`, el, () => page.evaluate((e: Element) => (e as HTMLElement).click(), el))
           emit(`  ✅ 已點擊「${pos}」`)
           await sleep(400)
         } else {
@@ -2171,7 +2369,7 @@ async function dismissDenomOverlay(page: Page, emit: (msg: string) => void, sour
       const btns = await frame.$$('.select-main .select-btn, .select-main .my-button')
       if (btns.length > 0) {
         emit(`${source} → 面額選擇遮罩（${btns.length} 選項），點擊第一個...`)
-        await btns[0].evaluate((node: Element) => (node as HTMLElement).click())
+        await uiAct(page, 'popup', '面額選單第一個', btns[0], () => btns[0].evaluate((node: Element) => (node as HTMLElement).click()))
         await sleep(800)
         // 2026-10-01 JJBXGRAND 實測（0342 重新進場）：選面額是兩階段——選完面額後同一個遮罩變成 **YES / NO** 確認（約 1.5 秒內出現、
         // 不按就一直停著），按 YES 後約 1.5 秒機台的 SELECT A DENOMINATION 才關、SPIN 才有作用。原本只點一下，第二階段從沒按過
@@ -2493,15 +2691,20 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
 
       // Use Playwright native click (dispatches proper pointer/mouse events).
       // If an overlay intercepts (e.g., DFDC free-game overlay), fall back to force click.
+      let spinAct: UiActResult = 'none'
       try {
-        await currentSpinEl.click({ timeout: 5000 })
+        spinAct = await uiAct(page, 'game', `Spin ${spinIdx + 1}`, currentSpinEl, () => currentSpinEl.click({ timeout: 5000 }))
       } catch (clickErr) {
         if (String(clickErr).includes('intercepts pointer events') || String(clickErr).includes('TimeoutError')) {
-          emit(`Spin ${spinIdx + 1} overlay 攔截，改用 force click...`)
-          await currentSpinEl.click({ force: true })
+          emit(`Spin ${spinIdx + 1} overlay 攔截，改用 force click...｜${String(clickErr).slice(0, 160)}`)
+          spinAct = await uiAct(page, 'game', `Spin ${spinIdx + 1}（force）`, currentSpinEl, () => currentSpinEl.click({ force: true }))
         } else {
           throw clickErr
         }
+      }
+      // 被提示框／禁點擋下：不算按了 SPIN，也不改用別的方式再按（CodeX 1007）
+      if (spinAct === 'blocked') {
+        return { step: 'Spin 測試', status: 'skip', message: `未驗：第 ${spinIdx + 1} 下 SPIN 被擋（${popupGuardOf(page)?.blockReason() ?? '禁點'}）`, durationMs: Date.now() - t0 }
       }
       emit(`Spin ${spinIdx + 1}/${SPIN_COUNT} 已點擊，等待動畫完成...`)
 
@@ -3089,13 +3292,17 @@ async function stepIdeck(
       const tClick = Date.now()
       try {
         // evaluate click bypasses overlay/actionability checks
-        await el.evaluate((node: Element) => (node as HTMLElement).click())
+        const ideckEl = el
+        const act = await uiAct(page, 'game', `iDeck ${label}`, ideckEl, () => ideckEl.evaluate((node: Element) => (node as HTMLElement).click()))
+        // 被提示框／禁點擋下：這顆不算點過，也不改用座標再點（CodeX 1007）
+        if (act === 'blocked') { o.note = `被擋下（${popupGuardOf(page)?.blockReason() ?? '禁點'}），沒有點`; return o }
       } catch (e1) {
         // Fallback: coordinate click via mouse
         emit(`${label} evaluate 失敗（${e1 instanceof Error ? e1.message.split('\n')[0] : String(e1)}），改座標點擊`)
         try {
           const box = await el.boundingBox()
-          if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          const fallbackEl = el
+          if (box) { if ((await uiAct(page, 'game', `iDeck ${label}（座標）`, fallbackEl, () => page.mouse.click(box.x + box.width / 2, box.y + box.height / 2))) === 'blocked') { o.note = '被擋下，沒有點'; return o } }
           else o.note = '無法取得元素座標'
         } catch (e2) { o.note = `座標點擊也失敗（${e2 instanceof Error ? e2.message.split('\n')[0] : String(e2)}）` }
       }
@@ -3490,7 +3697,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
     const ot = await findTouchTarget(page, openCell)
     if (!ot) return { ok: false, why: `找不到觸屏格子 ${openCell}` }
     emit(`📚 ${tag}（${type}）：點 ${openCell} 打開機台選單`)
-    await ot.click({ force: true, timeout: 5000 }).catch(() => {})
+    await gameTap(page, ot, '觸屏')
     await sleep(4000)
     const m1 = await grab(); await sleep(2000); const m2 = await grab()
     if (!m1 || !m2) return { ok: false, why: '點開後推流沒在播或停格' }
@@ -3512,7 +3719,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
       if (stop()) break
       const t = await findTouchTarget(page, c)
       if (!t) continue
-      await t.click({ force: true, timeout: 5000 }).catch(() => {}); n++
+      await gameTap(page, t, '觸屏'); n++
       let closed = false
       for (let k = 0; k < 2 && !closed; k++) { await sleep(2000); closed = (await open()) === false }
       if (closed) {
@@ -3521,7 +3728,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
       }
     }
     emit(`${tag}：選單區試了 ${n} 格都沒關 → 再點 ${openCell}、再走前端選面額，讓機台回到可 Spin`)
-    await ot.click({ force: true, timeout: 5000 }).catch(() => {}); await sleep(3000)
+    await gameTap(page, ot, '觸屏'); await sleep(3000)
     if ((await open()) !== false) { await dismissDenomOverlay(page, emit, tag); await sleep(8000) }
     const closed = (await open()) === false
     return { ok: true, closed, learn: { region: r.region, refPng, taps: [], openTap: openCell, note: `點 ${openCell} 打開；${r.note}；選單區 ${n} 格都關不掉${closed ? '（後來關了）' : '（還開著）'}` } }
@@ -3540,7 +3747,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
       const t = await findTouchTarget(page, s.cell)
       if (!t) { emit(`（量座標序列）找不到觸屏格子 ${s.cell}`); continue }
       emit(`（量座標序列）第 ${i + 1} 下：點 ${s.cell}（${s.label ?? ''}）`)
-      await t.click({ force: true, timeout: 5000 }).catch(() => {})
+      await gameTap(page, t, '觸屏')
       await sleep(s.waitMs ?? 3000)
       await shot(`${i + 1}-${(s.label ?? s.cell).replace(/[^\w.-]/g, '_')}`)
     }
@@ -3614,7 +3821,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
         if (stop()) break
         const t = await findTouchTarget(page, c)
         if (!t) continue
-        await t.click({ force: true, timeout: 5000 }).catch(() => {}); n++
+        await gameTap(page, t, '觸屏'); n++
         let closed = false
         for (let k = 0; k < 2 && !closed; k++) { await sleep(2000); closed = (await isOpen()) === false }
         if (closed) {
@@ -3629,7 +3836,7 @@ async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode
   return runMenuGate({
     isOpen,
     selectFrontDenom: async () => { if (probe) { emit('（量座標）跳過前端選面額，只測觸屏格'); return } emit('Spin 前：機台停在選面額選單 → 前端選面額，等機台關選單'); await dismissDenomOverlay(page, emit, 'Spin 前選單閘門') },
-    taps: points.map(p => ({ label: p, tap: async () => { const t = await findTouchTarget(page, p); if (t) { emit(`Spin 前：選單沒關，點觸屏 ${p}`); await t.click({ force: true, timeout: 5000 }).catch(() => {}) } else emit(`Spin 前：找不到觸屏格子 ${p}`) } })),
+    taps: points.map(p => ({ label: p, tap: async () => { const t = await findTouchTarget(page, p); if (t) { emit(`Spin 前：選單沒關，點觸屏 ${p}`); await gameTap(page, t, '觸屏') } else emit(`Spin 前：找不到觸屏格子 ${p}`) } })),
     wait: async ms => { await sleep(ms) },
     stop,
     loadingMs: 10_000,
@@ -3692,7 +3899,8 @@ async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineC
       return { ratio: diffRatio(base, last), time: v?.time ?? 0, playing: v?.playing ?? false, refDiff: ref ? regionDiff(last, ref, cfg.refRegion!) : undefined }
     },
     // 用真的滑鼠點——0924 實測滑鼠點可以走到 game=onTouchScreen；每次只點一次（再點會把畫面關掉）
-    click: async () => { await target!.click({ force: true, timeout: 5000 }) },
+    // 1007：走 uiAct；被提示框／禁點擋下就丟錯（不算點到，也不換別種點法）
+    click: async () => { if ((await uiAct(page, 'game', '觸屏（畫面比對）', target!, () => target!.click({ force: true, timeout: 5000 }))) === 'blocked') throw new Error('被提示框／禁點擋下，沒有點') },
     wait: async ms => { await sleep(ms) },
     stop,
     save: tag => save(tag, last),
@@ -3995,14 +4203,22 @@ async function stepTouchscreen(
           ['JS click', async () => { await page.evaluate((e: Element) => (e as HTMLElement).click(), el) }],
         ]
         let ok = false, handled = false
+        let blocked = false
         for (const [name, fn] of methods) {
-          try { await fn() } catch { tried.push(`${name}✗`); continue }
+          // 1007：每一種點法（含 CDP 觸控、JS 觸控事件）都走 uiAct；被擋就整串停下，不換下一種
+          try { if ((await uiAct(page, 'game', `觸屏（${name}）`, tEl, fn)) === 'blocked') { tried.push(`${name}⛔`); blocked = true; break } } catch { tried.push(`${name}✗`); continue }
           tried.push(name)
           if (await waitSent(before, 1500)) { ok = true; break }
           // H5 走到 game=onTouchScreen 就代表遊戲已經收下這次點擊（H5 不一定走 dealGMActionReq）→ 不要再換點法重點
           if (stages.slice(stBefore).some(s => s.startsWith('④'))) { handled = true; break }
         }
         const how = tried.join('→')
+        // 被提示框／禁點擋下：這一格不算點過，後面的格子也不點，交給步驟關卡處理（CodeX 1007）
+        if (blocked) {
+          sentPer.push(`${label}:被擋（${popupGuardOf(page)?.blockReason() ?? '禁點'}）`)
+          emit(`"${label}" ⛔ 被擋下，沒有點（${popupGuardOf(page)?.blockReason() ?? '禁點'}）`)
+          break
+        }
         if (ok) sentCount++
         if (ok || handled) handledCount++
         const reached = stages.slice(stBefore)
@@ -4140,7 +4356,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
         const els = await frame.$$('.header_btn_item')
         for (const el of els) {
           if (await el.isVisible()) {
-            await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
+            if ((await uiAct(page, 'lobby', 'CCTV 按鈕', el, () => page.evaluate((e: Element) => (e as HTMLElement).click(), el))) === 'blocked') break
             clicked = true
             emit(`已點擊 CCTV 按鈕`)
             break
@@ -4232,7 +4448,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
             try {
               const btn = await el.$(closeSel) ?? await frame.$(closeSel)
               if (btn && await btn.isVisible()) {
-                await btn.click({ timeout: 500 })
+                if ((await uiAct(page, 'popup', `CCTV 前關彈窗 ${closeSel}`, btn, () => btn.click({ timeout: 500 }))) === 'blocked') continue
                 emit(`已點擊關閉按鈕（${closeSel}）`)
                 closed = true
                 break
@@ -4240,7 +4456,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
             } catch { /* ignore */ }
           }
           if (!closed) {
-            await el.click({ force: true, timeout: 500 }).catch(() => {})
+            await uiAct(page, 'popup', `CCTV 前點彈窗本體 ${sel}`, el, () => el.click({ force: true, timeout: 500 })).catch(() => {})
             emit(`已 force-click 彈窗本體：${sel}`)
           }
         }
@@ -4647,7 +4863,10 @@ async function applyPlaybookAction(page: Page, a: ExitPlaybookEntry['action'], e
       for (const f of page.frames()) {
         const b = f.getByText(a.text, { exact: true })
         const n = await b.count().catch(() => 0)
-        for (let i = 0; i < n; i++) if (await b.nth(i).isVisible().catch(() => false)) { await b.nth(i).click({ timeout: 3000 }); return true }
+        for (let i = 0; i < n; i++) if (await b.nth(i).isVisible().catch(() => false)) {
+          const h = await b.nth(i).elementHandle()
+          return (await uiAct(page, 'exit', `手冊動作「${a.text}」`, h, () => b.nth(i).click({ timeout: 3000 }))) === 'clicked'
+        }
       }
       emit(`（手冊動作：畫面上找不到「${a.text}」）`)
     }
@@ -4968,6 +5187,8 @@ export class MachineTestRunner extends EventEmitter {
     await ctx.addInitScript(AUDIO_MONITOR_SCRIPT)
     await ctx.addInitScript(IDECK_MONITOR_SCRIPT)
     await ctx.addInitScript(PINUS_TRACKER_SCRIPT)
+    // 1007 提示框處理第二層：頁面內 capture 攔截禁點（runner 的 uiAct 是第一層）
+    await ctx.addInitScript(NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED)
     const page = await ctx.newPage()
 
     // Set up GM event watcher BEFORE goto so it catches the initial WS connection
@@ -5067,6 +5288,21 @@ export class MachineTestRunner extends EventEmitter {
           })
           // 疑似特殊遊戲 stalled／Handpay／停止 → 後續步驟（含退出）一律不做、交人工（CodeX 2d513b6 [P1]：只記 warn 的話後面照跑 Spin／iDeck）
           let openRoundHalt: string | null = null
+          // 1007 提示框處理：進機台成功就開始監看（每 2 秒，只在操作鎖裡、點之前重查；擷取／錄音時暫停），退出完成才停
+          const popupGuard = attachPopupGuard(page, emit, `${this.sessionPrefix}${machineCode}`)
+          popupGuard.startWatch(2000)
+          /** 擷取／錄音期間暫停背景掃描，結束立刻補掃（CodeX：等在途點擊結束——pause 前先過一次鎖） */
+          const capture = async <T>(fn: () => Promise<T>): Promise<T> => {
+            await popupGuard.withLock(async () => { popupGuard.pause() })
+            try { return await fn() } finally { await popupGuard.resume() }
+          }
+          /** 把這段期間遇到的提示框紀錄補進最後一個步驟的訊息（「未知提示框：…」等） */
+          const flushPopupNotes = () => {
+            const n = popupGuard.drain()
+            if (!n || !stepResults.length) return
+            const last = stepResults[stepResults.length - 1]
+            last.message = `${last.message}｜${n}`
+          }
           const checkOsm = async () => {
             if (this.stopped) return
             const s = this.osmStatus.get(machineCode)
@@ -5090,6 +5326,17 @@ export class MachineTestRunner extends EventEmitter {
           /** 每個步驟之前：照舊看特殊狀態；疑似特殊遊戲已判 stalled 就不做這一步（退出也不做——帳號留在機台，交人工） */
           const stepGate = async (name: string): Promise<boolean> => {
             const isExit = name === '退出測試'
+            flushPopupNotes()
+            if (isExit) popupGuard.phase = 'exit'
+            // 步驟之前同步掃一次（close／ack 會在這裡點掉）
+            if (!this.stopped) await popupGuard.scan({ act: true, why: `${name}之前` }).catch(() => {})
+            flushPopupNotes()
+            const pb = popupStepBlock({ stop: popupGuard.stop, unknown: popupGuard.unknown, unknownExpired: popupGuard.unknownExpired(), isExit })
+            if (pb) {
+              if (pb.verdictStep && !stepResults.some(s => s.step === '提示框')) stepResults.push({ step: '提示框', status: 'fail', message: pb.verdictStep, durationMs: 0 })
+              if (pb.accountHalt && !this._haltReason) this._haltReason = `${machineCode} 帳號無法繼續使用（換帳號）：${pb.accountHalt}`
+              if (pb.skip) { stepResults.push({ step: name, status: pb.skip.status, message: pb.skip.message, durationMs: 0 }); return false }
+            }
             // 判斷在 verdicts.ts stepGateBlock（探針 open-round-probe）；檢查特殊狀態之前、之後各擋一次
             let block = stepGateBlock({ stopped: this.stopped, halt: openRoundHalt, isExit })
             if (!block) { await checkOsm(); block = stepGateBlock({ stopped: this.stopped, halt: openRoundHalt, isExit }) }
@@ -5311,7 +5558,7 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           if (steps.stream && await stepGate('推流檢測')) {
-            const r2 = await stepStream(page, emit, profile, machineCode, this.sessionPrefix)
+            const r2 = await capture(() => stepStream(page, emit, profile, machineCode, this.sessionPrefix))
             stepResults.push(r2)
             this.log(`${workerTag} [${r2.status.toUpperCase()}] 推流: ${r2.message}`, machineCode)
           }
@@ -5328,7 +5575,7 @@ export class MachineTestRunner extends EventEmitter {
               this.log(`${workerTag} [SKIP] Spin: ${r3.message}`, machineCode)
             } else {
               emit(`Spin 前選單閘門：${gate.state}｜${gate.note}`)   // 1003：一律記，才知道閘門有沒有認出選單
-              let r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio)
+              let r3 = await capture(() => stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio))
               // CodeX 0930：判斷不了選單時照原流程按，但要留註記——不能當成已排除選單干擾（batch 看到這段就不判 spin no response）
               if (gate.state === 'unknown' && /選單狀態未知/.test(gate.note)) r3 = { ...r3, message: `${r3.message}｜${gate.note}` }
               // 1003：自動學到的選單（參考圖＋比對區／關選單的觸屏格）交給 batch 寫回機種設定
@@ -5339,7 +5586,7 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           if (steps.audio && await stepGate('音頻檢測')) {
-            const r4 = await stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig)
+            const r4 = await capture(() => stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig))
             stepResults.push(r4)
             this.log(`${workerTag} [${r4.status.toUpperCase()}] 音頻: ${r4.message}`, machineCode)
           }
@@ -5363,7 +5610,7 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           if (steps.cctv && await stepGate('CCTV 號碼比對')) {
-            const r8 = await stepCctv(page, emit, machineCode, this.sessionPrefix)
+            const r8 = await capture(() => stepCctv(page, emit, machineCode, this.sessionPrefix))
             stepResults.push(r8)
             this.log(`${workerTag} [${r8.status.toUpperCase()}] CCTV: ${r8.message}`, machineCode)
           }
@@ -5397,6 +5644,8 @@ export class MachineTestRunner extends EventEmitter {
             stepResults.push(r5)
             this.log(`${workerTag} [${r5.status.toUpperCase()}] 退出: ${r5.message}`, machineCode)
           }
+          flushPopupNotes()
+          detachPopupGuard(page)
         }
       }
     } catch (e) {
@@ -5408,6 +5657,7 @@ export class MachineTestRunner extends EventEmitter {
         stepResults.push({ step: '測試流程', status: 'fail', message: String(e), durationMs: 0 })
       }
     } finally {
+      detachPopupGuard(page)
       await ctx.close().catch(() => { /* browser already closed by stop() */ })
     }
 

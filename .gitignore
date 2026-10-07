@@ -8,6 +8,7 @@ server/data.db-wal
 
 # Runtime / generated files
 server/machine-test/cctv-saves/
+server/machine-test/popup-saves/
 server/machine-test/audio-saves/
 server/machine-test/cctv-refs/
 server/attachment-cache/

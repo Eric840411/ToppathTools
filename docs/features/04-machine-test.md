@@ -303,3 +303,59 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - **CodeX 審 edd347b（v5.29.4 修）**：[P1] `mustStop` 只在讀流水前看停止，讀的期間按停止、又沒收到 end 會放行。改成 `stop() || await ended() || stop()`。runner 路徑探針加 12 條（SPIN／觸屏 × 第 1～6 次讀流水期間按停止 → 停止後 0 下）；突變「讀完不再看停止」SPIN、觸屏各紅一條
 - ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」
 
+
+## 提示框處理（v5.30.0，2026-10-07）
+
+規格：`osm-qa-agent/reports/spec-mt-popup-handling-1007.md`（claude-osm-3 整理）。做法 CodeX 定案（Discord 10/07）。
+
+### 辨識與處理分開
+- **辨識**（共用，UAT 之後也可用）：`server/uat-runner/popup-catalog.js`
+  - `POPUP_CATALOG`：依文字辨識 bonus-15min／cannot-quit／reserve-panel／quit-wait／cashout-credit／game-exception／other-device／conn-timeout／lhb-transfer／no-machine／no-permission；錯誤碼 entry-1044／entry-10006 要有「error／code／錯誤」字樣，避免餘額裡剛好有 1044 被認錯；依元素辨識面額 `.select-main`、`.closeBtn`、`.recommend`
+  - `NEVER_CLICK`：Reserve Now／JP 卡的 `.view`／Play Now／機台裡的 Join／`.header_btn_item_return`／充值框的 Confirm。selector 類只在提示框裡才算。Join 標 `inMachineOnly`，因為大廳選機台本來就要按它
+  - 加 agent 白名單（`AGENT_SOURCE_WHITELIST`）
+- **處理**（機台測試）：`verdicts.ts` 的 `MT_POPUP_POLICY`／`decidePopup`，分成測試中與退出兩個階段
+  - ack 按 Confirm，只限命中那個框裡的鍵
+  - close 按 X 或面額
+  - wait 不動
+  - stop 分兩種範圍：account（別處登入）跟 machine（AFT error／game exception／offline／進場錯誤碼）
+  - 沒命中的一律 unknown。cashout-credit 只有退出時才按；測試中出現代表誤觸，當 unknown 處理
+
+### 執行（runner.ts `PopupGuard`）
+- 進機台成功後掛上 guard，每 2 秒掃所有 frame
+- close／ack 只在**操作鎖**裡點，點之前重查框和鍵還在，然後點中心一次真滑鼠
+- stop／unknown 只記錄、截圖（`popup-saves/`，每台最多 20 張），並**立刻擋遊戲操作**。unknown 的 30 秒只是結案門檻
+- 擷取步驟（推流、Spin、音訊、CCTV）期間暫停背景掃描，結束立刻補掃
+- 每步之前（`stepGate`）同步掃一次，再交給 `popupStepBlock` 判斷：
+  - account → 這個帳號連退出都不做，`_haltReason` 寫「帳號無法繼續使用（換帳號）」，batch 的 `STUCK_RE` 會換帳號續跑
+  - machine 或 unknown 滿 30 秒 → 記「提示框」fail 步驟，測試步驟跳過、退出照走
+- **所有點擊都收斂到 `uiAct(page, kind, label, el, fn)`**，kind 分 game／exit／popup／lobby：
+  - game 在有 stop／unknown 時回 `'blocked'`
+  - 命中禁點回 `'blocked'`
+  - 在操作鎖裡執行
+  - 逾時錯誤會補上 `elementsFromPoint` 前三層，說明被誰蓋住
+  - 回 `'blocked'` 時呼叫端不得當成功，也不得改用 force 或座標再點。`nativeClick` 會整串停下、回 `'blocked'`
+- 例外（頁面內 `.click()`，不經 uiAct）：`closeJackpotNotification`、大廳預覽的 SAFE close、面額 YES、CCTV 頁面內 Confirm、guard 自己的 `clickLocatorCenter`
+- **第二層**：`context.addInitScript(NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED)`
+  - 在 window capture 攔 pointer／mouse／touch／click 各階段，用 composedPath 找目標
+  - 命中禁點就 preventDefault＋stopImmediatePropagation，記到 `__mtBlockedClicks`
+  - uiAct 會比對 fn 前後的計數，有增加也回 `'blocked'`
+  - Join 規則要 runner 設 `window.__mtInMachine`（attach 時設，每次掃描補設給新載入的 frame）
+  - canvas 畫出來的按鈕認不到，所以只能當第二層
+- batch：`popupVerdict` 讀「提示框」步驟。account in use 不算機台結果（J 欄留空）；其他提示框判定寫「驗證未過」，摘要優先顯示
+
+### 驗證
+- `npx tsx scripts/popup-handling-probe.ts`：51 條，純函式加真瀏覽器。用 page.route 真導頁；不要用 setContent，它的 document.open 會清掉 window 監聽器
+- 每條都看遊戲 handler 有沒有真的跑（`window.__ran`）
+- 涵蓋：
+  - 預約面板只按 X
+  - 未知框一顆不按、截圖、擋 SPIN，click／nativeClick／觸控都擋
+  - Play Now 五種點法都擋，繞過 uiAct 的滑鼠和觸控也被頁面內層擋
+  - Join 大廳可按、機台裡兩層都擋
+  - 逾時訊息帶出 `.mask-layer`
+  - 暫停期間不點、恢復就補掃
+  - 遊戲點擊進行中背景不會插隊
+  - 別處登入 → 換帳號
+  - cashout-credit 只在退出時按
+- 這支探針抓到一個真 bug：`(g?.note ?? …)(...)` 會丟掉 this
+- 突變：見 commit 訊息
+- ⚠️ 還沒真機驗；runner 改了，本機 agent 要「更新程式碼」

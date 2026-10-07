@@ -386,6 +386,10 @@ export function applyGameRules(result) {
 export function judge(rawResult, stepsRun) {
   const result = applyGameRules(rawResult)
   if (result.unboundSession) return { verdict: '結果沒帶 sessionId（舊版 agent），無法證明屬於本批，待確認', J: null }
+  // 1007 提示框判定（runner 的「提示框」步驟）：帳號在別處登入＝機台沒測到，不判；其他（AFT error／game exception／offline／unknown popup）＝本台驗證未過
+  const pop = popupVerdict(result)
+  if (pop === 'account in use') return { verdict: '帳號在別處登入（account in use），這台沒測到，已換帳號', J: null }
+  if (pop) return { verdict: `提示框判定：${pop}`, J: '驗證未過' }
   const st = (result.steps ?? []).filter(s => STEP_ZH[s.step])
   const entry = st.find(s => s.step === '進入機台')
   if (entry && /已在遊戲內/.test(entry.message ?? '')) return { verdict: '結果不可信（載入時已在遊戲內），需重測', J: null }
@@ -412,8 +416,15 @@ export function judge(rawResult, stepsRun) {
 // ideck no response／touchscreen no response／no cctv；規則外的失敗寫 <項目> fail，沒驗到寫 <項目> not verified。
 // ⚠️ 關鍵字靠 runner 訊息字串判斷（跟 classify 一樣耦合），runner 改訊息要同步改這裡並跑 scripts/machine-test-shortline-probe.mjs
 const STEP_EN = { entry: '進入機台', stream: '推流檢測', spin: 'Spin 測試', audio: '音頻檢測', ideck: 'iDeck 測試', touchscreen: '觸屏測試', cctv: 'CCTV 號碼比對', exit: '退出測試' }
+/** runner「提示框」步驟的判定字（F 欄用語）：account in use／AFT error／game exception／offline／unknown popup (<前 30 字>)／進入失敗… */
+export function popupVerdict(result) {
+  const s = (result?.steps ?? []).find(x => x.step === '提示框' && x.status === 'fail')
+  return s ? (String(s.message ?? '').match(/判定：([^（｜]+)/)?.[1]?.trim() ?? null) : null
+}
 export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
   const result = applyGameRules(rawResult)
+  const pop = popupVerdict(result)
+  if (pop) return pop
   const steps = (result?.steps ?? []).filter(s => STEP_ZH[s.step])
   const get = n => steps.find(s => s.step === n)
   const msg = s => String(s?.message ?? '')
@@ -1020,8 +1031,9 @@ export async function lookupAftFailure(code, uid, startedAt, finishedAt) {
 // runner 退出連續 3 次失敗且看不出遊戲進行中 → 回「退出異常（帳號卡在這台）」並停掉這個帳號後面的台。
 // batch 這邊：把卡住的帳號留在原地（等使用者指示），從帳號池挑下一個「沒人宣告使用、沒被工具綁著、在大廳」的帳號跑剩下的台。
 // 使用者 1003：帳號池裡的帳號都能用。仍跳過 claimed／assigned，避免撞到別人正在用的。
-export const STUCK_RE = /退出異常（帳號卡在這台）/
-export const stuckMachineOf = errors => (errors ?? []).map(e => String(e).match(/(\d{3}-[A-Z0-9-]+-\d{4}) 退出異常（帳號卡在這台）/)?.[1]).find(Boolean) ?? null
+// 1007：提示框判「帳號在別處登入（account in use）」也走同一套——離開這個帳號、換帳號池下一個（runner 回「帳號無法繼續使用（換帳號）」）
+export const STUCK_RE = /退出異常（帳號卡在這台）|帳號無法繼續使用（換帳號）/
+export const stuckMachineOf = errors => (errors ?? []).map(e => String(e).match(/(\d{3}-[A-Z0-9-]+-\d{4}) (?:退出異常（帳號卡在這台）|帳號無法繼續使用（換帳號）)/)?.[1]).find(Boolean) ?? null
 export function pickNextAccount(pool, { claims = {}, assigned = {}, exclude = [] } = {}) {
   return pool.find(p => !exclude.includes(p.username) && !claims[p.account] && !assigned[p.username]) ?? null
 }

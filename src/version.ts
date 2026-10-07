@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.29.4'
+export const APP_VERSION = '5.30.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.0', date: '2026-10-07', changes: ['feat(機台測試)：**提示框處理**——辨識目錄共用（uat-runner/popup-catalog.js），機台測試依測試中／退出分別處理：Confirm／X 只點命中那個框裡的鍵；帳號在別處登入 → 換帳號續跑；AFT error／game exception／進場錯誤碼 → 本台判定、只做退出；認不得的框不點、截圖、立刻擋遊戲操作，30 秒還在判 unknown popup。背景每 2 秒掃（擷取期間暫停），所有點擊收斂到 uiAct：被擋回 blocked、不改用 force／座標再點；Reserve Now／Play Now／JP View／機台裡的 Join／充值 Confirm 一律禁點，另加頁面內 capture 攔截當第二層；點擊逾時訊息帶出蓋住它的元素。規格 claude-osm-3、做法 CodeX 定案'] },
   { version: '5.29.4', date: '2026-10-07', changes: ['fix(機台測試 疑似特殊遊戲)：CodeX 審 edd347b——點之前的重查在讀 moneyNtc 流水「之後」再看一次停止（讀的期間按停止原本仍會點 1 下）'] },
   { version: '5.29.3', date: '2026-10-07', changes: ['fix(機台測試 疑似特殊遊戲)：CodeX 審 4c320d4 兩個 P1——「0 SPINS REMAINING」剩 0 次不算局中、改等待；按 SPIN 改成「取座標 → 重查 end → 立刻一次真滑鼠點」，不再有原生／force 的重試鏈；觸屏格找到元素之後、點之前再重查 end'] },
   { version: '5.29.2', date: '2026-10-07', changes: ['fix(機台測試 疑似特殊遊戲)：CodeX 審 35d17c9 三個 P1——畫面證據改成要「計數器」（FREE GAMES 3／5 SPINS REMAINING／RE-SPINS: 2），常駐的 JACKPOT／BONUS 字樣不算、結算畫面（TOTAL WIN／BONUS COMPLETE）不按；SPIN 的每一種點法（原生／force／滑鼠）之前都重查 end，點位清單也逐下 await 重查；使用者停止後測試步驟一律擋（退出在沒有開著的特殊遊戲時照舊試）'] },

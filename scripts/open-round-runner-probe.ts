@@ -31,7 +31,8 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
   const el = (kind: 'spin' | 'tap') => ({
     isVisible: async () => true,
     click: async () => { onClick(kind) },
-    evaluate: async () => { onClick(kind) },
+    // 1007 uiAct 會先用 evaluate 查禁點／頁面內攔截計數：只有真正的 click() 才算點
+    evaluate: async (fn: unknown) => { if (String(fn).includes('.click()')) onClick(kind); return undefined },
     // 模擬：取座標的期間 end 推來了（CodeX 4c320d4 補測）
     boundingBox: async () => { if (o.endDuringBox) pushEnd(); return { x: 0, y: 0, width: 10, height: 10 } },
   })

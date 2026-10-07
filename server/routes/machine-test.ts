@@ -103,6 +103,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/backend-ops.js':         join(SERVER_ROOT, 'uat-runner', 'backend-ops.js'),
   // 站台「機台異常」警告彈窗的關閉規則（1006）：backend-ops.js 靜態 import 它
   'uat-runner/site-warning.js':        join(SERVER_ROOT, 'uat-runner', 'site-warning.js'),
+  // 提示框辨識規則（1007）：machine-test/runner.ts 靜態 import
+  'uat-runner/popup-catalog.js':       join(SERVER_ROOT, 'uat-runner', 'popup-catalog.js'),
   // H5/PC 大廳彈窗的關閉規則。⚠️ `agent-runner.ts` **靜態 import** 它——
   //    漏了的話 agent 更新完會在 import 當下 `ERR_MODULE_NOT_FOUND` 起不來，
   //    而錯誤只出現在那台的 stderr（跟 pc-cocos.ts 同一個坑，由推導式守門抓到）。

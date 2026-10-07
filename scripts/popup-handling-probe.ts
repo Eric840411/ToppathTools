@@ -1,0 +1,185 @@
+// 機台測試提示框處理（1007，spec-mt-popup-handling-1007）的探針：npx tsx scripts/popup-handling-probe.ts
+// 純函式（目錄／處理表／步驟關卡）＋真瀏覽器（Playwright，page.route 真導頁）：
+// 每個案例都看「遊戲那邊的 handler 有沒有真的跑」（window.__ran），不是只看 runner 回傳什麼（CodeX：要證明 handler 沒執行）。
+import { chromium, type Page } from 'playwright'
+import { matchPopup, isNeverClick, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED } from '../server/uat-runner/popup-catalog.js'
+import { decidePopup, popupStepBlock } from '../server/machine-test/verdicts.js'
+import { attachPopupGuard, detachPopupGuard, uiAct, nativeClick, popupGuardOf } from '../server/machine-test/runner.js'
+
+let fail = 0, n = 0
+const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${got !== undefined ? `：${typeof got === 'string' ? got : JSON.stringify(got)}` : ''}`) }
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+// ── 純函式 ──────────────────────────────────────────────
+const d = (text: string, phase: 'test' | 'exit' = 'test', selectors: string[] = []) => decidePopup(matchPopup({ text, selectors }), text, phase)
+ok(d('Tips Game is running and cannot be quit Confirm').kind === 'ack', 'cannot-quit → ack Confirm')
+ok(d('Do you want to reserve this machine? Reserve Now').kind === 'close', '預約面板（測試中）→ close X')
+ok(JSON.stringify(d('Do you want to reserve this machine?', 'exit')) .includes('exitToLobby'), '預約面板（退出時）→ Exit to Lobby')
+ok(d('Cash out credit 1,000? Confirm').kind === 'unknown', 'cashout-credit 測試中出現（誤觸）→ unknown，不按')
+ok(d('Cash out credit 1,000? Confirm', 'exit').kind === 'ack', 'cashout-credit 退出時 → ack')
+const od = d('Your account is logged in from another device')
+ok(od.kind === 'stop' && od.scope === 'account', 'other-device → stop（帳號）', od)
+ok(d('Machine connection timeout').kind === 'stop', 'conn-timeout → stop（AFT error）')
+ok(d('Error code: 1044').kind === 'stop', '進場錯誤碼 1044 → stop')
+ok(d('Balance 10440 credits').kind === 'unknown', '餘額裡剛好有 1044 → 不當成錯誤碼（unknown）')
+ok(d('Quit game, please wait').kind === 'wait', 'quit-wait → wait')
+ok(d('Some brand-new box').kind === 'unknown', '認不得的框 → unknown')
+ok(d('Game exception Machine connection timeout').kind === 'stop', '同時命中 stop 與 stop → stop')
+ok(d('', 'test', ['.select-main']).kind === 'close', '面額選單（selector）→ close')
+ok(isNeverClick({ text: 'Join', selectors: [] }, '') === null, 'Join 在大廳 → 不是禁點')
+ok(isNeverClick({ text: 'Join', selectors: [] }, '', { inMachine: true }) === 'join-in-game', 'Join 在機台裡 → 禁點')
+ok(isNeverClick({ text: 'Confirm', selectors: [] }, 'Recharge now') === 'recharge-confirm', '充值框的 Confirm → 禁點')
+ok(isNeverClick({ text: 'Confirm', selectors: [] }, 'Game is running and cannot be quit') === null, '一般框的 Confirm → 可點')
+const acc = popupStepBlock({ stop: { id: 'other-device', verdict: 'account in use', scope: 'account' }, unknown: null, unknownExpired: false, isExit: true })
+ok(!!acc?.accountHalt && acc.skip?.status === 'fail', '帳號類 stop → 換帳號，連退出都不做', acc)
+const mach = popupStepBlock({ stop: { id: 'conn-timeout', verdict: 'AFT error', scope: 'machine' }, unknown: null, unknownExpired: false, isExit: true })
+ok(!!mach?.verdictStep && !mach.skip && !mach.accountHalt, '本台 stop → 退出照走、本台判定', mach)
+ok(popupStepBlock({ stop: null, unknown: { text: 'x' }, unknownExpired: false, isExit: false })?.skip?.status === 'skip', 'unknown 未滿 30 秒 → 這步不做')
+ok(!!popupStepBlock({ stop: null, unknown: { text: 'x' }, unknownExpired: true, isExit: false })?.verdictStep?.includes('unknown popup'), 'unknown 滿 30 秒 → unknown popup 判定')
+
+// ── 真瀏覽器 ──────────────────────────────────────────────
+const CSS = `body{margin:0;width:428px;height:739px;font:14px sans-serif}
+.spin-btn{position:absolute;left:150px;top:600px;width:120px;height:60px}
+.box-content{position:fixed;left:24px;top:200px;width:380px;height:260px;background:#223;color:#fff;z-index:10}
+.mask-layer{position:fixed;inset:0;z-index:20}`
+const BOX = (text: string, btns: string) => `<div class="box-content"><div class="box-title">${text}</div>${btns}</div>`
+const SPIN = `<button class="spin-btn" onclick="(window.__ran=window.__ran||[]).push('spin')">SPIN</button>`
+// 用真的導頁（page.route），不用 setContent：setContent 走 document.open，會清掉 window 上的監聽器，跟正式環境不一樣
+let html = ''
+async function setup(page: Page, body: string) {
+  html = `<!doctype html><style>${CSS}</style><script>window.__ran=[]</script>${SPIN}${body}`
+  await page.goto(`http://probe.local/${Date.now()}`)
+}
+const ran = (page: Page) => page.evaluate(() => (window as any).__ran as string[])
+
+const browser = await chromium.launch({ headless: true })
+const ctx = await browser.newContext({ viewport: { width: 428, height: 739 }, hasTouch: true })
+if (!process.env.MUT_NO_LAYER2) await ctx.addInitScript(NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED)
+const page = await ctx.newPage()
+await page.route('http://probe.local/**', r => r.fulfill({ contentType: 'text/html', body: html }))
+const notes: string[] = []
+const emit = (m: string) => notes.push(m)
+try {
+  // 1. 已知可關的框（預約面板）：只按 X，不按 Reserve Now
+  await setup(page, BOX('Do you want to reserve this machine?', `<span class="box-btn_text2" onclick="__ran.push('reserve-now')">Reserve Now</span><span class="btn-close" onclick="__ran.push('x');this.parentNode.remove()">X</span>`))
+  let g = attachPopupGuard(page, emit, 'probe-1')
+  await g.scan({ act: true, why: '同步' })
+  ok(JSON.stringify(await ran(page)) === '["x"]', '預約面板 → 只按 X、沒按 Reserve Now', await ran(page))
+  ok(!g.blockReason(), '關掉之後不擋遊戲')
+  detachPopupGuard(page)
+
+  // 2. 未知框：不點任何鍵、留證、擋遊戲操作（handler 沒跑）
+  await setup(page, BOX('Brand new mystery box', `<span class="box-btn_text2" onclick="__ran.push('mystery-ok')">OK</span>`))
+  g = attachPopupGuard(page, emit, 'probe-2')
+  notes.length = 0
+  await g.scan({ act: true, why: '同步' })
+  ok((await ran(page)).length === 0, '未知框 → 一顆都沒按', await ran(page))
+  ok(!!g.unknown && /截圖/.test(notes.join('｜')), '未知框 → 有記錄＋截圖', notes.join('｜').slice(0, 120))
+  const spinEl = await page.$('.spin-btn')
+  const r2 = await uiAct(page, 'game', 'SPIN', spinEl, () => spinEl!.click({ timeout: 1000 }))
+  ok(r2 === 'blocked' && !(await ran(page)).includes('spin'), '未知框還在 → 按 SPIN 回 blocked、遊戲 handler 沒跑', r2)
+  const nc = await nativeClick(page, ['.spin-btn'])
+  ok(nc === 'blocked' && !(await ran(page)).includes('spin'), 'nativeClick 路徑 → blocked、沒有改用 force／座標再點', nc)
+  const rTouch = await uiAct(page, 'game', 'SPIN（觸控）', spinEl, () => page.touchscreen.tap(210, 630))
+  ok(rTouch === 'blocked' && !(await ran(page)).includes('spin'), '觸控路徑 → blocked、handler 沒跑', rTouch)
+  ok(g.unknownExpired(Date.now() + 31_000), '未知框 30 秒 → 結案門檻到')
+  await page.evaluate(() => document.querySelector('.box-content')!.remove())
+  await g.scan({ act: true, why: '同步' })
+  ok(!g.unknown && (await uiAct(page, 'game', 'SPIN', spinEl, () => spinEl!.click({ timeout: 1000 }))) === 'clicked' && (await ran(page)).includes('spin'), '框消失 → 解除、SPIN 真的按到')
+  detachPopupGuard(page)
+
+  // 3. 禁點名單：每一種點法都擋；第二層（頁面內攔截）繞過 uiAct 也擋
+  await setup(page, BOX('Jackpot! Machine 0001', `<span class="box-btn_text2" onclick="__ran.push('play-now')">Play Now</span><span class="view" onclick="__ran.push('view')">View</span>`))
+  g = attachPopupGuard(page, emit, 'probe-3')
+  const playNow = await page.$('text=Play Now')
+  const pb = await playNow!.boundingBox()
+  for (const [name, fn] of [
+    ['click', () => playNow!.click({ timeout: 1000 })],
+    ['force', () => playNow!.click({ force: true, timeout: 1000 })],
+    ['座標', () => page.mouse.click(pb!.x + pb!.width / 2, pb!.y + pb!.height / 2)],
+    ['觸控', () => page.touchscreen.tap(pb!.x + pb!.width / 2, pb!.y + pb!.height / 2)],
+    ['JS click', () => playNow!.evaluate((e: Element) => (e as HTMLElement).click())],
+  ] as Array<[string, () => Promise<unknown>]>) {
+    const r = await uiAct(page, 'popup', `Play Now（${name}）`, playNow, fn)
+    ok(r === 'blocked', `禁點 Play Now（${name}）→ blocked`, r)
+  }
+  ok(!(await ran(page)).includes('play-now'), '禁點 Play Now → handler 一次都沒跑', await ran(page))
+  // 繞過 uiAct 直接滑鼠點（模擬漏收斂的點擊路徑）：只剩頁面內那層
+  await page.mouse.click(pb!.x + pb!.width / 2, pb!.y + pb!.height / 2)
+  await page.touchscreen.tap(pb!.x + pb!.width / 2, pb!.y + pb!.height / 2)
+  const vb = await (await page.$('.view'))!.boundingBox()
+  await page.mouse.click(vb!.x + vb!.width / 2, vb!.y + vb!.height / 2)
+  ok((await ran(page)).length === 0, '繞過 uiAct 的滑鼠／觸控點 Play Now、View → 頁面內攔截擋下', await ran(page))
+  ok((await page.evaluate(() => (window as any).__mtBlockedClicks.length)) > 0, '頁面內攔截有記錄')
+  // 第二層回報給 runner：el 本身不是禁點，但 fn 點到的是禁點 → blocked
+  const rLayer2 = await uiAct(page, 'game', '座標點到別處', spinEl && await page.$('.spin-btn'), () => page.mouse.click(pb!.x + pb!.width / 2, pb!.y + pb!.height / 2))
+  ok(rLayer2 === 'blocked', '頁面內攔下的點擊 → uiAct 回 blocked（不算點到）', rLayer2)
+  detachPopupGuard(page)
+
+  // 4. Join：大廳（沒掛 guard）可按；機台裡（掛 guard）兩層都擋
+  await setup(page, `<button class="join" style="position:absolute;left:20px;top:20px;width:100px;height:40px" onclick="__ran.push('join')">Join</button>`)
+  let join = await page.$('.join')
+  ok((await uiAct(page, 'lobby', 'Join', join, () => join!.click({ timeout: 1000 }))) === 'clicked' && (await ran(page)).includes('join'), '大廳 Join → 按得到')
+  await setup(page, `<button class="join" style="position:absolute;left:20px;top:20px;width:100px;height:40px" onclick="__ran.push('join')">Join</button>`)
+  g = attachPopupGuard(page, emit, 'probe-4')
+  await sleep(100)   // __mtInMachine 是非同步設的
+  join = await page.$('.join')
+  ok((await uiAct(page, 'exit', 'Join', join, () => join!.click({ timeout: 1000 }))) === 'blocked', '機台裡 Join（runner 層）→ blocked')
+  await page.mouse.click(70, 40)
+  ok(!(await ran(page)).includes('join'), '機台裡 Join（繞過 runner，頁面內層）→ handler 沒跑', await ran(page))
+  detachPopupGuard(page)
+
+  // 5. 點擊逾時：錯誤訊息講出蓋住它的元素
+  await setup(page, `<div class="mask-layer"></div>`)
+  const sp = await page.$('.spin-btn')
+  let msg = ''
+  try { await uiAct(page, 'game', 'SPIN', sp, () => sp!.click({ timeout: 800 })) } catch (e) { msg = String(e) }
+  ok(/mask-layer/.test(msg) && /Timeout/i.test(msg), '逾時 → 訊息帶出蓋住的 .mask-layer、保留 TimeoutError', msg.slice(0, 140))
+
+  // 6. 背景監看：擷取期間暫停、恢復立刻補掃
+  await setup(page, '')
+  g = attachPopupGuard(page, emit, 'probe-6')
+  g.startWatch(30)
+  g.pause()
+  await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', `<div class="box-content"><div class="box-title">Do you want to reserve this machine?</div><span class="btn-close" onclick="__ran.push('x');this.parentNode.remove()">X</span></div>`) })
+  await sleep(200)
+  ok(!(await ran(page)).includes('x'), '暫停期間背景不點')
+  await g.resume()
+  ok((await ran(page)).includes('x'), '恢復 → 立刻補掃並關掉')
+
+  // 7. 競態：遊戲點擊進行中出現可關的框 → 背景要等這下點完才動（同一把鎖）
+  await setup(page, '')
+  const order: string[] = []
+  const sp7 = await page.$('.spin-btn')
+  await uiAct(page, 'game', 'SPIN（慢）', sp7, async () => {
+    await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', `<div class="box-content"><div class="box-title">Do you want to reserve this machine?</div><span class="btn-close" onclick="__ran.push('x');this.parentNode.remove()">X</span></div>`) })
+    await sleep(250)
+    order.push(`fn-end:${(await ran(page)).includes('x')}`)
+  })
+  await sleep(150)
+  ok(order[0] === 'fn-end:false' && (await ran(page)).includes('x'), '遊戲點擊的鎖裡背景不會插進來；點完才關框', order)
+  g.stopWatch()
+
+  // 8. 帳號在別處登入 → stop（帳號）、擋遊戲、不點
+  await setup(page, BOX('Your account is logged in from another device', `<span class="box-btn_text2" onclick="__ran.push('ok')">Confirm</span>`))
+  await g.scan({ act: true, why: '同步' })
+  ok(g.stop?.scope === 'account' && (await ran(page)).length === 0, '別處登入 → stop（換帳號）、Confirm 沒按', g.stop)
+  const sp8 = await page.$('.spin-btn')
+  ok((await uiAct(page, 'game', 'SPIN', sp8, () => sp8!.click({ timeout: 1000 }))) === 'blocked', '之後的 SPIN → blocked')
+  detachPopupGuard(page)
+  ok(!popupGuardOf(page), 'detach 後沒有 guard')
+
+  // 9. cashout-credit：測試中不按（unknown），退出時才按 Confirm
+  await setup(page, BOX('Cash out credit 1,000?', `<span class="box-btn_text2" onclick="__ran.push('cashout');this.parentNode.remove()">Confirm</span>`))
+  g = attachPopupGuard(page, emit, 'probe-9')
+  await g.scan({ act: true, why: '同步' })
+  ok(!(await ran(page)).includes('cashout') && !!g.unknown, '測試中 Cash out credit → 不按、當 unknown')
+  g.phase = 'exit'
+  await g.scan({ act: true, why: '同步' })
+  ok((await ran(page)).includes('cashout'), '退出時 Cash out credit → 按 Confirm')
+  detachPopupGuard(page)
+} finally {
+  await browser.close()
+}
+console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
+process.exit(fail ? 1 : 0)
