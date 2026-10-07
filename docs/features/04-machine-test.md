@@ -524,3 +524,33 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `npx tsx scripts/ideck-learn-capture-probe.ts`：runner 拍攝，真瀏覽器，5 條；突變「一律拍」會紅
   - `node scripts/ui-checks/ideck-indicator-learn.test.mjs`：分析＋batch，合成畫面，14 條；4 個突變（拿掉雜訊遮罩、選單開著也學、confirmed 照蓋、沒反應也學）都會紅
 - ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」
+### 0345 真 learn 之後改版（v5.33.0，2026-10-07）
+第一次真的跑（0345，session mt_1791363241812_vjo6k）不能用：產出 17 區、雜訊 64%，獎池數字和 WIN 動畫被學進來，₱5、352／880 Credits 學到 `changes: []`。拿那次的 30 張圖離線調整，原因有四個：
+- **雜訊遮罩用所有按鈕 post1↔post2 的聯集**，長到 64%，把底部列也遮掉
+- **CREDIT 底下有微弱光暈**，idle 兩張之間就差 18～27，整格遮掉後面額鍵學不到 CREDIT。換數字是「少數像素大變」，光暈是「多數像素小變」，格子平均分不出來
+- **先聯集再分群**：開局鍵的捲軸變化一路連到底部列，把面額標記吞成一整塊
+- **第一顆面額鍵的 pre 還停在上一局的 WIN**、開局鍵後面那顆的 pre 還在結算，這些「只有一顆動到」的區被當成指標
+
+改法（`learnIndicators`）：
+- **雜訊改記幅度**：每格「沒按鍵時最多變多少」。來源是 idle 兩兩之間，加上按鈕之間的空檔（上一顆 post2 → 下一顆 pre）。每顆自己的 post1↔post2 只影響這一顆。按鍵後的變化要超過 1.5 倍幅度才算
+- **格子的變化量**改成「明顯變了的像素（RGB 平均差 > 40）佔幾成」，門檻 16%
+- **分群**：每顆按鈕的變化各自分群，只做橫向膨脹把一行字連起來。不同按鈕的群，外框重疊一半以上、大小差不到 4 倍才合併
+- **同組一致性**：同一組（name 去掉尾數：Denom／Bet／BetMultiple）沒開局的按鈕，至少兩顆都動到的區才算。開局的按鈕照實記
+- **來回按**（osm-qa-agent／主使用者）：runner 在拍攝模式下，每組第一次出現「同組連著兩顆 A、B 都 ack、都沒開局」時，再按一次 A（`ideckBackPick`，在 `runIdeckSequence` 的 `back` hook）
+  - 這一區 A 跟 B 不一樣、按回 A 又變回 A 的樣子：`verified: true`
+  - B 有動、按回卻沒變回去：降級成雜訊，沒開局的按鈕都不再用這區
+  - A 開過局不拿來當回程鍵（例如按到已選中的 88Credits），按回會再開一局
+  - 按回那一下不進 outcomes、不影響判定，只記在 `ideckLearn`（idx `back-N`、`backOf`）
+- **只提少量候選**（主使用者：「只抓對的，判斷太多地方會亂掉」）：每顆最多 3 區。排序依序是：來回按驗過的、同組動到它的按鈕數、這顆變動格數。最後由人挑選確認，驗證端只看 confirmed 檔列出的區
+- **idle 拉長**：4 張、每張隔 3 秒（約 9 秒）
+- `ideckLearn` 升 v2：每下多記 `round`；舊 v1 從 `learn.actions` 補
+- **0345 離線結果**（沒有來回按的資料）：
+  - 面額鍵 → CREDIT＋面額標記＋一個獎池數字。MINOR／MINI 的金額真的會跟面額走（₱1 時 25,000.26、₱2 時 50,000、₱5 時 250,058），不是雜訊，要不要用由人決定
+  - 176～880 Credits → BET
+  - 88Credits（開局）→ 捲軸 3 塊
+  - 面額鍵也會動到 BET 上方的小字（下注金額），這是真的變化
+- 驗證：
+  - `ideck-indicator-learn.test.mjs`：23 條。新增的是來回按降級、verified、中間開局略過、開局照實記、maxPerButton、同組一致性。突變「不降級」「不看一致性」「開局不豁免」「不限數量」「按回算成按鈕」各紅 1 條
+  - `verdicts-probe.ts`：70 條，含來回按的順序
+  - `ideck-learn-capture-probe.ts`：7 條，真瀏覽器，含 back-1
+- ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」。重跑 0345 learn 會真下注，osm-qa-agent 要先問主使用者

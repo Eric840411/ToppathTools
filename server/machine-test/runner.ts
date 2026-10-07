@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -3384,6 +3384,7 @@ export async function stepIdeck(
     const learnTag = `${sessionPrefix}${machineCode}`
     const learnCap: { idle: Array<string | null>; buttons: Array<{ idx: string; label: string; text: string; name: string | null; pre: string | null; post1: string | null; post2: string | null }> } = { idle: [], buttons: [] }
     const btnTexts: Record<string, string> = {}
+    const backDone = new Set<string>()
     const shotDir = join(MACHINE_TEST_ROOT, 'ideck-saves')
     const shoot = async (tag: string) => {
       if (!machineCode) return null
@@ -3529,14 +3530,15 @@ export async function stepIdeck(
 
     page.on('console', onIdeckConsole)
     let restore: Outcome | null = null
+    const backOutcomes: Array<{ idx: string; o: Outcome }> = []
     let aborted = false
     try {
       const before = await shoot('ideck-0-before')
-      // 1007 learn 拍攝：第一顆按之前，不按任何鍵連拍 3 張（這台的動畫雜訊底）
+      // 1007 learn 拍攝：第一顆按之前，不按任何鍵連拍 4 張、每張隔 3 秒（約 9 秒；0345 實測 3 張 3 秒抓不到慢慢跳的獎池數字）
       if (ideckCaptureOn) {
-        for (let k = 1; k <= 3 && !shouldStop?.(); k++) {
+        for (let k = 1; k <= IDECK_LEARN_IDLE_SHOTS && !shouldStop?.(); k++) {
           learnCap.idle.push(await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-idle${k}.png`)))
-          if (k < 3) await sleepOrStop(1500, shouldStop ?? (() => false))
+          if (k < IDECK_LEARN_IDLE_SHOTS) await sleepOrStop(IDECK_LEARN_IDLE_GAP_MS, shouldStop ?? (() => false))
         }
         emit(`📚 iDeck 指標學習：已拍 idle ${learnCap.idle.filter(Boolean).length} 張`)
       }
@@ -3549,9 +3551,13 @@ export async function stepIdeck(
         press: (b, idx) => { if (idx === 'restore') emit(`還原倍數：再按一次 ${b.label}（BetMultiple1）`); return clickOne(b.label, b.xpath, b.frameIdx, idx) },
         settle, afterTimeout,
         shouldStop: () => shouldStop?.() ?? false,
+        // 1007 learn 來回按：只在拍攝模式做（多按的那一下不算進 outcomes、不影響判定）
+        ...(ideckCaptureOn ? { back: (os: Outcome[]) => ideckBackPick(os.map(o => ({ name: o.name, result: o.result, round: /有開局/.test(o.note) })), backDone) } : {}),
       })
+      if (seq.backs.length) emit(`📚 iDeck 指標學習：來回按 ${seq.backs.map(b => `${b.o.name ?? b.o.label}${b.o.result === 'ack' ? '' : '✗'}`).join('、')}`)
       outcomes.push(...seq.outcomes)
       restore = seq.restore
+      backOutcomes.push(...seq.backs.map(b => ({ idx: `back-${b.of + 1}`, o: b.o })))
       aborted = seq.aborted
       if (aborted) emit(`🛑 iDeck：開轉後 45 秒沒結束，中止後面的點擊（不補點、不還原）`)
     } finally {
@@ -3574,7 +3580,11 @@ export async function stepIdeck(
       learn: JSON.stringify({ v: LEARN_VER, source: (profile?.ideckXpaths ?? []).length > 0 ? 'profileXpaths' : (betRandomXpaths?.length ? 'betRandom' : 'auto'), buttons: buttons.map(b => ({ label: b.label, xpath: b.xpath, text: btnTexts[b.label] ?? '' })), serverAcked: acked, actions: outcomes.map(o => ({ label: o.label, name: o.name, actionid: o.actionid, isspin: o.isspin, result: o.result, round: /有開局/.test(o.note) })), boxAccepted: apiErr ? null : ideckEntries.length, boxCmds, apiErr }),
       ideckShots: JSON.stringify(shots),
       // 1007 learn 拍攝的路徑（只有 ideckCapture 時才有）；name 用 SEND 拿到的 action name 補上
-      ...(ideckCaptureOn ? { ideckLearn: JSON.stringify({ v: 1, idle: learnCap.idle, buttons: learnCap.buttons.map(b => ({ ...b, name: [...outcomes, ...(restore ? [restore] : [])].find(o => o.label === b.label)?.name ?? null })) }) } : {}),
+      //   round：這一下有沒有開局（最後的 note，含晚到的 begin）；backOf：來回按的「按回」那一下，指回它第一次按的 idx
+      ...(ideckCaptureOn ? { ideckLearn: JSON.stringify({ v: 2, idle: learnCap.idle, buttons: learnCap.buttons.map(b => {
+        const o = b.idx.startsWith('back-') ? backOutcomes.find(x => x.idx === b.idx)?.o : [...outcomes, ...(restore ? [restore] : [])].find(x => x.label === b.label)
+        return { ...b, name: o?.name ?? null, round: o ? /有開局/.test(o.note) : null, ...(b.idx.startsWith('back-') ? { backOf: b.idx.slice(5) } : {}) }
+      }) }) } : {}),
     } }
 
     const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length })
@@ -3693,6 +3703,7 @@ function machineLayout(machineCode: string): { screens?: number } | null {
  * 一般批次不拍（不拖慢）。agent 一次只跑一個 session，用模組層旗標即可
  */
 let ideckCaptureOn = false
+const IDECK_LEARN_IDLE_SHOTS = 4, IDECK_LEARN_IDLE_GAP_MS = 3000
 export function setIdeckCapture(on: boolean) { ideckCaptureOn = on }
 async function grabMainCrop(page: Page, machineCode: string, file: string): Promise<string | null> {
   try {

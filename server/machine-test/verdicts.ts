@@ -79,8 +79,11 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
   settle: (o: O, idx: string) => Promise<void>
   afterTimeout: (o: O, idx: string) => Promise<void>
   shouldStop: () => boolean
-}): Promise<{ outcomes: O[]; restore: O | null; aborted: boolean; stopped: boolean }> {
+  /** 1007 learn 來回按（只在 ideckCapture 時給）：每按完一顆問要不要「按回」前面某顆（回傳它在 outcomes 的位置）；idx 記成 back-<那顆的 idx> */
+  back?: (outcomes: O[]) => number | null
+}): Promise<{ outcomes: O[]; restore: O | null; aborted: boolean; stopped: boolean; backs: Array<{ of: number; o: O }> }> {
   const outcomes: O[] = []
+  const backs: Array<{ of: number; o: O }> = []
   const step = async (b: B, idx: string) => {
     const o = await p.press(b, idx)
     if (o.result === 'spinTimeout') { await p.afterTimeout(o, idx); return { o, timeout: true } }
@@ -88,16 +91,23 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
     return { o, timeout: false }
   }
   for (let i = 0; i < p.buttons.length; i++) {
-    if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true }
+    if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
     const { o, timeout } = await step(p.buttons[i], String(i + 1))
     outcomes.push(o)
-    if (timeout) return { outcomes, restore: null, aborted: true, stopped: false }
+    if (timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs }
+    const bi = p.back?.(outcomes) ?? null
+    if (bi !== null && bi >= 0 && bi < i) {
+      if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
+      const r = await step(p.buttons[bi], `back-${bi + 1}`)
+      backs.push({ of: bi, o: r.o })
+      if (r.timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs }
+    }
   }
   const x1 = outcomes.findIndex(o => o.name === 'BetMultiple1')
-  if (x1 < 0) return { outcomes, restore: null, aborted: false, stopped: false }
-  if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true }
+  if (x1 < 0) return { outcomes, restore: null, aborted: false, stopped: false, backs }
+  if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
   const { o: restore, timeout } = await step(p.buttons[x1], 'restore')
-  return { outcomes, restore, aborted: timeout, stopped: false }
+  return { outcomes, restore, aborted: timeout, stopped: false, backs }
 }
 
 // ── 觸屏畫面判定（2026-09-29，規則跟 CodeX 對過兩輪；BZZF：點 18,9 開賠率表、再點一次關）──────────────
@@ -631,4 +641,19 @@ export function popupStepBlock(s: {
   }
   if (s.unknown && !s.isExit) return { skip: { status: 'skip', message: `未執行：畫面有未知提示框（${s.unknown.text.slice(0, 60)}），不操作遊戲` } }
   return null
+}
+
+// ── 1007 learn 來回按（osm-qa-agent／主使用者：「按 A → 按 B → 再按回 A 會變回 A 的樣子」才是真指標，動畫和獎池不會）──
+// 每組（SEND 的 name 去掉尾數：Denom／Bet／BetMultiple）只做一次：同組連著兩顆 A、B 都按完、A 沒開局 → 按回 A。
+//   A 開過局（例如按到已選中的 88Credits）不拿來當回程鍵——按回去會再開一局；等同組下一對。
+//   B 開局也不做：開局會改 CREDIT 等區，按回 A 也回不去，比不出東西。
+export function ideckBackPick(outcomes: Array<{ name: string | null; result: IdeckResult; round?: boolean }>, done: Set<string>): number | null {
+  const n = outcomes.length
+  if (n < 2) return null
+  const a = outcomes[n - 2], b = outcomes[n - 1]
+  const g = (x: { name: string | null }) => (x.name ?? '').replace(/\d+$/, '')
+  if (!a.name || !b.name || g(a) !== g(b) || done.has(g(a))) return null
+  if (a.result !== 'ack' || b.result !== 'ack' || a.round || b.round) return null
+  done.add(g(a))
+  return n - 2
 }

@@ -1,5 +1,5 @@
 // verdicts.ts 探針（2026-09-29）：npx tsx scripts/verdicts-probe.ts
-import { ideckVerdict, streamRoles, runIdeckSequence, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
 
 const O = (name: string | null, result: IdeckResult = 'ack'): IdeckOutcome => ({ label: name ?? 'x', text: '', name, result, note: '' })
 const bzzf = () => [O('BetMultiple1'), O('BetMultiple2'), O('BetMultiple10'), O('Bet18'), O('Bet38')]
@@ -47,6 +47,32 @@ const f2 = await flow({})
 cases.push(['正常：全部點完再按回 BetMultiple1', f2.pressed, 'BetMultiple1,BetMultiple10,Bet18,Bet38,BetMultiple2,restore'])
 const f3 = await flow({ restore: 'spinTimeout' })
 cases.push(['還原逾時也標中止', `${f3.aborted}`, 'true'])
+
+// ── 1007 learn 來回按：A → B → 按回 A（每組一次；A 或 B 開局不做；只在 back 有給的時候）──
+async function bflow(names: string[], rounds: string[] = [], withBack = true) {
+  const pressed: string[] = []
+  const done = new Set<string>()
+  const r = await runIdeckSequence({
+    buttons: names,
+    press: async (b, idx) => { pressed.push(idx.startsWith('back-') ? `↩${b}` : idx === 'restore' ? 'restore' : b); return { name: b, result: 'ack' as IdeckResult, round: rounds.includes(b) && !idx.startsWith('back-') } },
+    settle: async () => {}, afterTimeout: async () => {}, shouldStop: () => false,
+    ...(withBack ? { back: (os: Array<{ name: string | null; result: IdeckResult; round: boolean }>) => ideckBackPick(os, done) } : {}),
+  })
+  return { pressed: pressed.join(','), backs: r.backs.map(b => b.of).join(','), outcomes: r.outcomes.length }
+}
+const b1 = await bflow(['Denom0', 'Denom1', 'Denom2', 'Bet0', 'Bet1', 'Bet2'])
+cases.push(['來回按：每組在第二顆後按回第一顆', b1.pressed, 'Denom0,Denom1,↩Denom0,Denom2,Bet0,Bet1,↩Bet0,Bet2'])
+cases.push(['來回按：按回那一下不進 outcomes（不影響判定）', String(b1.outcomes), '6'])
+const b2 = await bflow(['Denom0', 'Denom1', 'Bet0', 'Bet1', 'Bet2'], ['Bet0'])
+cases.push(['來回按：A 開過局（88Credits 已選中）→ 不拿它當回程鍵，等同組下一對', b2.pressed, 'Denom0,Denom1,↩Denom0,Bet0,Bet1,Bet2,↩Bet1'])
+const b3 = await bflow(['Bet0', 'Bet1', 'Bet2'], ['Bet1'])
+cases.push(['來回按：B 開局 → 這一對不做', b3.pressed, 'Bet0,Bet1,Bet2,↩Bet1'.replace(',↩Bet1', '')])
+const b4 = await bflow(['Denom0', 'Denom1', 'Denom2'], [], false)
+cases.push(['來回按：沒開拍攝（沒給 back）→ 一下都不多按', b4.pressed, 'Denom0,Denom1,Denom2'])
+const b5 = await bflow(['BetMultiple1', 'BetMultiple2', 'Bet18'])
+cases.push(['來回按：倍數鍵組按回 BetMultiple1，最後照樣還原', b5.pressed, 'BetMultiple1,BetMultiple2,↩BetMultiple1,Bet18,restore'])
+cases.push(['ideckBackPick：不同組不按回', String(ideckBackPick([{ name: 'Denom0', result: 'ack' }, { name: 'Bet0', result: 'ack' }], new Set())), 'null'])
+cases.push(['ideckBackPick：B 沒回應不按回', String(ideckBackPick([{ name: 'Denom0', result: 'ack' }, { name: 'Denom1', result: 'noAck' }], new Set())), 'null'])
 
 // ── 觸屏畫面判定 ──
 const T = (p: Partial<Parameters<typeof touchVisualVerdict>[0]>) => { const r = touchVisualVerdict({ noise: 0.02, opened: [0.01, 0.4, 0.45], openFrozen: false, closed: [0.3, 0.03, 0.02], closeFrozen: false, expect: '賠率表', ...p }); const m = r.message.match(/判定：(no response|flow fail)/); return r.status + (m ? '/' + m[1] : '') }

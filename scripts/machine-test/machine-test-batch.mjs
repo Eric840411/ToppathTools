@@ -889,7 +889,9 @@ export function persistIdeckIndicatorLearn(result, code, outDir) {
   let learn = {}
   try { learn = JSON.parse(ide?.extraData?.learn ?? '{}') } catch { /* 舊版 */ }
   const textOf = new Map((learn.buttons ?? []).map(b => [b.label, b.text]))
-  const buttons = (cap.buttons ?? []).map(b => ({ key: ideckButtonKey(b.text || textOf.get(b.label), b.name), name: b.name, pre: b.pre, post1: b.post1, post2: b.post2 }))
+  // v2（1007）：round＝這一下有開局；backOf＝來回按的「按回」那一下。v1 沒有 round → 從 learn.actions 補（同 label）
+  const roundOf = new Map((learn.actions ?? []).map(a => [a.label, a.round === true]))
+  const buttons = (cap.buttons ?? []).map(b => ({ idx: b.idx, key: ideckButtonKey(b.text || textOf.get(b.label), b.name), name: b.name, round: b.round ?? roundOf.get(b.label) ?? false, ...(b.backOf ? { backOf: b.backOf } : {}), pre: b.pre, post1: b.post1, post2: b.post2 }))
   const r = learnIndicators({ idle: cap.idle ?? [], buttons, menuOpen })
   const type = machineTypeOf(code)
   if (r.ok === false) return { type, ok: false, why: r.why }
@@ -908,8 +910,8 @@ export function persistIdeckIndicatorLearn(result, code, outDir) {
   }
   fs.writeFileSync(file, JSON.stringify({
     game: type, status: 'proposed', learnedAt: new Date().toISOString(), source: code,
-    note: '1007 learn 自動找的 iDeck 畫面指標。框線圖看 overlay。人確認反應區真的是指標（不是動畫、不是故障機台的畫面）後把 status 改成 confirmed 才會拿來驗證',
-    overlay: base ? overlayName : null, noiseFrac: r.noiseFrac, regions: r.regions, buttons: r.buttons,
+    note: '1007 learn 自動找的 iDeck 畫面指標（只提少量候選：每顆最多 3 區、來回按驗過的 verified:true 優先）。框線圖看 overlay。人挑選確認後把 status 改成 confirmed 才會拿來驗證；驗證只看 confirmed 檔列出的區',
+    overlay: base ? overlayName : null, noiseFrac: r.noiseFrac, regions: r.regions, roundTrip: r.roundTrip, buttons: r.buttons,
   }, null, 2))
   return { type, ok: true, file, regions: r.regions.length, noiseFrac: r.noiseFrac }
 }

@@ -1,6 +1,6 @@
 // learn 拍攝（1007 iDeck 指標學習）探針：npx tsx scripts/ideck-learn-capture-probe.ts
 // 真瀏覽器、假遊戲頁（一個 <video> 當 main 推流框＋兩顆 iDeck 鍵），跑**真的** stepIdeck：
-//   ideckCapture 開 → idle×3、每顆 pre／post1／post2 都有檔案、extraData.ideckLearn 有路徑且 name 補上
+//   ideckCapture 開 → idle×4、每顆 pre／post1／post2 都有檔案、Denom0→Denom1 之後按回 Denom0（來回按）、extraData.ideckLearn 有路徑且 name 補上
 //   ideckCapture 關 → 一張都不多拍、沒有 ideckLearn
 import fs from 'node:fs'
 import { chromium } from 'playwright'
@@ -27,9 +27,11 @@ try {
     const r = await stepIdeck(page, () => {}, code, undefined, undefined, undefined, () => false, undefined, 'probe-')
     const learn = r.extraData?.ideckLearn ? JSON.parse(r.extraData.ideckLearn) : null
     if (on) {
-      ok(!!learn && learn.idle.filter(Boolean).length === 3, 'capture 開：idle 拍 3 張', learn?.idle)
-      ok(learn?.buttons?.length === 2 && learn.buttons.every((b: { pre: string; post1: string; post2: string }) => b.pre && b.post1 && b.post2 && [b.pre, b.post1, b.post2].every(p => fs.existsSync(p))), 'capture 開：每顆 pre／post1／post2 都有檔案', learn?.buttons)
-      ok(JSON.stringify(learn?.buttons?.map((b: { name: string }) => b.name)) === '["Denom0","Denom1"]', 'capture 開：action name 補上', learn?.buttons?.map((b: { name: string }) => b.name))
+      ok(!!learn && learn.idle.filter(Boolean).length === 4, 'capture 開：idle 拍 4 張（約 9 秒）', learn?.idle)
+      ok(learn?.buttons?.length === 3 && learn.buttons.every((b: { pre: string; post1: string; post2: string }) => b.pre && b.post1 && b.post2 && [b.pre, b.post1, b.post2].every(p => fs.existsSync(p))), 'capture 開：每顆 pre／post1／post2 都有檔案', learn?.buttons)
+      ok(JSON.stringify(learn?.buttons?.map((b: { name: string }) => b.name)) === '["Denom0","Denom1","Denom0"]', 'capture 開：action name 補上（第三下是按回 Denom0）', learn?.buttons?.map((b: { name: string }) => b.name))
+      ok(learn?.buttons?.[2]?.idx === 'back-1' && learn.buttons[2].backOf === '1' && learn.buttons.every((b: { round: boolean | null }) => b.round === false), 'capture 開：來回按記成 back-1／backOf 1，每下都記 round', learn?.buttons)
+      ok(r.extraData?.learn ? JSON.parse(r.extraData.learn).actions.length === 2 : false, 'capture 開：按回那一下不算進 actions（不影響判定）', r.extraData?.learn)
       // 拍的是 main 推流框（237×422），不是整頁
       const { PNG } = await import('pngjs')
       const im = PNG.sync.read(fs.readFileSync(learn.buttons[0].pre))
