@@ -463,9 +463,9 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - batch 新增規則：Spin 訊息裡有「前端選面額等 N 秒選單仍開著」（閘門確認選單是開著的、又關不掉）→ Spin 改成**未驗**。原本只記 WARN 就過了；已經是 FAIL 的不動
 - 驗證：`node scripts/ui-checks/ideck-screen-check.test.mjs`，用合成 PNG 跑 16 條，涵蓋兩組分開判、只有 marker 變、缺圖、圖檔壞掉、開局 0 顆、既有 FAIL、Spin 卡選單
 - **CodeX 審 ee40495（v5.31.3 修）**：
-  - report 的統計和明細、larkLine 改用  之後的結果。原本結論寫 iDeck 未過，明細卻還寫 PASS，而且看不到像素差異是怎麼沒過的
-  - 按鈕識別統一成**按鈕字去掉空白**（）。ideck-timing.json 的 noRoundButtons 是照按鈕字寫的（BETx1、PLAY18Credits），runner 的 action name 卻是另一套（BetMultiple1、Bet18），直接拿 name 比永遠對不上，補了校準也不會恢復
-  -  也算進注額組
+  - report 的統計和明細、larkLine 改用 `applyGameRules` 之後的結果。原本結論寫 iDeck 未過，明細卻還寫 PASS，而且看不到像素差異是怎麼沒過的
+  - 按鈕識別統一成**按鈕字去掉空白**（`ideckButtonKey`）。ideck-timing.json 的 noRoundButtons 是照按鈕字寫的（BETx1、PLAY18Credits），runner 的 action name 卻是另一套（BetMultiple1、Bet18），直接拿 name 比永遠對不上，補了校準也不會恢復
+  - `BetMultipleN` 也算進注額組
   - 測試增加到 23 條；4 個突變（識別改回 name、BetMultiple 不算注額組、larkLine 用原始結果、兩組合併判）全部變紅。突變是在複製出來的檔案上跑，沒有動到 batch 正在使用的目錄
   - ⚠️ D（iDeck 時間學習，還沒 commit）的種子也是用按鈕字寫的，runner 卻拿 action name 去比，同樣對不上，D 動工前要先改
 - 第二期（還沒做，CodeX 同意方向）：runner 每一顆都拍按前、按後的穩定圖（要有收斂條件和逾時，逾時算未驗），初始圖也要帶進來，改成逐顆比對
