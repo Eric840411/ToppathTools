@@ -4,7 +4,7 @@
 import { chromium, type Page } from 'playwright'
 import { matchPopup, isNeverClick, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED } from '../server/uat-runner/popup-catalog.js'
 import { decidePopup, popupStepBlock } from '../server/machine-test/verdicts.js'
-import { attachPopupGuard, detachPopupGuard, uiAct, nativeClick, popupGuardOf } from '../server/machine-test/runner.js'
+import { attachPopupGuard, detachPopupGuard, uiAct, nativeClick, popupGuardOf, clearCctvOverlays } from '../server/machine-test/runner.js'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${got !== undefined ? `：${typeof got === 'string' ? got : JSON.stringify(got)}` : ''}`) }
@@ -279,6 +279,20 @@ try {
   await setup(page, BOX('Quit game, please wait...', `<button class="box-btn_text2" onclick="__ran.push('qw')">Confirm</button>`))
   const c15 = await page.$('text=Confirm')
   ok((await uiAct(page, 'exit', '退出 Confirm', c15, () => c15!.click({ timeout: 1000 }))) === 'blocked' && !(await ran(page)).includes('qw'), '[P2] wait 框的 Confirm → blocked、handler 沒跑')
+  detachPopupGuard(page)
+  // 16. CodeX 19d3b6b：CCTV 前清遮罩——未辨識的 bonus-popup、框外有關閉鍵 → 零操作（不點框外、不點本體、不送 Escape），回 blocked
+  await setup(page, `<div class="bonus-popup-layer" style="position:fixed;left:20px;top:100px;width:380px;height:400px;background:#a60;color:#fff" onclick="__ran.push('body')">BIG WIN 12,345</div>
+    <button class="close-btn" style="position:absolute;left:10px;top:10px;width:60px;height:30px" onclick="__ran.push('outside-close')">X</button>
+    <script>addEventListener('keydown', e => { if (e.key === 'Escape') __ran.push('esc') })</script>`)
+  g = attachPopupGuard(page, emit, 'probe-16')
+  const r16 = await clearCctvOverlays(page, emit)
+  ok(r16.blocked.length > 0 && (await ran(page)).length === 0, '未辨識的 bonus-popup＋框外關閉鍵 → 一下都沒點、沒送 Escape、回 blocked', { blocked: r16.blocked, ran: await ran(page) })
+  detachPopupGuard(page)
+  // 一般遮罩（div.bg，不是提示框）裡面有自己的關閉鍵 → 照關
+  await setup(page, `<div class="bg" style="position:fixed;left:20px;top:100px;width:380px;height:400px;background:#036"><button class="close-btn" style="width:60px;height:30px" onclick="__ran.push('inside-close');this.parentNode.remove()">X</button></div>`)
+  g = attachPopupGuard(page, emit, 'probe-16b')
+  const r16b = await clearCctvOverlays(page, emit)
+  ok(r16b.blocked.length === 0 && JSON.stringify(await ran(page)) === '["inside-close"]', '一般遮罩 → 按它自己的關閉鍵', await ran(page))
   detachPopupGuard(page)
 } finally {
   await browser.close()

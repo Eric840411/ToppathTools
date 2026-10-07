@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.2'
+export const APP_VERSION = '5.30.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.3', date: '2026-10-07', changes: ['fix(機台測試 CCTV)：CodeX 審 19d3b6b——CCTV 截圖前清遮罩：遮罩裡找不到關閉鍵時原本會搜整個 frame，可能按到別處的關閉鍵，拿掉；點遮罩被擋下（未辨識）時原本仍記「已 force-click」還送 Escape，改成立刻停手、CCTV 記「未驗：被未辨識的遮罩擋住」並留證，不拿被擋住的畫面比號碼'] },
   { version: '5.30.2', date: '2026-10-07', changes: ['fix(機台測試 提示框處理)：CodeX 複審 c3831fe——[P1] 讀不到按鈕所在的框時，原本只在已記到未知框才擋，新框還沒被掃到就會放行；改成退出／關框類點擊讀不到就一律不按。[P2] 只排除 unknown／stop，「Quit game, please wait」這類等待框的 Confirm 仍會按；改成只放行 ack／close'] },
   { version: '5.30.1', date: '2026-10-07', changes: ['fix(機台測試 提示框處理)：CodeX 審 56e3d1b——[P1] 遇到面額框會死鎖（背景掃描持鎖關面額、關面額又等同一把鎖，連退出都卡住）：操作鎖改成可重入，背景計時器不繼承鎖；[P1] 退出時整頁找 Confirm 可能按到未知框：退出／關框類點擊只能落在已辨識、這個階段可按的框裡，未知框與 stop 框都不按，畫面有未知框時框外的 Confirm 也不按；[P2] 未知框未滿 30 秒就退出、判定漏記：退出前持續重查到消失或滿 30 秒。另外：面額 YES 改走 uiAct、大廳關彈窗只限中獎廣播卡、CCTV 前的 Lucky hour bonus 改走 scan（Confirm 限框裡）'] },
   { version: '5.30.0', date: '2026-10-07', changes: ['feat(機台測試)：**提示框處理**——辨識目錄共用（uat-runner/popup-catalog.js），機台測試依測試中／退出分別處理：Confirm／X 只點命中那個框裡的鍵；帳號在別處登入 → 換帳號續跑；AFT error／game exception／進場錯誤碼 → 本台判定、只做退出；認不得的框不點、截圖、立刻擋遊戲操作，30 秒還在判 unknown popup。背景每 2 秒掃（擷取期間暫停），所有點擊收斂到 uiAct：被擋回 blocked、不改用 force／座標再點；Reserve Now／Play Now／JP View／機台裡的 Join／充值 Confirm 一律禁點，另加頁面內 capture 攔截當第二層；點擊逾時訊息帶出蓋住它的元素。規格 claude-osm-3、做法 CodeX 定案'] },

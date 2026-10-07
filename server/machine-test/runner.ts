@@ -4374,6 +4374,82 @@ async function stepTouchscreen(
   }
 }
 
+/**
+ * CCTV 截圖前清遮罩（從 stepCctv 抽出來給探針測）。只點**遮罩裡**的關閉鍵或遮罩本體，全部走 uiAct；
+ * 任何一下被擋 → 立刻停、回 blocked（呼叫端記 CCTV 未驗、留證），不送 Escape、不換別種方式
+ */
+export async function clearCctvOverlays(page: Page, emit: (msg: string) => void): Promise<{ blocked: string[] }> {
+  // Dismiss any animation overlays / floating popups that may cover the CCTV view.
+  // Uses narrow selectors to avoid accidentally clicking game UI (no generic popup/dialog).
+  // Strategy: 1) try close/OK buttons inside overlay first, 2) fall back to body click, 3) retry up to 3 rounds.
+  {
+    // Only known full-screen overlay types — avoid broad class*="popup"/"dialog" which can match CCTV panel
+    const OVERLAY_SELS = ['div.bg', '[class*="win-frame"]', '[class*="bonus-popup"]', '[class*="float-layer"]']
+    const CLOSE_BTN_SELS = ['[class*="btn_close"]', '[class*="close-btn"]', '.btn_ok', 'button[class*="close"]', 'button[class*="ok"]', '.btn_take']
+
+    type OverlayEntry = { frame: import('playwright').Frame; el: import('playwright').ElementHandle; sel: string }
+    const findOverlays = async (): Promise<OverlayEntry[]> => {
+      const found: OverlayEntry[] = []
+      for (const frame of page.frames()) {
+        try {
+          for (const sel of OVERLAY_SELS) {
+            const els = await frame.$$(sel)
+            for (const el of els) {
+              if (!await el.isVisible()) continue
+              const box = await el.boundingBox()
+              if (box && box.width > 80 && box.height > 80) found.push({ frame, el, sel })
+            }
+          }
+        } catch { /* frame detached */ }
+      }
+      return found
+    }
+
+    // 1007（CodeX 19d3b6b）：任何一下被擋（遮罩沒辨識出來／禁點）→ 這個遮罩不再換別種方式（本體、Escape）硬關，
+    // 整個 CCTV 記「未驗：被遮擋」並留證，不拿被擋住的畫面去比號碼
+    const blockedOverlays: string[] = []
+    for (let round = 0; round < 3 && !blockedOverlays.length; round++) {
+      const overlays = await findOverlays()
+      if (overlays.length === 0) break
+      emit(`清除彈窗第 ${round + 1} 輪（${overlays.length} 個）...`)
+      for (const { el, sel } of overlays) {
+        let closed = false, blocked = false
+        // Prefer clicking close/OK button to avoid misfire on overlay body
+        // 只找**這個遮罩裡**的關閉鍵（CodeX：原本找不到會搜整個 frame，可能按到別處的關閉鍵）
+        for (const closeSel of CLOSE_BTN_SELS) {
+          try {
+            const btn = await el.$(closeSel)
+            if (btn && await btn.isVisible()) {
+              if ((await uiAct(page, 'popup', `CCTV 前關彈窗 ${closeSel}`, btn, () => btn.click({ timeout: 500 }))) === 'blocked') { blocked = true; break }
+              emit(`已點擊關閉按鈕（${closeSel}）`)
+              closed = true
+              break
+            }
+          } catch { /* ignore */ }
+        }
+        if (!closed && !blocked) {
+          const r = await uiAct(page, 'popup', `CCTV 前點彈窗本體 ${sel}`, el, () => el.click({ force: true, timeout: 500 })).catch(() => 'none' as const)
+          if (r === 'blocked') blocked = true
+          else if (r === 'clicked') emit(`已 force-click 彈窗本體：${sel}`)
+        }
+        if (blocked) { blockedOverlays.push(sel); emit(`⛔ CCTV 前的遮罩 ${sel} 沒辨識出來／被擋下，不點、不改用其他方式關`) }
+      }
+      if (!blockedOverlays.length) await sleep(1000)
+    }
+    if (blockedOverlays.length) return { blocked: [...new Set(blockedOverlays)] }
+
+    await page.keyboard.press('Escape').catch(() => {})
+    const remaining = await findOverlays()
+    if (remaining.length > 0) {
+      emit(`⚠️ 仍有 ${remaining.length} 個 overlay 未清除，繼續截圖`)
+    } else {
+      emit(`彈窗清除完成，等待畫面穩定...`)
+      await sleep(500)
+    }
+    return { blocked: [] }
+  }
+}
+
 async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '', sessionPrefix = ''): Promise<StepResult> {
   // 失敗路徑的證據：整個畫面存成跟正常 CCTV 截圖同一個檔名（batch 的 evidence.cctv 會讀到並貼 H 欄）
   const saveCctvEvidence = async () => {
@@ -4444,65 +4520,11 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
       if (ds.some(d => d.id === 'lhb-transfer')) { emit(`已處理「Lucky hour bonus 已轉入機台」提示框`); await sleep(1200) }
     } catch { /* 關不掉就照原本流程走 */ }
 
-    // Dismiss any animation overlays / floating popups that may cover the CCTV view.
-    // Uses narrow selectors to avoid accidentally clicking game UI (no generic popup/dialog).
-    // Strategy: 1) try close/OK buttons inside overlay first, 2) fall back to body click, 3) retry up to 3 rounds.
     {
-      // Only known full-screen overlay types — avoid broad class*="popup"/"dialog" which can match CCTV panel
-      const OVERLAY_SELS = ['div.bg', '[class*="win-frame"]', '[class*="bonus-popup"]', '[class*="float-layer"]']
-      const CLOSE_BTN_SELS = ['[class*="btn_close"]', '[class*="close-btn"]', '.btn_ok', 'button[class*="close"]', 'button[class*="ok"]', '.btn_take']
-
-      type OverlayEntry = { frame: import('playwright').Frame; el: import('playwright').ElementHandle; sel: string }
-      const findOverlays = async (): Promise<OverlayEntry[]> => {
-        const found: OverlayEntry[] = []
-        for (const frame of page.frames()) {
-          try {
-            for (const sel of OVERLAY_SELS) {
-              const els = await frame.$$(sel)
-              for (const el of els) {
-                if (!await el.isVisible()) continue
-                const box = await el.boundingBox()
-                if (box && box.width > 80 && box.height > 80) found.push({ frame, el, sel })
-              }
-            }
-          } catch { /* frame detached */ }
-        }
-        return found
-      }
-
-      for (let round = 0; round < 3; round++) {
-        const overlays = await findOverlays()
-        if (overlays.length === 0) break
-        emit(`清除彈窗第 ${round + 1} 輪（${overlays.length} 個）...`)
-        for (const { frame, el, sel } of overlays) {
-          let closed = false
-          // Prefer clicking close/OK button to avoid misfire on overlay body
-          for (const closeSel of CLOSE_BTN_SELS) {
-            try {
-              const btn = await el.$(closeSel) ?? await frame.$(closeSel)
-              if (btn && await btn.isVisible()) {
-                if ((await uiAct(page, 'popup', `CCTV 前關彈窗 ${closeSel}`, btn, () => btn.click({ timeout: 500 }))) === 'blocked') continue
-                emit(`已點擊關閉按鈕（${closeSel}）`)
-                closed = true
-                break
-              }
-            } catch { /* ignore */ }
-          }
-          if (!closed) {
-            await uiAct(page, 'popup', `CCTV 前點彈窗本體 ${sel}`, el, () => el.click({ force: true, timeout: 500 })).catch(() => {})
-            emit(`已 force-click 彈窗本體：${sel}`)
-          }
-        }
-        await sleep(1000)
-      }
-
-      await page.keyboard.press('Escape').catch(() => {})
-      const remaining = await findOverlays()
-      if (remaining.length > 0) {
-        emit(`⚠️ 仍有 ${remaining.length} 個 overlay 未清除，繼續截圖`)
-      } else {
-        emit(`彈窗清除完成，等待畫面穩定...`)
-        await sleep(500)
+      const { blocked: blockedOverlays } = await clearCctvOverlays(page, emit)
+      if (blockedOverlays.length) {
+        const ev = await saveCctvEvidence()
+        return { step: 'CCTV 號碼比對', status: 'skip', message: `未驗：CCTV 畫面被未辨識的遮罩擋住（${blockedOverlays.join('、')}），沒有點${ev}`, durationMs: Date.now() - t0 }
       }
     }
 

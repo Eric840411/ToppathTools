@@ -385,3 +385,12 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 探針 66 條：換頁後的舊 handle、沒有元素、wait 框的 Confirm
 - 突變 2 條全紅：讀不到資訊時改回看 guard、wait 放行
 - 注意：CCTV 前關遮罩用的 `[class*="bonus-popup"]` 這類 class 含 popup 的框會被當成提示框。沒辨識出來的不再點（v5.30.1 起就是這樣），CCTV 可能因此被中獎動畫擋住，要真機觀察
+
+### CodeX 審 19d3b6b：GATE PASS（v5.30.2 的 P1／P2），CCTV 清遮罩收斂（v5.30.3）
+- CodeX 認為 CCTV 遇到**辨識不出的遮罩就不點**是對的，這輪可以接受「被遮擋、未驗證」。要提高完成率，之後再補明確的中獎遮罩辨識和專用的關閉動作，一樣要走同一把鎖和 guard
+- 清遮罩的部分抽成 `clearCctvOverlays`，方便探針測：
+  - 關閉鍵只在**這個遮罩裡**找。原本找不到就搜整個 frame，可能按到別處的關閉鍵
+  - 任何一下被擋（點遮罩本體也算）就立刻停：不記「已 force-click」、不送 Escape，回 blocked
+  - stepCctv 收到 blocked 就記 skip「未驗：CCTV 畫面被未辨識的遮罩擋住」，存一張證據截圖，不拿被擋住的畫面去比號碼
+- 探針 68 條：未辨識的 bonus-popup 加上框外的關閉鍵 → 零操作、沒有 Escape；一般遮罩（div.bg）→ 按它自己裡面的關閉鍵
+- 突變 2 條全紅：恢復搜整個 frame、本體被擋照樣往下
