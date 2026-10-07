@@ -264,6 +264,22 @@ try {
   await g.scan({ act: true, why: 'CCTV 前' })
   ok(JSON.stringify(await ran(page)) === '["lhb"]', 'Lucky hour bonus → 只按它的 Confirm、Cash out 不碰', await ran(page))
   detachPopupGuard(page)
+  // 15. CodeX c3831fe：讀不到框資訊 → 一律不按（guard 還沒記到任何框也一樣）
+  await setup(page, BOX('Tips Cash out credit: 1,000', `<button class="box-btn_text2">Confirm</button>`))
+  g = attachPopupGuard(page, emit, 'probe-15')
+  g.phase = 'exit'
+  const stale = await page.$('text=Confirm')
+  await setup(page, '')   // 換頁 → 舊的 handle 讀不到
+  let fnRan15 = false
+  const r15 = await uiAct(page, 'exit', '退出 Confirm（讀不到）', stale, async () => { fnRan15 = true })
+  ok(r15 === 'blocked' && !fnRan15 && !g.unknown && !g.stop, '[P1] 讀不到框資訊、guard 沒有未知框 → 仍然 blocked、fn 沒跑', r15)
+  let fnRan15b = false
+  ok((await uiAct(page, 'popup', '沒有元素', null, async () => { fnRan15b = true })) === 'blocked' && !fnRan15b, '沒有元素的關框點擊 → blocked')
+  // wait 框（Quit game, please wait）的 Confirm 也不按
+  await setup(page, BOX('Quit game, please wait...', `<button class="box-btn_text2" onclick="__ran.push('qw')">Confirm</button>`))
+  const c15 = await page.$('text=Confirm')
+  ok((await uiAct(page, 'exit', '退出 Confirm', c15, () => c15!.click({ timeout: 1000 }))) === 'blocked' && !(await ran(page)).includes('qw'), '[P2] wait 框的 Confirm → blocked、handler 沒跑')
+  detachPopupGuard(page)
 } finally {
   await browser.close()
 }

@@ -378,3 +378,10 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - ⚠️ **坑**：頁面內函式（`el.evaluate(fn)`）不要在 runner.ts 裡寫具名箭頭函式。tsx 會把它包成 `__name(...)`，頁面裡沒有 `__name`，evaluate 一丟錯就被 catch 吞掉，整個檢查靜默失效。這次就踩到了，所以 `ELEMENT_BOX_INFO_IN_PAGE` 改放在 popup-catalog.js
 - 探針增加到 63 條：死鎖、面額兩階段、未知框和 stop 框的 Confirm、框外 Confirm、退出前等未知框（消失／滿 30 秒／停止）、鎖裡啟動的計時器不插隊、Lucky hour bonus 只按自己的框
 - 突變 5 條全紅：鎖不可重入、退出不限框、計時器繼承鎖、退出前不等、框資訊改回 TS 內聯
+
+### CodeX 複審 c3831fe（v5.30.2 修）
+- [P1] 讀不到框資訊時，原本只有在 guard 已經記到 unknown／stop 才擋。新框可能還沒被掃到，所以 exit／popup 類點擊**讀不到就一律 blocked**，沒有元素也一樣
+- [P2] 原本只排除 unknown／stop，wait 框（Quit game, please wait）的 Confirm 仍會按。現在**只放行 ack／close**
+- 探針 66 條：換頁後的舊 handle、沒有元素、wait 框的 Confirm
+- 突變 2 條全紅：讀不到資訊時改回看 guard、wait 放行
+- 注意：CCTV 前關遮罩用的 `[class*="bonus-popup"]` 這類 class 含 popup 的框會被當成提示框。沒辨識出來的不再點（v5.30.1 起就是這樣），CCTV 可能因此被中獎動畫擋住，要真機觀察

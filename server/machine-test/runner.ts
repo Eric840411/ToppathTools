@@ -1161,13 +1161,15 @@ const CONFIRMISH = /^(confirm|ok|yes|確認|确定|確定|是)$/i
  * 認不得（unknown）或 stop 的框一律不按。按鈕不在任何框裡、但畫面上有未知框時，Confirm／OK 類也不按（可能就是未知框的鍵、只是框沒被認出來）
  */
 function unrecognizedBoxBlock(info: ElBoxInfo | null, phase: PopupPhase, g: PopupGuard | undefined): string | null {
-  // 讀不到元素資訊（evaluate 失敗）時不能當成「沒問題」：畫面上有未知／stop 框就不按（fail closed）
-  if (!info) return g?.unknown || g?.stop ? '讀不到按鈕所在的框，畫面上又有未處理的提示框' : null
+  // 讀不到元素資訊（evaluate 失敗、沒有元素）一律不按（CodeX c3831fe P1：fail closed，不看 guard 有沒有記到框——新框可能還沒被掃到）
+  if (!info) return '讀不到按鈕所在的框，不按'
   if (info.inBox) {
     const d = decidePopup(matchPopup({ text: info.boxText, selectors: info.boxSelectors }), info.boxText, phase)
+    // 只放行 ack／close（CodeX c3831fe P2：wait 框、例如 Quit game, please wait，也不能按）
+    if (d.kind === 'ack' || d.kind === 'close') return null
     if (d.kind === 'unknown') return `框沒辨識出來（${info.boxText.slice(0, 40)}）`
     if (d.kind === 'stop') return `框是「${d.id}」（${d.verdict}），只記錄不按`
-    return null
+    return `框是「${d.id}」（${d.kind}），不按`
   }
   if (g?.unknown && CONFIRMISH.test(info.text)) return `畫面有未知提示框，不按「${info.text}」`
   return null
