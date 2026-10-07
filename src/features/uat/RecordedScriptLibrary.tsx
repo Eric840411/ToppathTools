@@ -1,22 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { RecordedScript } from './MultiTcRecorder'
-import { sortScriptsByNumber } from './script-sort'
+import { buildScriptRows, lastRunText, type LastRun } from './script-sort'
 
 /** 列表 API 多回的欄位：running（誰都看得到）、lock（只有管理員拿得到，人工解除要用）、建立者、上次執行摘要 */
-type LastRun = { at: number; pass: number; fail: number; blocked: number; total: number; dryRun: boolean; stopped: boolean }
 type ScriptRow = RecordedScript & { running?: boolean; lock?: { holder: string; sessionId: string; since: number }; createdBy?: string; lastRun?: LastRun | null }
 type Mine = { ids: string[]; revision: number }
 const TAB_KEY = 'uat-backend-script-tab'
-
-/** 上次執行的一句話（1007 使用者：跟 H5／PC 一樣顯示上次結果） */
-function lastRunText(r: LastRun | null | undefined): { text: string; cls: string } {
-  if (!r) return { text: '尚未執行', cls: '' }
-  const when = new Date(r.at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-  if (r.stopped) return { text: `上次已停止 ${when}`, cls: 'is-warn' }
-  if (r.fail) return { text: `上次失敗 ${r.fail}/${r.total} ${when}`, cls: 'is-bad' }
-  if (r.blocked) return { text: `上次受阻 ${r.blocked}/${r.total} ${when}`, cls: 'is-warn' }
-  return { text: `上次${r.dryRun ? '試跑' : ''}通過 ${r.pass}/${r.total} ${when}`, cls: 'is-ok' }
-}
 
 /**
  * 後台錄製腳本清單。
@@ -48,6 +37,8 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
   const [busy, setBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
+  // 登入帳號（server 回傳）。⚠️ 標「別人的」要用它，不能從清單猜（CodeX a26744e [P2]）
+  const [me, setMe] = useState('')
 
   const chooseTab = (t: 'all' | 'mine') => { setTab(t); setActionMsg(''); try { localStorage.setItem(TAB_KEY, t) } catch { /* 存不了就算了 */ } }
   const send = async (url: string, method: string, body: unknown) => {
@@ -98,7 +89,12 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     try {
       const { status, d } = await send('/api/osm-uat/recorded-scripts/mine/order', 'PUT', { ids, expectedRevision: prev.revision })
       if (d.ok) setMine({ ids: d.ids, revision: d.revision })
-      else { setMine(status === 409 && Array.isArray(d.ids) ? { ids: d.ids, revision: d.revision } : prev); setActionMsg(d.message || '排序沒有存到') }
+      else {
+        setMine(prev); setActionMsg(d.message || '排序沒有存到')
+        // 409：別的分頁可能新建／加入了這頁還沒有的腳本——只換 mine 的話，下次拖曳會把那份濾掉、一直 mismatch。
+        // 整份清單（腳本＋mine）重新載入（CodeX a26744e [P2]）
+        if (status === 409) setRefresh(n => n + 1)
+      }
     } catch (e) { setMine(prev); setActionMsg(`排序沒有存到：${(e as Error).message}`) } finally { setBusy(false) }
   }
 
@@ -125,6 +121,7 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
         const next: ScriptRow[] = data.scripts || []
         setScripts(next); onScripts(next)
         if (data.mine) setMine(data.mine)
+        if (typeof data.me === 'string') setMe(data.me)
         // 重新整理後鎖已經不是確認時那一輪（換輪或已解除）→ 撤銷確認
         setUnlockAsk(ask => {
           if (!ask) return ask
@@ -142,9 +139,9 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
   const matches = (s: ScriptRow) => `${s.title} ${s.bindings.map(b => `${b.number} ${b.text}`).join(' ')}`.toLowerCase().includes(query.toLowerCase())
   const byId = new Map(scripts.map(s => [s.id, s]))
   const mineRows = mine.ids.flatMap(id => { const s = byId.get(id); return s ? [s] : [] })
-  const filtered = (tab === 'all' ? sortScriptsByNumber(scripts) : mineRows).filter(matches)
-  const inMine = new Set(mine.ids)
-  const myEmail = scripts.find(s => s.id && inMine.has(s.id) && s.createdBy)?.createdBy
+  const rows = buildScriptRows({ scripts, mineIds: mine.ids, me, tab, match: matches })
+  const filtered = rows.map(r => r.script)
+  const rowInfo = new Map(rows.map(r => [r.script.id, r]))
   // 拖曳只在「我的」、沒有搜尋時才開（搜尋時看到的不是整串，排出來的順序對不上）
   const canDrag = tab === 'mine' && !query && !busy && !disabled
   const checked = selectedIds.filter(id => filtered.some(s => s.id === id))
@@ -169,7 +166,8 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     {error && <p role="alert">{error}，請重新整理清單。</p>}
     <div className="uat-backend-tc-list uat-backend-all-tcs">{filtered.map(script => {
       const lr = lastRunText(script.lastRun)
-      const others = tab === 'mine' && !!myEmail && !!script.createdBy && script.createdBy !== myEmail
+      const info = rowInfo.get(script.id)
+      const others = !!info?.others
       return <div className={`uat-script-select-row${dragId === script.id ? ' is-dragging' : ''}`} key={script.id}
         draggable={canDrag}
         onDragStart={e => { if (!canDrag || !script.id) return; setDragId(script.id); e.dataTransfer.effectAllowed = 'move' }}
@@ -182,7 +180,7 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
           <span title={script.title}>{script.title}</span>
           <em className="has-steps">{script.createdBy ? `${script.createdBy.split('@')[0]} · ` : ''}{script.steps.filter(s => !s.disabled).length} 步 · 綁 {script.bindings.length} TC · <b className={`uat-last-run ${lr.cls}`}>{lr.text}</b>{script.running ? ' · 執行中' : ''}</em>
         </button>
-        {tab === 'all' && script.id && inMine.has(script.id) && <span className="uat-row-tag">已在我的</span>}
+        {tab === 'all' && info?.inMine && <span className="uat-row-tag">已在我的</span>}
         {others && <span className="uat-row-tag">別人的</span>}
         {script.lock && script.id && <div className="uat-script-lock">
           <small>執行鎖：{script.lock.holder}，{new Date(script.lock.since).toLocaleString('zh-TW', { hour12: false })} 開始</small>

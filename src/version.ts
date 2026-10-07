@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.0'
+export const APP_VERSION = '5.31.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.1', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：CodeX 審 a26744e 三個 P2——① 上次結果把未驗顯示成綠色「上次通過 0/1」：改成只有每一筆都 pass 才顯示通過，其他顯示未驗；② 拖曳排序遇到 409 只換「我的」、沒重取腳本，別的分頁新建的腳本會被濾掉、之後一直衝突：409 改成整份清單重新載入；③「別人的」用清單第一個建立者猜登入者，會把自己的標成別人的：改用 server 回傳的登入帳號'] },
   { version: '5.31.0', date: '2026-10-07', changes: ['feat(UAT 後台錄製腳本清單)：使用者經 claude-osm-2 提出——改成跟 H5／PC 一樣一列一份（名稱＋建立者 · 幾步 · 綁幾個 TC · 上次結果），頁籤「全部／我的」。全部：所有人的腳本照名稱開頭的編號排（T-007 → T-A-001… → 範本 → 純數字），下方「加入我的」「刪除」（建立者或管理員、可多筆、沒有二次確認、沒刪成的列出原因）。我的：個人清單，自己建立／新錄的自動加入、可加別人的、拖曳排序，下方「移除」只從清單拿掉。資料做法 CodeX 定案（獨立表、清單版本號、補種持久標記、只重排看得到的列），見 docs/decisions.md'] },
   { version: '5.30.10', date: '2026-10-07', changes: ['fix(機台測試／UAT 大廳關彈窗)：CodeX 審 2f7d69f [P2]——共用的 lobby-popup 禁點字樣漏了 PLAY GAME，一顆 class 剛好是 closeBtn、尺寸在 80px 內的 PLAY GAME 會被點（跳去別的遊戲）；補上 PLAY GAME。測試原本用 150px 的按鈕，尺寸就先擋掉了、證明不了文字護欄，改成 70×24 的 closeBtn 按鈕（PLAY GAME／PLAY NOW／Join）驗零點擊'] },
   { version: '5.30.9', date: '2026-10-07', changes: ['change(機台測試 報告)：主使用者 1007——report.html 的 iDeck 每顆按鈕不再放整張截圖，改成「機台底部 CREDIT／WIN／BET 列放大（紅框）＋下半畫面與 iDeck 按鈕（黃框）」，用來確認面額有沒有真的切到；裁切比例依機種放在 knowledge/games/<機種>/automation/ideck-crop.json（osm-qa-agent 量的，目前只有 SUPERBURSTLINK），沒有設定或裁切失敗的機種照舊放整張；之後只出 report.html'] },

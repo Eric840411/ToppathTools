@@ -249,23 +249,22 @@ export function registerRecordedScriptRoutes(router: Router) {
     // 2026-10-05 正式站有一份腳本被部署重啟打斷、鎖殘留三天，管理員拿不到 sessionId 就解不開（osm-qa-agent 回報）
     const isAdmin = account.role === 'admin'
     // 1007：最近一次執行的摘要（清單上顯示「上次通過／失敗」）
-    const lastRuns = new Map<string, { at: number; pass: number; fail: number; blocked: number; total: number; dryRun: boolean; stopped: boolean }>()
+    const lastRuns = new Map<string, { at: number; pass: number; fail: number; blocked: number; unverified: number; total: number; dryRun: boolean; stopped: boolean }>()
     for (const r of db.prepare(`SELECT script_id, payload, created_at FROM uat_recorded_script_runs r
       WHERE created_at = (SELECT MAX(created_at) FROM uat_recorded_script_runs WHERE script_id = r.script_id)`).all() as { script_id: string; payload: string; created_at: number }[]) {
       try {
         const p = JSON.parse(r.payload) as { results?: { outcome?: string; pass?: boolean }[]; dryRun?: boolean; stopped?: boolean }
         const res = p.results ?? []
-        lastRuns.set(r.script_id, {
-          at: r.created_at, total: res.length,
-          pass: res.filter(x => x.outcome === 'pass' || (x.outcome === undefined && x.pass)).length,
-          fail: res.filter(x => x.outcome === 'fail').length,
-          blocked: res.filter(x => x.outcome === 'blocked').length,
-          dryRun: !!p.dryRun, stopped: !!p.stopped,
-        })
+        const pass = res.filter(x => x.outcome === 'pass' || (x.outcome === undefined && x.pass === true)).length
+        const fail = res.filter(x => x.outcome === 'fail' || (x.outcome === undefined && x.pass === false)).length
+        const blocked = res.filter(x => x.outcome === 'blocked').length
+        // 其他（unverified、沒判出來的）一律算未驗——前端只有「每一筆都 pass」才顯示通過（CodeX a26744e [P2]）
+        lastRuns.set(r.script_id, { at: r.created_at, total: res.length, pass, fail, blocked, unverified: res.length - pass - fail - blocked, dryRun: !!p.dryRun, stopped: !!p.stopped })
       } catch { /* 壞掉的紀錄不顯示 */ }
     }
     res.json({
       ok: true,
+      me: account.email,
       mine: readMine(db, account.email),
       scripts: rows.map(r => {
         const id = (JSON.parse(r.document) as RecordedScript).id
