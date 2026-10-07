@@ -145,9 +145,20 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [recApiCalls, setRecApiCalls] = useState<{ method?: string; url: string; urlPattern?: string; status?: number | null }[]>([])
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState('')
-  const [runConfig, setRunConfig] = useState({
-    url: '', resolution: platform === 'h5' ? '500x877' : '1366x768', failureMode: 'continue', headed: false,
-  })
+  // 1007 使用者：目標網址記住上一次輸入的（不用每次重貼）。H5／PC 分開記（PC 要填 uat-pc 網址），存在這台瀏覽器（localStorage），
+  // 不跟著腳本走——同一個人換腳本通常還是測同一個站。讀寫都包 try/catch：無痕／被擋時就是不記，不影響執行
+  const urlKey = `uat-target-url-${platform}`
+  const savedUrl = () => { try { return localStorage.getItem(urlKey) ?? '' } catch { return '' } }
+  const [runConfig, setRunConfig] = useState(() => ({
+    url: savedUrl(), resolution: platform === 'h5' ? '500x877' : '1366x768', failureMode: 'continue', headed: false,
+  }))
+  // 切換 H5／PC 時換成那個平台記住的網址
+  useEffect(() => { setRunConfig(value => ({ ...value, url: savedUrl() })) }, [urlKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ⚠️ 只在使用者自己輸入（或錄製時填入）的當下存，不用 effect 追 runConfig.url——切平台那一刻 effect 會拿舊平台的網址存進新平台的 key
+  const setTargetUrl = (url: string) => {
+    setRunConfig(value => ({ ...value, url }))
+    try { if (url.trim()) localStorage.setItem(urlKey, url.trim()) } catch { /* 存不了就算了 */ }
+  }
 
   const loadScripts = useCallback(async (preferId?: string) => {
     const response = await fetch(`/api/frontend-auto/scripts?platform=${platform}`)
@@ -339,7 +350,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     }
     const target = runConfig.url || window.prompt('請輸入要錄製的目標 URL')?.trim() || ''
     if (!target) return
-    setRunConfig(value => ({ ...value, url: target }))
+    setTargetUrl(target)
     const response = await fetch('/api/frontend-auto/record/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       // theme 只決定錄製視窗裡那個浮動面板的配色與用詞，不影響錄到什麼
@@ -913,7 +924,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       <aside className="uat-backend-settings">
         <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '啟陣設定' : '執行設定'}</h3><small>{xianxia ? '套用至本次推演' : '套用至本次執行'}</small></div></div>
         <div className="uat-backend-settings-form">
-          <label id="uat-focus-url">{'目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
+          <label id="uat-focus-url">{'目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setTargetUrl(event.target.value)} placeholder="https://..." /></label>
           <label>{'解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select>
             <small>{'瀏覽器視窗大小。太小的話畫面外的東西點不到，PC 版尤其明顯。'}</small></label>
           <label>{'失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{'繼續執行'}</option><option value="stop">{'立即停止'}</option></select>
