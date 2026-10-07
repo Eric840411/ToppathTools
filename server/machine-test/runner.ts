@@ -19,6 +19,7 @@ import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMess
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
+import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
 import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
@@ -2123,6 +2124,33 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
             }
           }
 
+          // 1007 osm-qa-agent 回報（873-SUPERBURSTLINK-0345）：Preview 上蓋著「新遊戲廣告」（右上黃色 ✕＋底下 PLAY GAME），
+          // 上面那段只關中獎廣播卡，這張被跳過 → Join 找不到 → 誤判 Occupied。
+          // 改用跟 UAT 共用的大廳關彈窗規則（uat-runner/lobby-popup.js）：只點 class **完全等於** closeBtn／notification-close、
+          // 尺寸 ≤ 80px 的關閉鍵，字樣像 PLAY NOW／JOIN／START 的一律不碰；**PLAY GAME 不是關閉鍵、不會被點**（會跳去別的遊戲）。
+          // 判 Occupied 之前一定先做這一次。
+          if (!joinClicked) {
+            const lp = await dismissLobbyPopups(page, { rounds: 3, settleMs: 800 }).catch(() => ({ closed: [] as string[], skipped: [] as string[] }))
+            if (lp.closed.length) {
+              emit(`已關閉蓋住 Join 的廣告／彈窗 ${lp.closed.length} 個（${lp.closed.join('、')}），重新尋找 Join...`)
+              await sleep(1200)
+              joinClicked = await clickJoin()
+            } else if (lp.skipped.length) emit(`（看到不在白名單的關閉鍵，沒點：${lp.skipped.join('、').slice(0, 120)}）`)
+          }
+          // 1007 osm-qa-agent（主使用者 13:45）：帳號離開機台後有約 10 秒緩衝，這段時間 Preview 顯示 Occupied、之後才變回 Join
+          //（0345：試跑退出 13:36:59 → 13:37:02 整批進場就判 Occupied）。看到 Occupied 不馬上判：每 1.5 秒重掃 Join（含關廣告），
+          // Join 一出現就點；最多 20 秒（緩衝 10 秒），還是沒有才判 Occupied。**不加固定等待**
+          if (!joinClicked && await page.getByText('Occupied', { exact: true }).first().isVisible().catch(() => false)) {
+            emit(`Preview 顯示 Occupied（可能是剛離開機台的 10 秒緩衝）→ 每 1.5 秒重找 Join，最多 20 秒`)
+            const t0o = Date.now()
+            while (!joinClicked && Date.now() - t0o < 20000) {
+              await sleep(1500)
+              const lp2 = await dismissLobbyPopups(page, { rounds: 2, settleMs: 500 }).catch(() => ({ closed: [] as string[], skipped: [] as string[] }))
+              if (lp2.closed.length) emit(`已關閉蓋住 Join 的廣告／彈窗 ${lp2.closed.length} 個（${lp2.closed.join('、')}）`)
+              joinClicked = await clickJoin()
+            }
+            if (joinClicked) emit(`${((Date.now() - t0o) / 1000).toFixed(1)} 秒後 Join 出現了（剛才是離開緩衝，不是佔用）`)
+          }
           if (!joinClicked) emit(`⚠️ 仍找不到可見的 Join 按鈕（可能停在 Game Preview 面板，或此台不可加入）`)
           // 0929：Preview 顯示 Occupied＝機台被佔用／維修中（0249/0254/0262/0266~0269 實況），不是工具沒按到 → 直接判定、留證據
           if (!joinClicked) occupied = await detectOccupied(page, machineCode, emit)

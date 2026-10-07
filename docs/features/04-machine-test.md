@@ -400,3 +400,22 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - [P2] 留證之前仍會點東西：`saveCctvEvidence` 截圖前會先關 JACKPOT 廣播卡。截圖改抽成 `saveCctvEvidenceShot(…, asIs)`，被擋的路徑用 `asIs=true`，照當下畫面截、什麼都不點，保留被擋住那一刻的畫面
 - 探針 71 條：同一輪多個遮罩、被擋時留證零點擊、一般留證照舊會關 JP 卡（對照組）
 - 突變 2 條全紅
+
+## 進場：新遊戲廣告蓋住 Join、離開機台的 Occupied 緩衝（v5.30.8，2026-10-07 osm-qa-agent 回報）
+- **新遊戲廣告**（873-SUPERBURSTLINK-0345 實拍：Preview 中間是「Lightning Gongs – Brand New Game」，右上有黃色 ✕、底下有 PLAY GAME）會蓋住 Join。這張廣告不會自己關，要工具去點 ✕
+  - v5.30.1 之後，Join 前關彈窗只關中獎廣播卡，這張廣告就被跳過了
+  - 現在 Join 找不到時改用跟 UAT 共用的 `uat-runner/lobby-popup.js dismissLobbyPopups`
+    - 只點 class **完全等於** `closeBtn`／`notification-close`、尺寸不超過 80px 的關閉鍵
+    - 文字像 PLAY NOW／JOIN／START 的一律不點
+    - **PLAY GAME 不是關閉鍵，不會被點**，點了會跳去別的遊戲
+    - Preview 自己右上角的 `.btn-close` 也不點
+  - 判 Occupied 之前一定先關一次，並留下「已關閉蓋住 Join 的廣告／彈窗」的 log
+- **離開機台的緩衝**：帳號離開機台後約 10 秒內，Preview 會顯示 Occupied，之後才變回 Join（主使用者說明）。0345 就是試跑退出後 3 秒整批就進場
+  - runner 看到 Occupied 時**不馬上判定**（主使用者 13:45：不要加固定等待）：
+    - 每 1.5 秒關一次彈窗、重找一次 Join
+    - Join 一出現就點
+    - 最多 20 秒（緩衝約 10 秒），還是找不到才判 Occupied
+  - batch 不另外等
+- 驗證：
+  - `npx tsx scripts/ui-checks/lobby-ad-close.test.ts`（真瀏覽器，照截圖排的版面）：只點廣告的 ✕，PLAY GAME 和 Preview 的 btn-close 都沒被點；關掉之後 Join 按得到；進場字樣的按鈕就算 class 是 closeBtn 也不點
+  - Occupied 重掃 Join 沒有自動化測試，要真機看
