@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.7'
+export const APP_VERSION = '5.32.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.32.0', date: '2026-10-07', changes: ['feat(機台測試 learn)：**learn 自動找 iDeck 畫面指標**（主使用者要求、osm-qa-agent 規格）——batch --learn 時 runner 多拍 main 推流框：第一顆按之前不按任何鍵連拍 idle×3、每顆按之前 pre、按完 post1／post2；batch 用 idle 與 post1↔post2 做動畫雜訊遮罩，排除後剩下的變化分群成反應區，記下每顆按鈕會動哪幾區，寫成 knowledge 的 ideck-indicator.json（status: proposed）＋框線圖，人確認後才 confirmed。選單沒關掉、資料不足、一顆都沒反應的 learn 整份作廢；已 confirmed 的不蓋；按到已選中的那顆學成「不需變化」。一般批次不多拍。驗證端（拿指標判每顆有沒有反應）等真的 learn 資料出來再做'] },
   { version: '5.31.7', date: '2026-10-07', changes: ['feat(UAT H5／PC 執行設定)：使用者要求頁面資訊都記住、重整不用重填——除了目標網址，解析度、失敗處理、顯示瀏覽器視窗也記住；H5／PC 分開記、存這台瀏覽器；讀回來逐欄驗過（解析度不在這個平台的選項裡就用預設），v5.31.6 只記網址的舊資料也讀得到'] },
   { version: '5.31.6', date: '2026-10-07', changes: ['feat(UAT H5／PC 執行設定)：使用者要求——「目標網址」記住上一次輸入的，下次打開不用重貼。H5、PC 分開記（PC 要填 uat-pc 網址），存在這台瀏覽器；只在自己輸入或錄製填入時才存'] },
   { version: '5.31.5', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：使用者回報版面跟 mockup 不一樣——清單窄（約 370px）時腳本名稱被擠成 0、meta 那行變成綠色膠囊被截掉、出現橫向捲軸。改成 mockup 的兩行：名稱一行（粗體、過長省略），下面一行灰字 meta（可換行），只套在腳本清單'] },

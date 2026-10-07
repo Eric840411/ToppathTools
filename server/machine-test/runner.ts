@@ -14,7 +14,7 @@ import { EventEmitter } from 'events'
 import { AsyncLocalStorage } from 'async_hooks'
 import { spawn } from 'child_process'
 import { readFileSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs'
-import { join, basename } from 'path'
+import { join, basename, dirname } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle, type ConsoleMessage } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
@@ -3177,7 +3177,7 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
   }
 }
 
-async function stepIdeck(
+export async function stepIdeck(
   page: Page,
   emit: (msg: string) => void,
   machineCode: string,
@@ -3379,6 +3379,10 @@ async function stepIdeck(
 
     type Outcome = { label: string; text: string; name: string | null; seq: number | null; actionid: number | null; isspin: number | null; result: IdeckResult; shot: string | null; note: string }
     const outcomes: Outcome[] = []
+    // 1007 learn 拍攝（ideckCapture）
+    const learnDir = join(MACHINE_TEST_ROOT, 'ideck-learn')
+    const learnTag = `${sessionPrefix}${machineCode}`
+    const learnCap: { idle: Array<string | null>; buttons: Array<{ idx: string; label: string; text: string; name: string | null; pre: string | null; post1: string | null; post2: string | null }> } = { idle: [], buttons: [] }
     const btnTexts: Record<string, string> = {}
     const shotDir = join(MACHINE_TEST_ROOT, 'ideck-saves')
     const shoot = async (tag: string) => {
@@ -3402,6 +3406,8 @@ async function stepIdeck(
       try { o.text = ((await el.textContent()) ?? '').replace(/\s+/g, ' ').trim().slice(0, 40) } catch { /* 讀不到字就留空 */ }
       btnTexts[label] = o.text
 
+      // 1007 learn 拍攝：按之前的 pre
+      if (ideckCaptureOn) learnCap.buttons.push({ idx, label, text: o.text, name: null, pre: await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-pre.png`)), post1: null, post2: null })
       const tClick = Date.now()
       try {
         // evaluate click bypasses overlay/actionability checks
@@ -3483,6 +3489,15 @@ async function stepIdeck(
       }
       // 推流有延遲，等 2.5 秒再截畫面證據
       await sleepOrStop(2500, shouldStop ?? (() => false))
+      // 1007 learn 拍攝：按完穩定後 post1、隔 1.5 秒 post2（post1 對 post2 的差異＝動畫雜訊）
+      if (ideckCaptureOn && o.result !== 'noElement') {
+        const rec = learnCap.buttons.find(b => b.idx === idx)
+        if (rec) {
+          rec.post1 = await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-post1.png`))
+          await sleepOrStop(1500, shouldStop ?? (() => false))
+          rec.post2 = await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-post2.png`))
+        }
+      }
       await shotAndReport(o, idx)
     }
     // 開轉逾時的收尾：機台狀態不明，**不可再點任何東西**（CodeX 0929），只截圖留證據
@@ -3517,6 +3532,14 @@ async function stepIdeck(
     let aborted = false
     try {
       const before = await shoot('ideck-0-before')
+      // 1007 learn 拍攝：第一顆按之前，不按任何鍵連拍 3 張（這台的動畫雜訊底）
+      if (ideckCaptureOn) {
+        for (let k = 1; k <= 3 && !shouldStop?.(); k++) {
+          learnCap.idle.push(await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-idle${k}.png`)))
+          if (k < 3) await sleepOrStop(1500, shouldStop ?? (() => false))
+        }
+        emit(`📚 iDeck 指標學習：已拍 idle ${learnCap.idle.filter(Boolean).length} 張`)
+      }
       if (before) emit(`iDeck 點擊前畫面：${before}`)
       emit(`共 ${buttons.length} 個按鈕，逐一點擊（每顆驗 SEND/ON 配對）...`)
       // 順序與中止規則在 verdicts.ts runIdeckSequence（有流程探針）：開轉逾時 → 後面零點擊（含面額選單、還原）；
@@ -3550,6 +3573,8 @@ async function stepIdeck(
     const learnI = { extraData: {
       learn: JSON.stringify({ v: LEARN_VER, source: (profile?.ideckXpaths ?? []).length > 0 ? 'profileXpaths' : (betRandomXpaths?.length ? 'betRandom' : 'auto'), buttons: buttons.map(b => ({ label: b.label, xpath: b.xpath, text: btnTexts[b.label] ?? '' })), serverAcked: acked, actions: outcomes.map(o => ({ label: o.label, name: o.name, actionid: o.actionid, isspin: o.isspin, result: o.result, round: /有開局/.test(o.note) })), boxAccepted: apiErr ? null : ideckEntries.length, boxCmds, apiErr }),
       ideckShots: JSON.stringify(shots),
+      // 1007 learn 拍攝的路徑（只有 ideckCapture 時才有）；name 用 SEND 拿到的 action name 補上
+      ...(ideckCaptureOn ? { ideckLearn: JSON.stringify({ v: 1, idle: learnCap.idle, buttons: learnCap.buttons.map(b => ({ ...b, name: [...outcomes, ...(restore ? [restore] : [])].find(o => o.label === b.label)?.name ?? null })) }) } : {}),
     } }
 
     const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length })
@@ -3662,6 +3687,24 @@ function machineLayout(machineCode: string): { screens?: number } | null {
   } catch { return null }
 }
 /** main 推流的位置：角色判定跟 streamRoles 同一套（0243：只剩上方獎池時不能把它當 main）；找不到 main 回 null */
+/**
+ * 1007 learn 自動找 iDeck 畫面指標（規格 osm-qa-agent/reports/spec-mt-ideck-indicator-learn-1007.md）：
+ * session 帶 ideckCapture（batch --learn 自動帶）時，iDeck 多拍 main 推流框：第一顆按之前 idle×3、每顆按之前 pre、按完 post1／post2。
+ * 一般批次不拍（不拖慢）。agent 一次只跑一個 session，用模組層旗標即可
+ */
+let ideckCaptureOn = false
+export function setIdeckCapture(on: boolean) { ideckCaptureOn = on }
+async function grabMainCrop(page: Page, machineCode: string, file: string): Promise<string | null> {
+  try {
+    const box = await mainVideoBox(page, machineCode)
+    if (!box) return null
+    const buf = await page.screenshot({ type: 'png', clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height } })
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, buf)
+    return file
+  } catch { return null }
+}
+
 async function mainVideoBox(page: Page, machineCode = '') {
   const boxes: Array<{ x: number; y: number; width: number; height: number; playing: boolean; time: number }> = []
   for (const f of page.frames()) {
@@ -5808,6 +5851,7 @@ export class MachineTestRunner extends EventEmitter {
   }
 
   async run(session: MachineTestSession) {
+    setIdeckCapture(session.ideckCapture === true)
     this.debugGmid = session.debugGmid?.trim() || null
     this.sessionPrefix = session.sessionId ? `${session.sessionId}-` : ''
     DAILY_ANALYSIS_BASE = DAILY_ANALYSIS_URLS[session.osmEnv ?? 'qat'] ?? DAILY_ANALYSIS_URLS.qat

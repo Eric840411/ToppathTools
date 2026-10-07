@@ -24,6 +24,7 @@
 // 輸出：reports/machine-test-<sessionId>/{summary.json, report.html}，最後一行印 `SUMMARY <path>`
 
 import { evaluateIdeckScreens, loadIdeckCrop, evaluateWildRow, loadWildRow } from './ideck-screen-check.mjs'
+import { learnIndicators, drawRegions } from './ideck-indicator-learn.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -871,10 +872,51 @@ async function collect(codes, sessionId, onDone, { strict = false } = {}) {
   } finally { clearInterval(poller) }
   return { results, errors }
 }
+// 1007 learn 自動找 iDeck 畫面指標：--learn 時 session 帶 ideckCapture，runner 多拍 idle／pre／post
+let IDECK_CAPTURE = false
+/**
+ * learn 結果 → 分析反應區 → 寫 knowledge/games/<機種>/automation/ideck-indicator.json（status: proposed）＋框線圖。
+ * ⚠️ 已經 confirmed 的不蓋（另存 ideck-indicator.proposed-<台號>.json）；選單沒關掉、資料不足的 learn 整份作廢、不寫。
+ * 人確認後把 status 改成 confirmed 才會拿來驗證（規格 spec-mt-ideck-indicator-learn-1007）
+ */
+export function persistIdeckIndicatorLearn(result, code, outDir) {
+  const ide = result.steps?.find(s => s.step === 'iDeck 測試')
+  let cap = null
+  try { cap = JSON.parse(ide?.extraData?.ideckLearn ?? 'null') } catch { /* 沒有 */ }
+  if (!cap) return null
+  const spin = String(result.steps?.find(s => s.step === 'Spin 測試')?.message ?? '')
+  const menuOpen = /前端選面額等 \d+ 秒選單仍開著|機台停在選面額選單/.test(spin)
+  let learn = {}
+  try { learn = JSON.parse(ide?.extraData?.learn ?? '{}') } catch { /* 舊版 */ }
+  const textOf = new Map((learn.buttons ?? []).map(b => [b.label, b.text]))
+  const buttons = (cap.buttons ?? []).map(b => ({ key: ideckButtonKey(b.text || textOf.get(b.label), b.name), name: b.name, pre: b.pre, post1: b.post1, post2: b.post2 }))
+  const r = learnIndicators({ idle: cap.idle ?? [], buttons, menuOpen })
+  const type = machineTypeOf(code)
+  if (r.ok === false) return { type, ok: false, why: r.why }
+  const dir = gameDir(type)
+  fs.mkdirSync(dir, { recursive: true })
+  const target = path.join(dir, 'ideck-indicator.json')
+  let existing = null
+  try { existing = JSON.parse(fs.readFileSync(target, 'utf8')) } catch { /* 沒有 */ }
+  const file = existing?.status === 'confirmed' ? path.join(dir, `ideck-indicator.proposed-${code}.json`) : target
+  const overlayName = `ideck-indicator-${code}.png`
+  const base = (cap.idle ?? []).find(p => p && fs.existsSync(p))
+  if (base) {
+    const png = drawRegions(base, r.regions)
+    fs.writeFileSync(path.join(dir, overlayName), png)
+    if (outDir) fs.writeFileSync(path.join(outDir, overlayName), png)
+  }
+  fs.writeFileSync(file, JSON.stringify({
+    game: type, status: 'proposed', learnedAt: new Date().toISOString(), source: code,
+    note: '1007 learn 自動找的 iDeck 畫面指標。框線圖看 overlay。人確認反應區真的是指標（不是動畫、不是故障機台的畫面）後把 status 改成 confirmed 才會拿來驗證',
+    overlay: base ? overlayName : null, noiseFrac: r.noiseFrac, regions: r.regions, buttons: r.buttons,
+  }, null, 2))
+  return { type, ok: true, file, regions: r.regions.length, noiseFrac: r.noiseFrac }
+}
 async function startSession(lobbyUrl, codes, stepList, agentId) {
   const start = () => central('/api/machine-test/start', {
     method: 'POST', headers: { 'x-admin-pin': CFG.adminPin },
-    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId }),
+    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId, ...(IDECK_CAPTURE ? { ideckCapture: true } : {}) }),
   })
   let r = await start()
   // 1004、1005 各發生一次：中控在測試途中重啟（部署）→ session 沒了但鎖還在 → 之後每次都 429，要等 6 小時自癒。
@@ -1339,6 +1381,7 @@ async function main() {
   const stepsArg = arg('steps', 'all')
   // --learn：單台跑完整八項，學到的寫進機種 profile；不回寫 Lark（學習不是驗收）
   const LEARN = flag('learn')
+  IDECK_CAPTURE = LEARN
   const stepList = LEARN || stepsArg === 'all' ? ALL_STEPS : stepsArg.split(',').map(s => s.trim()).filter(s => ALL_STEPS.includes(s))
   const DRY = flag('dry-run'), NO_WB = LEARN || flag('no-writeback'), NO_TRIAL = flag('no-trial')
 
@@ -1487,6 +1530,13 @@ async function main() {
         const did = persistMenuLearn(type, ml, { code, sessionId })
         if (did.length) { log(`📚 機種 ${type} 自動學到：${did.join('、')}（來源 ${code}）→ 已寫進 knowledge/games/${type}/automation/machine-test.json`); for (const x of syncGameConfigs([type])) log(`  ${x}`) }
         ;(summary.learned ??= []).push({ code, type, did, learn: ml })
+      } }
+    // 1007 learn 自動找 iDeck 畫面指標（只有 --learn 才有拍攝資料）
+    { let il = null
+      try { il = persistIdeckIndicatorLearn(result, code, outDir) } catch (e) { il = { ok: false, why: `分析例外：${String(e).slice(0, 120)}` } }
+      if (il) {
+        log(il.ok ? `📚 iDeck 畫面指標（${il.type}）：找到 ${il.regions} 個反應區（雜訊佔 ${(il.noiseFrac * 100).toFixed(0)}%）→ ${il.file}（proposed，人確認後才啟用）` : `📚 iDeck 畫面指標這次作廢：${il.why}`)
+        ;(summary.learned ??= []).push({ code, ideckIndicator: il })
       } }
     // 1003 特殊遊戲卡住救援學到的推進方式 → 寫回機台配置（排在回寫之前，同一批後面的台就用得到——agent 每次開跑讀 profile）
     { const ex = result.steps?.find(s => s.step === '退出測試')

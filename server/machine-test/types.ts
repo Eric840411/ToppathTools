@@ -32,6 +32,8 @@ export interface MachineTestSession {
   aiAudio?: boolean
   /** Session ID — used as file prefix for cctv-saves / audio-saves */
   sessionId?: string
+  /** 1007 learn 自動找 iDeck 畫面指標：iDeck 多拍 idle／pre／post（batch --learn 自動帶） */
+  ideckCapture?: boolean
 }
 
 export type StepStatus = 'pass' | 'fail' | 'warn' | 'skip'

@@ -492,3 +492,35 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 驗證：`node scripts/ui-checks/ideck-wildrow.test.mjs`（合成圖 12 條：遊戲不符、讀不到名稱、大廳截圖、數不符、缺圖、BET 逐顆、舊資料、PLAY 未驗不被蓋掉）
 - ⚠️ runner 有改（讀遊戲名、記每顆有沒有開局），要部署 Spug，agent 也要「更新程式碼」，新規則才有資料可以判。舊結果沒有 gameName，ARUZE 的 PLAY 會是未驗
 - 第二期：BET 鍵比對扣款（moneyNtc 要綁定該顆的 begin，不能只比操作前後的淨餘額，否則派彩會把扣款抵掉）；PLAY 鍵在可以操作之後重按、畫面穩定再驗
+
+## learn 自動找 iDeck 畫面指標（v5.32.0，2026-10-07 主使用者要求、osm-qa-agent 規格 spec-mt-ideck-indicator-learn-1007）
+- **為什麼要做**：每一款的指標都不一樣。SUPERBURSTLINK 看底部列的面額標記，ARUZE 看捲軸上方的 WILD 排，這些都是人看圖才找出來的。現在改成讓 learn 自己觀察「按下去之後畫面哪裡變了」，存成機種的基準
+- **runner 拍攝**（`setIdeckCapture`／`grabMainCrop`）：只有 session 帶 `ideckCapture` 時才拍（batch `--learn` 會自動帶），一般批次不多拍。只裁 main 推流框，存到 `server/machine-test/ideck-learn/`：
+  - 第一顆按之前：不按任何鍵，連拍 idle×3，每張間隔 1.5 秒
+  - 每顆按之前：pre
+  - 按完照原本的 settle 之後：post1，再隔 1.5 秒：post2
+  - 路徑放在 `extraData.ideckLearn`，name 用 SEND 拿到的 action name
+- **batch 分析**（`scripts/machine-test/ideck-indicator-learn.mjs` 的 `learnIndicators`，整合在 `persistIdeckIndicatorLearn`）：
+  - 畫面切成 4px 的格子，格子平均 RGB 的平均絕對差 > 18 算「這格變了」
+  - **雜訊遮罩**：idle 兩兩之間會變的格子，加上每顆 post1 對 post2 會變的格子，再膨脹一圈，這些當成動畫排除
+  - **反應**：每顆 pre 對 post2 有變、而且不在遮罩裡的格子
+  - **反應區**：所有反應格的聯集，膨脹後分群成矩形，太小的（少於 6 格）不要
+  - 每顆按鈕 × 每區：變動比例 ≥ 15% 算「這顆會動這區」
+  - 按到「已經選中」的那顆本來就不會變（osm-qa-agent 提醒），所以學成 `changes: []`，驗證時不能據此判沒反應
+- **learn 作廢**（不寫檔，原因寫進 log 和 summary）：
+  - 選單閘門沒有確認選單關掉（Spin 訊息裡有「選單仍開著」或「機台停在選面額選單」）
+  - idle 少於 2 張
+  - 缺圖或圖片尺寸不一致
+  - 扣掉雜訊之後一顆都沒有反應：可能是機台壞了，故障機台不能學成規格
+- **輸出**：knowledge `games/<機種>/automation/ideck-indicator.json`（status: proposed）＋框線圖 `ideck-indicator-<台號>.png`（框畫在 idle 第一張上，報告資料夾也放一份）
+  - **已經 confirmed 的不蓋**，改存成 `ideck-indicator.proposed-<台號>.json`
+  - 人確認之後把 status 改成 confirmed，之後才會拿來驗證
+- **還沒做（第二期）**：
+  - 驗證端：一般批次也要拍 pre，才能逐顆比「該動的區有沒有動」
+  - 類別型的區塊（WILD／銅錢、P0.5～P5）另外比對參考裁圖，確認切到的是不是對的那一檔；數字型的（CREDIT、BET）只能看有沒有動
+  - 要等 0345、0333 真的跑過一次 learn（會真下注，osm-qa-agent 會先問主使用者），用真資料校準之後再做
+  - 用現有舊截圖做的原型分不出來：沒有 idle 和 pre，雜訊遮罩做不出來
+- 驗證：
+  - `npx tsx scripts/ideck-learn-capture-probe.ts`：runner 拍攝，真瀏覽器，5 條；突變「一律拍」會紅
+  - `node scripts/ui-checks/ideck-indicator-learn.test.mjs`：分析＋batch，合成畫面，14 條；4 個突變（拿掉雜訊遮罩、選單開著也學、confirmed 照蓋、沒反應也學）都會紅
+- ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」
