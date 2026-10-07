@@ -54,7 +54,8 @@ export function regionDiff(A, B, rect) {
 
 const GROUPS = [
   { key: 'denom', label: '面額', re: /^Denom\d+$/i, rects: ['credit', 'marker'] },
-  { key: 'bet', label: '注額', re: /^Bet\d+$/i, rects: ['bet'] },
+  // BetMultipleN（倍數鍵）也會改 BET 值，算注額組（CodeX ee40495 [P2]）
+  { key: 'bet', label: '注額', re: /^Bet(Multiple)?\d+$/i, rects: ['bet'] },
 ]
 const pct = x => `${(x * 100).toFixed(1)}%`
 

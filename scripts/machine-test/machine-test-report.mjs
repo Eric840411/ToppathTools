@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
-import { classify, STEP_ZH, ROOT } from './machine-test-batch.mjs'
+import { classify, STEP_ZH, ROOT, applyGameRules } from './machine-test-batch.mjs'
 import { loadIdeckCrop } from './ideck-screen-check.mjs'
 import { toEn } from './machine-test-report-i18n.mjs'
 
@@ -69,7 +69,10 @@ export function ideckFigure(code, t, cfg = ideckCropCfg(code)) {
 
 export async function buildReport(s) {
   const ms = s.machines
-  const stepMap = m => Object.fromEntries((m.result?.steps ?? []).filter(x => STEP_ZH[x.step]).map(x => [STEP_ZH[x.step], x]))
+  // 1007（CodeX ee40495 [P2]）：報告的統計與明細用**套用 batch 規則後**的結果（跟 judge／F 欄同一份），不然結論未過、明細還是 PASS
+  const ruled = new WeakMap()
+  const ruledOf = m => { if (!m.result) return null; if (!ruled.has(m)) ruled.set(m, applyGameRules(m.result)); return ruled.get(m) }
+  const stepMap = m => Object.fromEntries((ruledOf(m)?.steps ?? []).filter(x => STEP_ZH[x.step]).map(x => [STEP_ZH[x.step], x]))
   const cnt = { pass: 0, warn: 0, fail: 0, na: 0, check: 0 }
   for (const m of ms) for (const x of Object.values(stepMap(m))) cnt[classify(x)]++
   const game = (s.preflight?.notes ?? []).filter(n => /^機種/.test(n)).map(n => n.split('：')[0].replace('機種 ', '')).join('、') || '—'

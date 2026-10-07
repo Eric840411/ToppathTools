@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.2'
+export const APP_VERSION = '5.31.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.3', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：CodeX 審 ee40495 兩個 P2——① 報告與明細行還在讀原始結果（結論 iDeck 未過、明細寫 PASS、看不到像素失敗原因）：report 的統計／明細與 larkLine 改用套用規則後的結果；② confirmed 不開局清單用的是按鈕字（BETx1／PLAY18Credits），runner 的 action name 是 BetMultiple1／Bet18，永遠對不上：識別統一用「按鈕字去空白」；BetMultipleN 也算注額組'] },
   { version: '5.31.2', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：主使用者抓到——iDeck 只看 server 回應，機台畫面沒變也判 PASS（SUPERBURSTLINK 8 台）。batch 改成要有機台反應證據：已校準機種比面額鍵（CREDIT＋面額標記）與注額鍵（BET）的畫面差異，整組低於門檻判 ideck no response；缺圖未驗；開局 0 顆又沒有反應證據未驗（不能 PASS）。SUPERBURSTLINK 加選單閘門（0359 卡 SELECT DENOMINATION），確認卡在選單時 Spin 改未驗。osm-qa-agent 實測、CodeX 定案'] },
   { version: '5.31.1', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：CodeX 審 a26744e 三個 P2——① 上次結果把未驗顯示成綠色「上次通過 0/1」：改成只有每一筆都 pass 才顯示通過，其他顯示未驗；② 拖曳排序遇到 409 只換「我的」、沒重取腳本，別的分頁新建的腳本會被濾掉、之後一直衝突：409 改成整份清單重新載入；③「別人的」用清單第一個建立者猜登入者，會把自己的標成別人的：改用 server 回傳的登入帳號'] },
   { version: '5.31.0', date: '2026-10-07', changes: ['feat(UAT 後台錄製腳本清單)：使用者經 claude-osm-2 提出——改成跟 H5／PC 一樣一列一份（名稱＋建立者 · 幾步 · 綁幾個 TC · 上次結果），頁籤「全部／我的」。全部：所有人的腳本照名稱開頭的編號排（T-007 → T-A-001… → 範本 → 純數字），下方「加入我的」「刪除」（建立者或管理員、可多筆、沒有二次確認、沒刪成的列出原因）。我的：個人清單，自己建立／新錄的自動加入、可加別人的、拖曳排序，下方「移除」只從清單拿掉。資料做法 CodeX 定案（獨立表、清單版本號、補種持久標記、只重排看得到的列），見 docs/decisions.md'] },

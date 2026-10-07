@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { evaluateIdeckScreens, regionDiff } from '../machine-test/ideck-screen-check.mjs'
-import { applyGameRules } from '../machine-test/machine-test-batch.mjs'
+import { applyGameRules, ideckAllConfirmed, ideckButtonKey, larkLine } from '../machine-test/machine-test-batch.mjs'
 const require = createRequire(import.meta.url)
 const { PNG } = require('pngjs')
 
@@ -85,6 +85,24 @@ const spin = (status, msg) => applyGameRules({ machineCode: '873-ZZNOCFG-0001', 
 ok(spin('warn', 'Spin 沒開局｜選單狀態未知：前端選面額等 30 秒選單仍開著，此機種沒有設定關選單的觸屏點，不判觸屏').status === 'skip', '選單確實開著 → Spin 未驗（不是 WARN 通過）')
 ok(spin('warn', 'Spin 沒開局｜選單狀態未知：推流畫面判斷不了（停格或沒在播），照原流程').status === 'warn', '判斷不了的選單狀態未知 → 照舊')
 ok(spin('fail', 'spin no response｜選單狀態未知：前端選面額等 30 秒選單仍開著').status === 'fail', 'Spin 既有 FAIL 不會被未驗蓋掉')
+
+// CodeX ee40495 [P2]：confirmed 清單用按鈕字（去空白），runner 的 action name 是另一套——JJBXGRAND 真實資料的形狀
+const jj = { step: 'iDeck 測試', status: 'pass', message: 'iDeck 開局 0 顆', extraData: { learn: JSON.stringify({
+  buttons: [{ label: 'auto[1]', text: 'BETx1' }, { label: 'auto[2]', text: 'PLAY18 Credits' }],
+  actions: [{ label: 'auto[1]', name: 'BetMultiple1' }, { label: 'auto[2]', name: 'Bet18' }] }) } }
+ok(ideckButtonKey('PLAY18 Credits', 'Bet18') === 'PLAY18Credits' && ideckButtonKey('', 'Bet18') === 'Bet18', '按鈕識別鍵＝按鈕字去空白（沒字才用 name）')
+ok(ideckAllConfirmed(jj, new Set(['BETx1', 'PLAY18Credits'])) === true, 'JJBXGRAND：action name 是 BetMultiple1／Bet18，仍對得上 confirmed 清單（BETx1／PLAY18Credits）')
+ok(ideckAllConfirmed(jj, new Set(['BETx1'])) === false, '清單少一顆 → 不算全部 confirmed')
+ok(ideckAllConfirmed(jj, new Set(['BetMultiple1', 'Bet18'])) === false, '拿 action name 寫的清單 → 對不上（識別只認按鈕字）')
+// BetMultipleN 算注額組
+const mult = shotsOf({ Denom0: {}, Denom1: { credit: 0.3 }, BetMultiple1: {}, BetMultiple2: { bet: 0.01 } })
+r = evaluateIdeckScreens({ expected: ['Denom0', 'Denom1', 'BetMultiple1', 'BetMultiple2'], shots: mult, crop })
+ok(r.groups.find(g => g.key === 'bet')?.kind === 'no-response', 'BetMultipleN 算注額組（沒反應一樣抓得到）', r.groups)
+// 明細（larkLine）與報告要用套用規則後的結果
+const raw = { machineCode: '873-ZZNOCFG-0001', steps: [{ step: 'iDeck 測試', status: 'pass', message: 'server 回應 3/3｜iDeck 開局 0 顆', extraData: { learn: JSON.stringify({ actions: [{ name: 'A' }] }), ideckShots: '[]' } }] }
+ok(!/iDeck PASS/.test(larkLine(raw, { J: null, verdict: '' }, '10-07')), 'larkLine 明細不再寫 iDeck PASS（用套用規則後的結果）', larkLine(raw, { J: null, verdict: '' }, '10-07'))
+const reportSrc = fs.readFileSync(new URL('../machine-test/machine-test-report.mjs', import.meta.url), 'utf8')
+ok(/const stepMap = m => Object\.fromEntries\(\(ruledOf\(m\)/.test(reportSrc) && /applyGameRules\(m\.result\)/.test(reportSrc), '報告的統計與明細用套用規則後的結果')
 
 fs.rmSync(dir, { recursive: true, force: true })
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)

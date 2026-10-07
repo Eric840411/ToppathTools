@@ -395,6 +395,20 @@ export function ideckScreenVerdict(step, type) {
   ideckScreenCache.set(step, v)
   return v
 }
+/**
+ * 按鈕的識別鍵＝畫面上的按鈕字去掉空白（例「PLAY18 Credits」→ PLAY18Credits、「BETx1」）。
+ * ⚠️ ideck-timing.json 的 noRoundButtons 是用這個寫的；runner 的 action name（Bet18／BetMultiple1）是另一套，
+ *    直接拿 name 比永遠對不上（CodeX ee40495 [P2]）。沒有按鈕字的才退回 name
+ */
+export const ideckButtonKey = (text, name) => String(text ?? '').replace(/\s+/g, '') || String(name ?? '')
+export function ideckAllConfirmed(step, conf) {
+  if (!conf) return false
+  let learn = {}
+  try { learn = JSON.parse(step.extraData?.learn ?? '{}') } catch { return false }
+  const textOf = new Map((learn.buttons ?? []).map(b => [b.label, b.text]))
+  const keys = (learn.actions ?? []).map(a => ideckButtonKey(textOf.get(a.label), a.name))
+  return keys.length > 0 && keys.every(k => k && conf.has(k))
+}
 function applyIdeckEvidence(s, type) {
   if (s.step !== 'iDeck 測試' || (s.status !== 'pass' && s.status !== 'warn')) return s
   const m = String(s.message ?? '')
@@ -403,10 +417,7 @@ function applyIdeckEvidence(s, type) {
   if (screen.kind === 'unverified') return { ...s, status: 'skip', message: `${m}｜未驗：機台反應證據不足（${screen.why}）` }
   const rounds = Number(m.match(/iDeck 開局 (\d+) 顆/)?.[1] ?? NaN)
   if (rounds === 0) {
-    let names = []
-    try { names = (JSON.parse(s.extraData?.learn ?? '{}').actions ?? []).map(a => a.name) } catch { /* 舊版 agent */ }
-    const conf = ideckConfirmedNoRound(type)
-    const allConfirmed = !!conf && names.length > 0 && names.every(n => n && conf.has(n))
+    const allConfirmed = ideckAllConfirmed(s, ideckConfirmedNoRound(type))
     if (screen.kind === 'reacted' && allConfirmed) return s
     return { ...s, status: 'skip', message: `${m}｜未驗：iDeck 開局 0 顆，沒有機台反應的證據${allConfirmed ? '（按鈕都是已確認不開局，但這個機種畫面還沒校準）' : ''}` }
   }
@@ -576,7 +587,9 @@ export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
   return /只跑部分測項/.test(j?.verdict ?? '') ? 'partial test' : 'not verified'
 }
 
-export function larkLine(result, j, date) {
+export function larkLine(rawResult, j, date) {
+  // 1007（CodeX ee40495 [P2]）：明細也要用套用規則後的結果，不然結論 iDeck 未過、明細還寫 PASS
+  const result = applyGameRules(rawResult)
   const s = (result.steps ?? []).filter(x => STEP_ZH[x.step]).map(x => `${STEP_ZH[x.step]} ${classify(x).toUpperCase()}`).join(' / ')
   const detail = (result.steps ?? []).filter(x => STEP_ZH[x.step] && ['fail', 'check', 'warn'].includes(classify(x))).map(x => `${STEP_ZH[x.step]}: ${String(x.message).slice(0, 90)}`).join('; ')
   // 觸屏 PASS 也要寫出驗了哪幾個座標（FAIL/WARN 已在 detail 裡）
