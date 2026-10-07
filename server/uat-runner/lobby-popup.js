@@ -31,7 +31,8 @@
 export const LOBBY_CLOSE_ALLOW = ['closeBtn', 'notification-close']
 
 export const LOBBY_CLOSE_IN_PAGE = (allow) => {
-  const ENTERS = /play\s*now|join|start|enter|立即|進入|进入/i
+  // 1007 CodeX：漏了 PLAY GAME（新遊戲廣告的按鈕，點了會跳去別的遊戲）；play 開頭的一律算進場字樣
+  const ENTERS = /play\s*(now|game)|join|start|enter|立即|進入|进入/i
   const visible = (el) => {
     const r = el.getBoundingClientRect()
     const st = getComputedStyle(el)

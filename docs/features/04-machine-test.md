@@ -420,6 +420,11 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `npx tsx scripts/ui-checks/lobby-ad-close.test.ts`（真瀏覽器，照截圖排的版面）：只點廣告的 ✕，PLAY GAME 和 Preview 的 btn-close 都沒被點；關掉之後 Join 按得到；進場字樣的按鈕就算 class 是 closeBtn 也不點
   - Occupied 重掃 Join 沒有自動化測試，要真機看
 
+### CodeX 審 2f7d69f（v5.30.10 修）
+- [P2] 共用的 `lobby-popup.js` 禁點字樣漏了 **PLAY GAME**。真瀏覽器可以重現：一顆 70×24、class 剛好是 `closeBtn` 的 PLAY GAME 按鈕會被點下去。現在禁點正規式改成 `play\s*(now|game)`
+- 測試原本用 150px 寬的按鈕，還沒輪到文字護欄就先被尺寸上限擋掉了，所以證明不了文字護欄有效。改成 70×24、class=closeBtn 的按鈕，字樣分別是 PLAY GAME／PLAY NOW／Join，三個都驗零點擊。換回舊版會紅 1 條
+- CodeX 另外用模擬時鐘驗過 Occupied 重找 Join 的三種情況：馬上能加入、10 秒後釋放、持續被佔用
+
 ## 報告：iDeck 截圖改成裁切＋放大（v5.30.9，2026-10-07 主使用者經 osm-qa-agent）
 - report.html 的 iDeck 區塊，每顆按鈕不再放整張截圖，改成兩張裁切圖：
   - **紅框**：機台底部的 CREDIT／WIN／BET 列，放大 barScale 倍（預設 3，上限 6），放在上面

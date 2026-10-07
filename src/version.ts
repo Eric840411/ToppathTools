@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.9'
+export const APP_VERSION = '5.30.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.10', date: '2026-10-07', changes: ['fix(機台測試／UAT 大廳關彈窗)：CodeX 審 2f7d69f [P2]——共用的 lobby-popup 禁點字樣漏了 PLAY GAME，一顆 class 剛好是 closeBtn、尺寸在 80px 內的 PLAY GAME 會被點（跳去別的遊戲）；補上 PLAY GAME。測試原本用 150px 的按鈕，尺寸就先擋掉了、證明不了文字護欄，改成 70×24 的 closeBtn 按鈕（PLAY GAME／PLAY NOW／Join）驗零點擊'] },
   { version: '5.30.9', date: '2026-10-07', changes: ['change(機台測試 報告)：主使用者 1007——report.html 的 iDeck 每顆按鈕不再放整張截圖，改成「機台底部 CREDIT／WIN／BET 列放大（紅框）＋下半畫面與 iDeck 按鈕（黃框）」，用來確認面額有沒有真的切到；裁切比例依機種放在 knowledge/games/<機種>/automation/ideck-crop.json（osm-qa-agent 量的，目前只有 SUPERBURSTLINK），沒有設定或裁切失敗的機種照舊放整張；之後只出 report.html'] },
   { version: '5.30.8', date: '2026-10-07', changes: ['fix(機台測試 進場)：osm-qa-agent 回報 873-SUPERBURSTLINK-0345——① Game Preview 上的新遊戲廣告（右上 ✕＋PLAY GAME）蓋住 Join 時沒關：改用跟 UAT 共用的大廳關彈窗規則（只點 class 完全等於 closeBtn／notification-close 的 ✕，PLAY GAME／PLAY NOW／JOIN 一律不點），判 Occupied 之前一定先關一次並留 log；② 帳號離開機台後約 10 秒內 Preview 會顯示 Occupied：看到 Occupied 不馬上判，每 1.5 秒重找 Join（含關廣告）、一出現就點，最多 20 秒還是沒有才判 Occupied（不加固定等待）'] },
   { version: '5.30.7', date: '2026-10-07', changes: ['fix(UAT 後台 危險操作)：CodeX 審 c752535——[P1] 後台積木的危險操作護欄只看起始網址，起始 UAT、中途導到正式後台時放行 yes 仍會點下去；改成也看操作當下的 page.url()。[P2] 守衛測試的引擎層是假綠燈（假頁面沒有 url()、沒有 ctx.pc，H5 是 TypeError 停下、PC 沒走到護欄）：補齊假頁面，斷言錯誤是護欄自己的訊息，加「QAT 放行真的點得下去」對照組與「導到正式站後零點擊」（H5／PC／後台）'] },

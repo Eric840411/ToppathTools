@@ -36,11 +36,18 @@ try {
   ok(r.closed.length === 1 && /closeBtn/.test(r.closed[0]), '回報關掉的是 closeBtn', r)
   await page.click('.join-btn', { timeout: 2000 })
   ok((await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)).includes('join'), '廣告關掉之後 Join 按得到')
-  // PLAY GAME 按鈕就算 class 帶 close 字樣也不能點（字樣像進場的一律跳過）
-  await page.setContent(html.replace('class="play-game-btn"', 'class="closeBtn play-game-btn"').replace('>PLAY GAME<', '>PLAY NOW<'))
-  await dismissLobbyPopups(page, { rounds: 3, settleMs: 100 })
-  const ran2 = await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)
-  ok(!ran2.includes('play-game'), '進場字樣的按鈕即使 class 是 closeBtn 也不點', ran2)
+  // 進場字樣的按鈕就算 class 是 closeBtn、尺寸也在 80px 以內，也不能點（CodeX：原本測的是 150px 的按鈕，尺寸就先被擋掉了，證明不了文字護欄）
+  // 先把廣告的 ✕ 拿掉，只留這顆 70×24 的 closeBtn 進場鍵——它是畫面上唯一的白名單候選
+  for (const label of ['PLAY GAME', 'PLAY NOW', 'Join']) {
+    await page.setContent(html
+      .replace(/<img class="closeBtn"[^>]*>/, '')
+      .replace('class="play-game-btn" style="position:absolute;left:80px;bottom:-40px;width:150px;height:36px"', 'class="closeBtn" style="position:absolute;left:80px;bottom:-40px;width:70px;height:24px"')
+      .replace('>PLAY GAME<', `>${label}<`))
+    const box = await page.locator('.game-ad .closeBtn').boundingBox()
+    await dismissLobbyPopups(page, { rounds: 3, settleMs: 100 })
+    const ran2 = await page.evaluate(() => (window as unknown as { __ran: string[] }).__ran)
+    ok(!!box && box.width <= 80 && box.height <= 80 && !ran2.includes('play-game'), `「${label}」字樣、70×24、class=closeBtn → 零點擊`, { box, ran: ran2 })
+  }
 } finally {
   await browser.close()
 }
