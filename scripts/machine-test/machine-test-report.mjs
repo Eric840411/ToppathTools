@@ -2,7 +2,8 @@
 // 版型沿用 2026-09-24 DragonLaw 正式報告：結論 → 總表 → 待確認／未驗 → 各機台（遊戲畫面＋CCTV 截圖）→ 特殊事件 → 錯誤
 import fs from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { classify, STEP_ZH } from './machine-test-batch.mjs'
+import path from 'node:path'
+import { classify, STEP_ZH, ROOT } from './machine-test-batch.mjs'
 import { toEn } from './machine-test-report-i18n.mjs'
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -22,6 +23,51 @@ function thumb(file, maxw = 1000) {
   const py = `import sys,io,base64\nfrom PIL import Image\nim=Image.open(sys.argv[1]).convert('RGB')\nw=int(sys.argv[2])\nif im.width>w: im=im.resize((w,round(im.height*w/im.width)),Image.LANCZOS)\nb=io.BytesIO(); im.save(b,'JPEG',quality=78,optimize=True)\nsys.stdout.write(base64.b64encode(b.getvalue()).decode())`
   const r = spawnSync('python', ['-c', py, file, String(maxw)], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 })
   return r.status === 0 && r.stdout ? `data:image/jpeg;base64,${r.stdout}` : null
+}
+
+// 1007 主使用者：iDeck 每顆不放整張截圖，改成「機台底部 CREDIT／WIN／BET 列放大（紅框）＋下半畫面與 iDeck 按鈕（黃框）」，
+// 用來確認面額有沒有真的切到（CREDIT × 面額 ≈ 機台餘額）。裁切比例依機種放在 <MT_HOME>/knowledge/games/<機種>/automation/ideck-crop.json
+// （area／bar 是對整張 page 截圖的比例座標，barScale＝紅框放大倍數；osm-qa-agent 依實拍量的）。沒有設定的機種照舊放整張。
+const ideckCropCache = new Map()
+export function ideckCropCfg(code) {
+  const type = (String(code).split('-').find(p => /^[A-Z]+$/.test(p)) ?? '').toUpperCase()
+  if (!type) return null
+  if (!ideckCropCache.has(type)) {
+    let cfg = null
+    try {
+      const c = JSON.parse(fs.readFileSync(path.join(ROOT, 'knowledge', 'games', type, 'automation', 'ideck-crop.json'), 'utf8'))
+      const okRect = r => r && ['x', 'y', 'w', 'h'].every(k => typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) && r.w > 0 && r.h > 0 && r.x + r.w <= 1.0001 && r.y + r.h <= 1.0001
+      if (okRect(c.area) && okRect(c.bar)) cfg = { area: c.area, bar: c.bar, barScale: Math.min(6, Math.max(1, Number(c.barScale) || 3)) }
+    } catch { /* 沒有設定或格式壞掉 → 整張 */ }
+    ideckCropCache.set(type, cfg)
+  }
+  return ideckCropCache.get(type)
+}
+/** 依比例裁切（＋放大）成 JPEG data URI；失敗回 null（呼叫端退回整張） */
+function cropThumb(file, rect, scale = 1) {
+  if (!file || !fs.existsSync(file)) return null
+  const py = `import sys,io,base64,json
+from PIL import Image
+im=Image.open(sys.argv[1]).convert('RGB')
+r=json.loads(sys.argv[2]);s=float(sys.argv[3])
+W,H=im.size
+box=(round(r['x']*W),round(r['y']*H),round((r['x']+r['w'])*W),round((r['y']+r['h'])*H))
+c=im.crop(box)
+if s!=1: c=c.resize((round(c.width*s),round(c.height*s)),Image.LANCZOS)
+b=io.BytesIO(); c.save(b,'JPEG',quality=85,optimize=True)
+sys.stdout.write(base64.b64encode(b.getvalue()).decode())`
+  const r = spawnSync('python', ['-c', py, file, JSON.stringify(rect), String(scale)], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 })
+  return r.status === 0 && r.stdout ? `data:image/jpeg;base64,${r.stdout}` : null
+}
+/** 一顆 iDeck 按鈕的圖：有裁切設定＝紅框放大列＋黃框下半畫面；沒有或裁切失敗＝整張 */
+export function ideckFigure(code, t, cfg = ideckCropCfg(code)) {
+  const cap = `${t.text || t.label}${t.name ? `（${t.name}）` : ''}`
+  if (cfg) {
+    const bar = cropThumb(t.path, cfg.bar, cfg.barScale), area = cropThumb(t.path, cfg.area, 1)
+    if (bar && area) return `<figure class="ideck-crop"><img class="crop-bar" src="${bar}" alt="${esc(code)} iDeck ${esc(cap)} CREDIT/BET" loading="lazy"><img class="crop-area" src="${area}" alt="${esc(code)} iDeck ${esc(cap)}" loading="lazy"><figcaption>${B(cap)}</figcaption></figure>`
+  }
+  const im = thumb(t.path)
+  return `<figure>${im ? `<img src="${im}" alt="${esc(code)} iDeck ${esc(cap)}" loading="lazy">` : `<div class="noimg">${L('沒有截圖', 'No screenshot')}</div>`}<figcaption>${B(cap)}</figcaption></figure>`
 }
 
 export async function buildReport(s) {
@@ -71,7 +117,7 @@ export async function buildReport(s) {
     <figure>${cImg ? `<img src="${cImg}" alt="${esc(m.code)} CCTV" loading="lazy">` : `<div class="noimg">${L('沒有截圖', 'No screenshot')}</div>`}<figcaption>${L(`CCTV（辨識 ${esc(cctvId)}）`, `CCTV (read: ${esc(cctvId)})`)}</figcaption></figure>
   </div>
   ${(m.touchScreens ?? []).length ? `<p class="row">${L('觸屏畫面判定（開出來的是不是預期畫面：影子模式，待人工確認）', 'Touchscreen result screens (is the opened screen the expected one: shadow mode, needs manual check)')}</p><div class="shots">${m.touchScreens.map(t => { const im = thumb(t.path); const cap = { '0-base': L('點之前', 'Before tap'), '1-opened': L('點下去（應為預期畫面）', 'After tap (should be expected screen)'), '2-closed': L('再點一次（應關回來）', 'Tap again (should close)') }[t.tag] ?? esc(t.tag); return `<figure>${im ? `<img src="${im}" alt="${esc(m.code)} touchscreen ${esc(t.tag)}" loading="lazy">` : `<div class="noimg">${L('沒有截圖', 'No screenshot')}</div>`}<figcaption>${cap}</figcaption></figure>` }).join('')}</div>` : ''}
-  ${(m.ideckScreens ?? []).length ? `<p class="row">${L('iDeck 每顆點完的畫面（影子模式，看下螢幕 BET 值）', 'Screen after each iDeck button (shadow mode, check BET on bottom screen)')}</p><div class="shots">${m.ideckScreens.map(t => { const im = thumb(t.path); const cap = `${t.text || t.label}${t.name ? `（${t.name}）` : ''}`; return `<figure>${im ? `<img src="${im}" alt="${esc(m.code)} iDeck ${esc(cap)}" loading="lazy">` : `<div class="noimg">${L('沒有截圖', 'No screenshot')}</div>`}<figcaption>${B(cap)}</figcaption></figure>` }).join('')}</div>` : ''}
+  ${(m.ideckScreens ?? []).length ? `<p class="row">${ideckCropCfg(m.code) ? L('iDeck 每顆點完的畫面：紅框＝機台底部 CREDIT／WIN／BET 列放大、黃框＝下半畫面＋iDeck 按鈕（看 CREDIT × 面額 ≈ 機台餘額，確認面額有切到）', 'After each iDeck button: red = machine CREDIT/WIN/BET bar (zoomed), yellow = lower screen + iDeck buttons (check CREDIT × denomination ≈ balance)') : L('iDeck 每顆點完的畫面（影子模式，看下螢幕 BET 值）', 'Screen after each iDeck button (shadow mode, check BET on bottom screen)')}</p><div class="shots">${m.ideckScreens.map(t => ideckFigure(m.code, t)).join('')}</div>` : ''}
   <ul class="steps">${STEPS.map(n => `<li><span class="sn">${SN(n)}</span>${sm[n] ? chip(classify(sm[n])) : '<span class="chip na">—</span>'}</li>`).join('')}</ul>
   <dl><div><dt>${L('Spin 餘額變化', 'Spin balance Δ')}</dt><dd class="num">${esc(spin)}</dd></div><div><dt>${L('Spin 錄音', 'Spin audio')}</dt><dd class="num">${esc(audio)}</dd></div><div><dt>${L('觸屏點位', 'Touch points')}</dt><dd class="num">${esc(touch)}</dd></div><div><dt>${L('Lark 回寫', 'Lark write-back')}</dt><dd class="num">${esc(wb)}</dd></div></dl>
   ${special ? `<div class="special"><b>${L('特殊遊戲（FG／JP）', 'Feature games (FG/JP)')}</b><ul>${special}</ul></div>` : ''}
@@ -120,6 +166,8 @@ tbody th a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--
 .row{font-size:12px;color:var(--muted)} .verdict-line{font-weight:500;margin:0}
 .shots{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
 figure{margin:0} figure img{display:block;width:100%;height:auto;border:1px solid var(--rule);background:#000}
+figure.ideck-crop img.crop-bar{border:2px solid #d32f2f;border-radius:4px}
+figure.ideck-crop img.crop-area{border:2px solid #e0b000;border-radius:4px;margin-top:6px}
 .noimg{aspect-ratio:1;display:grid;place-items:center;border:1px dashed var(--rule);color:var(--muted);font-size:13px}
 figcaption{font-size:12px;color:var(--muted);margin-top:4px}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}

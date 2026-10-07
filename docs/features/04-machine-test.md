@@ -419,3 +419,15 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 驗證：
   - `npx tsx scripts/ui-checks/lobby-ad-close.test.ts`（真瀏覽器，照截圖排的版面）：只點廣告的 ✕，PLAY GAME 和 Preview 的 btn-close 都沒被點；關掉之後 Join 按得到；進場字樣的按鈕就算 class 是 closeBtn 也不點
   - Occupied 重掃 Join 沒有自動化測試，要真機看
+
+## 報告：iDeck 截圖改成裁切＋放大（v5.30.9，2026-10-07 主使用者經 osm-qa-agent）
+- report.html 的 iDeck 區塊，每顆按鈕不再放整張截圖，改成兩張裁切圖：
+  - **紅框**：機台底部的 CREDIT／WIN／BET 列，放大 barScale 倍（預設 3，上限 6），放在上面
+  - **黃框**：下半畫面加上 iDeck 按鈕
+  - 用途是確認面額有沒有真的切到：看 CREDIT × 面額 ≈ 機台餘額，以及右側的 P0.5／P1／P5 標記
+- 裁切比例依機種放在 `<MT_HOME>/knowledge/games/<機種>/automation/ideck-crop.json`：area、bar 是對整張 page 截圖的比例座標。目前只有 SUPERBURSTLINK 有，是 osm-qa-agent 依 0345 實拍量的
+- **沒有設定、格式壞掉、或裁切失敗的機種，照舊放整張**
+- 只出 report.html，不另外出 ideck-review.html（那是 osm-qa-agent 先做的獨立版）
+- 程式：`machine-test-report.mjs` 的 `ideckCropCfg`／`ideckFigure`（PIL 裁切）。資料根目錄沿用 batch 的 `ROOT`（MT_HOME），從 batch export，不另外寫一份
+- 驗證：用 0345 的真截圖渲染過，紅框看得到 CREDIT／WIN／BET 和 P5／P1／P2 標記；沒有設定的機種是整張
+- 截圖本身是 page 截圖（約 428 寬），放大只是把像素放大，不會變清楚

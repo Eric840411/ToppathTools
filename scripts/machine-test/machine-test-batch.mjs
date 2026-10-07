@@ -34,7 +34,7 @@ import { chromium } from 'playwright'
 // fileURLToPath：路徑有空白（Toppath tools）時 URL.pathname 會變成 %20
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 // 1005 搬進 Toppath Tools repo：程式在 scripts/machine-test/，資料（config／knowledge／reports／data）留在 osm-qa-agent、不進 git
-const ROOT = process.env.MT_HOME ?? path.resolve(SCRIPT_DIR, '..', '..', '..', 'osm-qa-agent')
+export const ROOT = process.env.MT_HOME ?? path.resolve(SCRIPT_DIR, '..', '..', '..', 'osm-qa-agent')
 // 密碼／金鑰不進 git：環境變數優先，否則讀 <MT_HOME>/config/machine-test-secrets.json
 const SECRETS = (() => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'machine-test-secrets.json'), 'utf8')) } catch { return {} } })()
 const secret = (env, key) => process.env[env] ?? SECRETS[key] ?? ''

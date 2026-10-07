@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.30.8'
+export const APP_VERSION = '5.30.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.30.9', date: '2026-10-07', changes: ['change(機台測試 報告)：主使用者 1007——report.html 的 iDeck 每顆按鈕不再放整張截圖，改成「機台底部 CREDIT／WIN／BET 列放大（紅框）＋下半畫面與 iDeck 按鈕（黃框）」，用來確認面額有沒有真的切到；裁切比例依機種放在 knowledge/games/<機種>/automation/ideck-crop.json（osm-qa-agent 量的，目前只有 SUPERBURSTLINK），沒有設定或裁切失敗的機種照舊放整張；之後只出 report.html'] },
   { version: '5.30.8', date: '2026-10-07', changes: ['fix(機台測試 進場)：osm-qa-agent 回報 873-SUPERBURSTLINK-0345——① Game Preview 上的新遊戲廣告（右上 ✕＋PLAY GAME）蓋住 Join 時沒關：改用跟 UAT 共用的大廳關彈窗規則（只點 class 完全等於 closeBtn／notification-close 的 ✕，PLAY GAME／PLAY NOW／JOIN 一律不點），判 Occupied 之前一定先關一次並留 log；② 帳號離開機台後約 10 秒內 Preview 會顯示 Occupied：看到 Occupied 不馬上判，每 1.5 秒重找 Join（含關廣告）、一出現就點，最多 20 秒還是沒有才判 Occupied（不加固定等待）'] },
   { version: '5.30.7', date: '2026-10-07', changes: ['fix(UAT 後台 危險操作)：CodeX 審 c752535——[P1] 後台積木的危險操作護欄只看起始網址，起始 UAT、中途導到正式後台時放行 yes 仍會點下去；改成也看操作當下的 page.url()。[P2] 守衛測試的引擎層是假綠燈（假頁面沒有 url()、沒有 ctx.pc，H5 是 TypeError 停下、PC 沒走到護欄）：補齊假頁面，斷言錯誤是護欄自己的訊息，加「QAT 放行真的點得下去」對照組與「導到正式站後零點擊」（H5／PC／後台）'] },
   { version: '5.30.6', date: '2026-10-07', changes: ['fix(UAT 執行安全)：CodeX 審 af25442——[P1] 危險操作守衛判斷正式環境原本對**整條網址**找 qat／uat／test 字樣，正式網址加 ?note=uat 就被放行；改成只看 hostname、只認已知測試環境（*.osmslot.org 帶 qat／uat／test／stg 且不帶 prod），其他一律當正式；而且操作當下的實際網址也要是測試環境（起始 QAT、中途導到正式站也擋）。[P2] 執行入口先清掉 baselineUrl／baselineName／baselineThreshold／snippetSteps／snippetTitle 這些只能由 server 產生的欄位，再從 DB 重建——前端改成保留所有欄位後，畫面路徑也能帶進假的基準圖網址或片段步驟'] },
