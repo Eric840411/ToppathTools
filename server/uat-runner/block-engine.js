@@ -1168,7 +1168,8 @@ export async function runSteps(steps, ctx, options = {}) {
          * ⚠️ 依副作用辨識（選擇器為主、文字只當弱訊號），規則跟 H5／PC 共用同一份。
          */
         try {
-          guardDangerousStep({ step, what: { selector: step.selector, text: step.name }, startUrl: ctx.backendUrl ?? '' });
+          // 1007 CodeX：操作當下的實際網址也要是測試環境（起始 UAT、中途導到正式後台也擋）
+          guardDangerousStep({ step, what: { selector: step.selector, text: step.name }, startUrl: ctx.backendUrl ?? '', currentUrl: ctx.page.url() });
         } catch (error) {
           if (fail(step, `${tag}：${error.message}`) === 'stop') break; continue;
         }

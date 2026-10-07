@@ -48,25 +48,53 @@ check('弱訊號不擋人', !throws(() => guardDangerousStep({ step: { action: '
 
 // ── ① 擋在動作之前 ─────────────────────────────────────────────────────────
 {
+  // 1007 CodeX（c752535 審查 P2）：原本的假頁面沒有 url()、也沒有 ctx.pc——H5 其實是 TypeError 停下、PC 根本沒走到護欄，
+  // 「被擋」是假綠燈。現在假頁面補齊，**斷言錯誤是護欄自己的訊息**，並加「放行後真的點得下去」當對照組。
   let clicks = 0;
+  let curUrl = QAT;
+  const fakeLocator = () => ({ count: async () => 1, first: () => ({ isVisible: async () => true, click: async () => { clicks++; } }), click: async () => { clicks++; }, nth: () => fakeLocator(), evaluate: async () => {}, elementHandle: async () => null, isVisible: async () => true, boundingBox: async () => ({ x: 0, y: 0, width: 10, height: 10 }), scrollIntoViewIfNeeded: async () => {} });
   const fakePage = {
-    locator: () => ({ count: async () => 1, first: () => ({ isVisible: async () => true }), click: async () => { clicks++; } }),
+    url: () => curUrl,
+    locator: fakeLocator,
     mouse: { click: async () => { clicks++; } },
     waitForTimeout: async () => {},
+    evaluate: async () => ({}),
+  };
+  const fakePc = {
+    sceneName: async () => 'lobby',
+    closePopups: async () => 0,
+    clickNode: async (_page, want) => { clicks++; return { ok: true, name: want, at: { x: 1, y: 1 } }; },
   };
   const run = (step) => runFrontendStep(step, {
-    idx: '', label: step.name, log: () => {}, page: fakePage, startUrl: QAT, state: {},
-    recordedLocator: async () => { clicks++; return fakePage.locator(); },
+    idx: '', label: step.name, log: () => {}, page: fakePage, startUrl: QAT, state: {}, pc: fakePc,
+    recordedLocator: async () => fakeLocator(),
   }).then(() => '', (e) => e.message);
+  const GUARD = /允許這個危險操作|任何放行都不接受/;
 
   const why = await run({ action: 'click', name: '按 Reserve Now', selector: '.reserve-btn-long' });
-  check('① 危險的 click 被擋下來', !!why, why);
+  check('① 危險的 click 被**護欄**擋下來', GUARD.test(why), why);
   check('① 而且**一次都沒點到**（擋在動作之前）', clicks === 0, `實際點了 ${clicks} 次`);
 
   clicks = 0;
   const why2 = await run({ action: 'pc_click_node', name: '帶入額度', value: 'play_btn1' });
-  check('① 危險的 pc_click_node 也擋', !!why2, why2);
+  check('① 危險的 pc_click_node 也被**護欄**擋', GUARD.test(why2), why2);
   check('① PC 這條也沒點到', clicks === 0, `實際點了 ${clicks} 次`);
+
+  // 對照組：QAT 上放行 → 真的點得下去（證明上面的「沒點到」是護欄造成的，不是假頁面不會點）
+  clicks = 0;
+  const ok1 = await run({ action: 'pc_click_node', name: '帶入額度', value: 'play_btn1', allowDangerous: true });
+  check('① 對照：QAT 放行之後 PC 真的點了', ok1 === '' && clicks === 1, `${ok1}｜點了 ${clicks} 次`);
+  clicks = 0;
+  const ok2 = await run({ action: 'click', name: '按 Reserve Now', selector: '.reserve-btn-long', allowDangerous: true });
+  check('① 對照：QAT 放行之後 H5 click 真的點了', ok2 === '' && clicks >= 1, `${ok2}｜點了 ${clicks} 次`);
+
+  // 起始 QAT、目前頁面已經是正式站 → 放行也擋、零點擊
+  curUrl = 'https://osm-h5.osmslot.com/game';
+  clicks = 0;
+  const why3 = await run({ action: 'pc_click_node', name: '帶入額度', value: 'play_btn1', allowDangerous: true });
+  check('① 導到正式站後：PC 放行也擋、零點擊', /任何放行都不接受/.test(why3) && clicks === 0, `${why3}｜點了 ${clicks} 次`);
+  const why4 = await run({ action: 'click', name: '按 Reserve Now', selector: '.reserve-btn-long', allowDangerous: true });
+  check('① 導到正式站後：H5 放行也擋、零點擊', /任何放行都不接受/.test(why4) && clicks === 0, `${why4}｜點了 ${clicks} 次`);
 }
 
 
@@ -84,8 +112,9 @@ check('弱訊號不擋人', !throws(() => guardDangerousStep({ step: { action: '
 
   // 積木層：擋下來的那一輪不可以真的點下去
   let clicked = 0;
+  let backendCur = UAT + '/#/machine';
   const ctx = {
-    page: { evaluate: async () => ({}), waitForTimeout: async () => {} },
+    page: { url: () => backendCur, evaluate: async () => ({}), waitForTimeout: async () => {} },
     clickSelector: async () => { clicked++; return 'selector' },
     backendUrl: UAT,
   };
@@ -93,6 +122,11 @@ check('弱訊號不擋人', !throws(() => guardDangerousStep({ step: { action: '
   check('後台積木：被擋時一次都沒點到（擋在動作之前）', clicked === 0 && r.criticalFails.length > 0, `點了 ${clicked} 次`);
   const r2 = await runSteps([{ action: 'click', name: '刪除', selector: '.el-button--danger', allowDangerous: 'yes' }], ctx, {});
   check('後台積木：放行之後點得下去', clicked === 1 && r2.criticalFails.length === 0, `點了 ${clicked} 次｜${r2.notes}`);
+  // 1007 CodeX（c752535 審查 P1）：起始 UAT、目前頁面已導到正式後台 → 放行 yes 也擋、零點擊
+  backendCur = 'https://cp.osmslot.com/#/machine';
+  clicked = 0;
+  const r3 = await runSteps([{ action: 'click', name: '刪除', selector: '.el-button--danger', allowDangerous: 'yes' }], ctx, {});
+  check('後台積木：導到正式站後放行也擋、零點擊', clicked === 0 && r3.criticalFails.length > 0 && /任何放行都不接受/.test(JSON.stringify(r3.criticalFails)), `點了 ${clicked} 次｜${JSON.stringify(r3.criticalFails).slice(0, 160)}`);
 }
 
 // 1007 CodeX（af25442 審查 P1）：正式／測試只看 hostname，未知一律當正式；操作當下的網址也要是測試環境
