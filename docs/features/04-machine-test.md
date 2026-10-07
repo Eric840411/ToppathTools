@@ -565,7 +565,7 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - **只能把 N/V、check 改成 pass**。自動判定是 FAIL 的不採用：有 `before` 就把狀態恢復成原本的，訊息加「人工複核未採用：…」。CodeX：FAIL 是誤判要另走有理由與證據的覆核流程，這個旗標不能直接放行
   - `manualReview.sessionId` 跟這次結果的 sessionId 不同就不採用：重新測試不能沿用舊的覆核
   - `skip → na` 的對應不變；沒有複核標記的步驟原封不動
-- ⚠️ uyxqr 的 0210「音頻檢測」是人工複核（使用者現場有聲音），但錄音全零，自動判定是 FAIL（靜音）。照 CodeX 的邊界，這個旗標不能把它改成通過，要等「FAIL 覆核流程」另外設計。目前它是舊格式，沒有 before，看不出原本是 FAIL，所以畫面上仍是 pass
+- ⚠️ uyxqr 的 0216「音頻檢測」是人工複核（使用者現場聽到有聲音；錄音連兩次數位全零、同時段其他台正常，判為錄音端問題），自動判定是 FAIL（靜音）。照 CodeX 的邊界，這個旗標不能把它改成通過，要等「FAIL 覆核流程」另外設計。目前它是舊格式，沒有 before，看不出原本是 FAIL，所以畫面上仍是 pass
 - 驗證：`node scripts/ui-checks/manual-review.test.mjs`，14 條，含真 summary uyxqr 的 6 個複核步驟（只讀）
 
 ### CodeX 補審 v5.31.4～v5.34.0 的修正
