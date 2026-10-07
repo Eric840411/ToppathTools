@@ -34,6 +34,10 @@ export interface MachineTestSession {
   sessionId?: string
   /** 1007 learn 自動找 iDeck 畫面指標：iDeck 多拍 idle／pre／post（batch --learn 自動帶） */
   ideckCapture?: boolean
+  /** 1007 iDeck 時間學習：機種 → 學習值（中控 start 時從 machine_test_ideck_timing 帶入；只有 confirmed 才套用） */
+  ideckTimings?: Record<string, import('./verdicts.js').IdeckTimingCfg>
+  /** 1007：這些機種不准用短等待（batch 撤銷寫入中控失敗時帶入） */
+  ideckNoFast?: string[]
 }
 
 export type StepStatus = 'pass' | 'fail' | 'warn' | 'skip'

@@ -419,7 +419,6 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 - 驗證：
   - `npx tsx scripts/ui-checks/lobby-ad-close.test.ts`（真瀏覽器，照截圖排的版面）：只點廣告的 ✕，PLAY GAME 和 Preview 的 btn-close 都沒被點；關掉之後 Join 按得到；進場字樣的按鈕就算 class 是 closeBtn 也不點
   - Occupied 重掃 Join 沒有自動化測試，要真機看
-
 ### CodeX 審 2f7d69f（v5.30.10 修）
 - [P2] 共用的 `lobby-popup.js` 禁點字樣漏了 **PLAY GAME**。真瀏覽器可以重現：一顆 70×24、class 剛好是 `closeBtn` 的 PLAY GAME 按鈕會被點下去。現在禁點正規式改成 `play\s*(now|game)`
 - 測試原本用 150px 寬的按鈕，還沒輪到文字護欄就先被尺寸上限擋掉了，所以證明不了文字護欄有效。改成 70×24、class=closeBtn 的按鈕，字樣分別是 PLAY GAME／PLAY NOW／Join，三個都驗零點擊。換回舊版會紅 1 條
@@ -524,6 +523,7 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `npx tsx scripts/ideck-learn-capture-probe.ts`：runner 拍攝，真瀏覽器，5 條；突變「一律拍」會紅
   - `node scripts/ui-checks/ideck-indicator-learn.test.mjs`：分析＋batch，合成畫面，14 條；4 個突變（拿掉雜訊遮罩、選單開著也學、confirmed 照蓋、沒反應也學）都會紅
 - ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」
+
 ### 0345 真 learn 之後改版（v5.33.0，2026-10-07）
 第一次真的跑（0345，session mt_1791363241812_vjo6k）不能用：產出 17 區、雜訊 64%，獎池數字和 WIN 動畫被學進來，₱5、352／880 Credits 學到 `changes: []`。拿那次的 30 張圖離線調整，原因有四個：
 - **雜訊遮罩用所有按鈕 post1↔post2 的聯集**，長到 64%，把底部列也遮掉
@@ -554,7 +554,6 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - `verdicts-probe.ts`：70 條，含來回按的順序
   - `ideck-learn-capture-probe.ts`：7 條，真瀏覽器，含 back-1
 - ⚠️ runner 有改，要部署 Spug，agent 也要「更新程式碼」。重跑 0345 learn 會真下注，osm-qa-agent 要先問主使用者
-
 ## 人工複核優先於自動判定＋CodeX 補審修正（v5.35.0，2026-10-07）
 ### 人工複核（osm-qa-agent 回報、CodeX 定案）
 - **問題**：summary 裡把步驟改成 pass、訊息開頭加「［人工複核」之後，重產報告時 `applyGameRules`／`applyIdeckEvidence` 還是照原訊息的「iDeck 開局 0 顆」判回 N/V，`classify` 也照「影像編號不符／構圖待人工確認」判回 check（COINCOMBO uyxqr、SBL 0347／0354）
@@ -576,3 +575,74 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - 同組一致性改成算「不同的按鈕」（key），同一顆按兩次不能湊滿兩顆
   - 候選全被淘汰時整份 learn 作廢，不寫空的提案
 - 驗證：`ideck-wildrow.test.mjs` 15 條、`ideck-indicator-learn.test.mjs` 25 條；拿掉修正會紅
+
+## iDeck 時間學習 第一期（v5.36.0，2026-10-07）
+
+規格在 `osm-qa-agent/reports/spec-mt-ideck-timing-learn-1007.md`，由 claude-osm-3 整理，使用者核准「做」。做法跟 CodeX 討論三輪後定案。
+
+### 做什麼
+原本每顆按鈕按下去都固定等 6 秒，看會不會開局。已確認不開局的按鈕改成只等 **beginWaitMs**，目前候選值是 1500。ack 一樣最多等 5 秒，這部分不縮短。
+
+### 資料
+- 存在獨立表 `machine_test_ideck_timing`（machineType PK、data JSON、updatedAt），程式在 `server/machine-test/ideck-timing-store.ts`
+- 不放進 profiles 的原因：ARUZE 沒有 profile 列，硬補一列會改變 bonusAction 的預設（沒 profile 時是 spin，新建是 auto_wait）；而且 profiles 的 PUT 是整列 upsert，在畫面上存一次就會把學習值蓋掉
+- JSON 欄位：schemaVersion 1、status（learning／learned-unconfirmed／confirmed）、confirmedAt／By、samples、beginWaitMs、buttons{name:{noRound}}、revokedAt／revokeReason
+- 三款（ARUZE、BZZF、JJBXGRAND）的確認清單（osm-qa-agent knowledge/games/*/automation/ideck-timing.json），只在**該列不存在時**補種一次。之後撤銷過的紀錄不會被種子蓋回去
+- 每次 `/api/machine-test/start` 都從表重讀、放進 `session.ideckTimings`，沒有快取
+- `GET /api/machine-test/ideck-timing` 列出目前的學習值
+- `POST /api/machine-test/ideck-timing/:type/revoke {reason}`：用原子 UPDATE 把 status 改成 learning，並寫一筆操作歷史
+
+### 快速資格（verdicts.ts `ideckBeginWait`）
+要全部符合才用短等待：
+- confirmed、schemaVersion 1
+- SEND 的 dealGMActionReq name **精確**在清單裡
+- ack 正確
+- 按之前的 gate 證明空閒
+- 本台沒有降級
+任何一項不符就照保守的 6 秒等。
+
+### 護欄（runner.ts `gateBeforePress`，每顆都做，含還原倍數）
+- **靜默窗**：短等待的那顆按下去之後，下一顆至少要等滿 6 秒才按（`ideckQuietWaitMs`）。這樣晚到的 begin 只會落在下一顆按之前，不會跟下一顆的局混在一起。省下的時間是原本「6 秒＋收尾 3 秒」重疊的部分
+- **局狀態只認單一來源**：本頁 game iframe 的 `__moneyLog`，依 seq 排序（`ideckRoundState`），不跟 console 監聽混算，避免舊的 end 蓋過新的 begin
+  - 完全沒有事件時記 unknown，代表無法證明空閒，這顆走保守
+  - 局還開著就等 end，45 秒逾時就停手、不按
+- **晚到的 begin**（上一顆之後、下一顆之前出現）：上一顆補記「有開局」，等到 end，本台改回保守；上一顆是短等待的話，撤銷這個機種的學習值
+- **歸屬不明**（begin 在下一顆送出之後、又在上一顆短等待的窗口內；有靜默窗就不該發生，`attributeBegin`）：
+  - 只中止**本台 iDeck**：後面零點擊，含收尾、還原、關選單；asIs 留證，連 JP 卡的 X 都不按
+  - 判定記 `ideck not verified (timing ambiguous)`，不判 fail、也不算 pass
+  - 撤銷學習值；被動等局結束後，交回 stepGate 接著做觸屏、CCTV、退出。沒結束的局由下一步的 checkOsm（疑似特殊遊戲）接手。這種情況**不設** openRoundHalt
+- **noAck**（只在 confirmed 機種）：不重按；觀察 6 秒，沒有任何事件就算無法確認狀態，停掉本台 iDeck。那顆照判 no response
+- 中止或逾時時的截圖一律 asIs，不關 JP 卡（零點擊）
+- 沒有倍數鍵時，中止不另外算成「沒還原」的流程失敗
+
+### 回報
+- 每顆的量測放在 `extraData.ideckTiming`：mode、waitMs、why、t_ack（點→ON）、t_begin（點→begin）、t_round（begin→end）、t_ready。沒觀測到就記 null；**t_ready 第一期不量，固定等待不能拿來充當實測值**
+- 步驟訊息後面會加「時間模式：保守／學習值（機種，confirmed 於 日期）短等待 N/M 顆｜本次 N 秒」
+- 撤銷：
+  - runner 記在模組層的 `IDECK_REVOKED`（依 session 分），同一個 agent 後面的台立刻改回保守
+  - batch 看到 `extraData.ideckTiming.revoke` 就呼叫 revoke API，重試 3 次
+  - **寫入失敗時**，本批之後的 session 都帶 `ideckNoFast`，禁用這個機種的短等待
+- batch F 欄：歧義記 `ideck not verified (timing ambiguous)`
+
+### 驗證
+- `npx tsx scripts/ideck-timing-probe.ts`：36 條，純函式加**真的 stepIdeck**（真瀏覽器、假遊戲頁照正式格式印 SEND／ON／moneyNtc、寫 __moneyLog）。約 4 分鐘，因為每個情境都要跑固定的 15 秒盒子 log 等待。涵蓋：
+  - 短等待和保守模式的結果一致，而且時間比較短
+  - 晚到的 begin、5 秒才開局
+  - 雙來源亂序
+  - noAck 只剩舊的 end
+  - 最後一顆晚到的 begin
+  - 已撤銷時全部走保守、沒有任何事件時走保守
+  - 歸屬不明（要用 `_probeNoQuietWindow` 關掉靜默窗才走得到，正式呼叫端不會傳這個參數）
+- **1008 收尾時發現的 bug（commit 前修好）**：已確認清單用按鈕字（PLAY11Credits、BETx1，跟 knowledge 的 ideck-timing.json 一樣），runner 卻拿 SEND 的 action name（Bet11、BetMultiple1）去查，**短等待永遠不會生效**
+  - 原本探針的假按鈕「字」跟「action name」寫成一樣，所以測不出來；已改成照正式環境分開
+  - 修法：按鈕識別鍵抽成 `server/machine-test/ideck-button-key.js`，runner（時間學習）和 batch（confirmed 清單、learn 指標、WILD 排）共用一份，並加進 agent 白名單
+  - 撤銷原因也改用按鈕字寫，人看得懂
+- 突變（1008 重跑，都會紅）：
+  - runner 改回用 action name 查 → 4 條紅
+  - 拿掉靜默窗 → 3 條紅
+  - gate 不檢查空閒 → 2 條紅
+- ⚠️ 還沒真機驗。需要部署 Spug，agent 要「更新程式碼」
+- 一個已知缺口：同一批同時有多台 agent 時，別台 agent 要等 batch 把撤銷寫回中控之後，下一次 start 才會讀到
+
+### 第二期（還沒做）
+gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並回寫 learning 到 confirmed 的流程與人工確認按鈕

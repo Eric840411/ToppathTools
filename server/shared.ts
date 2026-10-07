@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from './request-context.js'
 import { upsertAccountIn } from './account-store.js'
+import { initIdeckTimingTable } from './machine-test/ideck-timing-store.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -763,6 +764,8 @@ export function getCultivationLeaderboard() {
 }
 
 // 若 machine_type_targets 是舊 schema（無 category 欄），重建為新 schema
+// 1007 iDeck 時間學習：獨立表＋三款初始值（只在該列不存在時補種）
+initIdeckTimingTable(db)
 // Migrate machine_test_profiles: add missing columns
 {
   const cols = db.prepare('PRAGMA table_info(machine_test_profiles)').all() as { name: string }[]

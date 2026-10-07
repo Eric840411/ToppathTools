@@ -20,7 +20,8 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckButtonKey } from './ideck-button-key.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -1117,6 +1118,8 @@ export function pickPopupButton(box: PopupBox, d: PopupDecision): PopupBox['butt
   return null
 }
 const POPUP_GUARDS = new WeakMap<Page, PopupGuard>()
+/** 1007 iDeck 時間學習：session → 機種 → 撤銷原因（同一批後面的台立刻改回保守；中控那邊由 batch 呼叫 revoke 寫入） */
+const IDECK_REVOKED = new Map<string, Map<string, string>>()
 export function popupGuardOf(page: Page): PopupGuard | undefined { return POPUP_GUARDS.get(page) }
 export function attachPopupGuard(page: Page, emit: (msg: string) => void, file: string): PopupGuard {
   const g = new PopupGuard(page, emit, file)
@@ -2451,6 +2454,21 @@ async function readMachineBalance(page: Page): Promise<number | null> {
 }
 export type MoneyEvent = { seq: number; coin: number; reason: string; ts: number }
 /** 這頁到目前的 moneyNtc 流水（遊戲 iframe 優先；沒有就取筆數最多的那個 frame） */
+/**
+ * 1007 iDeck 時間學習：流水＋**同一個 frame 的現在時間**（頁面時鐘）一次讀回——歸屬判斷的 begin.ts 與按下時間要同一個時鐘。
+ * 跟 readMoneyLog 一樣挑 game iframe；讀不到回 null（呼叫端當成「無法證明空閒」）
+ */
+export async function readMoneySnap(page: Page): Promise<{ log: MoneyEvent[]; now: number } | null> {
+  let best: { log: MoneyEvent[]; now: number } | null = null
+  for (const frame of page.frames()) {
+    try {
+      const r = await frame.evaluate(() => ({ log: ((window as unknown as Record<string, unknown>).__moneyLog as unknown[] | undefined) ?? [], now: Date.now() })) as { log: MoneyEvent[]; now: number }
+      if (/\/game\b/.test(frame.url()) && r.log.length) return r
+      if (!best || r.log.length > best.log.length) best = r
+    } catch { /* frame detached */ }
+  }
+  return best
+}
 async function readMoneyLog(page: Page): Promise<MoneyEvent[]> {
   let best: MoneyEvent[] = []
   for (const frame of page.frames()) {
@@ -3188,6 +3206,8 @@ export async function stepIdeck(
   debugGmid?: string,
   sessionPrefix = '',
   openRound?: OpenRoundHandler,   // 1007：未監控機台開局沒結束 → 疑似特殊遊戲處理器（收到 end 後繼續下一顆）
+  // 1007 iDeck 時間學習。_probeNoQuietWindow 只給探針用（關掉靜默窗才能走到「歸屬不明」那條路），正式呼叫端不傳
+  timing?: { cfg: IdeckTimingCfg | null; revoked: string | null; onRevoke: (reason: string) => void; _probeNoQuietWindow?: boolean },
 ): Promise<StepResult> {
   const t0 = Date.now()
   try {
@@ -3377,7 +3397,63 @@ export async function stepIdeck(
       return cond()
     }
 
-    type Outcome = { label: string; text: string; name: string | null; seq: number | null; actionid: number | null; isspin: number | null; result: IdeckResult; shot: string | null; note: string }
+    type Outcome = { label: string; text: string; name: string | null; seq: number | null; actionid: number | null; isspin: number | null; result: IdeckResult; shot: string | null; note: string
+      /** 1007：要中止本台 iDeck（零後續點擊）的原因——歸屬不明、noAck 後無法確認狀態、晚到的局沒結束 */
+      halt?: string
+      /** 1007：時間量測（毫秒；沒觀測到＝null）。t_ack＝點→ON、t_begin＝點→begin、t_round＝begin→end、t_ready 第一期不量（固定等待不能當實測） */
+      timing?: { mode: 'fast' | 'conservative'; waitMs: number; why: string; t_ack: number | null; t_begin: number | null; t_round: number | null; t_ready: null; lateBeginMs?: number }
+    }
+    // ── 1007 iDeck 時間學習：狀態 ──
+    // degraded：本台改回保守的原因（晚到的 begin／noAck／撤銷）；prev：上一顆按下時的頁面時間、是不是短等待、按之前流水的最大 seq
+    let degraded: string | null = timing?.revoked ? `機種學習值已撤銷（${timing.revoked}）` : null
+    let prev: { clickTs: number; fast: boolean; seqBefore: number; outcome: Outcome; round: boolean } | null = null
+    let ambiguous: string | null = null
+    const maxSeq = (log: MoneyEvent[]) => log.reduce((m, e) => Math.max(m, e.seq), 0)
+    let revokedReason: string | null = null
+    const revoke = (reason: string) => { if (!degraded) degraded = reason; if (!revokedReason) { revokedReason = reason; timing?.onRevoke(reason) } }
+    /** 等到流水顯示局結束（單一來源 __moneyLog）；逾時或停止回 false */
+    const waitRoundIdle = async (ms: number) => {
+      const end = Date.now() + ms
+      while (Date.now() < end) {
+        if (shouldStop?.()) return false
+        const s = await readMoneySnap(page)
+        if (s && ideckRoundState(s.log) !== 'open') return true
+        await sleep(300)
+      }
+      return false
+    }
+    /**
+     * 按之前的關卡（每一顆都做，含還原倍數）：
+     *   ① 上一顆是短等待 → 等到它的保守窗口（6 秒）滿（靜默窗）
+     *   ② 上一顆之後出現 begin、上一顆卻記「沒開局」→ 晚到的局：歸給上一顆、等 end、本台改回保守、機種撤銷
+     *   ③ 還有局沒結束 → 等 end；逾時就停（不按）
+     * 回傳 null＝可以按，附上按之前的流水狀態；否則回傳不能按的原因
+     */
+    const gateBeforePress = async (): Promise<{ ok: true; gate: 'idle' | 'unknown'; seqBefore: number; now: number } | { ok: false; why: string }> => {
+      const snap0 = await readMoneySnap(page)
+      const q = timing?._probeNoQuietWindow ? 0 : ideckQuietWaitMs(prev, snap0?.now ?? Date.now())
+      if (q > 0) await sleepOrStop(q, shouldStop ?? (() => false))
+      let snap = await readMoneySnap(page)
+      if (prev && !prev.round && snap) {
+        const late = snap.log.find(e => e.reason === 'begin' && e.seq > prev!.seqBefore)
+        if (late) {
+          const lateMs = late.ts - prev.clickTs
+          prev.round = true
+          prev.outcome.note = `${prev.outcome.note ? prev.outcome.note.replace(/；?沒開局(（[^）]*）)?$/, '') + '；' : ''}有開局（begin 晚到 ${lateMs}ms，按下一顆之前抓到）`
+          if (prev.outcome.timing) { prev.outcome.timing.t_begin = lateMs; prev.outcome.timing.lateBeginMs = lateMs }
+          emit(`⏱ iDeck ${prev.outcome.label}：begin 晚到 ${lateMs}ms → 記「有開局」，等 end，本台改回保守${prev.fast ? '、撤銷機種學習值' : ''}`)
+          if (prev.fast) revoke(`${ideckButtonKey(prev.outcome.text, prev.outcome.name) || prev.outcome.label} 在 ${lateMs}ms 後才開局（學習值 ${timing?.cfg?.beginWaitMs ?? '?'}ms）`)
+          else degraded ??= `${prev.outcome.label} begin 晚到`
+        }
+      }
+      if (snap && ideckRoundState(snap.log) === 'open') {
+        emit(`⏱ iDeck 按之前還有局沒結束 → 等 end（最多 45 秒）`)
+        if (!await waitRoundIdle(45000)) return { ok: false, why: '按之前有局 45 秒沒結束，不按（iDeck 不補點）' }
+        snap = await readMoneySnap(page)
+      }
+      const gate = snap ? ideckRoundState(snap.log) : 'unknown'
+      return { ok: true, gate: gate === 'open' ? 'unknown' : gate, seqBefore: snap ? maxSeq(snap.log) : 0, now: snap?.now ?? Date.now() }
+    }
     const outcomes: Outcome[] = []
     // 1007 learn 拍攝（ideckCapture）
     const learnDir = join(MACHINE_TEST_ROOT, 'ideck-learn')
@@ -3386,12 +3462,13 @@ export async function stepIdeck(
     const btnTexts: Record<string, string> = {}
     const backDone = new Set<string>()
     const shotDir = join(MACHINE_TEST_ROOT, 'ideck-saves')
-    const shoot = async (tag: string) => {
+    // asIs：照當下畫面截、什麼都不點（中止／逾時的收尾用——CodeX：零後續點擊，連 JP 卡的 X 都不按）
+    const shoot = async (tag: string, asIs = false) => {
       if (!machineCode) return null
       try {
         mkdirSync(shotDir, { recursive: true })
         const p = join(shotDir, `${sessionPrefix}${machineCode}-${tag}.png`)
-        await closeJackpotNotification(page)
+        if (!asIs) await closeJackpotNotification(page)
         writeFileSync(p, await page.screenshot({ type: 'png' }))
         return p
       } catch { return null }
@@ -3407,9 +3484,15 @@ export async function stepIdeck(
       try { o.text = ((await el.textContent()) ?? '').replace(/\s+/g, ' ').trim().slice(0, 40) } catch { /* 讀不到字就留空 */ }
       btnTexts[label] = o.text
 
+      // 1007 iDeck 時間學習：按之前的關卡（靜默窗、晚到的 begin、局沒結束）
+      const g = await gateBeforePress()
+      if (g.ok === false) { o.result = 'spinTimeout'; o.note = g.why; o.halt = g.why; return o }
       // 1007 learn 拍攝：按之前的 pre
       if (ideckCaptureOn) learnCap.buttons.push({ idx, label, text: o.text, name: null, pre: await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-pre.png`)), post1: null, post2: null })
       const tClick = Date.now()
+      const me = { clickTs: g.now, fast: false, seqBefore: g.seqBefore, outcome: o, round: false }
+      const prevPress = prev
+      prev = me
       try {
         // evaluate click bypasses overlay/actionability checks
         const ideckEl = el
@@ -3442,7 +3525,14 @@ export async function stepIdeck(
         // 有沒有開局**不看 isspin**，看 moneyNtc begin（0929 實測 BZZF 0235）：
         //   上方 18/38 Credits 是 isspin:1 卻不開局（0 筆 moneyNtc）；下方 BET x1~x10 是 isspin:0，按下去 2~3 秒後反而有 begin→end（真的開局扣錢）。
         // 所以每一顆點完都等 6 秒看有沒有 begin：有＝開局 → 等 end 才點下一顆（逾時中止、不補點，避免局中連點）；沒有＝沒開局 → 照常往下。
-        const started = await until(() => moneyBeginTs >= tClick, 6000)
+        // 1008：清單是按鈕字（PLAY11Credits／BETx1），不是 SEND 的 action name（Bet11／BetMultiple1）——用同一個 ideckButtonKey 查
+        const bw = ideckBeginWait({ cfg: timing?.cfg, key: ideckButtonKey(o.text, o.name), ackOk: o.result === 'ack', gate: g.gate, degraded })
+        me.fast = bw.ms !== null
+        const waitMs = bw.ms ?? IDECK_CONSERVATIVE_BEGIN_MS
+        const started = await until(() => moneyBeginTs >= tClick, waitMs)
+        const ackRec = acks.find(x => x.seq === s.seq)
+        o.timing = { mode: me.fast ? 'fast' : 'conservative', waitMs, why: bw.why, t_ack: ackRec ? ackRec.ts - tClick : null, t_begin: started ? moneyBeginTs - tClick : null, t_round: null, t_ready: null }
+        me.round = started
         if (started) {
           const isEnd = () => moneyEndTs >= moneyBeginTs && moneyEndTs >= tClick
           let done = await until(isEnd, 45000)
@@ -3471,19 +3561,38 @@ export async function stepIdeck(
           }
           if (!done) { o.result = 'spinTimeout'; o.note = `${o.note ? o.note + '；' : ''}開局後 45 秒內沒等到 moneyNtc end（iDeck 不補點${ftNote ? '；' + ftNote + '仍未結束' : ''}）` }
           else o.note = `${o.note ? o.note + '；' : ''}有開局（moneyNtc begin→end${orr ? '，觸發特殊遊戲' : ''}）${ftNote ? '；' + ftNote : ''}`
-        } else o.note = `${o.note ? o.note + '；' : ''}沒開局`
+          if (done && o.timing && moneyEndTs >= moneyBeginTs) o.timing.t_round = moneyEndTs - moneyBeginTs
+        } else o.note = `${o.note ? o.note + '；' : ''}沒開局${me.fast ? `（短等待 ${waitMs}ms）` : ''}`
+        // 1007：歸屬檢查——這顆按下之後出現的 begin，落在上一顆（短等待）的保守窗口內 → 分不出是誰開的局 → 中止本台 iDeck
+        const snapA = await readMoneySnap(page)
+        if (snapA) {
+          for (const b of snapA.log.filter(e => e.reason === 'begin' && e.seq > me.seqBefore)) {
+            if (attributeBegin({ beginTs: b.ts, prev: prevPress, nextClickTs: me.clickTs }) === 'ambiguous') {
+              ambiguous = `begin（seq ${b.seq}）落在 ${prevPress?.outcome.label ?? '?'}（短等待）的保守窗口內、又在 ${label} 送出之後，分不出是哪一顆開的局`
+              o.halt = ambiguous
+              revoke(`歸屬不明：${ambiguous}`)
+              break
+            }
+          }
+        }
+        // 1007（CodeX）：學習值套用中的機台，noAck 不重按；再等 6 秒沒任何事件＝無法確認已回到可操作狀態 → 停本台 iDeck
+        if (!o.halt && o.result === 'noAck' && timing?.cfg?.status === 'confirmed' && !started) {
+          o.halt = 'noAck 後 6 秒沒有任何 money 事件，無法確認機台已回到可操作狀態（不重按、停本台 iDeck）'
+          o.note = `${o.note ? o.note + '；' : ''}${o.halt}`
+          degraded ??= 'noAck'
+        }
       }
 
       return o
     }
-    const shotAndReport = async (o: Outcome, idx: string) => {
+    const shotAndReport = async (o: Outcome, idx: string, asIs = false) => {
       o.shot = await shoot(`ideck-${idx}${o.name ? '-' + o.name.replace(/[^\w-]/g, '') : ''}`)
       const tag = { ack: '✅ server 已回應', mismatch: '❌ actionid 對不上', noAck: '❌ 有送出但 server 沒回應', notSent: '❌ 前端沒送出 dealGMActionReq', noElement: '⚠️ 找不到元素', spinTimeout: '❌ 開轉後沒等到結束' }[o.result]
       emit(`iDeck 按鈕 ${o.label}「${o.text}」${o.name ? `(${o.name})` : ''} → ${tag}${o.seq !== null ? `（seq ${o.seq}, actionid ${o.actionid ?? '?'}, isspin ${o.isspin ?? '?'}）` : ''}${o.note ? '｜' + o.note : ''}`)
     }
     // 一般收尾：可能會再點（關面額選單）
     const settle = async (o: Outcome, idx: string) => {
-      if (o.result !== 'noElement') {
+      if (o.result !== 'noElement' && !o.halt) {
         // After clicking btn_bet, game may show denomination overlay — dismiss it to complete the iDeck interaction
         await sleep(500)
         await dismissDenomOverlay(page, emit, o.label)
@@ -3502,7 +3611,7 @@ export async function stepIdeck(
       await shotAndReport(o, idx)
     }
     // 開轉逾時的收尾：機台狀態不明，**不可再點任何東西**（CodeX 0929），只截圖留證據
-    const afterTimeout = async (o: Outcome, idx: string) => { await shotAndReport(o, idx) }
+    const afterTimeout = async (o: Outcome, idx: string) => { await shotAndReport(o, idx, true) }
 
     // 盒子 log 基準（選配診斷）
     const today = toLocalDateStr(new Date())
@@ -3530,8 +3639,8 @@ export async function stepIdeck(
 
     page.on('console', onIdeckConsole)
     let restore: Outcome | null = null
-    const backOutcomes: Array<{ idx: string; o: Outcome }> = []
     let aborted = false
+    const backOutcomes: Array<{ idx: string; o: Outcome }> = []
     try {
       const before = await shoot('ideck-0-before')
       // 1007 learn 拍攝：第一顆按之前，不按任何鍵連拍 4 張、每張隔 3 秒（約 9 秒；0345 實測 3 張 3 秒抓不到慢慢跳的獎池數字）
@@ -3559,7 +3668,18 @@ export async function stepIdeck(
       restore = seq.restore
       backOutcomes.push(...seq.backs.map(b => ({ idx: `back-${b.of + 1}`, o: b.o })))
       aborted = seq.aborted
-      if (aborted) emit(`🛑 iDeck：開轉後 45 秒沒結束，中止後面的點擊（不補點、不還原）`)
+      const haltWhy = [...seq.outcomes, ...(seq.restore ? [seq.restore] : [])].find(o => o.halt)?.halt
+      if (aborted) emit(haltWhy ? `🛑 iDeck：${haltWhy} → 中止後面的 iDeck 點擊（不補點、不還原）` : `🛑 iDeck：開轉後 45 秒沒結束，中止後面的點擊（不補點、不還原）`)
+      // 1007：最後一顆（或還原）是短等待 → 等它的保守窗口滿，再看有沒有晚到的 begin（沒有下一顆的關卡可以抓）
+      if (!aborted && prev && prev.fast && !shouldStop?.()) {
+        const g = await gateBeforePress()
+        if (g.ok === false) { aborted = true; emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}` }
+      }
+      // 歸屬不明：等局結束（被動、不點），之後交回 stepGate 接觸屏／CCTV／退出；逾時不算完成——還沒結束的局由下一步的 checkOsm（疑似特殊遊戲）接手
+      if (ambiguous && !shouldStop?.()) {
+        const idle = await waitRoundIdle(45000)
+        emit(idle ? `⏱ iDeck 歸屬不明：局已結束，接著做後面的步驟` : `⚠️ iDeck 歸屬不明：45 秒內局沒結束，交給下一步的特殊遊戲處理`)
+      }
     } finally {
       page.off('console', onIdeckConsole)
     }
@@ -3587,11 +3707,17 @@ export async function stepIdeck(
       }) }) } : {}),
     } }
 
-    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length })
+    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length, ambiguous })
+    // 1007 iDeck 時間學習：時間模式＋每顆量測（extraData.ideckTiming，batch 收）
+    const all = [...outcomes, ...(restore ? [restore] : [])]
+    const fastN = all.filter(o => o.timing?.mode === 'fast').length
+    const cfg = timing?.cfg ?? null
+    const modeTxt = !cfg || cfg.status !== 'confirmed' ? '時間模式：保守' : `時間模式：學習值（${extractMachineType(machineCode)}，confirmed 於 ${cfg.confirmedAt ?? '?'}）短等待 ${fastN}/${all.length} 顆${degraded ? `｜⚠️ 本台改回保守：${degraded}` : ''}`
+    const timingX = JSON.stringify({ v: 1, mode: cfg?.status === 'confirmed' ? 'learned' : 'conservative', degraded, ambiguous, revoke: revokedReason, buttons: all.map(o => ({ label: o.label, name: o.name, key: ideckButtonKey(o.text, o.name), result: o.result, ...(o.timing ?? { mode: null }) })) })
     // 0930 JJBXGRAND 0338：批次工具用整段錄音判「沒聲音」時，要先確定這段期間真的有局在跑——選單一直沒關、一局都沒開的話，
     // 整段安靜不代表機台沒聲音。所以把 iDeck 實際開局的顆數記進結果
     const rounds = [...outcomes, ...(restore ? [restore] : [])].filter(o => /有開局/.test(String((o as { note?: string })?.note ?? ''))).length
-    return { step: 'iDeck 測試', status: v.status, message: `${v.message}｜iDeck 開局 ${rounds} 顆`, durationMs: Date.now() - t0, ...learnI }
+    return { step: 'iDeck 測試', status: v.status, message: `${v.message}｜iDeck 開局 ${rounds} 顆｜${modeTxt}｜本次 ${Math.round((Date.now() - t0) / 1000)} 秒`, durationMs: Date.now() - t0, extraData: { ...learnI.extraData, ideckTiming: timingX } }
   } catch (e) {
     return { step: 'iDeck 測試', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }
@@ -5279,6 +5405,10 @@ export class MachineTestRunner extends EventEmitter {
   private eventBuffer: TestEvent[] = []
   /** 調適模式：若設定則 daily-analysis API 強制使用此固定 gmid */
   private debugGmid: string | null = null
+  /** 1007 iDeck 時間學習：本 session 的學習值、禁用短等待的機種 */
+  private ideckTimings: Record<string, IdeckTimingCfg> = {}
+  private ideckNoFast = new Set<string>()
+  private sessionKey = ''
   /** Session ID prefix for cctv-saves / audio-saves filenames */
   private sessionPrefix: string = ''
   /** 整段錄音：只有單 Worker 時才開（多 Worker 會把各機台的聲音混在一起） */
@@ -5768,7 +5898,16 @@ export class MachineTestRunner extends EventEmitter {
 
           if (steps.ideck && await stepGate('iDeck 測試')) {
             const ideckXpaths = (profile?.ideckXpaths ?? []).length > 0 ? profile!.ideckXpaths! : this.betRandomConfig[machineCode]
-            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix, openRound)
+            // 1007 iDeck 時間學習：機種學習值；本 session 已撤銷（agent 每台新建 runner，所以記在模組層、依 session 分）
+            const ideckType = extractMachineType(machineCode).toUpperCase()
+            const revokedMap = IDECK_REVOKED.get(this.sessionKey) ?? new Map<string, string>()
+            IDECK_REVOKED.set(this.sessionKey, revokedMap)
+            const ideckTiming = {
+              cfg: this.ideckTimings[ideckType] ?? null,
+              revoked: revokedMap.get(ideckType) ?? (this.ideckNoFast.has(ideckType) ? '撤銷沒寫進中控，本批禁用短等待' : null),
+              onRevoke: (reason: string) => { revokedMap.set(ideckType, reason) },
+            }
+            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix, openRound, ideckTiming)
             stepResults.push(r6)
             this.log(`${workerTag} [${r6.status.toUpperCase()}] iDeck: ${r6.message}`, machineCode)
           }
@@ -5864,6 +6003,9 @@ export class MachineTestRunner extends EventEmitter {
   async run(session: MachineTestSession) {
     setIdeckCapture(session.ideckCapture === true)
     this.debugGmid = session.debugGmid?.trim() || null
+    this.ideckTimings = session.ideckTimings ?? {}
+    this.ideckNoFast = new Set((session.ideckNoFast ?? []).map(t => t.toUpperCase()))
+    this.sessionKey = session.sessionId ?? ''
     this.sessionPrefix = session.sessionId ? `${session.sessionId}-` : ''
     DAILY_ANALYSIS_BASE = DAILY_ANALYSIS_URLS[session.osmEnv ?? 'qat'] ?? DAILY_ANALYSIS_URLS.qat
     // Notify viewers that a new session is starting (clears previous results)

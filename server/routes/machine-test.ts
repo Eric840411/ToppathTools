@@ -29,6 +29,7 @@ import {
 import { AGENT_SEED_FILES, seedManifest } from '../agent-seeds.js'
 import { MachineTestRunner, noteOsmObservation } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
+import { readIdeckTimings, revokeIdeckTiming } from '../machine-test/ideck-timing-store.js'
 import {
   broadcastToViewers,
   clearBroadcastBuffer,
@@ -59,6 +60,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/runner.ts':        join(SERVER_ROOT, 'machine-test', 'runner.ts'),
   'machine-test/types.ts':         join(SERVER_ROOT, 'machine-test', 'types.ts'),
   'machine-test/verdicts.ts':      join(SERVER_ROOT, 'machine-test', 'verdicts.ts'),
+  // 1008：iDeck 按鈕識別鍵（runner 查時間學習清單，跟 batch 共用一份）
+  'machine-test/ideck-button-key.js': join(SERVER_ROOT, 'machine-test', 'ideck-button-key.js'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
@@ -318,6 +321,8 @@ const machineTestSessionSchema = z.object({
   aiAudio: z.boolean().optional(),
   /** 1007 learn 自動找 iDeck 畫面指標：iDeck 多拍 idle／pre／post */
   ideckCapture: z.boolean().optional(),
+  /** 1007 iDeck 時間學習：batch 撤銷寫入失敗的機種，本批禁用短等待 */
+  ideckNoFast: z.array(z.string().min(1)).optional(),
 })
 
 // ?????? Image Check Sessions ??????????????????????????????????????????????????????????????????????????????????????????????????????????
@@ -641,6 +646,22 @@ router.post('/api/image-check/stop/:id', async (req, res) => {
 })
 
 // ?????? Routes: Machine Test Profiles ????????????????????????????????????????????????????????????????????????????????????????
+
+// 1007 iDeck 時間學習：學習值清單（給 batch／報告看狀態）
+router.get('/api/machine-test/ideck-timing', (_req, res) => {
+  res.json({ ok: true, timings: readIdeckTimings(db) })
+})
+// 撤銷：status → learning（原子）。batch 看到結果帶 revoke 就呼叫；失敗時 batch 本批用 ideckNoFast 禁用短等待
+router.post('/api/machine-test/ideck-timing/:type/revoke', (req, res, next) => {
+  try {
+    const { reason } = z.object({ reason: z.string().min(1).max(500) }).parse(req.body)
+    const type = String(req.params.type).toUpperCase()
+    const r = revokeIdeckTiming(db, type, reason)
+    if (!r.ok) return res.status(404).json({ ok: false, message: `沒有 ${type} 的學習值` })
+    if (r.changed) addHistory('machine-test', `iDeck 學習值撤銷 ${type}`, reason, { type, reason })
+    res.json({ ok: true, changed: r.changed })
+  } catch (err) { next(err) }
+})
 
 // GET /api/machine-test/profiles
 router.get('/api/machine-test/profiles', (_req, res) => {
@@ -1040,6 +1061,8 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       return res.status(403).json({ ok: false, message: '??????PIN ????' })
     }
     const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
+    // 1007 iDeck 時間學習：每次 start 都從表重讀（撤銷後下一批立刻生效，不留快取）
+    session.ideckTimings = readIdeckTimings(db)
     const operator = getOperatorFromContext()
     session.operator = operator
     const sessionAccount = session.account ?? 'guest'

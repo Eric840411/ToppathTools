@@ -18,7 +18,9 @@ export function ideckVerdict(p: {
   aborted: boolean
   apiErr: string | null
   boxCount: number
-}): { status: 'pass' | 'warn' | 'fail'; message: string } {
+  /** 1007 iDeck 時間學習：晚到的 begin 歸屬不明 → 本台 iDeck 中止。不因歧義判 fail、也不能算 pass（CodeX） */
+  ambiguous?: string | null
+}): { status: 'pass' | 'warn' | 'fail' | 'skip'; message: string } {
   const { outcomes, restore, aborted, apiErr, boxCount } = p
   if (outcomes.length === 0) return { status: 'fail', message: '沒有可點的 iDeck 按鈕｜判定：flow fail' }
 
@@ -29,7 +31,8 @@ export function ideckVerdict(p: {
 
   const detail = outcomes.map(o => `${o.name ?? o.label}${o.result === 'ack' ? '✓' : '✗'}`).join(' ')
   let restoreTxt: string, restoreBad: 'noResponse' | 'flow' | null = null
-  if (aborted) { restoreTxt = '；⚠️ 中止，沒有還原倍數'; restoreBad = 'flow' }
+  // 1007：沒有倍數鍵就不需要還原，中止本身不另算流程失敗（中止的原因——逾時、局沒結束——會在那一顆的結果裡判）
+  if (aborted) { restoreTxt = hasMultiplier ? '；⚠️ 中止，沒有還原倍數' : '；中止（沒有倍數鍵，不需還原）'; restoreBad = hasMultiplier ? 'flow' : null }
   else if (restore) {
     const ok = restore.result === 'ack'
     restoreTxt = `；還原 BetMultiple1 ${ok ? '✓' : '✗（⚠️ 倍數可能還留在最後按的那顆）'}`
@@ -41,6 +44,11 @@ export function ideckVerdict(p: {
   let message = `server 回應 ${acked}/${total}（${detail}）${restoreTxt}${boxTxt}`
   if (bad.length) message += `｜未通過：${bad.map(o => `${o.label}「${o.text}」${o.result}${o.note ? '(' + o.note + ')' : ''}`).join('、')}`
 
+  if (p.ambiguous) {
+    // 中止前已經有真的「送了沒回」→ 那是確定的問題，照判 no response；其他（含沒還原倍數）都歸在歧義底下、記未驗
+    if (bad.some(o => NO_RESPONSE.includes(o.result))) return { status: 'fail', message: `${message}｜⚠️ ${p.ambiguous}｜判定：no response` }
+    return { status: 'skip', message: `${message}｜⚠️ ${p.ambiguous}｜判定：ideck not verified (timing ambiguous)` }
+  }
   if (bad.length || restoreBad) {
     // 全部問題都是「送了沒回／actionid 對不上」才叫 no response；找不到元素、逾時、中止、找不到還原鍵＝流程失敗
     const flow = bad.some(o => !NO_RESPONSE.includes(o.result)) || restoreBad === 'flow'
@@ -73,7 +81,8 @@ export function streamRoles(rects: VideoRect[], opts: { expected?: number | null
 // iDeck 點擊順序（CodeX 0929：逾時後要「零點擊」——面額選單、下一顆、還原都不能再點）
 //   press：點一顆並驗 SEND/ON（會真的點）；settle：點完後的收尾（關面額選單＝會再點、截圖、印 log）；
 //   afterTimeout：開轉逾時的收尾（只能截圖、印 log，不可點任何東西）
-export async function runIdeckSequence<B, O extends { name: string | null; result: IdeckResult }>(p: {
+// 1007：press 回傳的 O 帶 halt（歸屬不明、noAck 後狀態不明、按之前的局沒結束）→ 跟開轉逾時一樣零後續點擊
+export async function runIdeckSequence<B, O extends { name: string | null; result: IdeckResult; halt?: string }>(p: {
   buttons: B[]
   press: (b: B, idx: string) => Promise<O>
   settle: (o: O, idx: string) => Promise<void>
@@ -86,7 +95,7 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
   const backs: Array<{ of: number; o: O }> = []
   const step = async (b: B, idx: string) => {
     const o = await p.press(b, idx)
-    if (o.result === 'spinTimeout') { await p.afterTimeout(o, idx); return { o, timeout: true } }
+    if (o.result === 'spinTimeout' || o.halt) { await p.afterTimeout(o, idx); return { o, timeout: true } }
     await p.settle(o, idx)
     return { o, timeout: false }
   }
@@ -641,6 +650,67 @@ export function popupStepBlock(s: {
   }
   if (s.unknown && !s.isExit) return { skip: { status: 'skip', message: `未執行：畫面有未知提示框（${s.unknown.text.slice(0, 60)}），不操作遊戲` } }
   return null
+}
+
+// ── iDeck 時間學習 第一期（1007，claude-osm-3 規格 spec-mt-ideck-timing-learn-1007，CodeX 定案）──────────────
+// 只**套用已確認**的值：confirmed 機種、SEND 的 name 精確在不開局清單、ack 正確、按之前 gate 證明空閒 → 等 beginWaitMs 看 begin（原本固定 6 秒）。
+// 安全來自「靜默窗」：短等待的那一顆按下去之後，下一顆至少等到保守窗口（6 秒）滿才按——
+//   所以晚到的 begin 只會落在「按下一顆之前」（gate 抓得到、歸給前一顆），不會跟下一顆的 begin 混在一起；
+//   萬一還是落在下一顆送出之後、又在前一顆的窗口內（理論上不該發生）→ 歸屬不明，只中止本台 iDeck、記 not verified。
+// 局狀態只認單一來源（本頁 game iframe 的 __moneyLog，本台本次進場、依 seq 排序），不跟 console 監聽混算（CodeX：兩路會亂序）。
+export const IDECK_CONSERVATIVE_BEGIN_MS = 6000
+export type IdeckTimingStatus = 'learning' | 'learned-unconfirmed' | 'confirmed'
+export interface IdeckTimingCfg {
+  schemaVersion: 1
+  status: IdeckTimingStatus
+  confirmedAt?: string | null
+  confirmedBy?: string | null
+  samples?: number | null
+  /** 不開局按鈕等 begin 的時間（候選值 1500） */
+  beginWaitMs: number
+  /** 按鈕識別鍵（ideckButtonKey：按鈕字去空白，例 PLAY11Credits／BETx1；沒字才用 SEND 的 action name）→ 設定 */
+  buttons: Record<string, { noRound: boolean }>
+  revokedAt?: string | null
+  revokeReason?: string | null
+}
+export interface MoneyEv { seq: number; reason: string; ts: number }
+/** 局狀態：最後一筆（seq 最大）begin＝open、end＝idle；**沒有任何事件＝unknown（無法證明空閒）** */
+export function ideckRoundState(log: MoneyEv[]): 'idle' | 'open' | 'unknown' {
+  let last: MoneyEv | null = null
+  for (const e of log) if ((e.reason === 'begin' || e.reason === 'end') && (!last || e.seq > last.seq)) last = e
+  if (!last) return 'unknown'
+  return last.reason === 'begin' ? 'open' : 'idle'
+}
+/** 這一顆要等 begin 多久：回 beginWaitMs＝短等待；null＝保守（6 秒）。理由寫在 why */
+export function ideckBeginWait(p: { cfg: IdeckTimingCfg | null | undefined; /** 按鈕識別鍵（ideckButtonKey：按鈕字去空白，沒字才用 action name）——清單用的就是這個 */ key: string | null; ackOk: boolean; gate: 'idle' | 'open' | 'unknown'; degraded: string | null }): { ms: number | null; why: string } {
+  const c = p.cfg
+  if (!c) return { ms: null, why: '機種沒有學習值' }
+  if (c.schemaVersion !== 1) return { ms: null, why: `學習值版本不符（${String(c.schemaVersion)}）` }
+  if (c.status !== 'confirmed') return { ms: null, why: `學習值狀態 ${c.status}（只有 confirmed 才套用）` }
+  if (p.degraded) return { ms: null, why: `本台已改回保守：${p.degraded}` }
+  if (!p.ackOk) return { ms: null, why: 'ack 沒對上' }
+  if (p.gate !== 'idle') return { ms: null, why: p.gate === 'unknown' ? '沒看過任何 money 事件，無法證明空閒' : '按之前還有局沒結束' }
+  if (!p.key || !c.buttons[p.key]?.noRound) return { ms: null, why: `「${p.key ?? '?'}」不在已確認的不開局清單` }
+  const ms = Math.max(1000, Math.min(IDECK_CONSERVATIVE_BEGIN_MS, Math.round(c.beginWaitMs)))
+  return { ms, why: `已確認不開局（${c.confirmedAt ?? '?'}）` }
+}
+/**
+ * 前一顆用了短等待之後，下一顆最早什麼時候能按（靜默窗）：前一顆按下去滿 IDECK_CONSERVATIVE_BEGIN_MS。
+ * 回傳還要等幾毫秒（0＝可以按）。前一顆不是短等待＝0
+ */
+export function ideckQuietWaitMs(prev: { clickTs: number; fast: boolean } | null, now: number): number {
+  if (!prev || !prev.fast) return 0
+  return Math.max(0, prev.clickTs + IDECK_CONSERVATIVE_BEGIN_MS - now)
+}
+/**
+ * 一筆 begin 歸給誰（時間都用**頁面時鐘**：begin.ts 與按下時的 clickTs 都取自同一個 frame 的 Date.now）。
+ * - 在下一顆按下之前 → prev（前一顆晚到的 begin）
+ * - 在下一顆按下之後：前一顆是短等待、而且還在它的保守窗口內 → ambiguous；否則 → next
+ */
+export function attributeBegin(p: { beginTs: number; prev: { clickTs: number; fast: boolean } | null; nextClickTs: number | null }): 'prev' | 'next' | 'ambiguous' {
+  if (p.nextClickTs === null || p.beginTs < p.nextClickTs) return 'prev'
+  if (p.prev?.fast && p.beginTs - p.prev.clickTs < IDECK_CONSERVATIVE_BEGIN_MS) return 'ambiguous'
+  return 'next'
 }
 
 // ── 1007 learn 來回按（osm-qa-agent／主使用者：「按 A → 按 B → 再按回 A 會變回 A 的樣子」才是真指標，動畫和獎池不會）──

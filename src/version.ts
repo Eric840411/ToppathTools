@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.35.1'
+export const APP_VERSION = '5.36.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.36.0', date: '2026-10-07', changes: ['feat(機台測試 iDeck)：**iDeck 時間學習 第一期**——已確認的不開局按鈕（ARUZE PLAY xx Credits、BZZF 18／38／68 Credits、JJBXGRAND 全部）不再固定等 6 秒看開局，改等學習值（候選 1.5 秒）；只有 confirmed、name 精確匹配、ack 正確、按之前證明機台空閒才套用。護欄：短等待之後下一顆仍等滿 6 秒靜默窗；每顆按之前確認上一局已結束（只認 __moneyLog）；晚到的開局記回那一顆並撤銷學習值、本台改回保守；分不出是哪一顆開的局只中止本台 iDeck、記 not verified，之後照常做觸屏／CCTV／退出；noAck 不重按。學習值存在獨立表 machine_test_ideck_timing，batch 依結果撤銷，寫入失敗就本批禁用短等待。規格 claude-osm-3、做法 CodeX 定案。1008 收尾修正：已確認清單是按鈕字（PLAY11Credits／BETx1），runner 原本拿 action name（Bet11／BetMultiple1）查，短等待永遠不會生效——按鈕識別鍵抽成 server/machine-test/ideck-button-key.js，runner 與 batch 共用一份'] },
   { version: '5.35.1', date: '2026-10-07', changes: ['fix(機台測試報告 人工複核)：CodeX 補審 acce0d6 [P1]——覆核過的步驟換 session 重算時，上一次套用留下的 manualApplied 沒清掉，classify 仍回 pass；附 before 的原判 FAIL 在 session 不符時也沒恢復。改成每次先清掉衍生標記、用原始資料重算，不採用時有 before 就整個回到覆核前'] },
   { version: '5.35.0', date: '2026-10-07', changes: ['feat(機台測試報告)：**人工複核優先於自動判定**（osm-qa-agent 回報、CodeX 定案）——summary 步驟帶結構化 manualReview（by／at／sessionId／before）就不再被機種規則與 classify 的關鍵字判回 N/V、check；只能把 N/V、check 改成 pass，FAIL 不放行；其他次執行的覆核不沿用；manualReview:true 或「［人工複核」前綴為舊資料相容。fix（CodeX 補審）：WILD 排沒有按鈕對得上／有規則外按鈕／PLAY 鍵沒按到改判未驗（原本回 ok）；learn 指標的還原與重複按鍵不算第二顆、候選全淘汰就作廢；H5／PC 佇列派工前重查，排隊途中被刪的腳本不執行；有 owner_email 的腳本編輯只認登入帳號或管理員'] },
   { version: '5.34.0', date: '2026-10-07', changes: ['feat(UAT H5／PC 腳本清單)：使用者經 claude-osm-2 定——頁籤只剩「全部」「我的」（拿掉「公開」與「允許其他使用者執行此腳本」勾選）；「我的」是個人清單（新建自動加入、可加別人的、拖曳排序、移除不刪腳本），跟後台分開、依平台分頁，規則跟後台同一份程式（createMineStore）；刪除改軟刪除、不二次確認，權限改看登入帳號（新欄位 owner_email，created_by 是瀏覽器填的字串不能當身分），舊腳本只有管理員能刪。佇列修正：刪掉的腳本不再卡在「腳本執行順序」（重新載入時清掉並告知幾份），每列多一顆 ✕ 可從執行順序移除'] },

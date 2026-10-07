@@ -25,6 +25,7 @@
 
 import { evaluateIdeckScreens, loadIdeckCrop, evaluateWildRow, loadWildRow } from './ideck-screen-check.mjs'
 import { learnIndicators, drawRegions } from './ideck-indicator-learn.mjs'
+import { ideckButtonKey } from '../../server/machine-test/ideck-button-key.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -403,7 +404,8 @@ export function ideckScreenVerdict(step, type) {
  * ⚠️ ideck-timing.json 的 noRoundButtons 是用這個寫的；runner 的 action name（Bet18／BetMultiple1）是另一套，
  *    直接拿 name 比永遠對不上（CodeX ee40495 [P2]）。沒有按鈕字的才退回 name
  */
-export const ideckButtonKey = (text, name) => String(text ?? '').replace(/\s+/g, '') || String(name ?? '')
+// 按鈕識別鍵只有一份，在 server/machine-test/ideck-button-key.js（runner 也用它查時間學習清單）
+export { ideckButtonKey }
 export function ideckAllConfirmed(step, conf) {
   if (!conf) return false
   let learn = {}
@@ -620,7 +622,7 @@ export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
     // 1005 使用者：iDeck fail 要寫出是哪一顆按鈕有問題 → 取 runner「未通過：」段落裡的「按鈕名」
     const badKeys = n === 'iDeck 測試' ? [...new Set([...(msg(s).match(/未通過：([^｜]*)/)?.[1] ?? '').matchAll(/「([^」]+)」/g)].map(x => x[1]))] : []
     if (c === 'fail') out.push(noResp ? `${k} no response` : badKeys.length ? `${k} fail (${badKeys.join(' / ')})` : `${k} fail`)
-    else if (c === 'na') out.push(`${k} not verified`)
+    else if (c === 'na') out.push(n === 'iDeck 測試' && /timing ambiguous/.test(msg(s)) ? `${k} not verified (timing ambiguous)` : `${k} not verified`)
   }
   const cc = get('CCTV 號碼比對')
   if (cc) {
@@ -889,6 +891,7 @@ async function collect(codes, sessionId, onDone, { strict = false } = {}) {
             if (!ev.result.sessionId) ev.result.unboundSession = true
             results.set(ev.machineCode, ev.result)
             log(`■ ${ev.machineCode} => ${ev.result.overall}（${results.size}/${codes.length}）`)
+            void applyIdeckRevoke(ev.machineCode, ev.result)
             onDone?.(ev.machineCode, ev.result)
           } else if (ev.type === 'error') {
             // 10-01 0342：agent WS 斷線時中控常常已經把 session 清掉（currentSid 變 null），斷線訊息因此沒記進 errors，
@@ -910,6 +913,27 @@ async function collect(codes, sessionId, onDone, { strict = false } = {}) {
     }
   } finally { clearInterval(poller) }
   return { results, errors }
+}
+// 1007 iDeck 時間學習：runner 回報撤銷（晚到的 begin／歸屬不明）→ 寫進中控（status → learning）。
+// 寫入失敗：記下來，本批之後的 session 都帶 ideckNoFast 禁用該機種短等待（CodeX：寫入失敗時禁止該機種繼續快速跑），並重試
+export const ideckRevokeOf = result => {
+  const s = (result?.steps ?? []).find(x => x.step === 'iDeck 測試')
+  try { const t = JSON.parse(s?.extraData?.ideckTiming ?? 'null'); return t?.revoke ? String(t.revoke) : null } catch { return null }
+}
+const ideckNoFast = new Set()
+async function applyIdeckRevoke(code, result) {
+  const reason = ideckRevokeOf(result)
+  if (!reason) return
+  const type = (String(code).split('-').find(p => /^[A-Z]+$/.test(p)) ?? '').toUpperCase()
+  if (!type) return
+  ideckNoFast.add(type)   // 先禁用，寫成功也不會再用短等待（中控已經不是 confirmed）
+  for (let i = 0; i < 3; i++) {
+    const r = await central(`/api/machine-test/ideck-timing/${encodeURIComponent(type)}/revoke`, { method: 'POST', body: JSON.stringify({ reason: `${code}：${reason}` }) }).catch(e => ({ status: 0, txt: String(e) }))
+    if (r.status === 200) { log(`⏱ iDeck 學習值撤銷 ${type}（${code}）：${reason}`); return }
+    if (r.status === 404) { log(`⏱ iDeck 學習值撤銷 ${type}：中控沒有這個機種的學習值（${code}）`); return }
+    await sleep(2000)
+  }
+  log(`⚠️ iDeck 學習值撤銷 ${type} 寫入中控失敗（${code}：${reason}）——本批之後都禁用短等待，請人工到中控確認`)
 }
 // 1007 learn 自動找 iDeck 畫面指標：--learn 時 session 帶 ideckCapture，runner 多拍 idle／pre／post
 let IDECK_CAPTURE = false
@@ -957,7 +981,7 @@ export function persistIdeckIndicatorLearn(result, code, outDir) {
 async function startSession(lobbyUrl, codes, stepList, agentId) {
   const start = () => central('/api/machine-test/start', {
     method: 'POST', headers: { 'x-admin-pin': CFG.adminPin },
-    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId, ...(IDECK_CAPTURE ? { ideckCapture: true } : {}) }),
+    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId, ...(IDECK_CAPTURE ? { ideckCapture: true } : {}), ...(ideckNoFast.size ? { ideckNoFast: [...ideckNoFast] } : {}) }),
   })
   let r = await start()
   // 1004、1005 各發生一次：中控在測試途中重啟（部署）→ session 沒了但鎖還在 → 之後每次都 429，要等 6 小時自癒。
