@@ -164,7 +164,7 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
     {tab === 'mine' && <small>拖 ⋮⋮ 可以排順序{query ? '（搜尋時不能拖曳，先清掉搜尋）' : ''}；「移除」只是從「我的」拿掉，腳本還在「全部」。</small>}
     {loading && <p role="status">載入腳本中…</p>}
     {error && <p role="alert">{error}，請重新整理清單。</p>}
-    <div className="uat-backend-tc-list uat-backend-all-tcs">{filtered.map(script => {
+    <div className="uat-backend-tc-list uat-backend-all-tcs uat-script-library-list">{filtered.map(script => {
       const lr = lastRunText(script.lastRun)
       const info = rowInfo.get(script.id)
       const others = !!info?.others

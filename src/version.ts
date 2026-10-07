@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.31.4'
+export const APP_VERSION = '5.31.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.31.5', date: '2026-10-07', changes: ['fix(UAT 後台錄製腳本清單)：使用者回報版面跟 mockup 不一樣——清單窄（約 370px）時腳本名稱被擠成 0、meta 那行變成綠色膠囊被截掉、出現橫向捲軸。改成 mockup 的兩行：名稱一行（粗體、過長省略），下面一行灰字 meta（可換行），只套在腳本清單'] },
   { version: '5.31.4', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定 ARUZE)：主使用者確認——ARUZE 不能套底部列像素規則（PLAY 鍵按了底部列不變）。runner 進場後讀 /game 左上角的機台名與遊戲名（.gm-info 的 .machine-id／.game-id）存進 entry 結果，每顆 iDeck 記有沒有開局；batch 依遊戲名分流：Fu Lai Cai Lai 的 PLAY 鍵看捲軸上方 4 格 WILD 數（11→0、33→1、55→2、66→3、88→4），格子認不出來或遊戲不符算未驗，數不符第一期先未驗（可能動畫中）；BET 鍵逐顆要有開局，沒開局判 no response。osm-qa-agent 實測、CodeX 定案'] },
   { version: '5.31.3', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：CodeX 審 ee40495 兩個 P2——① 報告與明細行還在讀原始結果（結論 iDeck 未過、明細寫 PASS、看不到像素失敗原因）：report 的統計／明細與 larkLine 改用套用規則後的結果；② confirmed 不開局清單用的是按鈕字（BETx1／PLAY18Credits），runner 的 action name 是 BetMultiple1／Bet18，永遠對不上：識別統一用「按鈕字去空白」；BetMultipleN 也算注額組'] },
   { version: '5.31.2', date: '2026-10-07', changes: ['fix(機台測試 iDeck 判定)：主使用者抓到——iDeck 只看 server 回應，機台畫面沒變也判 PASS（SUPERBURSTLINK 8 台）。batch 改成要有機台反應證據：已校準機種比面額鍵（CREDIT＋面額標記）與注額鍵（BET）的畫面差異，整組低於門檻判 ideck no response；缺圖未驗；開局 0 顆又沒有反應證據未驗（不能 PASS）。SUPERBURSTLINK 加選單閘門（0359 卡 SELECT DENOMINATION），確認卡在選單時 Spin 改未驗。osm-qa-agent 實測、CodeX 定案'] },

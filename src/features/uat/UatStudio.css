@@ -1735,3 +1735,12 @@ button.uat-launch-block { text-align: left; }
 .uat-last-run.is-ok { color: #4ade80; }
 .uat-last-run.is-bad { color: var(--uat-danger); }
 .uat-last-run.is-warn { color: #fbbf24; }
+
+/* 1007 後台腳本清單版面修正（使用者回報：名稱被擠成 0、meta 變綠色膠囊、出現橫向捲軸）——
+   清單列改成 mockup 的兩行：名稱一行（粗體、過長省略），下面一行灰字 meta（可換行）。只套在腳本清單，不影響其他 TC 清單 */
+.uat-script-library-list { overflow-x: hidden; }
+.uat-script-library-list .uat-script-select-row { min-width: 0; }
+.uat-script-library-list .uat-backend-tc { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0; padding: 7px 10px; }
+.uat-script-library-list .uat-backend-tc > span { display: block; min-width: 0; font-size: 13px; font-weight: 600; color: var(--uat-text); }
+.uat-script-library-list .uat-backend-tc > em,
+.uat-script-library-list .uat-backend-tc > em.has-steps { display: block; padding: 0; border-radius: 0; background: none; color: var(--uat-muted); font-size: 11.5px; white-space: normal; overflow-wrap: anywhere; }
