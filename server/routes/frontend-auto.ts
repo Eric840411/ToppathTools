@@ -19,9 +19,12 @@ import https from 'https'
 import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
-import { db, getLarkToken, getUatBackendCredentials } from '../shared.js'
+import { db, getLarkToken, getUatBackendCredentials, writeLimiter } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
 import { getAuthEmailFromContext } from '../request-context.js'
+import { getAuthAccount } from '../auth-session.js'
+import { frontendMine, canDeleteFrontendScript } from '../uat-script-mine.js'
+import { z } from 'zod'
 import { getBackendSnippet } from '../uat-backend-snippets.js'
 import { compileFrontendSteps, runFrontendStep } from '../uat-runner/frontend-engine.js'
 // H5 跑完要退出機台、把位子放掉（agent 端跑的是同一支）
@@ -49,7 +52,7 @@ const imageDir = join(process.cwd(), 'server', 'frontend-auto', 'images')
 mkdirSync(imageDir, { recursive: true })
 
 type Platform = 'h5' | 'pc'
-type ScriptRow = { id: string; created_by: string }
+type ScriptRow = { id: string; created_by: string; owner_email?: string }
 type ImageRow = { image_path: string }
 type BaselineRow = {
   id: string
@@ -176,12 +179,60 @@ function parseBindings(value: unknown): TcBinding[] {
     .slice(0, 50)
 }
 
+/**
+ * 1007 H5／PC 清單改版（使用者經 claude-osm-2 定：A 拿掉「允許其他使用者執行」、B H5／PC 一份「我的」跟後台分開、
+ * C 刪除改軟刪除；舊腳本只有管理員能刪）。
+ *   - created_by 是瀏覽器自己填的字串（local-user／claude…），**不能拿來判身分**。新腳本由伺服器記登入帳號 owner_email；
+ *     「我的」自動加入、刪除權限都看它。舊腳本 owner_email 是空的 → 不補進任何人的「我的」、只有管理員能刪
+ *   - 軟刪除：deleted_at／deleted_by，基準圖不刪（管理員還原得回來）；列表、編輯都看不到已刪的
+ *   - is_public 欄位留著不用（舊資料），畫面上的勾選拿掉
+ */
+for (const [col, ddl] of [
+  ['owner_email', "ALTER TABLE frontend_auto_scripts ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''"],
+  ['deleted_at', 'ALTER TABLE frontend_auto_scripts ADD COLUMN deleted_at INTEGER'],
+  ['deleted_by', 'ALTER TABLE frontend_auto_scripts ADD COLUMN deleted_by TEXT'],
+] as const) {
+  const cols = db.prepare('PRAGMA table_info(frontend_auto_scripts)').all() as { name: string }[]
+  if (!cols.some(c => c.name === col)) db.exec(ddl)
+}
+frontendMine.init(db)
+
+
 router.get('/api/frontend-auto/scripts', (req, res) => {
   const platform = asPlatform(req.query.platform)
   const rows = platform
-    ? db.prepare('SELECT * FROM frontend_auto_scripts WHERE platform = ? ORDER BY updated_at DESC').all(platform)
-    : db.prepare('SELECT * FROM frontend_auto_scripts ORDER BY updated_at DESC').all()
-  res.json({ ok: true, scripts: rows })
+    ? db.prepare('SELECT * FROM frontend_auto_scripts WHERE platform = ? AND deleted_at IS NULL ORDER BY updated_at DESC').all(platform)
+    : db.prepare('SELECT * FROM frontend_auto_scripts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all()
+  const account = getAuthAccount(req)
+  res.json({ ok: true, scripts: rows, me: account?.email ?? '', ...(account && platform ? { mine: frontendMine.readMine(db, account.email, platform) } : {}) })
+})
+
+// ── 1007 H5／PC「我的」清單（規則同後台，表分開；依平台分頁）──
+const mineIdsBody = z.object({ platform: z.enum(['h5', 'pc']), ids: z.array(z.string().min(1).max(100)).min(1).max(500) })
+router.post('/api/frontend-auto/mine/add', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const p = mineIdsBody.safeParse(req.body)
+  if (!p.success) return res.status(400).json({ ok: false, message: '要帶 platform 與 ids' })
+  res.json({ ok: true, ...frontendMine.addToMine(db, account.email, p.data.ids, p.data.platform) })
+})
+router.post('/api/frontend-auto/mine/remove', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const p = mineIdsBody.safeParse(req.body)
+  if (!p.success) return res.status(400).json({ ok: false, message: '要帶 platform 與 ids' })
+  res.json({ ok: true, ...frontendMine.removeFromMine(db, account.email, p.data.ids, p.data.platform) })
+})
+router.put('/api/frontend-auto/mine/order', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const p = z.object({ platform: z.enum(['h5', 'pc']), ids: z.array(z.string().min(1).max(100)).max(500), expectedRevision: z.number().int() }).safeParse(req.body)
+  if (!p.success) return res.status(400).json({ ok: false, message: '要帶 platform、ids 與 expectedRevision' })
+  const r = frontendMine.reorderMine(db, account.email, p.data.ids, p.data.expectedRevision, p.data.platform)
+  if (r.ok === false) {
+    return res.status(409).json({ ...r, message: r.code === 'revision_conflict' ? '你的「我的」清單在別的分頁被改過了，已重新載入，請再拖一次' : '清單內容跟伺服器不一致，已重新載入' })
+  }
+  res.json(r)
 })
 
 router.post('/api/frontend-auto/scripts', (req, res) => {
@@ -192,14 +243,19 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
     const name = text(body.name)
     if (!name) return res.status(400).json({ ok: false, message: 'name is required' })
     const createdBy = text(body.createdBy, 'unknown')
+    // 1007：身分只認登入帳號（created_by 是瀏覽器填的字串，留著當顯示用）
+    const ownerEmail = getAuthAccount(req)?.email ?? ''
     const ts = now()
     const id = randomUUID()
-    db.prepare(`
-      INSERT INTO frontend_auto_scripts
-        (id, name, platform, steps, created_by, is_public, created_at, updated_at, lark_url, table_id, bindings)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, name, platform, jsonSteps(body.steps), createdBy, body.isPublic === false ? 0 : 1, ts, ts,
-      text(body.larkUrl), text(body.tableId), JSON.stringify(parseBindings(body.bindings)))
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO frontend_auto_scripts
+          (id, name, platform, steps, created_by, is_public, created_at, updated_at, lark_url, table_id, bindings, owner_email)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, platform, jsonSteps(body.steps), createdBy, 1, ts, ts,
+        text(body.larkUrl), text(body.tableId), JSON.stringify(parseBindings(body.bindings)), ownerEmail)
+      if (ownerEmail) frontendMine.addNewScriptToMineTx(db, ownerEmail, id)
+    })()
     const script = db.prepare('SELECT * FROM frontend_auto_scripts WHERE id = ?').get(id)
     res.json({ ok: true, script })
   } catch (error) {
@@ -210,7 +266,7 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
 router.put('/api/frontend-auto/scripts/:id', (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
-    const existing = db.prepare('SELECT id, created_by FROM frontend_auto_scripts WHERE id = ?').get(req.params.id) as ScriptRow | undefined
+    const existing = db.prepare('SELECT id, created_by FROM frontend_auto_scripts WHERE id = ? AND deleted_at IS NULL').get(req.params.id) as ScriptRow | undefined
     const actor = text(body.createdBy, 'unknown')
     if (!canMutateScript(req, existing, actor)) return res.status(existing ? 403 : 404).json({ ok: false, message: existing ? 'forbidden' : 'script not found' })
     const name = text(body.name)
@@ -223,9 +279,9 @@ router.put('/api/frontend-auto/scripts/:id', (req, res) => {
     const binding = existingBinding(req.params.id)
     db.prepare(`
       UPDATE frontend_auto_scripts
-      SET name = ?, platform = ?, steps = ?, is_public = ?, updated_at = ?, lark_url = ?, table_id = ?, bindings = ?
+      SET name = ?, platform = ?, steps = ?, updated_at = ?, lark_url = ?, table_id = ?, bindings = ?
       WHERE id = ?
-    `).run(name, platform, jsonSteps(body.steps), body.isPublic === false ? 0 : 1, now(),
+    `).run(name, platform, jsonSteps(body.steps), now(),
       body.larkUrl === undefined ? binding.larkUrl : text(body.larkUrl),
       body.tableId === undefined ? binding.tableId : text(body.tableId),
       body.bindings === undefined ? binding.bindings : JSON.stringify(parseBindings(body.bindings)),
@@ -237,14 +293,18 @@ router.put('/api/frontend-auto/scripts/:id', (req, res) => {
   }
 })
 
+// 1007：軟刪除（基準圖、「我的」清單的列都留著，管理員還原得回來）；權限看登入帳號，不看瀏覽器填的 created_by
 router.delete('/api/frontend-auto/scripts/:id', (req, res) => {
-  const actor = text((req.body as { createdBy?: string } | undefined)?.createdBy, text(req.query.createdBy, 'unknown'))
-  const existing = db.prepare('SELECT id, created_by FROM frontend_auto_scripts WHERE id = ?').get(req.params.id) as ScriptRow | undefined
-  if (!canMutateScript(req, existing, actor)) return res.status(existing ? 403 : 404).json({ ok: false, message: existing ? 'forbidden' : 'script not found' })
-  const images = db.prepare('SELECT image_path FROM frontend_auto_baselines WHERE script_id = ?').all(req.params.id) as ImageRow[]
-  images.forEach(row => deleteStoredImage(row.image_path))
-  db.prepare('DELETE FROM frontend_auto_baselines WHERE script_id = ?').run(req.params.id)
-  db.prepare('DELETE FROM frontend_auto_scripts WHERE id = ?').run(req.params.id)
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const existing = db.prepare('SELECT id, created_by, owner_email FROM frontend_auto_scripts WHERE id = ? AND deleted_at IS NULL').get(req.params.id) as ScriptRow | undefined
+  if (!existing) return res.status(404).json({ ok: false, message: '找不到這份腳本（可能已被刪除）' })
+  const can = canDeleteFrontendScript({ ownerEmail: existing.owner_email ?? '', me: account.email, isAdmin: account.role === 'admin' })
+  if (can.ok === false) return res.status(403).json({ ok: false, message: can.why })
+  db.transaction(() => {
+    db.prepare('UPDATE frontend_auto_scripts SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL').run(now(), account.email, req.params.id)
+    frontendMine.bumpOwnersHolding(db, req.params.id)
+  })()
   res.json({ ok: true })
 })
 

@@ -10,8 +10,9 @@ import { createPauseGate } from './pause-gate'
 // ⚠️ 排隊的規則跟 Backend 共用同一支——各寫一份的話，「session 對不上要停」
 //    「取不到結果不能當通過」這些安靜出錯的規則一定會有一邊漏掉。
 import { runScriptQueue, type QueueItem } from './script-queue'
+import { buildScriptRows } from './script-sort'
 import { focusPanel } from './focusPanel'
-import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
+import type { AgentOption, AutoBaseline, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
 /* 分頁已移除：版面照 Backend 的模板改成單一畫面（視覺資產與執行紀錄走彈框）。 */
 
@@ -61,7 +62,6 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [name, setName] = useState('')
   const [steps, setSteps] = useState<AutoStep[]>([])
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
-  const [isPublic, setIsPublic] = useState(true)
   /**
    * Lark TC 綁定。**跟 Backend 同一個模式**：一份腳本綁多筆 TC，每顆積木標所屬。
    * ⚠️ 沒綁的腳本照舊能跑，只是不回寫——空的不代表壞掉。
@@ -86,7 +86,13 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const logEnd = useRef<HTMLSpanElement | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [filter, setFilter] = useState<AutoFilter>('all')
+  // 1007 清單改版：頁籤只有「全部」「我的」（拿掉「公開」，使用者決定）；我的＝個人清單，跟後台分開、依平台分頁
+  const [filter, setFilter] = useState<'all' | 'mine'>(() => { try { return localStorage.getItem('uat-frontend-script-tab') === 'mine' ? 'mine' : 'all' } catch { return 'all' } })
+  const [mine, setMine] = useState<{ ids: string[]; revision: number }>({ ids: [], revision: 0 })
+  const [me, setMe] = useState('')
+  const [libBusy, setLibBusy] = useState(false)
+  const [libMsg, setLibMsg] = useState('')
+  const [dragId, setDragId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [baselines, setBaselines] = useState<AutoBaseline[]>([])
   const [templates, setTemplates] = useState<AutoTemplate[]>([])
@@ -179,10 +185,19 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const loadScripts = useCallback(async (preferId?: string) => {
     const response = await fetch(`/api/frontend-auto/scripts?platform=${platform}`)
     if (!response.ok) return
-    const data = await response.json() as { scripts?: AutoScript[] }
+    const data = await response.json() as { scripts?: AutoScript[]; mine?: { ids: string[]; revision: number }; me?: string }
     const rows = data.scripts ?? []
     setScripts(rows)
+    setMine(data.mine ?? { ids: [], revision: 0 })
+    setMe(data.me ?? '')
     setSelectedId(current => preferId ?? (current || rows[0]?.id || ''))
+    // 1007 使用者回報：刪掉的腳本還留在「腳本執行順序」，名稱變成 id、拿不掉，「已勾」數字也對不上。
+    //   清單重新載入時，勾選裡已經不存在的一律拿掉，並且說清掉幾份（不默默消失）
+    setQueueIds(prev => {
+      const kept = prev.filter(id => rows.some(row => row.id === id))
+      if (kept.length !== prev.length) setNotice(`已從執行順序移除 ${prev.length - kept.length} 份找不到的腳本（可能已被刪除）`)
+      return kept.length === prev.length ? prev : kept
+    })
   }, [platform])
 
   const loadRuns = useCallback(async () => {
@@ -230,7 +245,6 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(selected.name)
     setSteps(parseSteps(selected.steps))
-    setIsPublic(!!selected.is_public)
     setLarkUrl(selected.lark_url ?? '')
     setBindings(parseBindings(selected.bindings))
     setSelectedStepId(null)
@@ -243,17 +257,81 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     runStream.current?.close()
   }, [pauseGate])
 
-  const visibleScripts = useMemo(() => scripts.filter(script => {
-    const matchFilter = filter === 'all' || filter === 'mine' && script.created_by === actor || filter === 'public' && !!script.is_public
-    return matchFilter && script.name.toLowerCase().includes(search.toLowerCase())
-  }), [actor, filter, scripts, search])
+  // 全部＝照名稱開頭的編號排、我的＝個人清單的順序（排序規則跟後台共用 script-sort.ts）
+  const scriptRows = useMemo(() => buildScriptRows({
+    scripts: scripts.map(script => ({ ...script, title: script.name, createdBy: script.owner_email || '' })),
+    mineIds: mine.ids, me, tab: filter,
+    match: script => script.name.toLowerCase().includes(search.toLowerCase()),
+  }), [filter, me, mine.ids, scripts, search])
+  const visibleScripts = useMemo(() => scriptRows.map(row => row.script), [scriptRows])
+  const chooseTab = (tab: 'all' | 'mine') => { setFilter(tab); setLibMsg(''); try { localStorage.setItem('uat-frontend-script-tab', tab) } catch { /* 存不了就算了 */ } }
+  const mineCount = mine.ids.filter(id => scripts.some(script => script.id === id)).length
+  const checkedVisible = queueIds.filter(id => visibleScripts.some(script => script.id === id))
+  const libSend = async (url: string, method: string, body: unknown) => {
+    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    return { status: r.status, d: await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` })) as { ok?: boolean; message?: string; ids?: string[]; revision?: number; added?: string[]; removed?: number } }
+  }
+  const addToMine = async (ids: string[]) => {
+    setLibBusy(true); setLibMsg('')
+    try {
+      const { d } = await libSend('/api/frontend-auto/mine/add', 'POST', { platform, ids })
+      if (!d.ok) throw new Error(d.message || '加入失敗')
+      setMine({ ids: d.ids ?? [], revision: d.revision ?? 0 })
+      const dup = ids.length - (d.added?.length ?? 0)
+      setLibMsg(`已加入「我的」${d.added?.length ?? 0} 份${dup ? `（${dup} 份本來就在）` : ''}`)
+    } catch (e) { setLibMsg((e as Error).message) } finally { setLibBusy(false) }
+  }
+  const removeFromMine = async (ids: string[]) => {
+    setLibBusy(true); setLibMsg('')
+    try {
+      const { d } = await libSend('/api/frontend-auto/mine/remove', 'POST', { platform, ids })
+      if (!d.ok) throw new Error(d.message || '移除失敗')
+      setMine({ ids: d.ids ?? [], revision: d.revision ?? 0 })
+      setQueueIds(prev => prev.filter(id => !ids.includes(id)))
+      setLibMsg(`已從「我的」移除 ${d.removed ?? 0} 份（腳本還在「全部」）`)
+    } catch (e) { setLibMsg((e as Error).message) } finally { setLibBusy(false) }
+  }
+  /** 刪除（只在「全部」、不二次確認——使用者決定；軟刪除，管理員救得回來）。沒權限的由 server 擋，這裡列出原因 */
+  const deleteScripts = async (ids: string[]) => {
+    setLibBusy(true); setLibMsg('')
+    const done: string[] = [], skipped: string[] = []
+    for (const id of ids) {
+      const title = scripts.find(script => script.id === id)?.name ?? id
+      try {
+        const { d } = await libSend(`/api/frontend-auto/scripts/${encodeURIComponent(id)}`, 'DELETE', {})
+        if (d.ok) done.push(id); else skipped.push(`${title}：${d.message || '刪除失敗'}`)
+      } catch (e) { skipped.push(`${title}：${(e as Error).message}`) }
+    }
+    setQueueIds(prev => prev.filter(id => !done.includes(id)))
+    if (done.includes(selectedId)) { setSelectedId(''); setSteps([]); setName(''); setDirty(false) }
+    setLibMsg(`已刪除 ${done.length} 份${skipped.length ? `；沒刪 ${skipped.length} 份——${skipped.join('；')}` : ''}`)
+    setLibBusy(false)
+    await loadScripts()
+  }
+  /** 拖曳排序：送整串看得到的 id＋目前版本；別的分頁改過（409）就整份重新載入 */
+  const saveMineOrder = async (ids: string[]) => {
+    const prev = mine
+    setMine({ ...mine, ids }); setLibBusy(true); setLibMsg('')
+    try {
+      const { status, d } = await libSend('/api/frontend-auto/mine/order', 'PUT', { platform, ids, expectedRevision: prev.revision })
+      if (d.ok) setMine({ ids: d.ids ?? ids, revision: d.revision ?? prev.revision })
+      else { setMine(prev); setLibMsg(d.message || '排序沒有存到'); if (status === 409) await loadScripts() }
+    } catch (e) { setMine(prev); setLibMsg(`排序沒有存到：${(e as Error).message}`) } finally { setLibBusy(false) }
+  }
+  const canDrag = filter === 'mine' && !search && !libBusy && !queueBusy
+  const dropOn = (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); return }
+    const ids = mine.ids.filter(id => id !== dragId && scripts.some(script => script.id === id))
+    ids.splice(ids.indexOf(targetId), 0, dragId)
+    setDragId(null)
+    void saveMineOrder(ids)
+  }
 
   const newScript = () => {
     if (dirty && !window.confirm('目前有尚未儲存的調整，仍要建立新腳本嗎？')) return
     setSelectedId('')
     setName(`新的 ${platform.toUpperCase()} 測試`)
     setSteps([createStep('goto')])
-    setIsPublic(true)
     // ⚠️ 綁定一定要清掉。不清的話新腳本會**繼承上一份的 TC**，而畫面上看起來完全正常——
     //    跑完就把結果寫到別人的那幾筆去了。
     setLarkUrl('')
@@ -315,7 +393,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     if (!name.trim()) return setNotice('請輸入腳本名稱')
     setSaving(true)
     const payload = {
-      name: name.trim(), platform, steps: serializeSteps(steps), createdBy: actor, isPublic,
+      name: name.trim(), platform, steps: serializeSteps(steps), createdBy: actor,
       // ⚠️ 三個欄位要**一起送**。少送一個後端會保留舊值（那是刻意的），
       //    但在這裡漏掉會讓畫面上的「已解除綁定」存不進去。
       larkUrl: larkUrl.trim(),
@@ -334,9 +412,11 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   }
 
   const deleteScript = async () => {
-    if (!selectedId || !window.confirm(`確定刪除「${name}」？這會一併移除腳本基準圖。`)) return
-    const response = await fetch(`/api/frontend-auto/scripts/${selectedId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ createdBy: actor }) })
-    if (!response.ok) return setNotice('刪除失敗，請確認腳本擁有者')
+    if (!selectedId || !window.confirm(`確定刪除「${name}」？（軟刪除，管理員救得回來）`)) return
+    const response = await fetch(`/api/frontend-auto/scripts/${selectedId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    const data = await response.json().catch(() => ({})) as { message?: string }
+    if (!response.ok) return setNotice(data.message ?? '刪除失敗')
+    setQueueIds(prev => prev.filter(id => id !== selectedId))
     setSelectedId('')
     setSteps([])
     setName('')
@@ -778,10 +858,20 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             一個講結果、一個講技術，看不出是同一組選擇。） */}
         <p className="uat-inline-hint">錄製＝開瀏覽器把你的操作錄成積木；手動＝從空白自己拉積木。</p>
         <input className="uat-field" value={search} onChange={event => setSearch(event.target.value)} placeholder={'搜尋腳本'} />
-        <div className="uat-filter-row">{(['all', 'mine', 'public'] as const).map(value => <button type="button" className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'all' ? '全部' : value === 'mine' ? '我的' : '公開'}</button>)}</div>
+        <div className="uat-filter-row" role="tablist" aria-label="腳本範圍">
+          <button type="button" role="tab" aria-selected={filter === 'all'} className={filter === 'all' ? 'is-active' : ''} onClick={() => chooseTab('all')}>{`全部 ${scripts.length}`}</button>
+          <button type="button" role="tab" aria-selected={filter === 'mine'} className={filter === 'mine' ? 'is-active' : ''} onClick={() => chooseTab('mine')}>{`我的 ${mineCount}`}</button>
+        </div>
+        {filter === 'mine' && <small>{`拖 ⋮⋮ 可以排順序${search ? '（搜尋時不能拖曳，先清掉搜尋）' : ''}；「移除」只是從「我的」拿掉，腳本還在「全部」。`}</small>}
         <div className="uat-script-list">
-          {visibleScripts.map(script => (
-            <div className={`uat-script-item${selectedId === script.id ? ' is-active' : ''}`} key={script.id}>
+          {scriptRows.map(({ script, inMine, others }) => (
+            <div className={`uat-script-item${selectedId === script.id ? ' is-active' : ''}${dragId === script.id ? ' is-dragging' : ''}`} key={script.id}
+              draggable={canDrag}
+              onDragStart={event => { if (!canDrag) return; setDragId(script.id); event.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={event => { if (canDrag && dragId) event.preventDefault() }}
+              onDrop={event => { event.preventDefault(); if (canDrag) dropOn(script.id); else setDragId(null) }}
+              onDragEnd={() => setDragId(null)}>
+              {filter === 'mine' && <span className={`uat-drag-grip${canDrag ? '' : ' is-off'}`} aria-hidden="true">⋮⋮</span>}
               {/* ⚠️ 勾選跟「開啟編輯」要分開：兩件事綁在一起的話，想排隊就會被迫換掉手上編的那一份 */}
               <input
                 type="checkbox"
@@ -796,22 +886,32 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
                   決定要不要點開的依據。要再拿掉的話拿掉文字就好，別把圓點加回來。 */}
               <button type="button" onClick={() => selectScript(script.id)}>
                 <span><strong>{script.name}</strong><small>
-                  {script.created_by} · {parseSteps(script.steps).length} {'區塊'}
+                  {script.owner_email ? script.owner_email.split('@')[0] : script.created_by} · {parseSteps(script.steps).length} {'區塊'}
                   {bindingCount(script) > 0 && <> · {`綁 ${bindingCount(script)} TC`}</>}
                   {lastRunOf(script.id) && <> · {lastRunText(lastRunOf(script.id)!)}</>}
                 </small></span>
               </button>
+              {filter === 'all' && inMine && <span className="uat-row-tag">{'已在我的'}</span>}
+              {others && <span className="uat-row-tag">{'別人的'}</span>}
             </div>
           ))}
-          {!visibleScripts.length && <div className="uat-list-empty">{'尚無符合條件的腳本'}</div>}
+          {!visibleScripts.length && <div className="uat-list-empty">{search ? '尚無符合條件的腳本' : filter === 'mine' ? '「我的」還沒有腳本。到「全部」勾選後按「加入我的」，或新建／錄製（會自動加入）。' : '尚無腳本'}</div>}
         </div>
         {/* 全選／清除／已勾幾份擺同一列（使用者 2026-09-18 指定）——
             三樣都是「這次要跑哪幾份」，拆三行只是把一件事佔掉三倍高度。 */}
         <div className="uat-script-select-bar">
           <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !visibleScripts.length} onClick={() => setQueueIds(visibleScripts.map(script => script.id))}>{'全選'}</button>
           <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !queueIds.length} onClick={() => setQueueIds([])}>{'清除勾選'}</button>
+          {/* 1007：刪除只在「全部」、移除只在「我的」，都沒有二次確認（使用者決定，跟後台一樣） */}
+          {filter === 'all'
+            ? <>
+                <button type="button" className="uat-btn is-primary" disabled={queueBusy || libBusy || !checkedVisible.length} onClick={() => void addToMine(checkedVisible)}>{'加入我的'}</button>
+                <button type="button" className="uat-btn is-danger" disabled={queueBusy || libBusy || !checkedVisible.length} onClick={() => void deleteScripts(checkedVisible)}>{'刪除'}</button>
+              </>
+            : <button type="button" className="uat-btn is-quiet" disabled={queueBusy || libBusy || !checkedVisible.length} onClick={() => void removeFromMine(checkedVisible)}>{'移除'}</button>}
           <span>{`已勾 ${queueIds.length} 份`}</span>
         </div>
+        {libMsg && <p role="status" className="uat-inline-hint">{libMsg}</p>}
       </aside>
 
       {/* ── 中：統計卡 ＋ 佇列 ＋ 這一份的流程 ────────────────────────── */}
@@ -847,6 +947,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
                       {!queueBusy && <span className="uat-step-move">
                         <button type="button" aria-label="往上移" disabled={index === 0} onClick={() => setQueueIds(prev => { const next = [...prev]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next })}>▲</button>
                         <button type="button" aria-label="往下移" disabled={index === queueIds.length - 1} onClick={() => setQueueIds(prev => { const next = [...prev]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; return next })}>▼</button>
+                        <button type="button" aria-label="從執行順序移除" title="從執行順序移除（不刪腳本）" onClick={() => setQueueIds(prev => prev.filter(item => item !== id))}>✕</button>
                       </span>}
                     </div>
                   )
@@ -947,8 +1048,6 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             <small>{'某一步失敗時：「繼續執行」會把剩下的步驟跑完（看得到後面還有沒有問題），「立即停止」則當場中斷。'}</small></label>
           <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => updateRunConfig({ headed: event.target.checked })} />{'顯示瀏覽器視窗'}
             <small>{'看得到瀏覽器實際在做什麼（查問題用）；不開就在背景跑，比較快。'}</small></label>
-          <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{'允許其他使用者執行此腳本'}
-            <small>{'關掉之後只有你看得到這份腳本（清單的「我的／公開」就是在分這個）。'}</small></label>
 
           {/* ── Lark TC 綁定 ─────────────────────────────────────── */}
           <label id="uat-focus-lark">{'Lark TC 路徑'}

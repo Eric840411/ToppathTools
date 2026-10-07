@@ -1,7 +1,6 @@
 export type UatMainTab = 'backend' | 'h5' | 'pc'
 export type UatThemeMode = 'classic' | 'xianxia'
 export type AutoPlatform = 'h5' | 'pc'
-export type AutoFilter = 'all' | 'mine' | 'public'
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
 export type StepFailureMode = 'inherit' | 'continue' | 'stop' | 'retry'
 export interface UatConfig {
@@ -115,6 +114,8 @@ export interface AutoScript {
   platform: AutoPlatform
   steps: string
   created_by: string
+  /** 1007：登入帳號（伺服器記）。舊腳本是空字串——身分只認這個，created_by 是瀏覽器填的字串 */
+  owner_email?: string
   is_public: number
   created_at?: number
   updated_at?: number

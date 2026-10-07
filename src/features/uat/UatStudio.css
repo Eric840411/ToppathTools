@@ -1416,6 +1416,12 @@
 
 /* 腳本清單多了一顆「排入佇列」的勾選框，所以從 button 改成「勾選框＋按鈕」兩欄 */
 .uat-backend-plan .uat-script-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 6px 0 0; border: 1px solid transparent; border-radius: 7px; }
+/* 1007 清單改版：「我的」多了拖曳把手、列尾多了「已在我的／別人的」標籤，兩欄 grid 放不下 → 改 flex，名稱那顆吃剩下的寬度 */
+.uat-backend-plan .uat-script-item { display: flex; }
+.uat-backend-plan .uat-script-item > button { flex: 1; min-width: 0; }
+.uat-backend-plan .uat-script-item > .uat-drag-grip { margin-left: 8px; }
+.uat-backend-plan .uat-script-item > .uat-drag-grip + input { margin-left: 0; }
+.uat-backend-plan .uat-script-item.is-dragging { opacity: .5; }
 .uat-backend-plan .uat-script-item.is-active { border-color: var(--uat-primary); background: var(--uat-primary-soft); }
 /* 勾選框放大（使用者回報「太小了」）。原生 checkbox 預設 13px，點擊區也小得難按。
    ⚠️ 用 width/height 而不是 transform: scale——scale 不會改變佔位，
