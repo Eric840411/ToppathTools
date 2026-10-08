@@ -62,6 +62,7 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/verdicts.ts':      join(SERVER_ROOT, 'machine-test', 'verdicts.ts'),
   // 1008：iDeck 按鈕識別鍵（runner 查時間學習清單，跟 batch 共用一份）
   'machine-test/ideck-button-key.js': join(SERVER_ROOT, 'machine-test', 'ideck-button-key.js'),
+  'machine-test/server-cfg-debug.ts': join(SERVER_ROOT, 'machine-test', 'server-cfg-debug.ts'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),

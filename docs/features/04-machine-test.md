@@ -703,3 +703,22 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
   - `npx tsx scripts/ideck-timing-probe.ts`：39 條。舊情境的第二顆改用不屬於任何族群的鍵；另外新增「最小那顆晚到開局 → 同族群不按」。跑這支時抓到一個漏洞：最後一顆晚到開局時，按回最小 Credits 會在局還沒被發現前又下一注，已改成先過收尾關卡
 - ⚠️ 還沒在真機上驗過；CodeX 待審。runner 有改，要部署 Spug，agent 也要按「更新程式碼」
 - learn 的「只做最小注」選項不需要另外做：iDeck 測試本身就是 learn 在跑的東西，規則一樣，開局族群只按最小那顆
+
+### 正式站打開 serverCfg debug（v5.41.0，2026-10-08）
+
+- **起因**：osm-qa-agent-03 在 osmplay 正式站實測 v5.40.0。正式站的 `serverCfg.js` 設定是 `window._ServerCfg = { debug: false }`，前端**完全不印** console 的 `SEND:`／`ON:` 這兩種行
+  - runner 判 iDeck、最小注確認、觸屏有沒有送出，都是讀這兩種行。所以正式站上全部判成「前端沒送」：觸屏 0/11、iDeck 0/2
+  - 同樣 20 秒的大廳：osmplay 0 行，osmslot 32 行。WS 封包數兩邊一樣，代表只是看不到，不是沒送
+- **做法**（使用者提供，等同在 Chrome 用「區域覆寫」）：`server/machine-test/server-cfg-debug.ts`
+  - 在 browser context 上攔 `serverCfg.js`，只把**明確是關閉的** debug 值（`false`／`0`／`"false"`）改成 `true`
+  - 要有字界，`apiDebug`、`_debug`、`isdebug` 這些鍵不會被改到
+  - 檔案裡沒有 debug 鍵就不改，也不自己塞一個鍵進去
+  - 進大廳後印出「🔧 serverCfg debug 已開啟（原值 …）」
+  - 沒攔到檔案、沒有 debug 鍵、或攔截出錯時，印警告。出錯時照原檔放行
+- 機台測試和 learn 走同一個 runner，一起生效
+- 大廳開關對照（osm-qa-agent-03）：連線的網域完全相同、沒有 debug 面板，差別只有 console（SEND／ON 0 → 42）
+  - ⚠️ **機台內還沒比對過**（遊戲 iframe、效能），第一次真機跑要留意
+- 白名單：已加進 agent 的下載白名單（`routes/machine-test.ts`）和 `RESTART_REQUIRED_SOURCES`。agent 要按「更新程式碼」並重啟
+- 測試：`npx tsx scripts/ui-checks/server-cfg-debug.test.ts`，共 14 條，用真瀏覽器跑一個假的 serverCfg 頁
+  - 突變測試：拿掉改寫，「前端印出 SEND」會紅；拿掉字界，「_debug／isdebug 不是 debug 鍵」會紅
+- 使用者說先做後審；CodeX 待補審

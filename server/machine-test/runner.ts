@@ -22,6 +22,7 @@ import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, 
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
 import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
+import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -5701,6 +5702,8 @@ export class MachineTestRunner extends EventEmitter {
     await ctx.addInitScript(PINUS_TRACKER_SCRIPT)
     // 1007 提示框處理第二層：頁面內 capture 攔截禁點（runner 的 uiAct 是第一層）
     await ctx.addInitScript(NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED)
+    // 1008：正式站 serverCfg debug:false → 前端不印 SEND／ON，iDeck／最小注／觸屏全部判成「前端沒送」。見 server-cfg-debug.ts
+    const cfgDebug = await installServerCfgDebug(ctx)
     const page = await ctx.newPage()
 
     // Set up GM event watcher BEFORE goto so it catches the initial WS connection
@@ -5735,6 +5738,11 @@ export class MachineTestRunner extends EventEmitter {
       emit(`導航至大廳...`)
       await page.goto(lobbyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       await sleep(2000)
+      {
+        const d = describeServerCfgDebug(cfgDebug)
+        if (d.level === 'warn') this.send({ type: 'log', machineCode, status: 'warn', message: `${workerTag} ${d.text}`, ts: new Date().toISOString() })
+        else emit(d.text)
+      }
 
       if (steps.entry) {
         const r = await stepEntry(page, machineCode, emit, profile, waitForEnterGM)
