@@ -15,7 +15,7 @@ import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
 import path from 'path'
 
-const HOST = '192.168.3.41'
+const HOST = process.env.UI_HOST || '192.168.3.36'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
 const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
@@ -47,10 +47,13 @@ for (const mode of ['classic', 'xianxia']) {
   await page.reload({ waitUntil: 'networkidle' })
   await page.locator('.sidebar, nav, aside').getByText(/^(Jira 批量開單)$|批量開單|萬卷|Meegle 批量工具/).first().click()
   await page.getByRole('button', { name: 'Meegle 開單' }).click()
-  await page.locator('.mb-select').first().selectOption('900001')
   await page.locator('.mb-input').first().fill('https://example.larksuite.com/sheets/FAKE?sheet=x')
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()
   await page.getByRole('button', { name: '下一步' }).click()
+  // 版面改過：關聯需求在 ③ 批量設定裡選、再套用到勾選的列（讀 Sheet 前那個下拉是停用的）
+  await page.getByRole('button', { name: /批量設定/ }).click()
+  await page.locator('select:has(option[value="900001"])').first().selectOption('900001')
+  await page.getByRole('button', { name: '套用到已勾選的列' }).click()
   await page.getByRole('button', { name: /^送出 \d+ 列$/ }).click()
   // 等「已開單 2」而不是等進度條本身：進度條被拿掉時要紅在下面的斷言上，不是卡在等待逾時
   await page.locator('.mb-tally', { hasText: '已開單 2' }).waitFor({ timeout: 10000 })

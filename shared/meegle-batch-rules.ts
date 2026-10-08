@@ -211,7 +211,8 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
       if (p) { if (!people.some(x => x.userKey === p.userKey)) people.push(p) }
       else unmapped.push(a)
     }
-    if (unmapped.length) warnings.push(`${unmapped.join('、')} 未對照，${def.label}${people.length ? '只會帶入已對照的人' : '將留空'}`)
+    // 1008：對不上的名字不帶（不擋）；多人欄位部分對得上時寫「部分人員不帶入」（CodeX）
+    if (unmapped.length) warnings.push(`${def.label}：${unmapped.join('、')} 對不上${people.length ? '，部分人員不帶入' : '，這個角色會空著'}`)
     roles[def.key] = { aliases, people, unmapped }
   }
 

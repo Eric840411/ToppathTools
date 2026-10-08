@@ -7,7 +7,7 @@ import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
 import path from 'path'
 
-const HOST = '192.168.3.41'
+const HOST = process.env.UI_HOST || '192.168.3.36'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'), { readonly: true })
 const sess = db.prepare("SELECT sid FROM auth_sessions WHERE expires_at > ? AND email = 'eric.wu@toppath.tw' ORDER BY created_at DESC LIMIT 1").get(Date.now())

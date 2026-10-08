@@ -38,11 +38,12 @@ eq('人名正規化', normAlias('  James   Chang '), 'james chang')
   const p = planRow({ record: { ...rec, RD負責人: 'zen,CPMS' } }, defaults, reqs, map)
   eq('CPMS 對不上 → 不擋整列（使用者決定）', p.blocks, [])
   eq('但要有警告，送出前看得到', p.warnings.length === 1 && p.warnings[0].includes('CPMS'), true)
+  eq('多人欄位部分對得上 → 寫「部分人員不帶入」（CodeX 1009）', p.warnings[0].includes('部分人員不帶入'), true)
   eq('對到的人照樣帶', p.roles.rdOwner.people.map(x => x.userKey), ['uz'])
 }
 {
   const p = planRow({ record: { ...rec, RD負責人: 'Yukai' } }, defaults, reqs, map)
-  eq('整格都對不上 → 警告寫「將留空」', p.warnings[0].includes('將留空'), true)
+  eq('整格都對不上 → 警告寫「這個角色會空著」', p.warnings[0].includes('這個角色會空著'), true)
 }
 {
   const p = planRow({ record: { ...rec, 關聯需求: '不存在的需求' } }, defaults, reqs, map)

@@ -53,7 +53,7 @@ function CreatePane({ isAdmin }: { isAdmin: boolean }) {
         </tbody>
       </table>
       <ul className="mgd-list">
-        <li>人名寫暱稱就好（Dean、zen），一格多人用<b>逗號、頓號或換行</b>分開。第一次出現的名字要在②「人員對照」配一次，之後會記住</li>
+        <li>人名寫暱稱就好（Dean、zen），一格多人用<b>逗號、頓號或換行</b>分開。名字跟 Meegle 完全一樣、而且只有一個人的會<b>自動帶入</b>；對不上的<b>不擋</b>，那個角色空著送出（③ 會標出來、送出前再提醒）。要補可以在③「批量設定」選空間人員或輸入 email，也可以點回②手動對照</li>
         <li><b>受托人、Code Review</b> Sheet 沒有欄位：在③勾選列後用「批量設定」填</li>
         <li>「進度」欄不會被讀（不等於 Meegle 狀態）</li>
       </ul>

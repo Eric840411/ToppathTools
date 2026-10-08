@@ -19,7 +19,7 @@ import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
 import path from 'path'
 
-const HOST = '192.168.3.41'
+const HOST = process.env.UI_HOST || '192.168.3.36'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'), { readonly: true })
 const sess = db.prepare("SELECT sid FROM auth_sessions WHERE expires_at > ? AND email = 'eric.wu@toppath.tw' ORDER BY created_at DESC LIMIT 1").get(Date.now())
@@ -41,6 +41,8 @@ async function openStep2(page, mode) {
   await page.locator('.mb-input').first().fill('https://example.larksuite.com/sheets/FAKE1?sheet=x')
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()
   await page.getByRole('button', { name: '下一步' }).click()
+  // 1009 起讀完直接進 ③；② 人員對照改成可選，從步驟列點回去
+  await page.locator('.mb-step', { hasText: '人員對照' }).click()
 }
 const person = (page, alias) => page.locator('.mb-person', { has: page.locator('.mb-person-name', { hasText: new RegExp(`^${alias}$`) }) })
 
@@ -74,8 +76,9 @@ for (const mode of ['classic', 'xianxia']) {
   await page.screenshot({ path: path.join(root, `meegle-people-suggest-${mode}.png`), fullPage: true })
   await btn.click()
   await page.waitForTimeout(1500)
-  const sent = verified.map(v => v.alias).sort()
-  check('全部確認只送 Tim、Albert Tsai', JSON.stringify(sent) === JSON.stringify(['Albert Tsai', 'Tim']), JSON.stringify(sent))
+  // 1009：Tim、Albert Tsai 在建議回來時就已自動 verify 過（bulkOk）；按全部確認也只會再送這兩個
+  const sent = [...new Set(verified.map(v => v.alias))].sort()
+  check('自動帶入＋全部確認都只送 Tim、Albert Tsai', JSON.stringify(sent) === JSON.stringify(['Albert Tsai', 'Tim']), JSON.stringify(verified.map(v => v.alias)))
   check('送出時都帶 userKey（後端重新核對）', verified.length > 0 && verified.every(v => /^\d+$/.test(v.userKey ?? '')))
   await ctx.close()
 }
@@ -120,6 +123,7 @@ for (const mode of ['classic', 'xianxia']) {
   await page.locator('.mb-input').first().fill('https://example.larksuite.com/sheets/FAKE2?sheet=y')
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()
   await page.getByRole('button', { name: '下一步' }).click()
+  await page.locator('.mb-step', { hasText: '人員對照' }).click()
   // 等到舊的延遲請求（4 秒）一定已經回來
   await page.waitForTimeout(6000)
   const names = await page.locator('.mb-person-name').allInnerTexts()
@@ -171,10 +175,8 @@ async function fakeSuggest(ctx, { suggestDelay = 0 } = {}) {
   })
   const page = await ctx.newPage()
   await openStep2(page, 'classic')
-  await person(page, 'Albert Tsai').locator('.mb-badge').waitFor({ timeout: 10000 })
-  // 名字排序：影響列數相同 → 依 aliasRows 順序；先記下全部確認會送哪三筆
-  await page.getByRole('button', { name: /全部確認（3）/ }).click()
-  await page.waitForTimeout(300)
+  // 1009：建議一回來就自動確認（不用按全部確認）——在自動確認跑到一半時改第二筆
+  for (let i = 0; i < 50 && !sent.length; i++) await page.waitForTimeout(100)
   const first = sent[0]?.split('=')[0]
   const others = ['Tim', 'Albert Tsai', 'Eric'].filter(a => a !== first)
   // 第一筆還在等的時候：改第二筆、也改第一筆（verify 晚回不能收掉這個新編輯）
@@ -184,7 +186,7 @@ async function fakeSuggest(ctx, { suggestDelay = 0 } = {}) {
   check('改過的那筆沒有用舊 email 送出', !sent.some(s => s.startsWith(`${others[0]}=`)), JSON.stringify(sent))
   check('沒改的照樣送出', sent.some(s => s.startsWith(`${others[1]}=`)), JSON.stringify(sent))
   const firstRow = person(page, first)
-  check('第一筆 verify 晚回後，編輯框仍在、保留新打的 email', await firstRow.locator('input').count() === 1 && await firstRow.locator('input').inputValue() === 'edited-after@toppath.tw')
+  check('第一筆 verify 晚回後，改過的 email 還在（沒被建議蓋回去）', await firstRow.locator('input').count() === 0 || await firstRow.locator('input').inputValue() === 'edited-after@toppath.tw')
   await ctx.close()
 }
 {
@@ -204,9 +206,7 @@ async function fakeSuggest(ctx, { suggestDelay = 0 } = {}) {
   })
   const page = await ctx.newPage()
   await openStep2(page, 'classic')
-  await person(page, 'Albert Tsai').locator('.mb-badge').waitFor({ timeout: 10000 })
-  await page.getByRole('button', { name: /全部確認（3）/ }).click()
-  // 等第一筆回完、第二筆送出（還在等）
+  // 1009：自動確認——等第一筆回完、第二筆送出（還在等）
   for (let i = 0; i < 50 && sent.length < 2; i++) await page.waitForTimeout(100)
   const a = sent[0]
   await person(page, a).locator('input').fill('after-done@toppath.tw')
@@ -227,14 +227,13 @@ async function fakeSuggest(ctx, { suggestDelay = 0 } = {}) {
   await ctx.route('**/api/meegle/batch/people/verify', async r => { sent.push(r.request().postDataJSON().alias); await new Promise(res => setTimeout(res, 2000)); await r.fulfill({ json: { ok: true, person: {} } }) })
   const page = await ctx.newPage()
   await openStep2(page, 'classic')
-  await person(page, 'Albert Tsai').locator('.mb-badge').waitFor({ timeout: 10000 })
-  await page.getByRole('button', { name: /全部確認（3）/ }).click()
-  await page.waitForTimeout(300)
+  // 1009：自動確認一開始就換 Sheet——自動確認也要整批停
+  for (let i = 0; i < 50 && !sent.length; i++) await page.waitForTimeout(100)
   await page.getByRole('button', { name: '上一步' }).click()
   await page.locator('.mb-input').first().fill('https://example.larksuite.com/sheets/FAKE2?sheet=y')
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()
   await page.waitForTimeout(6000)
-  check('新 Sheet 還沒回來時全部確認就停了（只送了第一筆）', sent.length === 1, JSON.stringify(sent))
+  check('新 Sheet 還沒回來時自動確認就停了（只送了第一筆）', sent.length === 1, JSON.stringify(sent))
   await ctx.close()
 }
 

@@ -11,7 +11,7 @@ import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css' // .mc-loadbar：網址列＋讀取鈕同一行，跟其他分頁一樣（使用者 10/05）
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
-import { MeeglePeoplePicker as PeoplePicker, meeglePeopleOptions } from '../components/MeeglePeoplePicker'
+import { MeeglePeoplePicker as PeoplePicker } from '../components/MeeglePeoplePicker'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -141,6 +141,9 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const [bulkConfirming, setBulkConfirming] = useState(false)
   // 晚回保護：每次讀 Sheet／重查都換一個序號，舊的回應回來時序號對不上就丟掉（CodeX 2026-10-05）
   const suggestSeq = useRef(0)
+  // 1008（CodeX）：切空間會重新掛載這個分頁（key 帶空間），但舊實例的非同步流程還在跑——
+  // 晚回的猜人結果會照樣去 verify、寫進對照表。卸載時作廢序號，舊流程看到序號變了就停
+  useEffect(() => () => { suggestSeq.current++ }, [])
   const suggestedFor = useRef(false)
 
   const [batchId, setBatchId] = useState('')
@@ -178,11 +181,13 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     setChecking(true)
     try { await loadMeta() } finally { setChecking(false) }
   }
+  // 1008（CodeX）：對照表讀不到≠全部對不上——要分開講，送出前的提醒也要說「無法核對」
+  const [peopleError, setPeopleError] = useState('')
   const loadPeople = useCallback(async () => {
     try {
       const j = await api<{ people: Array<{ alias: string; userKey: string; email: string; name: string }> }>('/api/meegle/batch/people')
-      setPeople(j.people)
-    } catch { /* 對照表讀不到時，所有人都會顯示成未對照，不會誤送 */ }
+      setPeople(j.people); setPeopleError('')
+    } catch (e) { setPeopleError((e as Error).message) }
   }, [])
   useEffect(() => { void loadMeta(); void loadPeople() }, [loadMeta, loadPeople])
 
@@ -331,10 +336,45 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
         return n
       })
       setRosterState({ loading: false, error: '', at: r.fetchedAt })
+      /**
+       * 1008 使用者：不用逐一綁定——**對得上就自動帶**（CodeX 定案的條件）：
+       *   完整名字在名單內唯一 **而且** 租戶名錄也唯一（bulkOk；名單看不到沒掛過角色的同名者），使用者沒親手碰過那列。
+       *   partial（只有部分名字相同）、同名、名錄查不到／逾時／權限錯誤 → 不帶，留在 ② 給人選。
+       *   寫入仍走 verify（伺服器重新核對 userKey 與 email），不相信前端。
+       */
+      const auto = j.suggestions.filter(sg => sg.bulkOk && sg.status === 'unique' && sg.user?.email && !touchedRef.current.has(sg.alias))
+      for (const sg of auto) {
+        if (seq !== suggestSeq.current) return
+        // 每一筆送之前再看一次：跑到一半使用者改了這列 → 不拿建議的 email 去送（跟「全部確認」同一條規則）
+        if (touchedRef.current.has(sg.alias)) continue
+        const ver = editVer.current[sg.alias] ?? 0
+        try {
+          await api('/api/meegle/batch/people/verify', { alias: sg.alias, email: sg.user!.email, userKey: sg.user!.userKey, space })
+          // 記下「驗的是哪一版」（跟手動 verify 同一份）：之後使用者再改這列 → 標「新填的還沒驗證」，不會被藏到已對照
+          setVerified(v => ({ ...v, [sg.alias]: { ver, email: sg.user!.email } }))
+        } catch { /* 核對沒過就留給人處理 */ }
+      }
+      if (auto.length && seq === suggestSeq.current) await loadPeople()
     } catch (e) {
       if (seq !== suggestSeq.current) return
       setRosterState(s => ({ ...s, loading: false, error: (e as Error).message }))
     }
+  }
+
+  /**
+   * ③ 從空間人員選人（值是 email）或直接打 email：還沒對照過就走 verify 記下來（伺服器核對完整 email、user_key 唯一）。
+   * 核對不過 → 這個名字照樣留在格子裡，預覽會標「對不上、不帶」，不擋送出。
+   */
+  const [pickErrors, setPickErrors] = useState<Record<string, string>>({})
+  async function resolvePicked(value: string) {
+    const added = value.split(/[,，、]/).map(x => x.trim()).filter(x => /@/.test(x) && !personMap[normAlias(x)])
+    if (!added.length) return
+    for (const email of added) {
+      const picked = rosterByEmail(email)
+      try { await api('/api/meegle/batch/people/verify', { alias: email, email, space, ...(picked ? { userKey: picked.userKey } : {}) }); setPickErrors(e => { const n = { ...e }; delete n[normAlias(email)]; return n }) }
+      catch (e) { setPickErrors(x => ({ ...x, [normAlias(email)]: (e as Error).message })) }
+    }
+    await loadPeople()
   }
 
   /** 全部確認：只確認 bulkOk、使用者沒親手改過、格子裡還是建議那個 email 的列；逐一走 verify */
@@ -525,18 +565,31 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   /** ① → 下一步：全員已對照就直接進 ③（CodeX 建議），② 仍可從步驟列點回去看 */
   // 進到 ② 且這次讀的 Sheet 還沒猜過 → 自動讀名單＋猜人（每次讀 Sheet 會把 suggestedFor 清掉，所以會重猜）
   useEffect(() => {
-    if (step !== 2 || !records || suggestedFor.current) return
+    if ((step !== 2 && step !== 3) || !records || suggestedFor.current) return
     suggestedFor.current = true
     void loadSuggestions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, records])
 
+  /** 1008 使用者：不用先綁人員——讀完直接進 ③；對不上的人在 ③ 標出來、送出前提醒。② 仍可從步驟列點回去手動對照 */
   function goNextFromLoad() {
-    setStep(unmappedAliases.length ? 2 : 3)
+    setStep(3)
   }
 
+  /**
+   * 1008（使用者、CodeX）：對不上的人不擋，但送出前要看得到——只算**實際會送出**、而且仍有人對不上的列。
+   * 對照表讀不到時說「無法核對」，不說「對不上」。正式空間併進正式確認；測試空間只在有提醒時跳。
+   */
+  function peopleWarn() {
+    const rowsWithGap = sendable.map(r => ({ r, gaps: MEEGLE_ROLE_DEFS.filter(d => r.plan.roles[d.key].unmapped.length).map(d => `${d.label}：${r.plan.roles[d.key].unmapped.join('、')}`) })).filter(x => x.gaps.length)
+    if (!rowsWithGap.length) return undefined
+    return {
+      title: peopleError ? `人員對照表讀不到，有 ${rowsWithGap.length} 列的人員無法核對，那些角色會空著送出` : `有 ${rowsWithGap.length} 列有人員對不上，那些角色會空著送出（仍可送出）`,
+      rows: rowsWithGap.map(({ r, gaps }) => ({ label: r.plan.name || '（沒有名稱）', detail: `${gaps.join('；')}——不帶` })),
+    }
+  }
   async function submitAndShow() {
-    if (otherSpace || !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendable.length }))) return
+    if (otherSpace || !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendable.length, warn: peopleWarn() }))) return
     // 重驗通過才切到結果頁；沒過就留在預覽頁，擋下原因（sendNote／createBlock）才看得到（CodeX 1006 [P2]）
     await submit(true, () => setStep(4))
   }
@@ -807,11 +860,19 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                       {MEEGLE_ROLE_DEFS.map(d => (
                         <div key={d.key} className="mb-field"><span>{d.label}</span>
                           <PeoplePicker listId="mb-people-options" label={d.label} value={bulk.roles[d.key] ?? ''}
-                            onChange={v => setBulk(b => ({ ...b, roles: { ...b.roles, [d.key]: v } }))} />
+                            onChange={v => { setBulk(b => ({ ...b, roles: { ...b.roles, [d.key]: v } })); void resolvePicked(v) }} />
                         </div>
                       ))}
                     </div>
-                    <datalist id="mb-people-options">{meeglePeopleOptions(people).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</datalist>
+                    {/* 1008：下拉＝空間裡掛過角色的人（Meegle 沒有完整成員名錄：team list 兩個空間都是空的） */}
+                    <datalist id="mb-people-options">{(roster ?? []).filter(u => u.email).map(u => <option key={u.userKey} value={u.email}>{u.name}</option>)}</datalist>
+                    <p className="mb-hint">
+                      {rosterState.loading ? '正在讀取空間人員…'
+                        : rosterState.error ? <span className="mb-badge mb-badge--bad">讀不到空間人員名單：{rosterState.error}（仍可直接輸入 email）</span>
+                        : `下拉是這個空間掛過角色的 ${(roster ?? []).filter(u => u.email).length} 人，不是完整名錄；名單外的人直接輸入 email。`}
+                      {peopleError && <span className="mb-badge mb-badge--bad">人員對照表讀不到：{peopleError}（人員無法核對）</span>}
+                    </p>
+                    {Object.keys(pickErrors).length > 0 && <div className="mb-alert mb-alert--warn">{Object.entries(pickErrors).map(([k, m]) => <div key={k}>{k}：{m}（這個人不會帶入）</div>)}</div>}
                   </section>
                   <section className="mb-bulk-sec mb-bulk-sec--full">
                     <div className="mb-bulk-sec-head">
@@ -892,7 +953,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                     }}>清除這些列的手動設定</button>
                   {bulkMsg && <span className="mb-muted">{bulkMsg}</span>}
                 </div>
-                <p className="mb-hint">只勾一列就等於單列修改。人員欄可以選多個人（選完會變成標籤，× 移除）。被擋下的列也能勾來補設定，仍要通過檢查才會送出。新名字要先到 ② 驗證。</p>
+                <p className="mb-hint">只勾一列就等於單列修改。人員欄可以選多個人（選完會變成標籤，× 移除）。被擋下的列也能勾來補設定，仍要通過檢查才會送出。名單外的人直接輸入 email；對不上的人不會擋，那個角色空著送出（送出前會再列一次）。</p>
               </div>
             )}
 
@@ -931,7 +992,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                           {r.plan.blocks.length > 0 ? r.plan.blocks.map((b, i) => <div key={i} className="mb-status mb-status--bad"><i>!</i>被擋：{b}</div>)
                             : r.pendingPrev ? <div className="mb-status mb-status--pending"><i>…</i>上次送出待確認</div>
                             : r.prev.length ? r.prev.map(p => <div key={p.workItemId} className="mb-status mb-status--info"><i>i</i>已在 Meegle 開過 {p.url ? <a href={p.url} target="_blank" rel="noreferrer">#{p.workItemId}</a> : `#${p.workItemId}`}</div>)
-                            : r.plan.warnings.length ? <div className="mb-status mb-status--warn" title={r.plan.warnings.join(String.fromCharCode(10))}><i>!</i>警告：{[...new Set(MEEGLE_ROLE_DEFS.flatMap(d => r.plan.roles[d.key].unmapped))].join('、')} 未對照</div>
+                            : r.plan.warnings.length ? <div className="mb-status mb-status--warn" title={r.plan.warnings.join(String.fromCharCode(10))}><i>!</i>{[...new Set(MEEGLE_ROLE_DEFS.flatMap(d => r.plan.roles[d.key].unmapped))].join('、')} 對不上，不帶</div>
                             : <div className="mb-status mb-status--ok"><i /> 可送出</div>}
                           {r.jiraKey && <div className="mb-status mb-status--muted">Jira 已開 {r.jiraKey}</div>}
                         </td>

@@ -43,12 +43,17 @@ export function OtherSpaceNotice({ other, space }: { other: MeegleSpace | null |
  */
 type Ask = { op: string; sheet: string; count: number; warn?: { title: string; rows: Array<{ label: string; detail: string }> } }
 
-/** 正式空間送出前確認。回傳 [確認函式, 要放進畫面的彈窗]。測試空間直接回 true */
+/**
+ * 送出前確認。回傳 [確認函式, 要放進畫面的彈窗]。
+ * - 正式空間：一律跳「確認送到正式空間」，有 warn 就併在裡面
+ * - 測試空間：有 warn 才跳（只列提醒），沒有就直接回 true
+ * 1008：Meegle 開單（人員對不上）與評論（格式不完整）共用這一個——兩個分頁各寫一份彈窗遲早會漂
+ */
 export function useProdConfirm(space: MeegleSpace): [(a: Ask) => Promise<boolean>, React.ReactNode] {
   const [ask, setAsk] = useState<Ask | null>(null)
   const resolver = useRef<((ok: boolean) => void) | null>(null)
   const confirm = (a: Ask) => {
-    if (space !== 'prod') return Promise.resolve(true)
+    if (space !== 'prod' && !a.warn?.rows.length) return Promise.resolve(true)
     return new Promise<boolean>(resolve => { resolver.current = resolve; setAsk(a) })
   }
   const done = (ok: boolean) => { resolver.current?.(ok); resolver.current = null; setAsk(null) }
@@ -57,23 +62,23 @@ export function useProdConfirm(space: MeegleSpace): [(a: Ask) => Promise<boolean
     <div className="msp-modal-back" onClick={() => done(false)}>
       <div className="msp-modal" role="dialog" aria-modal="true" aria-labelledby="msp-modal-title" onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Escape') done(false) }}>
-        <h3 id="msp-modal-title" className="msp-modal-title">確認送到正式空間</h3>
-        <dl className="msp-modal-list">
+        <h3 id="msp-modal-title" className="msp-modal-title">{space === 'prod' ? '確認送到正式空間' : ask.warn?.title}</h3>
+        {space === 'prod' && <dl className="msp-modal-list">
           <dt>空間</dt><dd><span className="msp-tag msp-tag--prod">正式</span></dd>
           <dt>操作</dt><dd>{ask.op}</dd>
           <dt>Sheet</dt><dd className="msp-modal-sheet">{ask.sheet || '—'}</dd>
           <dt>筆數</dt><dd>{ask.count} 筆</dd>
-        </dl>
+        </dl>}
         {ask.warn && ask.warn.rows.length > 0 && (
           <div className="msp-modal-warn">
-            <b>{ask.warn.title}</b>
+            {space === 'prod' && <b>{ask.warn.title}</b>}
             <ul>{ask.warn.rows.map((r, i) => <li key={i}>{r.label}<span>{r.detail}</span></li>)}</ul>
           </div>
         )}
-        <p className="msp-modal-note">送出後會直接改到正式空間的單，不能復原。</p>
+        <p className="msp-modal-note">{space === 'prod' ? '送出後會直接改到正式空間的單，不能復原。' : '這些只是提醒，不會擋送出。要補的話按「取消」回去改。'}</p>
         <div className="msp-modal-actions">
           <button type="button" className="mb-btn" onClick={() => done(false)}>取消</button>
-          <button type="button" className="mb-btn mb-btn--primary msp-btn-prod" autoFocus onClick={() => done(true)}>確認送出 {ask.count} 筆</button>
+          <button type="button" className={`mb-btn mb-btn--primary${space === 'prod' ? ' msp-btn-prod' : ''}`} autoFocus onClick={() => done(true)}>{space === 'prod' ? `確認送出 ${ask.count} 筆` : `照樣送出 ${ask.count} 筆`}</button>
         </div>
       </div>
     </div>,
