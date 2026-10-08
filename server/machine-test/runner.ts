@@ -3803,7 +3803,7 @@ export async function stepIdeck(
       for (const b of buttons) {
         try { const el = (await (page.frames()[b.frameIdx] ?? page.frames()[0]).$$(b.xpath))[0]; preTexts[b.label] = ((await el?.textContent()) ?? '').replace(/\s+/g, ' ').trim() } catch { preTexts[b.label] = '' }
       }
-      const reordered = ideckFamilyOrder(buttons.map(b => preTexts[b.label] ?? '')).map(i => buttons[i])
+      const reordered = betRulesLearn ? ideckFamilyOrder(buttons.map(b => preTexts[b.label] ?? '')).map(i => buttons[i]) : [...buttons]
       if (reordered.some((b, i) => b !== buttons[i])) emit(`iDeck 依族群由小到大重排：${reordered.map(b => preTexts[b.label] || b.label).join('、')}`)
       buttons.splice(0, buttons.length, ...reordered)
       const liveOutcomes: Outcome[] = []
@@ -3833,7 +3833,7 @@ export async function stepIdeck(
           // 1008 別下大注：同族群的最小那顆按過、而且有開局（或不確定）→ 這個族群是開局鍵，比它大的不按
           const fam = classifyBetKey(preTexts[b.label] ?? '')
           const minOfFam = fam ? familyMin[fam.group] : null
-          if (fam && minOfFam && minOfFam !== b.label && /^\d+$/.test(idx)) {
+          if (betRulesLearn && fam && minOfFam && minOfFam !== b.label && /^\d+$/.test(idx)) {
             const why = await familyRoundOpening(fam.group)
             if (why) {
               emit(`⏭ iDeck ${b.label}「${preTexts[b.label]}」不按：${why}`)
@@ -3845,7 +3845,7 @@ export async function stepIdeck(
           return o
         },
         // 1008：倍數族群是開局鍵（x1 開了局、其他都沒按）→ 倍數本來就停在 x1，不再按（再按會再開一局）
-        skipRestore: os => { const x1 = os.find(o => o.name === 'BetMultiple1'); return x1 && /有開局/.test(x1.note) ? '倍數鍵是開局鍵，只按了 x1，倍數本來就在 x1' : null },
+        skipRestore: os => { if (!betRulesLearn) return null; const x1 = os.find(o => o.name === 'BetMultiple1'); return x1 && /有開局/.test(x1.note) ? '倍數鍵是開局鍵，只按了 x1，倍數本來就在 x1' : null },
         settle, afterTimeout,
         shouldStop: () => shouldStop?.() ?? false,
         // 1008 SPIN 一律最小注：還原時先按回最小的 Credits 鍵（再照舊按 BetMultiple1）。那一顆測試時開過局就不按（會再開一局）
@@ -3856,6 +3856,8 @@ export async function stepIdeck(
             finalGateDone = true
             if (g.ok === false) { emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}`; prev.outcome.result = 'spinTimeout'; prev.outcome.halt = g.why; return 'stop' }
           }
+          // 上面的收尾關卡兩種模式都做（不按任何東西）；按回最小 Credits 只在學習模式
+          if (!betRulesLearn) return null
           const cands = os.map((o, i) => ({ i, o, c: classifyBetKey(btnTexts[o.label] ?? o.text ?? '') })).filter(x => x.c?.group === 'credits')
           if (!cands.length) return null
           const min = Math.min(...cands.map(x => x.c!.value))
@@ -4041,6 +4043,16 @@ function machineLayout(machineCode: string): { screens?: number } | null {
 let ideckCaptureOn = false
 const IDECK_LEARN_IDLE_SHOTS = 4, IDECK_LEARN_IDLE_GAP_MS = 3000
 export function setIdeckCapture(on: boolean) { ideckCaptureOn = on }
+/**
+ * 1008 學習專用的下注規則（使用者選「照建議隔開」，osm-qa-agent-03 轉達）。只有 session.betRules === 'learn'（batch --learn）才開：
+ *   - Spin 前 ensureMinBet（確認不了最小注就不 SPIN）
+ *   - iDeck 族群由小到大、開局或不確定的族群大鍵不按、還原先按回最小 Credits、倍數鍵是開局鍵就不還原 x1
+ * 關著（/machine-test 預設）＝v5.40 之前的行為：DOM 順序全按、照舊還原 BetMultiple1、Spin 直接按。
+ * ⚠️ 收尾等晚到的 begin（1007 時間學習的關卡）不受這個開關影響——它不按任何東西，只是不在局還沒結束時按還原。
+ * （正式站學習已改由 osm-qa-agent 的獨立腳本做，不走 runner。）
+ */
+let betRulesLearn = false
+export function setBetRules(rules: 'learn' | undefined) { betRulesLearn = rules === 'learn' }
 async function grabMainCrop(page: Page, machineCode: string, file: string): Promise<string | null> {
   try {
     const box = await mainVideoBox(page, machineCode)
@@ -6098,13 +6110,14 @@ export class MachineTestRunner extends EventEmitter {
             } else {
               emit(`Spin 前選單閘門：${gate.state}｜${gate.note}`)   // 1003：一律記，才知道閘門有沒有認出選單
               // 1008 使用者硬規則「SPIN 一律用最小注」：先把面額／Credits／倍數按到最小並確認，確認不了就不按 SPIN（判未驗）
-              const minBet = await ensureMinBet(page, emit, () => this.stopped)
+              // 1008：只在學習模式（betRules:'learn'）做；/machine-test 照原本直接按 SPIN
+              const minBet: Awaited<ReturnType<typeof ensureMinBet>> = betRulesLearn ? await ensureMinBet(page, emit, () => this.stopped) : { ok: true, note: '' }
               let r3: StepResult
               if (minBet.ok === false) {
                 r3 = { step: 'Spin 測試', status: 'skip', message: `未驗：沒按 SPIN——無法確認是最小注（${minBet.why}）｜使用者規則：SPIN 一律最小注，不確定就不下注`, durationMs: 0 }
               } else {
                 r3 = await capture(() => stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio))
-                r3 = { ...r3, message: `${r3.message}｜${minBet.note}` }
+                if (minBet.note) r3 = { ...r3, message: `${r3.message}｜${minBet.note}` }
               }
               // CodeX 0930：判斷不了選單時照原流程按，但要留註記——不能當成已排除選單干擾（batch 看到這段就不判 spin no response）
               if (gate.state === 'unknown' && /選單狀態未知/.test(gate.note)) r3 = { ...r3, message: `${r3.message}｜${gate.note}` }
@@ -6235,6 +6248,7 @@ export class MachineTestRunner extends EventEmitter {
 
   async run(session: MachineTestSession) {
     setIdeckCapture(session.ideckCapture === true)
+    setBetRules(session.betRules)
     this.debugGmid = session.debugGmid?.trim() || null
     this.ideckTimings = session.ideckTimings ?? {}
     this.ideckNoFast = new Set((session.ideckNoFast ?? []).map(t => t.toUpperCase()))

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.41.0'
+export const APP_VERSION = '5.42.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.42.0', date: '2026-10-08', changes: ['feat(機台測試 下注規則隔開)：使用者擔心 v5.40 改壞 /machine-test，選「照建議隔開」（osm-qa-agent-03 轉達）——v5.40 的下注規則（Spin 前 ensureMinBet、iDeck 族群由小到大、開局／不確定族群大鍵不按、還原先按回最小 Credits、倍數是開局鍵不還原 x1）只在 session.betRules="learn"（batch --learn 自動帶）時生效；預設關＝/machine-test 回到 v5.40 之前：DOM 順序全按、照舊還原 BetMultiple1、Spin 直接按。保留：v5.41 serverCfg debug、v5.39 靜音重錄、v5.35 人工複核、1007 收尾等晚到 begin 的關卡（不按任何東西，兩種模式都做）。正式站學習改由 osm-qa-agent 獨立腳本做，「切回 x1 按完 PLAY」不併入。驗證：關著時的按鍵順序跟 ec00a76（v5.39.0）的 runner 在同樣假頁面上一字不差；強制開著時「關著」三條會紅'] },
   { version: '5.41.0', date: '2026-10-08', changes: ['feat(機台測試 正式站)：osm-qa-agent-03 真機回報——正式站（osmplay）的 serverCfg.js 是 debug:false，前端不印 console SEND／ON，iDeck／最小注確認／觸屏全部判成「前端沒送」（觸屏 0/11、iDeck 0/2）。照使用者提供的做法（等同 Chrome 區域覆寫），runner 在 context 攔 serverCfg.js，只把關閉的 debug 改成 true（apiDebug／_debug 不動），進大廳後 log「serverCfg debug 已開啟」；沒攔到、沒有 debug 鍵或攔截出錯 → 警告。learn 走同一個 runner。大廳開關對照：網域相同、沒有 debug 面板；機台內還沒比對過。使用者說先做後審，CodeX 待補審。新增 scripts/ui-checks/server-cfg-debug.test.ts（真瀏覽器；拿掉改寫、拿掉字界都會紅）'] },
   { version: '5.40.1', date: '2026-10-08', changes: ['fix(UAT PC 積木 __name)：claude-osm-2 PC T-A-002 回報——腳本沒先跑 pc_enter_machine／assert_pc_scene 時，pc_scroll 炸「__name is not defined」、assert_pc_node 被 pcFindNode 的 catch 吞成「場景樹裡找不到」（看起來像機台名稱沒渲染）。改成每顆 PC 積木取得 pc 時都補 shim（initScript 每頁只掛一次）；新增 scripts/ui-checks/pc-eval-shim.test.ts，拿掉補 shim 會紅 3 條、錯誤訊息與回報一字不差', 'feat(診斷)：assert_pc_node「在遮罩外」訊息附上遮罩的可視範圍座標，方便查 1366×768 下的誤判'] },
   { version: '5.40.0', date: '2026-10-08', changes: ['feat(機台測試 下注安全)：使用者硬規則「SPIN 一律最小注、別下大注」——Spin 前把面額／Credits／倍數各按到最小並確認（伺服器回應、沒開局），確認不了就不 SPIN（判未驗）；iDeck 依族群由小到大按，最小那顆會開局（或不確定）就當成開局族群、比它大的不按；還原改成按回最小 Credits，倍數是開局鍵時不再還原 x1；收尾先等晚到的局再還原（不然會多下一注）。不寫死機種，每台跑的當下驗出來（使用者同意先做後審）'] },

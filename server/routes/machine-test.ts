@@ -324,6 +324,8 @@ const machineTestSessionSchema = z.object({
   aiAudio: z.boolean().optional(),
   /** 1007 learn 自動找 iDeck 畫面指標：iDeck 多拍 idle／pre／post */
   ideckCapture: z.boolean().optional(),
+  /** 1008 學習專用的下注規則（batch --learn 自動帶）；沒帶＝原本 /machine-test 行為 */
+  betRules: z.enum(['learn']).optional(),
   /** 1007 iDeck 時間學習：batch 撤銷寫入失敗的機種，本批禁用短等待 */
   ideckNoFast: z.array(z.string().min(1)).optional(),
 })

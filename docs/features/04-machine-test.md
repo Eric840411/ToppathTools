@@ -722,3 +722,24 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 測試：`npx tsx scripts/ui-checks/server-cfg-debug.test.ts`，共 14 條，用真瀏覽器跑一個假的 serverCfg 頁
   - 突變測試：拿掉改寫，「前端印出 SEND」會紅；拿掉字界，「_debug／isdebug 不是 debug 鍵」會紅
 - 使用者說先做後審；CodeX 待補審
+
+### 學習專用的下注規則跟 /machine-test 隔開（v5.42.0，2026-10-08）
+
+- **起因**：使用者擔心 v5.40 的「SPIN 一律最小注」會改壞 /machine-test 的邏輯，越改越糟。實際上確實改到了：
+  - PLAY 會開局的機種（DFDC／ARUZE）Spin 一律變成未驗
+  - iDeck 略過大鍵，涵蓋率變低
+  - 使用者選「照建議隔開」
+- **開關**：`session.betRules = 'learn'`。batch `--learn` 會自動帶，**預設關**
+  - **開著才生效**：Spin 前 `ensureMinBet`、iDeck 族群由小到大、開局或不確定族群的大鍵不按、還原先按回最小 Credits、倍數是開局鍵就不還原 x1
+  - **關著（/machine-test）＝v5.40 之前**：DOM 順序全按、照舊還原 BetMultiple1、Spin 直接按
+- **兩種模式都保留**：
+  - v5.41 serverCfg debug（osmslot 本來就是 true，沒影響）
+  - v5.39 靜音重錄、v5.35 人工複核
+  - 1007 收尾等晚到 begin 的關卡。它不按任何東西，只是不在局還沒結束時按還原。⚠️ 這點算是 /machine-test 的行為差異，回歸比對時要留意
+- 正式站學習改由 osm-qa-agent 的獨立腳本做（`osm-qa-agent/scripts/prod-learn.cjs`），不走 runner
+  - 「開局族群切回 x1、逐顆按完 PLAY」的改動沒有併入
+- **驗證**：
+  - `scripts/min-bet-family-probe.ts` 共 11 條，新增關著的 3 條。關著時的按鍵順序跟 ec00a76（v5.39.0）的 runner 在同樣假頁面上一字不差（用 worktree 實跑對照）
+  - 突變測試：強制開著，「關著」那 3 條會紅
+  - `ideck-timing-probe` 有 2 條是學習規則的期望，改成只在那 2 條開著跑，共 39/39
+  - `verdicts-probe` 70/70、`min-bet-probe` 9/9

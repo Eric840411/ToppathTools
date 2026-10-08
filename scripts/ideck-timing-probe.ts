@@ -4,7 +4,7 @@
 // ⚠️ 每個情境都會跑 stepIdeck 裡固定的 15 秒盒子 log 等待，整支約 3～4 分鐘
 import { chromium, type Page } from 'playwright'
 import { ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg } from '../server/machine-test/verdicts.js'
-import { stepIdeck } from '../server/machine-test/runner.js'
+import { stepIdeck, setBetRules } from '../server/machine-test/runner.js'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${got !== undefined ? `：${typeof got === 'string' ? got : JSON.stringify(got)}` : ''}`) }
@@ -67,6 +67,8 @@ await page.route('http://probe.local/**', r => r.fulfill({ contentType: 'text/ht
 try {
   const NR: Btn[] = [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }, { name: 'BetMultiple1', text: 'BETx1', aid: 1, beginAfter: 700, roundMs: 800 }]
   // 1. 套用學習值：清單裡的兩顆短等待、BET 保守；結果跟保守模式一樣
+  // 1008：這一條的收尾期望（按回最小 Credits、倍數是開局鍵不還原）是學習專用規則 → 開著跑
+  setBetRules('learn')
   const fast = await run(page, NR)
   const slow = await run(page, NR, { cfg: null })
   const modes = fast.t.buttons?.map((b: { mode: string }) => b.mode)
@@ -79,6 +81,7 @@ try {
   ok(/時間模式：學習值/.test(fast.r.message) && /時間模式：保守/.test(slow.r.message), '訊息寫明時間模式')
   ok(fast.t.buttons?.[2]?.t_round !== null && fast.t.buttons?.[0]?.t_begin === null && fast.t.buttons?.[0]?.t_ready === null, '時間欄位：沒觀測到記 null、t_ready 不填固定等待', fast.t.buttons?.[0])
 
+  setBetRules(undefined)
   // 2. 晚到的 begin（短等待 1.5 秒之後、下一顆之前）→ 記在那一顆「有開局」、撤銷、後面改保守
   // 第二顆用不屬於任何族群的鍵（AUTO），不然「最小那顆有開局 → 同族群不按」會先擋下來（那條另有測試）
   const late = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Auto', text: 'AUTO', aid: 33 }])
@@ -121,9 +124,11 @@ try {
   ok(amb.clicks.length === 2 && !amb.clicks.some(c => c.name === 'BetMultiple1'), '歸屬不明之後 iDeck 零點擊', amb.clicks.map(c => c.name))
   ok(amb.revokes.length === 1 && /歸屬不明/.test(amb.revokes[0]), '歸屬不明也撤銷', amb.revokes)
 
-  // 1008 別下大注：最小那顆（PLAY 11）晚到開局 → 同族群的 PLAY 33 不按
+  // 1008 別下大注：最小那顆（PLAY 11）晚到開局 → 同族群的 PLAY 33 不按（學習專用規則）
+  setBetRules('learn')
   const fam = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }])
   ok(fam.clicks.length === 1 && /略過 1 顆（PLAY 33 Credits：/.test(fam.r.message), '最小那顆晚到開局 → 同族群比它大的不按、寫出略過原因', { clicks: fam.clicks.map(c => c.name), msg: fam.r.message.slice(0, 200) })
+  setBetRules(undefined)
   // CodeX 139aa8d [P1]：最後一顆（沒有倍數鍵、不會還原）短等待後才晚開局、45 秒都沒結束 → 不能 PASS
   const tail = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 120000 }])
   ok(tail.r.status === 'fail' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })

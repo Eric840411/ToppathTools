@@ -989,7 +989,7 @@ export function persistIdeckIndicatorLearn(result, code, outDir) {
 async function startSession(lobbyUrl, codes, stepList, agentId) {
   const start = () => central('/api/machine-test/start', {
     method: 'POST', headers: { 'x-admin-pin': CFG.adminPin },
-    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId, ...(IDECK_CAPTURE ? { ideckCapture: true } : {}), ...(ideckNoFast.size ? { ideckNoFast: [...ideckNoFast] } : {}) }),
+    body: JSON.stringify({ lobbyUrls: [lobbyUrl], machineCodes: codes, steps: Object.fromEntries(ALL_STEPS.map(s => [s, stepList.includes(s)])), account: CFG.email, headedMode: true, osmEnv: CFG.osmEnv, aiAudio: false, agentId, ...(IDECK_CAPTURE ? { ideckCapture: true, betRules: 'learn' } : {}), ...(ideckNoFast.size ? { ideckNoFast: [...ideckNoFast] } : {}) }),
   })
   let r = await start()
   // 1004、1005 各發生一次：中控在測試途中重啟（部署）→ session 沒了但鎖還在 → 之後每次都 429，要等 6 小時自癒。

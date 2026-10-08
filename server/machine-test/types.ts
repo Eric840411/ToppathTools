@@ -34,6 +34,11 @@ export interface MachineTestSession {
   sessionId?: string
   /** 1007 learn 自動找 iDeck 畫面指標：iDeck 多拍 idle／pre／post（batch --learn 自動帶） */
   ideckCapture?: boolean
+  /**
+   * 1008 下注規則（使用者選「照建議隔開」）：'learn'＝學習專用規則（Spin 前最小注、iDeck 族群由小到大、開局族群大鍵不按）。
+   * 沒帶＝/machine-test 原本的行為（v5.40 之前）。batch --learn 自動帶
+   */
+  betRules?: 'learn'
   /** 1007 iDeck 時間學習：機種 → 學習值（中控 start 時從 machine_test_ideck_timing 帶入；只有 confirmed 才套用） */
   ideckTimings?: Record<string, import('./verdicts.js').IdeckTimingCfg>
   /** 1007：這些機種不准用短等待（batch 撤銷寫入中控失敗時帶入） */
