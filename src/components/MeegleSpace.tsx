@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MEEGLE_SPACES, meegleSpaceLabel, type MeegleSpace } from '../../shared/meegle-space'
 import './MeegleSpace.css'
@@ -57,6 +57,17 @@ export function useProdConfirm(space: MeegleSpace): [(a: Ask) => Promise<boolean
     return new Promise<boolean>(resolve => { resolver.current = resolve; setAsk(a) })
   }
   const done = (ok: boolean) => { resolver.current?.(ok); resolver.current = null; setAsk(null) }
+  /**
+   * 1009（CodeX）：只有遮罩與 aria-modal 不夠——鍵盤 Tab 還是走得到背景的按鈕（例如在確認框開著時改人員）。
+   * 開著時把整個 App（#root）設成 inert：背景不能聚焦、不能點；彈窗掛在 body（#root 外），不受影響
+   */
+  useEffect(() => {
+    if (!ask) return
+    const root = document.getElementById('root')
+    if (!root) return
+    root.inert = true
+    return () => { root.inert = false }
+  }, [ask])
   // 彈窗掛在 body：祖先有 backdrop-filter，position: fixed 會被困在容器裡（CLAUDE.md 跨功能踩坑 #7）
   const modal = ask && createPortal(
     <div className="msp-modal-back" onClick={() => done(false)}>

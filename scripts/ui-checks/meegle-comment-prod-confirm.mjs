@@ -60,9 +60,18 @@ const txt = (await dlg.innerText()).replace(/\s+/g, ' ')
 check('那一個是正式確認', /確認送到正式空間/.test(txt), txt.slice(0, 60))
 check('格式提醒併在正式確認裡（列出缺的細項）', /評論格式不完整/.test(txt) && /缺：/.test(txt), txt.slice(0, 200))
 await page.screenshot({ path: path.join(root, 'mc-prod-confirm.png') })
+// 1009（CodeX）：只有遮罩不夠，鍵盤 Tab 要走不出彈窗（背景 #root 設 inert）
+const escaped = []
+for (let i = 0; i < 15; i++) {
+  await page.keyboard.press('Tab')
+  const where = await page.evaluate(() => { const a = document.activeElement; return !a || a === document.body ? 'body' : a.closest('[role=dialog]') ? 'dialog' : (a.textContent || a.tagName).trim().slice(0, 20) })
+  if (where !== 'dialog' && where !== 'body') escaped.push(where)
+}
+check('確認框開著時按 Tab 15 次，焦點都留在彈窗裡（背景按不到）', escaped.length === 0, JSON.stringify(escaped))
 await dlg.getByRole('button', { name: '取消' }).click()
 await page.waitForTimeout(400)
 check('取消 → 沒送、彈窗關掉', posted === 0 && (await dialogs().count()) === 0)
+check('彈窗關掉後背景恢復可以操作（#root 不再 inert）', await page.evaluate(() => !document.getElementById('root').inert))
 check('沒有頁面錯誤', errors.length === 0, errors.join(' | '))
 await browser.close()
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

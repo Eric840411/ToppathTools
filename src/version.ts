@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.47.2'
+export const APP_VERSION = '5.47.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.47.3', date: '2026-10-09', changes: ['fix(Meegle 送出確認彈窗 鍵盤走不出去)：CodeX 指出——彈窗只有遮罩與 aria-modal，鍵盤 Tab 還是走得到背景的按鈕（例如確認框開著時改人員）。開著時把整個 App（#root）設成 inert，彈窗掛在 body 不受影響；關掉恢復。開單、評論、狀態、修改四個分頁共用這一個彈窗。meegle-comment-prod-confirm 補「Tab 15 次焦點都在彈窗裡」「關掉後背景恢復」，拿掉 inert 會紅'] },
   { version: '5.47.2', date: '2026-10-09', changes: ['fix(Meegle 開單 ② 手動驗證也鎖送出)：CodeX 複審 d712df8 [P2]——② 單筆驗證、全部確認沒算進「人員比對中」，按了驗證馬上切到 ③ 就能送出，verify 之後才寫進對照表、後端照樣帶入確認框說不帶的人。單筆驗證（含最後 loadPeople）、全部確認整段都算進鎖。meegle-people-auto 補「② 驗證晚 4 秒回 → 切 ③ 送出鍵鎖住、回來才解鎖」，拿掉會紅'] },
   { version: '5.47.1', date: '2026-10-09', changes: ['fix(Meegle 開單 人員比對中不能送)：CodeX 審 9961c04 [P2]——自動 verify 還沒回時就能送出：確認框寫「Tim 不帶」，送出時 verify 剛好成功，後端照對照表就帶了 Tim，確認的內容跟實際不一樣。改成人員比對／verify 進行中鎖住送出鍵（寫「人員比對中」）；確認框關掉後用最新結果比對，人員結果變了就用新結果再確認一次。meegle-people-auto 補「verify 晚 4 秒回」：比對中鎖住、回來才解鎖、確認框用的是比對完的結果；拿掉鎖會紅。必填角色：CodeX 接受「既有 unknownRequired 會擋整批」，撤回逐列檢查要求'] },
   { version: '5.47.0', date: '2026-10-09', changes: ['feat(Meegle 開單 人員不用逐一綁定)：使用者 Lark 提議、CodeX 定案——改回 Jira 的方式：對得上就帶、對不上不擋。讀完 Sheet 直接進 ③（② 人員對照改成可選、可從步驟列點回去）；猜人結果回來就自動確認「完整名字＋名單唯一＋租戶名錄也唯一（checkDirectoryLabel）」的人（Eric 這種名單唯一但租戶同名的不帶；partial 不帶），寫入仍走 verify（伺服器重新核對）、每筆送前再檢查使用者有沒有改過那列、記下驗證版本。③ 人員下拉＝空間掛過角色的人（Meegle 沒有完整成員名錄：team list 兩個空間都是空的），畫面寫明不是完整名錄；選到或打 email 會走 verify 記下。③ 標「X 對不上，不帶」；送出前列出實際送出且仍有人對不上的列（正式空間併進正式確認、測試空間只在有提醒時跳），對照表讀不到時寫「無法核對」。切空間（分頁重新掛載）時作廢舊流程，晚回的猜人結果不再 verify。必填角色：兩個空間建立都不要求任何角色（實測 meta-create-fields／meta-roles），將來變必填會被既有的「不支援的必填欄位」擋下。useProdConfirm 測試空間也能只顯示提醒，評論分頁改用它（移除自己的那份彈窗）。新增 meegle-people-auto（真名單：只自動帶 Tim、Albert；Eric、Tim Chen、Nobody 不帶；切空間舊結果晚回不 verify），拿掉 bulkOk 條件或卸載作廢都會紅；修好 3 支因版面改過而壞掉的舊腳本'] },
