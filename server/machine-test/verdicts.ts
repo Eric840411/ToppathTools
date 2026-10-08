@@ -103,6 +103,11 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
 }): Promise<{ outcomes: O[]; restore: O | null; aborted: boolean; stopped: boolean; backs: Array<{ of: number; o: O }>; minRestore?: O | null; skipped: O[]; restoreSkipped?: string | null }> {
   const skipped: O[] = []
   const outcomes: O[] = []
+  /**
+   * CodeX 3487482 [P1]：outcomes[k] 是 buttons[btnOf[k]] 按出來的。有略過的鍵之後兩者位置就錯開了——
+   * 原本拿 outcomes 的位置去取 buttons，「還原 x1」會按到別顆（重現：略過 Bet88 後還原按到 Bet88）。back 同理。
+   */
+  const btnOf: number[] = []
   const backs: Array<{ of: number; o: O }> = []
   const step = async (b: B, idx: string) => {
     const o = await p.press(b, idx)
@@ -117,10 +122,11 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
     const st = await step(p.buttons[i], String(i + 1))
     const { o, timeout } = st
     if ((st as { skipped?: boolean }).skipped) { skipped.push(o); continue }
-    outcomes.push(o)
+    outcomes.push(o); btnOf.push(i)
     if (timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs, skipped }
-    const bi = p.back?.(outcomes) ?? null
-    if (bi !== null && bi >= 0 && bi < i) {
+    const ok = p.back?.(outcomes) ?? null
+    const bi = ok !== null && ok >= 0 && ok < outcomes.length - 1 ? btnOf[ok] : null
+    if (bi !== null) {
       if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs, skipped }
       const r = await step(p.buttons[bi], `back-${bi + 1}`)
       backs.push({ of: bi, o: r.o })
@@ -137,7 +143,8 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
     minRestore = r.o
     if (r.timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs, minRestore, skipped }
   }
-  const x1 = outcomes.findIndex(o => o.name === 'BetMultiple1')
+  const x1o = outcomes.findIndex(o => o.name === 'BetMultiple1')
+  const x1 = x1o >= 0 ? btnOf[x1o] : -1
   if (x1 < 0) return { outcomes, restore: null, aborted: false, stopped: false, backs, minRestore, skipped }
   const noRestore = p.skipRestore?.(outcomes) ?? null
   if (noRestore) return { outcomes, restore: null, aborted: false, stopped: false, backs, minRestore, skipped, restoreSkipped: noRestore }

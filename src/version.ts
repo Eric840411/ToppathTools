@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.42.1'
+export const APP_VERSION = '5.42.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.42.2', date: '2026-10-08', changes: ['fix(機台測試 iDeck)：CodeX 補審 3487482——[P1] 略過的鍵不進 outcomes，runIdeckSequence 卻拿 outcomes 的位置去取 buttons：略過 Bet88 後「還原 x1」按到 Bet88 還判 PASS；learn 的按回同樣錯位。改成記下每個 outcome 對應的按鈕索引。[P2] 收尾關卡過了之後又按還原（短等待），還原那一下晚開局不會再檢查（finalGateDone 沒重置）→ 誤判通過、漏撤銷學習值；改成每次真的點擊都重置。兩種模式都受影響。verdicts-probe 72、ideck-timing-probe 41，各自拿掉修正會紅'] },
   { version: '5.42.1', date: '2026-10-08', changes: ['fix(UAT PC 點節點 彈窗裡的按鈕)：claude-osm-2 回報 v5.41.0 回歸——pc_click_node「advertView>ad_bg>box_close」報「場景樹裡找不到」，同一輪 assert_pc_node 卻找得到。原因：點之前的關彈窗把 advertView 整塊關掉、box_close 跟著消失；v5.40.0 沒事只是因為那時關彈窗被 __name 炸掉、什麼都沒關（v5.40.1 修好 shim 後才現形）。改成關彈窗時跳過目標所在的祖先（用反查器的 resolveAny 解析，跟 assert_pc_node 同一份），其他彈窗照關。新增 scripts/ui-checks/pc-click-popup.test.ts，拿掉會紅、錯誤訊息跟回報一字不差'] },
   { version: '5.42.0', date: '2026-10-08', changes: ['feat(機台測試 下注規則隔開)：使用者擔心 v5.40 改壞 /machine-test，選「照建議隔開」（osm-qa-agent-03 轉達）——v5.40 的下注規則（Spin 前 ensureMinBet、iDeck 族群由小到大、開局／不確定族群大鍵不按、還原先按回最小 Credits、倍數是開局鍵不還原 x1）只在 session.betRules="learn"（batch --learn 自動帶）時生效；預設關＝/machine-test 回到 v5.40 之前：DOM 順序全按、照舊還原 BetMultiple1、Spin 直接按。保留：v5.41 serverCfg debug、v5.39 靜音重錄、v5.35 人工複核、1007 收尾等晚到 begin 的關卡（不按任何東西，兩種模式都做）。正式站學習改由 osm-qa-agent 獨立腳本做，「切回 x1 按完 PLAY」不併入。驗證：關著時的按鍵順序跟 ec00a76（v5.39.0）的 runner 在同樣假頁面上一字不差；強制開著時「關著」三條會紅'] },
   { version: '5.41.0', date: '2026-10-08', changes: ['feat(機台測試 正式站)：osm-qa-agent-03 真機回報——正式站（osmplay）的 serverCfg.js 是 debug:false，前端不印 console SEND／ON，iDeck／最小注確認／觸屏全部判成「前端沒送」（觸屏 0/11、iDeck 0/2）。照使用者提供的做法（等同 Chrome 區域覆寫），runner 在 context 攔 serverCfg.js，只把關閉的 debug 改成 true（apiDebug／_debug 不動），進大廳後 log「serverCfg debug 已開啟」；沒攔到、沒有 debug 鍵或攔截出錯 → 警告。learn 走同一個 runner。大廳開關對照：網域相同、沒有 debug 面板；機台內還沒比對過。使用者說先做後審，CodeX 待補審。新增 scripts/ui-checks/server-cfg-debug.test.ts（真瀏覽器；拿掉改寫、拿掉字界都會紅）'] },

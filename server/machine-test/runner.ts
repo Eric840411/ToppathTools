@@ -3630,6 +3630,9 @@ export async function stepIdeck(
       // 1007 learn 拍攝：按之前的 pre
       if (ideckCaptureOn) learnCap.buttons.push({ idx, label, text: o.text, name: null, pre: await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-pre.png`)), post1: null, post2: null })
       const tClick = Date.now()
+      // CodeX 3487482 [P2]：收尾關卡只對「當時最後一顆」有效——之後又按了還原（restore-min／restore x1），
+      // 那一顆若是短等待、晚開局，就要重新過關卡；不重置的話會漏檢、誤判通過、漏撤銷學習值
+      finalGateDone = false
       const me = { clickTs: g.now, fast: false, seqBefore: g.seqBefore, outcome: o, round: false }
       o.clickAt = g.now; o.moneySeqBefore = g.seqBefore
       const prevPress = prev

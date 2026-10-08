@@ -48,6 +48,25 @@ cases.push(['正常：全部點完再按回 BetMultiple1', f2.pressed, 'BetMulti
 const f3 = await flow({ restore: 'spinTimeout' })
 cases.push(['還原逾時也標中止', `${f3.aborted}`, 'true'])
 
+// ── CodeX 3487482 [P1]：略過的鍵不進 outcomes——還原／按回要對到「按鈕本身」，不能拿 outcomes 的位置去取 buttons ──
+async function sflow(names: string[], skip: string[], withBack = false) {
+  const pressed: string[] = []
+  const done = new Set<string>()
+  await runIdeckSequence({
+    buttons: names,
+    press: async (b, idx) => {
+      if (/^\d+$/.test(idx) && skip.includes(b)) return { name: null, result: 'noElement' as IdeckResult, skipped: '略過' }
+      pressed.push(idx.startsWith('back-') ? `↩${b}` : idx === 'restore' ? `restore:${b}` : b)
+      return { name: b, result: 'ack' as IdeckResult, round: false }
+    },
+    settle: async () => {}, afterTimeout: async () => {}, shouldStop: () => false,
+    ...(withBack ? { back: (os: Array<{ name: string | null; result: IdeckResult; round?: boolean }>) => ideckBackPick(os, done) } : {}),
+  })
+  return pressed.join(',')
+}
+cases.push(['略過第一顆後，還原按的是 BetMultiple1 本身（不是被略過的 Bet88）', await sflow(['Bet88', 'BetMultiple1', 'BetMultiple2'], ['Bet88']), 'BetMultiple1,BetMultiple2,restore:BetMultiple1'])
+cases.push(['略過第一顆後，按回的是 Denom0 本身', await sflow(['Skip', 'Denom0', 'Denom1'], ['Skip'], true), 'Denom0,Denom1,↩Denom0'])
+
 // ── 1007 learn 來回按：A → B → 按回 A（每組一次；A 或 B 開局不做；只在 back 有給的時候）──
 async function bflow(names: string[], rounds: string[] = [], withBack = true) {
   const pressed: string[] = []

@@ -32,16 +32,16 @@ ok(attributeBegin({ beginTs: 5500, prev: { clickTs: 1000, fast: false }, nextCli
 // ── 真的 stepIdeck ──
 // 1008：按鈕上的字跟 SEND 的 action name 照正式環境分開（PLAY 11 Credits ↔ Bet11、BETx1 ↔ BetMultiple1）——
 //   原本兩個寫成一樣，runner 拿 action name 查按鈕字的清單這個 bug 測不出來
-type Btn = { name: string; text?: string; jp?: boolean; aid: number; ack?: boolean; beginAfter?: number; roundMs?: number }
+type Btn = { name: string; text?: string; jp?: boolean; aid: number; ack?: boolean; beginAfter?: number; roundMs?: number; beginOnNth?: number }
 const page_ = (btns: Btn[], pre: string) => `<!doctype html><script>
 window.__moneyLog = []; window.__clicks = []; let mseq = 0, rseq = 100;
 function money(reason){ window.__moneyLog.push({ seq: ++mseq, coin: 1000, reason, ts: Date.now() }); console.log('moneyNtc', { reason, coin: 1000 }) }
-function press(i){ const b = BTNS[i]; window.__clicks.push({ name: b.name, ts: Date.now() }); const s = ++rseq;
+const pressN = {}; function press(i){ const b = BTNS[i]; window.__clicks.push({ name: b.name, ts: Date.now() }); const s = ++rseq; pressN[i] = (pressN[i] || 0) + 1;
   if (b.jp) document.body.insertAdjacentHTML('beforeend', '<div class="content"><div class="view">View</div><div class="notification-close" style="width:24px;height:24px;background:#c00" onclick="window.__jpClosed=(window.__jpClosed||0)+1">x</div></div>')
   console.log('dealGMActionReq: ' + s + ' ' + b.name + ' ' + b.aid)
   console.log('SEND: ' + s + ' hall.hallHandler.dealGMActionReq', { actionid: b.aid, isspin: 1 })
   if (b.ack !== false) setTimeout(() => console.log('ON: ' + s + ' hall.hallHandler.dealGMActionReq', { actionid: b.aid }), 80)
-  if (b.beginAfter !== undefined) setTimeout(() => { money('begin'); setTimeout(() => money('end'), b.roundMs ?? 800) }, b.beginAfter)
+  if (b.beginAfter !== undefined && (b.beginOnNth === undefined || b.beginOnNth === pressN[i])) setTimeout(() => { money('begin'); setTimeout(() => money('end'), b.roundMs ?? 800) }, b.beginAfter)
 }
 const BTNS = ${JSON.stringify(btns)};
 ${pre}
@@ -129,6 +129,11 @@ try {
   const fam = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }])
   ok(fam.clicks.length === 1 && /略過 1 顆（PLAY 33 Credits：/.test(fam.r.message), '最小那顆晚到開局 → 同族群比它大的不按、寫出略過原因', { clicks: fam.clicks.map(c => c.name), msg: fam.r.message.slice(0, 200) })
   setBetRules(undefined)
+  // CodeX 3487482 [P2]：收尾關卡過了之後又按了還原 x1（短等待），還原那一下晚開局 → 要重新過關卡、抓到、撤銷
+  const rcfg: IdeckTimingCfg = { ...cfg, buttons: { ...cfg.buttons, BETx1: { noRound: true } } }
+  const rst = await run(page, [{ name: 'BetMultiple1', text: 'BETx1', aid: 1, beginAfter: 3000, roundMs: 500, beginOnNth: 2 }, { name: 'Bet11', text: 'PLAY 11 Credits', aid: 11 }], { cfg: rcfg })
+  ok(rst.clicks.map(c => c.name).join(',') === 'BetMultiple1,Bet11,BetMultiple1', '還原 x1 有按到', rst.clicks.map(c => c.name))
+  ok(rst.revokes.length === 1 && /BETx1/.test(rst.revokes[0]), '還原那一下晚開局 → 收尾抓到、撤銷學習值', rst.revokes)
   // CodeX 139aa8d [P1]：最後一顆（沒有倍數鍵、不會還原）短等待後才晚開局、45 秒都沒結束 → 不能 PASS
   const tail = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 120000 }])
   ok(tail.r.status === 'fail' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })

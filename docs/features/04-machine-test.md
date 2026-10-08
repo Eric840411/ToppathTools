@@ -743,3 +743,12 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
   - 突變測試：強制開著，「關著」那 3 條會紅
   - `ideck-timing-probe` 有 2 條是學習規則的期望，改成只在那 2 條開著跑，共 39/39
   - `verdicts-probe` 70/70、`min-bet-probe` 9/9
+- **CodeX 補審 3487482（v5.42.2 修）**：
+  - [P1] 略過的鍵不會進 outcomes，但 `runIdeckSequence` 拿 outcomes 的位置去取 buttons
+    - 略過 Bet88 之後，「還原 x1」按到的是 Bet88，結果還判 PASS
+    - learn 的按回也一樣錯位
+    - 修法：記下每個 outcome 對應的按鈕索引（`btnOf`）
+  - [P2] 收尾關卡過了之後又按還原時，`finalGateDone` 沒有重置。還原那一下如果是短等待、又晚開局，就不會再檢查 → 誤判通過、漏撤銷學習值
+    - 修法：每次真的點擊都重置
+  - 兩種模式都受影響
+  - 測試：verdicts-probe 72、ideck-timing-probe 41；各自拿掉修正會紅
