@@ -641,6 +641,7 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
   - runner 改回用 action name 查 → 4 條紅
   - 拿掉靜默窗 → 3 條紅
   - gate 不檢查空閒 → 2 條紅
+- ⚠️ **v5.36.4 建置修正**：`ideck-button-key.js` 是手寫的 .js，放在 `server/machine-test/`，但 tsc 不輸出 .js，build-server 原本只複製 `uat-runner/` → dist-server 少這個檔案，worker 一啟動就崩（本機 10/08 04:00 排程重啟後，重啟迴圈到 10:24）。現在 build-server 會複製 server/ 底下所有手寫 .js，而且建置時會檢查 dist-server 每個相對 import 都找得到檔案
 - **CodeX 審 139aa8d（v5.36.1 修）**：
   - [P1] 收尾時抓到最後一顆晚開局、45 秒沒結束：原本只標中止、補一句 note，結果仍是 ack，沒有倍數鍵時 verdict 會放行成 PASS。現在那一顆改記開轉逾時（spinTimeout＋halt）
   - [P2] 中止／逾時收尾的 `shotAndReport(…, asIs)` 沒把 asIs 傳給 `shoot`，停手後還是會去點 JP 廣播卡的 X。已補傳

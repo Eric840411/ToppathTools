@@ -34,6 +34,44 @@ if (existsSync(uatRunnerSrc)) {
   cpSync(uatRunnerSrc, uatRunnerDst, { recursive: true })
 }
 
+/**
+ * 1008：server/ 底下**其他資料夾**的手寫 .js 也要複製（tsc 沒開 allowJs，不會輸出它們）。
+ * 🚨 v5.36.0 新增 server/machine-test/ideck-button-key.js，只有 uat-runner/ 會整包複製，
+ *    worker 在 04:00 排程重啟時 import 不到它 → 每次啟動就崩（本機 restart 325 次）。部署到 Spug 也會一樣。
+ */
+const { readdirSync, readFileSync } = require('fs')
+const copyJs = (dir, rel) => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name.startsWith('.')) continue
+    const src = join(dir, e.name), r = join(rel, e.name)
+    if (e.isDirectory()) { if (r !== 'uat-runner') copyJs(src, r) }
+    else if (/\.(js|mjs|cjs)$/.test(e.name)) { mkdirSync(join(outDir, 'server', rel), { recursive: true }); cpSync(src, join(outDir, 'server', r)) }
+  }
+}
+copyJs(join(root, 'server'), '')
+
+/**
+ * 守門：dist-server 裡每個相對 import 都要找得到檔案。漏一個，server／worker 就會在 import 當下崩，而且只寫在 pm2 的 error log。
+ */
+const missing = []
+const scan = dir => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) { scan(p); continue }
+    if (!/\.(js|mjs)$/.test(e.name)) continue
+    const src = readFileSync(p, 'utf8')
+    for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\s[^'"\n]*?from\s*['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const spec = m[1] || m[2]
+      if (!existsSync(join(dir, spec))) missing.push(`${p.slice(outDir.length + 1)} → ${spec}`)
+    }
+  }
+}
+if (existsSync(outDir)) scan(join(outDir, 'server'))
+if (missing.length) {
+  console.error(`[build:server] ❌ dist-server 有 ${missing.length} 個相對 import 找不到檔案（server／worker 會在啟動時崩）：\n  ${missing.slice(0, 20).join('\n  ')}`)
+  process.exit(1)
+}
+
 if (result.status !== 0) {
   const logDir = join(root, 'logs')
   mkdirSync(logDir, { recursive: true })
