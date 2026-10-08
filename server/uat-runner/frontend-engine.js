@@ -619,6 +619,23 @@ export async function runFrontendStep(step, ctx) {
     // ⚠️ 1008：目標本身就在彈窗裡（例如廣告的 box_close）時，那一塊不能關——關了目標就跟著消失
     const closed = await pc.closePopups(page, want);
     if (closed) await log(`   🧹 關掉 ${closed} 個彈窗節點`);
+    /**
+     * 1008「找不到就跳過」（PC 使用者：大廳廣告有時有、有時沒有；CodeX 方案 g）：
+     *   - 只有**場景讀得到**、等 3 秒節點**確定不存在**才跳過（回 skipped，host 記 SKIP）
+     *   - 場景讀不到（evaluate 失敗、還沒載好）→ 失敗：讀不到不等於沒有
+     *   - 找到了 → 照常點；點不到（在畫面外等）照樣失敗——不整段 catch 吞掉
+     */
+    if (step.skipIfMissing === true) {
+      const deadline = Date.now() + 3000;
+      let found = await pc.findNode(page, want);
+      while (!found && Date.now() < deadline) { await page.waitForTimeout(500); found = await pc.findNode(page, want); }
+      if (!found) {
+        const scene = await pc.sceneName(page);
+        if (!scene) throw new Error(`讀不到場景樹，無法確認「${want}」不存在（勾了找不到就跳過，但讀不到不等於沒有）`);
+        await log(`⏭ ${idx} ${label}（場景 ${scene} 裡沒有「${want}」，照設定跳過）`);
+        return { shots, skipped: `沒有「${want}」` };
+      }
+    }
     const res = await pc.clickNode(page, want);
     if (!res.ok) throw new Error(res.reason ?? `點不到「${want}」`);
     await log(`✅ ${idx} ${label}（點在 ${res.name} @${res.at.x},${res.at.y}）`);

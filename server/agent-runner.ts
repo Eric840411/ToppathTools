@@ -1872,7 +1872,9 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
         // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），伺服器端跑同一支。
         //    以前這裡跟伺服器各有一份對照表，然後就漂了——`find_baseline_scroll`
         //    只有伺服器端有，在這裡被靜默跳過，腳本照樣 PASS。
-        await runFrontendStep(step, { ...engineHost, idx, label, state: netState })
+        const outcome = await runFrontendStep(step, { ...engineHost, idx, label, state: netState }) as { skipped?: string } | undefined
+        // 1008 找不到就跳過：記 SKIP（不算通過也不算失敗）
+        if (outcome?.skipped) { sendEvent({ kind: 'step_result', index: i, status: 'skip', message: `${label}：${outcome.skipped}` }); skipped++; break }
         sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
         passed++
         break

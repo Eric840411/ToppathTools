@@ -132,6 +132,27 @@ check('弱訊號不擋人', !throws(() => guardDangerousStep({ step: { action: '
 // 1007 CodeX（af25442 審查 P1）：正式／測試只看 hostname，未知一律當正式；操作當下的網址也要是測試環境
 check('⑤ 正式網址帶 ?note=uat 不能被當成測試環境', isProdLike('https://osm-h5.osmslot.com/?note=uat') === true && isProdLike('https://osm-h5-prod.osmslot.org/?env=qat') === true);
 check('⑤ 路徑裡有 test 也不算', isProdLike('https://osm-h5.osmslot.com/test/page') === true);
+
+// ⑥ 1008 帳號池中轉網址（claude-osm-2 回報、CodeX 方案 h）：改判解碼後的 to；只認工具來源＋精確 go 路徑、只拆一層
+const b64 = (u) => Buffer.from(u).toString('base64');
+const go = (host, to, path = '/api/url-pool/go/9361000021') => `https://${host}${path}?user=Lusa&to=${to}`;
+const UAT = 'https://uat-osm-redirect.osmslot.org/?token=abc';
+check('⑥ 中轉到 UAT → 不是正式（回報的情境）', isProdLike(go('eric.osmslot.org', encodeURIComponent(b64(UAT)))) === false);
+check('⑥ 區網／本機的工具來源也認', isProdLike(`http://192.168.3.41:3000/api/url-pool/go/1?to=${b64(UAT)}`) === false && isProdLike(`http://localhost:3000/api/url-pool/go/1?to=${b64(UAT)}`) === false);
+check('⑥ 中轉到正式 → 正式', isProdLike(go('eric.osmslot.org', b64('https://osm-h5.osmslot.com/game'))) === true);
+check('⑥ 別的網域掛同樣路徑 → 不拆、照 hostname 判（正式）', isProdLike(go('evil.example.com', b64(UAT))) === true && isProdLike(go('qat-x.osmslot.org.evil.com', b64(UAT))) === true);
+check('⑥ 路徑不精確（多一層）→ 不拆', isProdLike(go('eric.osmslot.org', b64(UAT), '/api/url-pool/go/1/extra')) === true);
+check('⑥ 沒有 to／解不開／不是 http(s) → 擋', isProdLike('https://eric.osmslot.org/api/url-pool/go/1?user=x') === true && isProdLike(go('eric.osmslot.org', '%%%')) === true && isProdLike(go('eric.osmslot.org', b64('javascript:alert(1)'))) === true);
+// ⚠️ 內層用 localhost：只看 hostname 的話 localhost 會被放行，這樣才測得出「只拆一層」那條規則
+check('⑥ 只拆一層：to 裡面又是一層中轉 → 擋', isProdLike(go('eric.osmslot.org', b64(`http://localhost:3000/api/url-pool/go/1?to=${b64('https://osm-h5.osmslot.com/game')}`))) === true);
+check('⑥ 守衛：中轉 UAT＋勾放行 → 過；當下網址是正式 → 照擋', (() => {
+  const step = { name: 'Cash Out', action: 'click', allowDangerous: true };
+  const what = { selector: '.btn_cashout', text: 'Cash Out' };
+  let a = 'pass', b = 'pass';
+  try { guardDangerousStep({ step, what, startUrl: go('eric.osmslot.org', b64(UAT)), currentUrl: 'https://uat-h5.osmslot.org/game' }); } catch (e) { a = e.message; }
+  try { guardDangerousStep({ step, what, startUrl: go('eric.osmslot.org', b64(UAT)), currentUrl: 'https://osm-h5.osmslot.com/game' }); } catch (e) { b = e.message; }
+  return a === 'pass' && /正式環境/.test(b);
+})());
 check('⑤ 認得的測試 hostname 照舊', isProdLike('https://uat-osm-redirect.osmslot.org/x') === false && isProdLike('https://qat-cp.osmslot.org') === false && isProdLike(QAT) === false);
 check('⑤ 別人的網域帶 uat 字樣也當正式', isProdLike('https://uat.evil.com') === true && isProdLike('not a url') === true);
 check('⑤ 起始是 QAT、操作當下已導到正式站 → 擋（放行也不接受）', !!throws(() => guardDangerousStep({ step: { ...reserveStep, allowDangerous: true }, what: { selector: reserveStep.selector }, startUrl: QAT, currentUrl: 'https://osm-h5.osmslot.com/game' })));

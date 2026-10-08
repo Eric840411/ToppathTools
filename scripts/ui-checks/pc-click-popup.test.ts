@@ -32,17 +32,18 @@ window.__state = function () { return { adv: adv.active, adbg: adbg.active, jp: 
 
 const browser = await chromium.launch({ headless: true })
 try {
-  const run = async (value: string) => {
+  const run = async (value: string, extra: Record<string, unknown> = {}, html = PAGE) => {
     const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
-    await page.setContent(PAGE)
+    await page.setContent(html)
     const logs: string[] = []
     let err = ''
-    try { await runFrontendStep({ name: 'click', action: 'pc_click_node', value }, { page, pc: pcEngineCapabilities, log: async (m: string) => { logs.push(m) }, idx: '1', screenshotDir: '', startUrl: 'http://x/', } as never) }
+    let out: { skipped?: string } | undefined
+    try { out = await runFrontendStep({ name: 'click', action: 'pc_click_node', value, ...extra }, { page, pc: pcEngineCapabilities, log: async (m: string) => { logs.push(m) }, idx: '1', screenshotDir: '', startUrl: 'http://x/', } as never) }
     catch (e) { err = e instanceof Error ? e.message : String(e) }
-    const state = await page.evaluate(() => (window as unknown as { __state: () => unknown }).__state()) as { adv: boolean; adbg: boolean; jp: boolean }
-    const clicked = await page.evaluate(() => (window as unknown as { __clicked: string[] }).__clicked)
+    const state = await page.evaluate(() => (window as unknown as { __state?: () => unknown }).__state?.() ?? {}) as { adv: boolean; adbg: boolean; jp: boolean }
+    const clicked = await page.evaluate(() => (window as unknown as { __clicked?: string[] }).__clicked ?? [])
     await page.close()
-    return { err, state, clicked, logs }
+    return { err, state, clicked, logs, out }
   }
   for (const id of ['advertView>ad_bg>box_close', 'Canvas>parent>advertView>ad_bg>box_close', 'box_close']) {
     const r = await run(id)
@@ -52,6 +53,15 @@ try {
   }
   const other = await run('btn_top')
   ok(other.err === '' && !other.state.adv && !other.state.jp, '目標不在彈窗裡 → 照舊全關', other)
+  // ── 找不到就跳過（CodeX 方案 g）──
+  const miss = await run('no_such_close', { skipIfMissing: true })
+  ok(miss.err === '' && /no_such_close/.test(miss.out?.skipped ?? '') && miss.clicked.length === 0, '勾了、場景讀得到、節點不存在 → 回 skipped、沒點', miss)
+  const missNo = await run('no_such_close')
+  ok(/場景樹裡找不到/.test(missNo.err), '沒勾 → 照舊失敗', missNo.err)
+  const blind = await run('box_close', { skipIfMissing: true }, '<!doctype html><body><canvas></canvas></body>')
+  ok(/讀不到場景樹/.test(blind.err) && !blind.out?.skipped, '勾了但場景讀不到 → 失敗（讀不到不等於沒有）', blind)
+  const hit = await run('box_close', { skipIfMissing: true })
+  ok(hit.err === '' && !hit.out?.skipped && hit.clicked.length === 1, '勾了、節點在 → 照常點、不算跳過', hit)
 } finally { await browser.close() }
 
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

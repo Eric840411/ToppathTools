@@ -46,6 +46,11 @@ export interface AutoStep {
   /** assert_pc_node：必須在畫面內（視窗＋所有祖先遮罩、位置穩定）；沒勾＝只要存在 */
   inViewport?: boolean
   /**
+   * pc_click_node：找不到就跳過（記 SKIP，不算失敗）。1008 PC 使用者：大廳廣告有時有、有時沒有。
+   * ⚠️ 只有「場景讀得到、節點確定不存在」才跳過；場景讀不到、找到了卻點不到 → 照樣失敗（CodeX 方案 g）
+   */
+  skipIfMissing?: boolean
+  /**
    * `backend_snippet`：要跑哪一份後台設定片段。
    *
    * ⚠️ 只存 id，不存步驟——片段被改過之後這顆積木要**跟著改**，

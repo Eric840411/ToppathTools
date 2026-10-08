@@ -128,7 +128,43 @@ export function classifyDanger(what = {}) {
  * 🚨 正式環境**不接受任何放行**。`allowDangerous` 是給 QAT/UAT 用的，
  *    不是給人拿來在正式站上預約機台的。判斷寧可寬——不確定就當成正式。
  */
+/**
+ * 1008 claude-osm-2 回報、CodeX 方案審查 h：帳號池中轉網址（工作台給的連結）一律被當成正式環境——
+ * `https://eric.osmslot.org/api/url-pool/go/<帳號>?user=…&to=<base64>` 的 hostname 是工具自己，不帶 uat。
+ * 中轉路由（routes/integrations.ts）只做一件事：302 到解碼後的 `to`。所以改判 `to`：
+ *   - 只認**可信的工具來源**＋**精確的 go 路徑**（別的網域掛同樣路徑不算）
+ *   - 只拆一層；解碼失敗、不是 http(s)、拆出來又是一層 go → 一律當正式（擋）
+ *   - 操作當下的實際網址（currentUrl）照樣另外檢查；逐積木放行照舊要勾
+ */
+const TOOL_HOSTS = new Set(['eric.osmslot.org', 'localhost', '127.0.0.1', '[::1]'])
+const isToolHost = (host) => TOOL_HOSTS.has(host) || /^(10\.\d+|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+$/.test(host)
+const GO_PATH = /^\/api\/url-pool\/go\/[^/]+\/?$/
+/** 中轉網址 → 解碼後的目標；不是中轉網址回 null；是中轉網址卻解不開回 ''（呼叫端當正式） */
+export function unwrapUrlPool(url = '') {
+  let u
+  try { u = new URL(String(url)) } catch { return null }
+  if (!isToolHost(u.hostname.toLowerCase()) || !GO_PATH.test(u.pathname)) return null
+  const to = u.searchParams.get('to')
+  if (!to) return ''
+  let decoded = ''
+  try {
+    const b64 = to.replace(/-/g, '+').replace(/_/g, '/')
+    decoded = Buffer.from(b64 + '='.repeat((4 - (b64.length % 4)) % 4), 'base64').toString('utf8')
+  } catch { return '' }
+  let target
+  try { target = new URL(decoded) } catch { return '' }
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return ''
+  return target.href
+}
+
 export function isProdLike(url = '') {
+  const inner = unwrapUrlPool(url)
+  if (inner === '') return true
+  if (inner !== null) return unwrapUrlPool(inner) !== null || isProdLikeHost(inner)
+  return isProdLikeHost(url)
+}
+
+function isProdLikeHost(url = '') {
   // 1007 CodeX（af25442 審查 P1）：原本對**整條網址**找 qat／uat／test 字樣——正式網址加 `?note=uat` 就被當成測試環境放行。
   // 改成只看 **hostname**，而且只認已知的測試環境，其他（含讀不出 hostname）一律當正式：
   //   - *.osmslot.org 且 hostname 帶 qat／uat／test／stg／staging、又不帶 prod

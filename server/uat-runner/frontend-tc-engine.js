@@ -160,7 +160,8 @@ async function runOneFrontendStep(steps, ctx, options) {
           label: step.name || step.action,
         });
         if (Array.isArray(outcome?.shots)) allShotPaths.push(...outcome.shots);
-        notes.push(`✅ ${step.name || step.action}`);
+        // 1008 找不到就跳過：不算失敗，但要留在備註裡（報告看得出這一步沒做）
+        notes.push(outcome?.skipped ? `⏭ ${step.name || step.action}：${outcome.skipped}` : `✅ ${step.name || step.action}`);
         break;
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).split('\n')[0];

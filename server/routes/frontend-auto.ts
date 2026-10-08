@@ -2248,7 +2248,9 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），agent 端跑同一支。
           //    以前這裡跟 agent 各有一份對照表，然後就漂了——`find_baseline_scroll`
           //    只有這邊有，agent 上被靜默跳過，腳本照樣 PASS。
-          await runFrontendStep(step, { ...engineHost, idx, label, state: netState })
+          const outcome = await runFrontendStep(step, { ...engineHost, idx, label, state: netState }) as { skipped?: string } | undefined
+          // 1008 找不到就跳過：記 SKIP（不算通過也不算失敗）
+          if (outcome?.skipped) { skipped++; break }
           passed++
           break
         } catch (err) {
