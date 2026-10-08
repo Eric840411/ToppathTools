@@ -78,6 +78,26 @@ try {
   await page.evaluate(() => { const w = window as any; let y = 768 - 900; w.__t2 = setInterval(() => { y = Math.min(y + 100, 768 - 400); w.__moving.worldPosition.y = y; w.__moving.children[0].worldPosition.y = y; if (y >= 768 - 400) clearInterval(w.__t2) }, 100) })
   const rStop = await runAssert(page, 'movingRow>game-name', true)
   ok(rStop.ok, '積木：捲動停在畫面內 → 等穩定後通過', rStop)
+
+  // CodeX e0bb3f3 [P2]：ScrollView 認得出來、可視區取不到 → 量不到（不能當沒有遮罩）
+  await page.evaluate(() => { const w = window as any; const s = w.cc.director.getScene(); const c = s.children[0]
+    const sv = { name: 'svNoContent', activeInHierarchy: true, worldPosition: { x: 683, y: 384 }, worldScale: { x: 1, y: 1 }, components: [{ width: 500, height: 300, anchorX: .5, anchorY: .5 }, { scrollToOffset() {}, getMaxScrollOffset() { return { x: 0, y: 0 } } }], children: [] as any[], parent: c }
+    c.children.push(sv); sv.children.push({ name: 'inSv', activeInHierarchy: true, worldPosition: { x: 683, y: 768 - 700 }, worldScale: { x: 1, y: 1 }, components: [{ width: 40, height: 40, anchorX: .5, anchorY: .5 }], children: [], parent: sv }) })
+  const vSv = await pcNodeVisibility(page, 'inSv')
+  ok(vSv?.measurable === false && /ScrollView/.test(vSv.why), 'ScrollView 取不到可視區 → measurable:false（不能回 clips:0、visible:true）', vSv)
+  // 慢速越界：每 400ms 只動 0.2px（取整後看起來不動），從遮罩內慢慢移出去 → 不能算穩定
+  await page.evaluate(() => { const w = window as any; let y = 768 - 599.6; w.__moving.worldPosition.y = y; w.__moving.children[0].worldPosition.y = y
+    w.__t3 = setInterval(() => { y -= 0.2; w.__moving.worldPosition.y = y; w.__moving.children[0].worldPosition.y = y }, 400) })
+  const rSlow = await runAssert(page, 'movingRow>game-name', true)
+  await page.evaluate(() => clearInterval((window as any).__t3))
+  ok(!rSlow.ok, '慢速移動（0.2px／400ms）越過遮罩邊界 → 不算穩定、不能通過', rSlow)
+  // 共用期限：節點第 10 秒才出現、但不在畫面內 → 總共不超過 15 秒多一點就失敗
+  await page.evaluate(() => { const w = window as any; setTimeout(() => { const c = w.cc.director.getScene().children[0]
+    c.children.push({ name: 'lateNode', activeInHierarchy: true, worldPosition: { x: 683, y: 768 - 900 }, worldScale: { x: 1, y: 1 }, components: [{ width: 40, height: 40, anchorX: .5, anchorY: .5 }], children: [], parent: c }) }, 10000) })
+  const t0 = Date.now()
+  const rLate = await runAssert(page, 'lateNode', true)
+  const took = Date.now() - t0
+  ok(!rLate.ok && took < 17000, '節點晚出現 → 跟找節點共用 15 秒期限（不是重給 15 秒）', { ok: rLate.ok, took })
 } finally { await browser.close() }
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
 process.exit(fail ? 1 : 0)

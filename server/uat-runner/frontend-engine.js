@@ -640,11 +640,13 @@ export async function runFrontendStep(step, ctx) {
        *   - 最多等 15 秒；斷言本身**不捲動**
        *   ⚠️ 只證明「中心點在可視範圍」，不代表整列完整顯示或沒被其他面板蓋住
        */
-      const vDeadline = Date.now() + 15_000;
+      // CodeX e0bb3f3 [P2]：跟上面「找到節點」共用同一個 15 秒期限（原本找到後又重給 15 秒，最慢 29 秒才失敗）
+      const vDeadline = deadline;
       let last = null, prev = null, stable = false;
       for (;;) {
         last = await pcNodeVisibility(page, want);
-        if (last?.found && last.measurable && last.visible && prev?.visible && prev.cx === last.cx && prev.cy === last.cy) { stable = true; break; }
+        // CodeX e0bb3f3 [P2]：用原始座標比（不能用取整的——599.6→599.8 都是 600，會被當成停住，下一刻 600.2 已經出遮罩）
+        if (last?.found && last.measurable && last.visible && prev?.visible && Math.abs(prev.rx - last.rx) < 0.01 && Math.abs(prev.ry - last.ry) < 0.01) { stable = true; break; }
         if (Date.now() >= vDeadline) break;
         prev = last;
         await page.waitForTimeout(400);
