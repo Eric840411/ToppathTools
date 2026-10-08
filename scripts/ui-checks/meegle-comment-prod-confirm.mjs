@@ -67,7 +67,8 @@ for (let i = 0; i < 15; i++) {
   const where = await page.evaluate(() => { const a = document.activeElement; return !a || a === document.body ? 'body' : a.closest('[role=dialog]') ? 'dialog' : (a.textContent || a.tagName).trim().slice(0, 20) })
   if (where !== 'dialog' && where !== 'body') escaped.push(where)
 }
-check('確認框開著時按 Tab 15 次，焦點都留在彈窗裡（背景按不到）', escaped.length === 0, JSON.stringify(escaped))
+// CodeX：允許落在 body，所以證明的是「Tab 進不了背景控制項」，不是「焦點始終在彈窗內」（那要另外做 focus trap）
+check('確認框開著時按 Tab 15 次，焦點不會進入背景控制項', escaped.length === 0, JSON.stringify(escaped))
 await dlg.getByRole('button', { name: '取消' }).click()
 await page.waitForTimeout(400)
 check('取消 → 沒送、彈窗關掉', posted === 0 && (await dialogs().count()) === 0)

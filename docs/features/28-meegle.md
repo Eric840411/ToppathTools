@@ -733,4 +733,5 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 - **v5.47.3**（CodeX 指出）：送出確認彈窗原本只有遮罩和 `aria-modal`，鍵盤 Tab 還是走得到背景的按鈕
   - 改法：彈窗開著時把整個 App（`#root`）設成 `inert`；彈窗掛在 body，不受影響；關掉之後恢復
   - 開單、評論、狀態、修改四個分頁共用這一個彈窗
-  - 測試：`meegle-comment-prod-confirm.mjs`（Tab 15 次焦點都留在彈窗裡、關掉後背景恢復），拿掉 inert 會紅
+  - 測試：`meegle-comment-prod-confirm.mjs`（Tab 15 次焦點不會進入背景控制項、關掉後背景恢復），拿掉 inert 會紅
+  - 注意：測試允許焦點落在 body，證明的是「進不了背景」，不是「焦點始終在彈窗內」；要保證後者還需要 focus trap（CodeX）
