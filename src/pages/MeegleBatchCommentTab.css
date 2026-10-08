@@ -21,7 +21,8 @@
 .mc-nav { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
 
 /* ③ 左清單＋兩塊預覽 */
-.mc-preview { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+/* 1008：只剩 Comment 一欄（不再寫測試說明）——清單＋一個寬欄 */
+.mc-preview { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 1100px) { .mc-preview { grid-template-columns: 1fr; } }
 .mc-list { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--mb-border); border-radius: 10px; padding: 6px; background: var(--mb-card2); max-height: 560px; overflow: auto; }
 .mc-list-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border-radius: 7px;

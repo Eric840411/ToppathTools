@@ -7,7 +7,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const HOST = '192.168.3.41'
+const HOST = process.env.UI_HOST || '192.168.3.36'
 const SHEET = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
@@ -51,20 +51,12 @@ for (const mode of ['classic', 'xianxia']) {
   // 這份 Sheet 的評論內容在「備註」（沒有「驗證結果」欄，不會自動選到）——照使用者操作手動選
   await page.locator('.mb-field').filter({ hasText: '評論內容欄' }).locator('select').selectOption('備註')
   await page.getByRole('button', { name: '產生預覽' }).click()
-  await page.locator('.mc-overwrite').waitFor()
-  check('③ 常駐「將整格覆寫測試說明」', (await page.locator('.mc-overwrite').innerText()).includes('將整格覆寫測試說明'))
-  // 等全部讀完（同時 3 張），不是等第一張
-  await page.waitForFunction(() => [...document.querySelectorAll('.mc-dot')].every(d => !/讀取中/.test(d.textContent || '')), null, { timeout: 120000 }).catch(() => {})
-  const dots = await page.locator('.mc-dot').allInnerTexts()
-  check('③ 每列都讀完 Meegle 現況（沒有卡在讀取中）', dots.every(d => d !== '讀取中'), dots.join(','))
-  check('③ 有測試說明內容', (await page.locator('textarea[aria-label="測試說明內容"]').inputValue()).length > 0)
-  const desc = page.locator('textarea[aria-label="測試說明內容"]'), cmt = page.locator('textarea[aria-label="評論內容"]')
-  check('③ 評論預設＝測試說明內容（使用者 10/02）', (await cmt.inputValue()) === (await desc.inputValue()))
-  await desc.fill((await desc.inputValue()) + '\n補一句')
-  check('③ 改測試說明 → 評論跟著變', (await cmt.inputValue()).endsWith('補一句'))
-  await cmt.fill('我自己寫的評論')
-  await desc.fill((await desc.inputValue()) + '\n再補')
-  check('③ 手改過評論後，改測試說明不會蓋掉評論', (await cmt.inputValue()) === '我自己寫的評論')
+  // 1008 使用者：只發 Comment——沒有測試說明欄、沒有覆寫開關、不讀 Meegle 現況
+  await page.locator('.mc-preview').waitFor()
+  check('③ 沒有測試說明欄、沒有「覆寫測試頁」', (await page.locator('textarea[aria-label="測試說明內容"]').count()) === 0 && (await page.getByText('覆寫測試頁').count()) === 0)
+  const cmt = page.locator('textarea[aria-label="評論內容"]')
+  check('③ Comment 有內容（從 Sheet 的評論內容欄帶入）', (await cmt.inputValue()).length > 0)
+  check('③ 圖片與影片在 Comment 底下', (await page.locator('.mc-panel', { hasText: 'Comment' }).locator('.mc-sub-head', { hasText: '圖片與影片' }).count()) === 1)
   check('③ 底部顯示可送出 N 列', /可送出 \d+ \/ \d+ 列/.test(await page.locator('.mc-foot').innerText()), await page.locator('.mb-foot-sum').innerText())
   await page.screenshot({ path: path.join(root, `mc-step3-${mode}.png`), fullPage: true })
 }

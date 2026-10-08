@@ -124,7 +124,7 @@ if (want('comment')) {
   await page.waitForTimeout(1200)
   await shot('m2-fields')
   await page.getByRole('button', { name: '產生預覽' }).click()
-  await page.locator('.mc-overwrite').waitFor({ timeout: 60000 }).catch(() => {})
+  await page.locator('.mc-preview').waitFor({ timeout: 60000 }).catch(() => {})
   await page.waitForFunction(() => [...document.querySelectorAll('.mc-dot')].every(d => !/讀取中/.test(d.textContent || '')), null, { timeout: 120000 }).catch(() => {})
   await shot('m3-preview')
 }

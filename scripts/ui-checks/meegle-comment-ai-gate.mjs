@@ -55,7 +55,8 @@ await page.route('**/api/lark/sheets/records', async route => {
 })
 // 送出：一律擋掉（這支只驗按鈕，不寫 Meegle）
 let posted = 0
-await page.route('**/api/meegle/comment/row', route => { posted++; return route.abort() })
+const bodies = []
+await page.route('**/api/meegle/comment/row', route => { posted++; bodies.push(JSON.parse(route.request().postData() || '{}')); return route.abort() })
 
 await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
 await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
@@ -74,13 +75,13 @@ const sendBtn = page.getByRole('button', { name: '前往送出' })
 const settle = () => page.waitForFunction(() => [...document.querySelectorAll('.mc-dot')].every(d => !/讀取中/.test(d.textContent || '')), null, { timeout: 120000 }).catch(() => {})
 // 基準：不勾 AI 時這一列能不能送（測試帳號的身分等既有規則可能本來就擋）——AI 結束後要跟它一樣
 await page.getByRole('button', { name: '產生預覽' }).click()
-await page.locator('.mc-overwrite').waitFor(); await settle()
+await page.locator('.mc-preview').waitFor(); await settle()
 const baseline = await sendBtn.isEnabled()
 console.log(`  基準（不勾 AI）：前往送出 ${baseline ? '可按' : '不可按'}｜列狀態 ${(await page.locator('.mc-dot').allInnerTexts()).join(',')}`)
 await page.getByRole('button', { name: '上一步' }).click()
-await page.locator('.mc-switch', { hasText: 'AI 整理測試說明' }).locator('input').check()
+await page.locator('.mc-switch', { hasText: 'AI 整理評論內容' }).locator('input').check()
 await page.getByRole('button', { name: '產生預覽' }).click()
-await page.locator('.mc-overwrite').waitFor(); await settle()
+await page.locator('.mc-preview').waitFor(); await settle()
 
 const foot = async () => (await page.locator('.mb-foot-sum').innerText()).replace(/\s+/g, ' ')
 check('兩列 AI 都還沒回 → 不能送', await sendBtn.isDisabled(), await foot())
@@ -97,7 +98,14 @@ check('最後一列結束（失敗也算）→ 解鎖、提示消失', await sen
 check('失敗列照原本規則：兩列都可送出', /可送出 2 /.test(await foot()), await foot())
 await page.screenshot({ path: path.join(root, 'mc-ai-gate-done.png') })
 check('基準（不勾 AI）可以送——AI 是唯一的變因', baseline === true)
-check('整段沒有真的送出', posted === 0)
+// 1008 只發 Comment：③ 沒有測試說明欄、圖片與影片在 Comment 底下；送出時不覆寫測試說明
+check('③ 沒有「測試說明」欄、沒有「覆寫測試頁」開關', (await page.locator('textarea[aria-label="測試說明內容"]').count()) === 0 && (await page.getByText('覆寫測試頁').count()) === 0)
+check('③ Comment 欄底下是「圖片與影片」', (await page.locator('.mc-panel', { hasText: 'Comment' }).locator('.mc-sub-head', { hasText: '圖片與影片' }).count()) === 1)
+await page.getByRole('button', { name: '前往送出' }).click()
+for (let i = 0; i < 50 && !bodies.length; i++) await page.waitForTimeout(200)
+check('按送出時帶的是 overwriteDesc:false（不動測試說明）', bodies.length > 0 && bodies.every(b => b.overwriteDesc === false), JSON.stringify(bodies.map(b => b.overwriteDesc)))
+check('送出的評論是 AI 整理過的內容', bodies.some(b => /AI 整理過的內容/.test(b.commentText || '')), JSON.stringify(bodies.map(b => (b.commentText || '').slice(0, 30))))
+check('送出請求都被擋下（沒寫進 Meegle）', posted === bodies.length)
 check('沒有頁面錯誤', errors.length === 0, errors.join(' | '))
 await browser.close()
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

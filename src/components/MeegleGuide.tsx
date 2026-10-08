@@ -91,7 +91,7 @@ function CommentPane() {
         <tbody>
           <tr><td><code>Meegle 單號</code></td><Req /><td>格子第一個字要是 <code>#數字</code>（開單會自動回填這欄）。沒有單號的列不送</td></tr>
           <tr><td>評論內容欄</td><Req /><td>②選哪一欄當評論內容（例如「備註」）</td></tr>
-          <tr><td>附件欄</td><Opt /><td>欄名有「附件」或「截圖」會自動選上；圖片進測試說明、影片各一則評論</td></tr>
+          <tr><td>附件欄</td><Opt /><td>欄名有「附件」或「截圖」會自動選上；圖片嵌在 Comment、影片各一則評論</td></tr>
           <tr><td>填寫人欄</td><Opt /><td>用那個人的身分送（要對方綁定 Meegle、你有代理授權）；沒有就用你自己</td></tr>
           <tr><td><code>處理階段</code></td><Opt /><td>空白或「已開單…」的列預設勾選</td></tr>
         </tbody>
@@ -100,8 +100,8 @@ function CommentPane() {
     <div className="mgd-col">
       <Sec icon="options">畫面上的選項會怎樣</Sec>
       <ul className="mgd-list">
-        <li><b>AI 整理測試說明／AI 完整性分析</b>（有權限才看得到）：在③預覽時就跑完，你可以改；送出不會再跑一次</li>
-        <li>測試說明會<b>整格覆寫</b>。Meegle 上被人改過，③會標出來要你確認</li>
+        <li><b>AI 整理評論內容／AI 完整性分析</b>（有權限才看得到）：在③預覽時就跑完，你可以改；送出不會再跑一次</li>
+        <li>只發 <b>Comment</b>，不會動 Meegle 測試頁的測試說明（2026-10-08 起）</li>
       </ul>
       <Writeback><b>送完寫回</b>：<code>處理階段</code>＝添加評論、<code>處理時間</code></Writeback>
     </div>

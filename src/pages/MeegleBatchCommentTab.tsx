@@ -265,7 +265,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         rowIndex: r.rowIndex, workItemId: r.workItemId!, summary: r.summary, person: personOf(r.rec), asEmail: id.email,
         text, commentText: defaultComment(text), commentEdited: false, images: [], videos: [], attError: '', skipMissingAtt: false, attLoading: !!attachmentColumn,
         ai: useAiFormat || useAiReview ? 'queued' : 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
-        remote: { status: 'idle' }, confirmHash: null, overwriteDesc: true, rev: 0,
+        remote: { status: 'idle' }, confirmHash: null, overwriteDesc: false, rev: 0,
       }
     })
     setItems(base); setCurrent(0); setStep(3)
@@ -275,9 +275,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     setPreparing(false)
     const attQueue = attachmentColumn ? [...base] : []
     await Promise.all(Array.from({ length: Math.min(2, attQueue.length) }, async () => { for (let it = attQueue.shift(); it; it = attQueue.shift()) await loadAttachments(it.rowIndex) }))
-    // 讀 Meegle 現況：同時最多 3 張（一張一個 CLI 呼叫，24 列一張一張讀要一分多鐘）
-    const queue = [...base]
-    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => { for (let it = queue.shift(); it; it = queue.shift()) await readRemote(it.workItemId) }))
+    // 1008 使用者：不再寫測試說明（只發 Comment）→ 不用讀 Meegle 現況、也沒有「遠端被改過要確認覆寫」
     if (useAiFormat || useAiReview) for (const it of base) await runAi(it.rowIndex, useAiFormat, useAiReview)
   }
 
@@ -315,20 +313,6 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     }
   }
 
-  async function readRemote(workItemId: string) {
-    setItems(prev => prev.map(it => it.workItemId === workItemId ? { ...it, remote: { status: 'loading' } } : it))
-    try {
-      const j = await api<{ current: string; hash: string; state: RemoteState }>('/api/meegle/comment/remote', { workItemId, space })
-      setItems(prev => prev.map(it => it.workItemId === workItemId ? {
-        ...it, remote: { status: 'ok', state: j.state, hash: j.hash, current: j.current },
-        // 確認綁定遠端版本：版本變了，舊的確認不算數
-        confirmHash: it.confirmHash === j.hash ? it.confirmHash : null,
-      } : it))
-    } catch (e) {
-      setItems(prev => prev.map(it => it.workItemId === workItemId ? { ...it, remote: { status: 'error', error: (e as Error).message } } : it))
-    }
-  }
-
   async function runAi(rowIndex: number, format: boolean, review: boolean, force = false) {
     const it = itemsRef.current.find(x => x.rowIndex === rowIndex)
     const rec = records?.find(r => r._rowIndex === rowIndex)
@@ -336,7 +320,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     const startRev = it.rev
     setItems(prev => prev.map(x => x.rowIndex === rowIndex ? { ...x, ai: 'running', aiError: '' } : x))
     try {
-      const raw = format ? buildAiCommentRawText(rec, commentColumn) : it.text
+      const raw = format ? buildAiCommentRawText(rec, commentColumn) : it.commentText
       const cacheKey = JSON.stringify({ rowIndex, raw, format, review, promptId, model })
       const cached = force ? undefined : aiCacheRef.current.get(cacheKey)
       // 1008：AI 全部結束才能送（CodeX）——所以一定要有期限，不然一支卡住的請求會讓「前往送出」永遠鎖住。
@@ -412,7 +396,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         try {
           const j = await api<{ claim: { kind: string }; steps: StepInfo[] }>('/api/meegle/comment/row', {
             batchId: id, sheetUrl: loadedUrl, sheetRow: it.rowIndex, summary: it.summary, workItemId: it.workItemId, asEmail: it.asEmail,
-            description: it.text, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })),
+            description: it.text.trim() ? it.text : it.commentText, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })),
             commentText: it.commentText, videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })),
             reviewText: useAiReview && it.review ? it.review : null,
             // 不覆寫測試頁時後端不讀不寫測試說明，hash 用不到（給固定值過格式檢查）
@@ -478,7 +462,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     try {
       const j = await api<{ claim: { kind: string }; steps: StepInfo[] }>('/api/meegle/comment/row', {
         batchId: r.batchId, sheetUrl: loadedUrl, sheetRow: it.rowIndex, summary: it.summary, workItemId: it.workItemId, asEmail: it.asEmail,
-        description: it.text, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })), commentText: it.commentText,
+        description: it.text.trim() ? it.text : it.commentText, images: it.images.map(a => ({ cacheId: a.cacheId, name: a.filename })), commentText: it.commentText,
         videos: it.videos.map(a => ({ cacheId: a.cacheId, name: a.filename })), reviewText: useAiReview && it.review ? it.review : null,
         expectedRemoteHash: it.overwriteDesc ? it.remote.hash : '0'.repeat(64), confirmedRemoteHash: it.confirmHash, overwriteDesc: it.overwriteDesc, allowRepeat: !!rows.find(x => x.rowIndex === it.rowIndex)?.commented, space,
       })
@@ -503,13 +487,13 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   }
   const cur = items[current]
   const curIssue = cur ? itemIssue(cur) : ''
-  const missing = cur ? validateCommentSections(cur.text) : []
+  const missing = cur ? validateCommentSections(cur.commentText) : []
 
   const statusOf = (it: Item): { cls: string; text: string } => {
     if (it.overwriteDesc && it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
-    if (it.ai === 'running' || it.ai === 'queued' || it.remote.status === 'loading' || it.remote.status === 'idle' || it.attLoading) return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : it.attLoading ? '附件載入中' : '讀取中' }
+    if (it.ai === 'running' || it.ai === 'queued' || (it.overwriteDesc && (it.remote.status === 'loading' || it.remote.status === 'idle')) || it.attLoading) return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : it.attLoading ? '附件載入中' : '讀取中' }
     if (itemIssue(it)) return { cls: 'warn', text: '待處理' }
-    if (validateCommentSections(it.text).length) return { cls: 'pending', text: '待補資料' }
+    if (validateCommentSections(it.commentText).length) return { cls: 'pending', text: '待補資料' }
     return { cls: 'ok', text: '可送出' }
   }
 
@@ -609,14 +593,14 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                 {headers.map(h => <option key={h} value={h}>{h}</option>)}
               </select>
             </label>
-            <p className="mb-hint">內容會<b>整格覆寫</b> Meegle「測試頁 → 測試說明」（五區塊跟 Jira 評論同一個格式）。</p>
+            <p className="mb-hint">內容只發成 Meegle 的 <b>Comment</b>（五區塊跟 Jira 評論同一個格式），不會動測試頁的測試說明。</p>
             <label className="mb-field"><span>附件欄（選填）</span>
               <select className="mb-select" value={attachmentColumn} onChange={e => setAttachmentColumn(e.target.value)}>
                 <option value="">— 不上傳附件 —</option>
                 {headers.map(h => <option key={h} value={h}>{h}</option>)}
               </select>
             </label>
-            <p className="mb-hint">圖片嵌進測試說明；影片每支各留一則評論附件。</p>
+            <p className="mb-hint">圖片嵌在 Comment 最後；影片每支各留一則評論附件。</p>
             <label className="mb-field"><span>填寫人欄（選填，以該列填寫人的身分送出）</span>
               <select className="mb-select" value={personColumn} onChange={e => setPersonColumn(e.target.value)}>
                 <option value="">— 全部用我自己的身分 —</option>
@@ -637,7 +621,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
             {blockedPeople.length > 0 && <div className="mb-alert mb-alert--warn"><Icon name="warn" /> 有 {blockedPeople.length} 位填寫人不能用（沒綁 Meegle 或沒有「Meegle 批量評論」代理授權），那幾列會被擋下、其他列照常送。</div>}
             {(canAiFormat || canAiReview) && (
               <div className="mc-ai">
-                {canAiFormat && <label className="mc-switch"><input type="checkbox" checked={useAiFormat} onChange={e => setUseAiFormat(e.target.checked)} /> AI 整理測試說明（用 Prompt 模板改寫，③ 可再手改）</label>}
+                {canAiFormat && <label className="mc-switch"><input type="checkbox" checked={useAiFormat} onChange={e => setUseAiFormat(e.target.checked)} /> AI 整理評論內容（用 Prompt 模板改寫，③ 可再手改）</label>}
                 {canAiReview && <label className="mc-switch"><input type="checkbox" checked={useAiReview} onChange={e => setUseAiReview(e.target.checked)} /> AI 完整性分析（另留一則評論）</label>}
                 {(useAiFormat || useAiReview) && (
                   <div className="mb-grid2">
@@ -661,7 +645,6 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
         {/* ── ③ 逐列預覽 ── */}
         {step === 3 && (
           <div className="mb-pane">
-            <div className="mc-overwrite"><Icon name="warn" /> {items[current] && !items[current].overwriteDesc ? '這一列不動測試頁，只發評論與影片' : '將整格覆寫測試說明（圖片嵌在最後、影片放成連結）'}</div>
             <div className="mc-head">
               <h3 className="mb-pane-title">逐列預覽</h3>
               {items.length > 0 && (
@@ -693,34 +676,17 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
               </aside>
               {cur && (
                 <>
-                  <section className="mc-panel">
-                    <div className="mc-panel-head"><Icon name="doc" /> 測試說明 <span className="mb-muted">#{cur.workItemId}</span>
-                      <label className="mc-switch" style={{ marginLeft: 'auto' }} title="關掉＝Meegle 測試頁整格不動，只發評論與影片評論"><input type="checkbox" checked={cur.overwriteDesc}
-                        onChange={e => editItem(cur.rowIndex, { overwriteDesc: e.target.checked })} /> 覆寫測試頁</label>
-                      {cur.ai === 'running' && <span className="mb-badge mb-badge--pending">AI 處理中</span>}
-                      {cur.aiFormatted && cur.ai !== 'running' && <span className="mb-badge mb-badge--ok">AI 已整理</span>}
+                  {/* 1008 使用者：不再寫 Meegle 測試說明，只發 Comment——測試說明欄、覆寫開關、遠端確認都拿掉；圖片與影片都顯示在 Comment 底下 */}
+                  <section className="mc-panel mc-panel--wide">
+                    <div className="mc-panel-head"><Icon name="chat" /> Comment <span className="mb-muted">#{cur.workItemId}</span>
+                      {cur.ai === 'running' && <span className="mb-badge mb-badge--pending" style={{ marginLeft: 'auto' }}>AI 處理中</span>}
+                      {cur.aiFormatted && cur.ai !== 'running' && <span className="mb-badge mb-badge--ok" style={{ marginLeft: 'auto' }}>AI 已整理</span>}
                     </div>
                     {cur.ai === 'error' && <div className="mb-alert mb-alert--bad">AI 失敗：{cur.aiError}（內容維持原文，可重試）
                       <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void runAi(cur.rowIndex, useAiFormat, useAiReview, true)}>重試</button></div>}
-                    <textarea className="mc-text" value={cur.text} onChange={e => editItem(cur.rowIndex, { text: e.target.value, ...(cur.commentEdited ? {} : { commentText: defaultComment(e.target.value) }) }, true)} rows={14} aria-label="測試說明內容" />
+                    <textarea className="mc-text" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value, commentEdited: true }, true)} rows={14} aria-label="評論內容" />
                     {missing.length > 0 && <div className="mc-missing"><Icon name="warn" /> 格式不完整（仍可送出）：{missing.join('、')}</div>}
-                    {cur.images.length > 0 && (
-                      <div className="mc-thumbs">
-                        {cur.images.map(a => (
-                          <figure key={a.cacheId} className="mc-thumb">
-                            <img src={`/api/attachments/cache/${a.cacheId}`} alt={a.filename} loading="lazy" />
-                            <figcaption>{a.filename}
-                              <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { images: cur.images.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button>
-                            </figcaption>
-                          </figure>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                  <section className="mc-panel">
-                    <div className="mc-panel-head"><Icon name="chat" /> Comments</div>
-                    <textarea className="mc-text mc-text--short" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value, commentEdited: true })} rows={4} aria-label="評論內容" />
-                    <div className="mc-sub-head">影片附件
+                    <div className="mc-sub-head">圖片與影片
                       <span className="mc-sub-actions">
                         {/* 常駐（使用者 10/02）：Sheet 有附件卻讀成 0 個時不會報錯，沒有這顆就沒地方重抓。只做每列、不做全域——重載會把清單換回 Sheet 版本 */}
                         {attachmentColumn && (
@@ -733,7 +699,19 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                     </div>
                     {attachmentColumn && <p className="mb-hint mc-reload-hint">重新載入＝從 Sheet 重抓圖片與影片：預覽時手動移除的會回來，手動新增的保留。</p>}
                     {cur.attLoading && <div className="mb-muted mc-empty">附件載入中…</div>}
-                    {!cur.attLoading && cur.videos.length === 0 && <div className="mb-muted mc-empty">沒有影片</div>}
+                    {!cur.attLoading && cur.videos.length === 0 && cur.images.length === 0 && <div className="mb-muted mc-empty">沒有附件</div>}
+                    {cur.images.length > 0 && (
+                      <div className="mc-thumbs">
+                        {cur.images.map(a => (
+                          <figure key={a.cacheId} className="mc-thumb">
+                            <img src={`/api/attachments/cache/${a.cacheId}`} alt={a.filename} loading="lazy" />
+                            <figcaption>{a.filename}
+                              <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { images: cur.images.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button>
+                            </figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    )}
                     {cur.videos.map(a => (
                       <div key={a.cacheId} className="mc-video"><Icon name="play" /><span className="mc-video-name">{a.filename}<small>{(a.size / 1048576).toFixed(1)} MB ・ 已載入</small></span>
                         <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { videos: cur.videos.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button></div>
@@ -755,19 +733,6 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                         {cur.review ? <div className="mc-review-text">{cur.review}</div> : <div className="mb-muted mc-empty">{cur.ai === 'running' ? '分析中…' : '還沒分析（沒有分析就不會留這則）'}</div>}
                       </div>
                     )}
-                    {cur.remote.status === 'ok' && cur.remote.state === 'changed' && (
-                      <div className="mc-remote">
-                        <div className="mc-remote-title"><Icon name="warn" /> 遠端已被修改</div>
-                        <div className="mc-remote-cmp">
-                          <div><b>原文（Meegle 現在）</b><pre>{cur.remote.current}</pre></div>
-                          <div><b>新版（將寫入）</b><pre>{cur.text}</pre></div>
-                        </div>
-                        <label className="mc-switch"><input type="checkbox" checked={cur.confirmHash === cur.remote.hash}
-                          onChange={e => editItem(cur.rowIndex, { confirmHash: e.target.checked ? cur.remote.hash ?? null : null })} /> 確認覆寫</label>
-                      </div>
-                    )}
-                    {cur.remote.status === 'ok' && cur.remote.state === 'has-content' && <div className="mb-hint">Meegle 上這格已有內容（之前不是工具寫的），送出會整格覆寫。</div>}
-                    {cur.remote.status === 'error' && <div className="mb-alert mb-alert--bad">{cur.remote.error} <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void readRemote(cur.workItemId)}>重讀</button></div>}
                     {curIssue && cur.remote.status === 'ok' && <div className="mb-hint mb-hint--warn">這一列目前不能送：{curIssue}</div>}
                   </section>
                 </>
