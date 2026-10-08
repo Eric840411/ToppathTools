@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.37.1'
+export const APP_VERSION = '5.38.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.38.0', date: '2026-10-08', changes: ['feat(UAT PC 節點路徑)：路徑每一段可寫 name[N] 指定同名兄弟的第 N 個（只算可見的、照 children 順序、從 0 算）；不寫照舊要唯一、第一段不准、越界／負數／小數 FAIL、名字含 [ 寫 [[；錄製器遇到同名兄弟自動錄成 [N] 並反解確認（claude-osm-2 T-A-002 More Games 8 個 item1、CodeX 定案）。pc_scroll 失敗改寫出例外原因'] },
   { version: '5.37.1', date: '2026-10-08', changes: ['fix(UAT PC 驗節點 必須在畫面內)：CodeX 審 e0bb3f3——ScrollView 取不到可視區時改判量不到（原本略過會假 PASS）；穩定判定改用原始座標（取整會把 599.6→599.8 當成停住）；跟找節點共用 15 秒期限（原本最慢 29 秒）'] },
   { version: '5.37.0', date: '2026-10-08', changes: ['feat(UAT PC 驗節點)：assert_pc_node 新增「必須在畫面內」——中心點要在視窗內、也在所有祖先遮罩（Mask、ScrollView 可視區）內，位置要穩定（連續兩次取樣相同）才算；遮罩量不到就判失敗；名稱與路徑兩種寫法都適用；最多等 15 秒、不自動捲動；沒勾照舊（claude-osm-2 PC T-A-002 提出、CodeX 定案）'] },
   { version: '5.36.4', date: '2026-10-08', changes: ['fix(建置)：v5.36.0 新增的 server/machine-test/ideck-button-key.js 沒被複製進 dist-server（tsc 不輸出手寫 .js，原本只整包複製 uat-runner/）→ worker 一啟動就 ERR_MODULE_NOT_FOUND（本機 04:00 排程重啟後重啟迴圈，部署 Spug 也會一樣）。build-server 改成複製 server/ 底下所有手寫 .js，並新增守門：dist-server 每個相對 import 都要找得到檔案，找不到建置直接失敗（已驗：拿掉複製會紅）'] },

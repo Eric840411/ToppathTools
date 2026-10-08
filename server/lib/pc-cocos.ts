@@ -249,6 +249,7 @@ export async function pcClosePopups(page: Page): Promise<number> {
  *    呼叫端拿 before/after 一比就知道有沒有真的捲到東西。
  */
 export async function pcScrollToFraction(page: Page, frac: number, target?: string): Promise<{ status: string; sv: string; before: number; after: number }> {
+  // 1008：例外要帶原因（claude-osm-2 PC T-A-002 只看到「捲動失敗（err）」查不下去）
   return page.evaluate(({ f, target }: { f: number; target?: string }) => {
     interface N { name?: string; children?: N[]; components?: Array<Record<string, unknown>> }
     const fail = (status: string) => ({ status, sv: '', before: 0, after: 0 })
@@ -285,7 +286,7 @@ export async function pcScrollToFraction(page: Page, frac: number, target?: stri
     const offBefore = (sv.getScrollOffset as () => { x: number; y: number })?.() ?? { x: 0, y: 0 }
     ;(sv.scrollToOffset as (p: { x: number; y: number }, t: number) => void)({ x: 0, y: max.y * f }, 0.25)
     return { status: 'ok', sv: svName || '(自動挑的)', before: Math.round(offBefore.y), after: Math.round(max.y * f) }
-  }, { f: frac, target }).catch(() => ({ status: 'err', sv: '', before: 0, after: 0 }))
+  }, { f: frac, target }).catch((e: unknown) => ({ status: `err：${String(e instanceof Error ? e.message : e).split('\n')[0].slice(0, 160)}`, sv: '', before: 0, after: 0 }))
 }
 
 export async function pcCollectMachines(
