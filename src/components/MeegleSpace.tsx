@@ -37,7 +37,11 @@ export function OtherSpaceNotice({ other, space }: { other: MeegleSpace | null |
   )
 }
 
-type Ask = { op: string; sheet: string; count: number }
+/**
+ * warn：送出前要一併提醒的事（1008 使用者：格式提醒跟正式確認是兩個彈窗、連跳兩次會衝突——正式空間時併進這一個）。
+ * 只是提醒，不擋送出
+ */
+type Ask = { op: string; sheet: string; count: number; warn?: { title: string; rows: Array<{ label: string; detail: string }> } }
 
 /** 正式空間送出前確認。回傳 [確認函式, 要放進畫面的彈窗]。測試空間直接回 true */
 export function useProdConfirm(space: MeegleSpace): [(a: Ask) => Promise<boolean>, React.ReactNode] {
@@ -60,6 +64,12 @@ export function useProdConfirm(space: MeegleSpace): [(a: Ask) => Promise<boolean
           <dt>Sheet</dt><dd className="msp-modal-sheet">{ask.sheet || '—'}</dd>
           <dt>筆數</dt><dd>{ask.count} 筆</dd>
         </dl>
+        {ask.warn && ask.warn.rows.length > 0 && (
+          <div className="msp-modal-warn">
+            <b>{ask.warn.title}</b>
+            <ul>{ask.warn.rows.map((r, i) => <li key={i}>{r.label}<span>{r.detail}</span></li>)}</ul>
+          </div>
+        )}
         <p className="msp-modal-note">送出後會直接改到正式空間的單，不能復原。</p>
         <div className="msp-modal-actions">
           <button type="button" className="mb-btn" onClick={() => done(false)}>取消</button>

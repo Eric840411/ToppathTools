@@ -54,3 +54,8 @@
 :root[data-theme-mode="xianxia"] .mbg-step { border-color: rgba(212, 175, 55, .3); }
 :root[data-theme-mode="xianxia"] .mbg-step-t { color: #f3e6c4; }
 :root[data-theme-mode="xianxia"] .mbg-step-t b { background: rgba(212, 175, 55, .18); color: #f3dfa2; }
+/* 1008：正式確認彈窗裡一併列出的提醒（例如評論格式不完整）——只是提醒，不擋送出 */
+.msp-modal-warn { margin: 10px 0; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(245, 183, 59, .4); background: rgba(245, 183, 59, .08); font-size: 13px; }
+.msp-modal-warn b { color: #f5b73b; }
+.msp-modal-warn ul { margin: 6px 0 0; padding-left: 18px; max-height: 30vh; overflow: auto; display: grid; gap: 4px; }
+.msp-modal-warn li span { display: block; color: #f5b73b; font-size: 12px; }

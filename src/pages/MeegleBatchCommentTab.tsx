@@ -405,10 +405,13 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
 
   async function submit() {
     if (aiPendingOf(itemsRef.current) || !sendable.length || otherSpace) return
-    // 1008：格式不完整的列在送出前列出來（不擋，只確認）
-    if (!(await confirmFormat(sendable.map(it => ({ summary: it.summary || `#${it.workItemId}`, missing: validateCommentSections(it.commentText) })).filter(r => r.missing.length)))) return
-    // 正式空間：每批送出前確認一次（CodeX）
-    if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: sendable.length }))) return
+    // 1008：格式不完整的列在送出前列出來（不擋，只確認）。
+    // 正式空間本來就有確認彈窗——**併進那一個**，不要連跳兩個（使用者：兩個彈窗會衝突）；測試空間才單獨跳格式提醒
+    const incomplete = sendable.map(it => ({ summary: it.summary || `#${it.workItemId}`, missing: validateCommentSections(it.commentText) })).filter(r => r.missing.length)
+    if (space === 'prod') {
+      const warn = incomplete.length ? { title: `有 ${incomplete.length} 列評論格式不完整（仍可送出）`, rows: incomplete.map(r => ({ label: r.summary, detail: `缺：${r.missing.join('、')}` })) } : undefined
+      if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: sendable.length, warn }))) return
+    } else if (!(await confirmFormat(incomplete))) return
     // ⚠️ 確認框開著的時候可能有人重跑 AI——關掉之後用**最新的**狀態再檢查一次、再取要送的列（CodeX）
     if (aiPendingOf(itemsRef.current)) return
     const list = itemsRef.current.filter(it => !itemIssue(it))

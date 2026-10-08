@@ -686,3 +686,7 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 - 規則本身沒改，跟 Jira 共用 `src/features/batch-comment/comment-text.ts`（五區塊加必填細項，「名稱：內容」）
 - 順手修：Meegle 的彈窗用 createPortal 掛在 body，不在 `.mb-page` 裡，吃不到 `--mb-*` 變數，按鈕變成沒樣式的純文字（正式空間確認彈窗也一樣）
   - 改法：變數改成 `.mb-page, .msp-modal-back` 共用一份，修仙版也一樣
+- **v5.46.2**：使用者在 Lark 指出，送正式空間時，格式提醒跟正式確認會連跳兩個彈窗
+  - 改成正式空間把格式提醒併進正式確認（`useProdConfirm` 的 Ask 多一個選填的 `warn` 區塊），只跳一個
+  - 測試空間沒有正式確認，才單獨跳格式提醒
+  - 測試：`meegle-comment-prod-confirm.mjs`（切到正式空間，送出端點擋掉）
