@@ -50,13 +50,15 @@ check('值不是數字要指名', /不是數字/.test(throws(() => ev('bad.Name 
 check('空算式要報錯', !!throws(() => ev('')));
 
 console.log('\n積木層：算式必須相等');
+// 1008：read_table 的 evaluate 改成回「每格的 text／colspan／rowspan」（網格在 table-grid.js 建），假頁面照這個形狀回
+const asCells = (rows) => { const keys = rows.length ? Object.keys(rows[0]) : []; return { headerRows: [keys.map(k => ({ text: k }))], bodyRows: rows.map(r => keys.map(k => ({ text: String(r[k] ?? '') }))) } };
 const ctxWith = (rows) => ({
   page: {
     evaluate: async (fn, arg) => {
       void fn;
       // read_table 用；wait_for 會另外覆寫
       void arg;
-      return rows;
+      return asCells(rows);
     },
     waitForTimeout: async () => {},
     locator: () => ({ count: async () => 1, first: () => ({}), elementHandle: async () => ({}) }),
@@ -134,7 +136,7 @@ console.log('迴圈：重複接下來幾步（執行前展開）');
 console.log('逐列檢查：每一列都要符合');
 {
   const rowsCtx = (rows) => ({
-    page: { evaluate: async () => rows, waitForTimeout: async () => {}, locator: () => ({ count: async () => 1, first: () => ({}), elementHandle: async () => ({}) }) },
+    page: { evaluate: async () => asCells(rows), waitForTimeout: async () => {}, locator: () => ({ count: async () => 1, first: () => ({}), elementHandle: async () => ({}) }) },
   });
   const ok = await runSteps([
     { action: 'read_table', name: '讀表格', as: 'rows', selector: 'table' },

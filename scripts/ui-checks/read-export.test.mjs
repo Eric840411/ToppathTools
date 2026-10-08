@@ -18,6 +18,8 @@
  */
 import assert from 'node:assert/strict';
 import { runSteps } from '../../server/uat-runner/block-engine.js';
+// 1008：read_table 的 evaluate 改成回「每格的 text／colspan／rowspan」（網格在 table-grid.js 建），假頁面照這個形狀回
+const asCells = (rows) => { const keys = rows.length ? Object.keys(rows[0]) : []; return { headerRows: [keys.map(k => ({ text: k }))], bodyRows: rows.map(r => keys.map(k => ({ text: String(r[k] ?? '') }))) } };
 
 const HEADERS = ['Date', 'Bet User', 'Total Bet', 'Win Or Lose'];
 const ROWS = [
@@ -116,7 +118,7 @@ console.log('讀取匯出檔（read_export）');
   ]
   const tableCtx = () => ({
     page: {
-      evaluate: async () => PAGE_ROWS,
+      evaluate: async () => asCells(PAGE_ROWS),
       waitForTimeout: async () => {},
       locator: () => ({ count: async () => 1, first: () => ({}), elementHandle: async () => ({}) }),
     },
@@ -142,7 +144,7 @@ console.log('讀取匯出檔（read_export）');
 // ── 比率換算：同一個勝負率，一邊是 14.06%、一邊是 0.1406 ────────────────
 {
   const ratioCtx = {
-    page: { evaluate: async () => [{ Date: '2026-09-18', 'Win Lose Ratio': '14.06%' }], waitForTimeout: async () => {},
+    page: { evaluate: async () => asCells([{ Date: '2026-09-18', 'Win Lose Ratio': '14.06%' }]), waitForTimeout: async () => {},
       locator: () => ({ count: async () => 1, first: () => ({}), elementHandle: async () => ({}) }) },
     runExport: async () => ({ hasButton: true, file: 'x.xlsx', headers: ['Date', 'Win Lose Ratio'], rows: [['2026-09-18', '0.1406']] }),
   }

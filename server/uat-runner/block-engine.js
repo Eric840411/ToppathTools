@@ -25,6 +25,7 @@
  *
  * params 的 type：text | number | textarea | select | boolean
  */
+import { buildTableGrid, TABLE_CELLS_IN_PAGE, pickKeyColumn } from './table-grid.js';
 import { evaluateExpr } from './expr.js';
 import { guardDangerousStep } from './dangerous-actions.js';
 import { evaluateApiAssertion } from './api-assert.js';
@@ -1766,37 +1767,23 @@ export async function runSteps(steps, ctx, options = {}) {
           if (fail(step, `${tag}：${describeLocateFailure(tableFound, tableSel)}`) === 'stop') break; continue;
         }
         const tableHandle = tableFound.count ? await tableFound.locator.elementHandle().catch(() => null) : null;
-        const rows = await ctx.page.evaluate(({ table, maxRows }) => {
-          // Element UI 把表頭與表身拆成兩個 <table>（.el-table__header / .el-table__body），
-          // 用單一 table 選擇器只會拿到其中一個——實測後台頁面 querySelector('table')
-          // 抓到的是表頭那張，tbody tr 是 0 筆。所以表頭與表身要分開找。
-          const headers = [...document.querySelectorAll('.el-table__header th, table thead th')]
-            .map(th => (th.innerText || '').trim());
-          let body = [...document.querySelectorAll('.el-table__body tr')];
-          if (!body.length) {
-            // 退路：這裡只接受**已經由 Playwright 解過、確定是合法 CSS** 的選擇器。
-            // 錄製產的 `:text-is()` 不是合法 CSS，丟進來會 SyntaxError，
-            // 所以外面先用 locator 找好再把元素傳進來（table 參數）。
-            if (!table) return null;
-            body = [...table.querySelectorAll('tbody tr')];
-          }
-          if (!headers.length && !body.length) return null;
-          return body.slice(0, maxRows).map(tr => {
-            const cells = [...tr.querySelectorAll('td')].map(td => (td.innerText || '').trim());
-            const row = {};
-            cells.forEach((c, idx) => { row[headers[idx] || `col${idx}`] = c });
-            return row;
-          });
-        }, { table: tableHandle, selector: tableSel, maxRows: Number(step.maxRows) || 200 });
+        // 1008：頁面只抓「這一張表」每格的 text／colspan／rowspan，網格在 table-grid.js 建（兩層表頭、rowspan 原本會錯位；整頁抓會混到別張表）
+        const raw = tableHandle ? await ctx.page.evaluate(TABLE_CELLS_IN_PAGE, { table: tableHandle, maxRows: Number(step.maxRows) || 200 }).catch(() => null) : null;
+        const rows = raw === null ? null : buildTableGrid(raw.headerRows, raw.bodyRows, { aliasKey }).rows;
         if (rows === null) { if (fail(step, `${tag}：找不到表格 ${step.selector || 'table'}`) === 'stop') break; continue }
         const tableKeyCol = String(step.keyColumn ?? '').trim();
         if (!tableKeyCol) {
           if (!setVar(step, tag, step.as, 'tableRows', rows.map(withAliases))) break;
           notes.push(`${tag}：讀到 ${rows.length} 列`);
         } else {
-          // 用鍵挑一列。欄名比對跟匯出檔那邊同一套（包含比對、去空格別名）
+          // 用鍵挑一列。1008（CodeX）：兩層表頭攤平後只寫「Upgrade」會同時包含到 Upgrade Cycle／Upgrade Amount——
+          //   先比完全相同（含去空格別名），沒有才用包含比對；包含比對對到不只一欄就報錯，不默默取第一欄
           const cols = rows.length ? Object.keys(rows[0]) : [];
-          const col = cols.find(c => c.toLowerCase().includes(tableKeyCol.toLowerCase()));
+          const picked = pickKeyColumn(cols, tableKeyCol, aliasKey);
+          if (picked.col === null && picked.ambiguous.length > 1) {
+            if (fail(step, `${tag}：欄位「${tableKeyCol}」對到不只一欄（${picked.ambiguous.join('、')}），請寫完整欄名`) === 'stop') break; continue;
+          }
+          const col = picked.col;
           if (!col) {
             if (fail(step, `${tag}：表格裡找不到欄位「${tableKeyCol}」（目前欄位：${cols.join('、') || '無'}）`) === 'stop') break; continue;
           }

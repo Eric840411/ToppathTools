@@ -90,6 +90,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 錄製視窗放不下時縮小顯示的比例計算。agent-runner.ts 靜態 import 它（2026-10-02）
   'uat-runner/record-window.js':       join(SERVER_ROOT, 'uat-runner', 'record-window.js'),
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
+  // 1008：read_table 的表格網格（兩層表頭／rowspan）
+  'uat-runner/table-grid.js': join(SERVER_ROOT, 'uat-runner', 'table-grid.js'),
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
   // 🚨 下面這三個是 2026-09-21 漏掉的那一批，使用者在 Mac 上裝 agent 時炸出來：
   //      Cannot find module '.../uat-runner/expr.js' imported from block-engine.js
