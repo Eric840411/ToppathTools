@@ -50,8 +50,10 @@ export function buildTableGrid(headerRows, bodyRows, opts = {}) {
   }
   // 名稱與別名都不能撞：先保留原本就唯一的名稱，再替撞名的找 #2、#3…
   const used = new Set()
-  const claim = nm => { used.add(nm); used.add(aliasOf(nm)) }
-  const free = nm => !used.has(nm) && !used.has(aliasOf(nm))
+  // CodeX 0793271 [P2]：別名是空字串（例如純中文欄名）不參與占用——withAliases 本來就略過空別名，不然「姓名｜金額」第二欄會被改成「金額 #2」
+  const aliasUsed = new Set()
+  const claim = nm => { used.add(nm); const a = aliasOf(nm); if (a) aliasUsed.add(a) }
+  const free = nm => { const a = aliasOf(nm); return !used.has(nm) && !aliasUsed.has(nm) && !(a && (used.has(a) || aliasUsed.has(a))) }
   const names = new Array(width)
   const firstOf = new Map()
   base.forEach((nm, j) => { if (!firstOf.has(nm)) firstOf.set(nm, j) })
@@ -114,7 +116,8 @@ export const TABLE_CELLS_IN_PAGE = ({ table, maxRows }) => {
 export function pickKeyColumn(cols, key, aliasKey = x => x) {
   const want = String(key ?? '').trim().toLowerCase()
   const wantAlias = String(aliasKey(String(key ?? '').trim())).toLowerCase()
-  const exact = cols.filter(c => c.toLowerCase() === want || String(aliasKey(c)).toLowerCase() === wantAlias)
+  // 空別名（純中文等）不拿來比：不然任何中文鍵都會對到第一個中文欄（CodeX 0793271 [P2]）
+  const exact = cols.filter(c => c.toLowerCase() === want || (!!wantAlias && String(aliasKey(c)).toLowerCase() === wantAlias))
   if (exact.length === 1) return { col: exact[0] }
   if (exact.length > 1) return { col: null, ambiguous: exact }
   const partial = cols.filter(c => c.toLowerCase().includes(want))

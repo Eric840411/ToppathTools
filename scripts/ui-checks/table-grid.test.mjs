@@ -2,7 +2,7 @@
  * read_table 的表格網格（1008，vipUpgradeSetting 兩層表頭＋rowspan 讀錯欄）。
  *   node scripts/ui-checks/table-grid.test.mjs
  */
-import { buildTableGrid } from '../../server/uat-runner/table-grid.js'
+import { buildTableGrid, pickKeyColumn } from '../../server/uat-runner/table-grid.js'
 
 let fail = 0, n = 0
 const ok = (c, label, got) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -43,6 +43,12 @@ const dup = buildTableGrid([[C('A'), C('A #2'), C('A')]], [[C('1'), C('2'), C('3
 ok(new Set(dup.columns).size === 3 && dup.columns[1] === 'A #2' && dup.rows[0][dup.columns[2]] === '3' && dup.columns[2] === 'A #3', '已經有一欄叫「A #2」→ 重複的 A 改叫 A #3', dup.columns)
 const al = buildTableGrid([[C('Up Amount'), C('UpAmount')]], [[C('1'), C('2')]], { aliasKey: alias })
 ok(new Set(al.columns.map(alias)).size === 2 && al.rows[0][al.columns[1]] === '2', '別名會撞（Up Amount／UpAmount）→ 後面那欄改名，兩欄都能唯一引用', al.columns)
+// CodeX 0793271 [P2]：純中文欄名的別名是空字串 → 不參與占用與匹配
+const zh = buildTableGrid([[C('姓名'), C('金額')]], [[C('王'), C('100')]], { aliasKey: alias })
+ok(JSON.stringify(zh.columns) === '["姓名","金額"]' && zh.rows[0]['金額'] === '100', '中文欄名不被改名（空別名不算撞名）', zh.columns)
+ok(pickKeyColumn(zh.columns, '金額', alias).col === '金額', 'keyColumn=金額 → 選到金額（不是姓名）', pickKeyColumn(zh.columns, '金額', alias))
+const miss = pickKeyColumn(zh.columns, '不存在', alias)
+ok(miss.col === null && miss.ambiguous.length === 0, 'keyColumn=不存在 → 找不到（不會亂選第一欄）', miss)
 // 缺格補空字串，不左移
 const short = buildTableGrid([[C('A'), C('B'), C('C')]], [[C('1')]])
 ok(short.rows[0].A === '1' && short.rows[0].B === '' && short.rows[0].C === '', '一列格子比表頭少 → 缺的補空字串', short.rows[0])

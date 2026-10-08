@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.36.2'
+export const APP_VERSION = '5.36.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.36.3', date: '2026-10-08', changes: ['fix(UAT 後台 read_table)：CodeX 複審——純中文欄名的空別名原本也拿來判重與比對，「姓名｜金額」會被改名成「金額 #2」、keyColumn=金額 選到姓名；空別名不再參與'] },
   { version: '5.36.2', date: '2026-10-08', changes: ['fix(UAT 後台 read_table)：兩層表頭（colspan）與跨列儲存格（rowspan）讀錯欄（vipUpgradeSetting：Platinum 的 Relegation 讀成 1,000，其實是 Upgrade Amount）——改成只讀選到的那張表、依 colspan／rowspan 建網格；欄名接各層表頭（Upgrade Cycle／Upgrade Amount／Relegation Cycle／Relegation Amount），單層表頭不變；rowspan 補值、缺格補空、重名加 #2 且避開別名衝突；keyColumn 精確優先、對到多欄就報錯（claude-osm-2 回報、CodeX 同意做法）'] },
   { version: '5.36.1', date: '2026-10-08', changes: ['fix(機台測試 iDeck 時間學習)：CodeX 審 139aa8d——[P1] 收尾抓到最後一顆晚開局、45 秒沒結束時，那一顆改記開轉逾時（原本仍是 ack，沒有倍數鍵時會判 PASS）；[P2] 中止／逾時收尾的截圖改成照原樣截，不再去點 JP 廣播卡的 X'] },
   { version: '5.36.0', date: '2026-10-07', changes: ['feat(機台測試 iDeck)：**iDeck 時間學習 第一期**——已確認的不開局按鈕（ARUZE PLAY xx Credits、BZZF 18／38／68 Credits、JJBXGRAND 全部）不再固定等 6 秒看開局，改等學習值（候選 1.5 秒）；只有 confirmed、name 精確匹配、ack 正確、按之前證明機台空閒才套用。護欄：短等待之後下一顆仍等滿 6 秒靜默窗；每顆按之前確認上一局已結束（只認 __moneyLog）；晚到的開局記回那一顆並撤銷學習值、本台改回保守；分不出是哪一顆開的局只中止本台 iDeck、記 not verified，之後照常做觸屏／CCTV／退出；noAck 不重按。學習值存在獨立表 machine_test_ideck_timing，batch 依結果撤銷，寫入失敗就本批禁用短等待。規格 claude-osm-3、做法 CodeX 定案。1008 收尾修正：已確認清單是按鈕字（PLAY11Credits／BETx1），runner 原本拿 action name（Bet11／BetMultiple1）查，短等待永遠不會生效——按鈕識別鍵抽成 server/machine-test/ideck-button-key.js，runner 與 batch 共用一份'] },
