@@ -281,11 +281,20 @@ function markWsBefore(ctx) {
   if (ctx.state) ctx.state.wsMark = Date.now();
 }
 
-function requirePc(ctx, blockName) {
+/**
+ * 🚨 **每顆 PC 積木都要先補 `__name` shim，不能只靠 `pc_enter_machine`／`assert_pc_scene`。**
+ *
+ * 實測 1008（claude-osm-2 PC T-A-002）：腳本沒有先跑那兩顆，`pc_scroll` 直接炸
+ * `ReferenceError: __name is not defined`；`assert_pc_node` 更糟——`pcFindNode` 的
+ * `.catch(() => null)` 把同一個錯吞掉，畫面上變成「場景樹裡找不到」，看起來像機台名稱沒渲染。
+ * 補 shim 很便宜（重複呼叫無害），所以一律在取得 pc 時補。
+ */
+async function requirePc(ctx, blockName) {
   const pc = ctx.pc;
   if (!pc || typeof pc.sceneName !== 'function') {
     throw new Error(`「${blockName}」是 PC（Cocos）專用積木，但這次執行沒有帶 PC 能力進來（host 沒給 ctx.pc）`);
   }
+  if (typeof pc.installEvalShim === 'function') await pc.installEvalShim(ctx.page);
   return pc;
 }
 
@@ -402,7 +411,7 @@ export async function runFrontendStep(step, ctx) {
 
   if (step.action === 'pc_enter_machine') {
     markWsBefore(ctx);
-    const pc = requirePc(ctx, 'PC 進機台');
+    const pc = await requirePc(ctx, 'PC 進機台');
     const want = (step.value ?? '').trim();
     // 留空的話要挑哪一台？「隨便一台」不是測試，是抽籤——報告上會看不出測的是什麼
     if (!want) throw new Error('要指定機台：填 `Rising Rockets` 會挑同款空的一台，填 `Rising Rockets Emperor-141` 指定那一台');
@@ -539,7 +548,7 @@ export async function runFrontendStep(step, ctx) {
   }
 
   if (step.action === 'pc_scroll') {
-    const pc = requirePc(ctx, 'PC 捲動');
+    const pc = await requirePc(ctx, 'PC 捲動');
     await log(`⏳ ${idx} ${label}`);
     /**
      * 🚨 **要捲哪一份清單一定要講清楚。**
@@ -601,7 +610,7 @@ export async function runFrontendStep(step, ctx) {
 
   if (step.action === 'pc_click_node') {
     markWsBefore(ctx);
-    const pc = requirePc(ctx, 'PC 點節點');
+    const pc = await requirePc(ctx, 'PC 點節點');
     const want = (step.value ?? '').trim();
     if (!want) throw new Error('要填節點名稱或標籤文字，例如 `btn-road`（節點名）或 `Road`（畫面上的字）');
     guardDangerousStep({ step, what: { node: want, text: step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
@@ -616,7 +625,7 @@ export async function runFrontendStep(step, ctx) {
   }
 
   if (step.action === 'assert_pc_node') {
-    const pc = requirePc(ctx, 'PC 驗節點');
+    const pc = await requirePc(ctx, 'PC 驗節點');
     const want = (step.value ?? '').trim();
     if (!want) throw new Error('要填節點名稱或標籤文字');
     await log(`⏳ ${idx} ${label}`);
@@ -667,7 +676,7 @@ export async function runFrontendStep(step, ctx) {
   }
 
   if (step.action === 'assert_pc_scene') {
-    const pc = requirePc(ctx, 'PC 驗場景');
+    const pc = await requirePc(ctx, 'PC 驗場景');
     await log(`⏳ ${idx} ${label}`);
     const wantScene = (step.value ?? '').trim() || 'lobby';
     // 場景樹要先掛 shim 才讀得到（這顆積木可能是腳本的第一顆，不能假設前面已經掛過）
@@ -834,7 +843,7 @@ export async function runFrontendStep(step, ctx) {
     let met = false;
     while (Date.now() - started < timeoutMs) {
       if (until === 'node') {
-        const pc = requirePc(ctx, '等 Cocos 節點');
+        const pc = await requirePc(ctx, '等 Cocos 節點');
         const node = await pc.findNode(page, nodeName).catch(() => null);
         if (node?.found) { met = true; break }
       } else if (until === 'text') {
@@ -950,7 +959,7 @@ export async function runFrontendStep(step, ctx) {
       const n = await page.locator(domSel).count();
       satisfied = n > 0 && await page.locator(domSel).first().isVisible().catch(() => false);
     } else {
-      const pc = requirePc(ctx, '前置條件（PC 節點）');
+      const pc = await requirePc(ctx, '前置條件（PC 節點）');
       const node = await pc.findNode(page, nodeName);
       satisfied = !!node?.found;
     }

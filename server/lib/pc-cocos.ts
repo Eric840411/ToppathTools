@@ -48,10 +48,15 @@ export interface PcMachine {
  * ⚠️ 只有「evaluate 裡面宣告了具名函式」的才會踩到——所以 H5 那幾支沒事、
  *    PC 這幾支全中，看起來像「PC 版特有的問題」，其實跟 PC 無關。
  */
+const shimmedPages = new WeakSet<Page>()
 export async function pcInstallEvalShim(page: Page): Promise<void> {
   // 用**字串**形式，不要用函式——函式會再被 tsx 轉一次，等於又把 __name 帶進去
   const shim = 'window.__name = window.__name || function (fn) { return fn }'
-  await page.addInitScript(shim).catch(() => { /* 舊頁面照樣用下面那行補 */ })
+  // 每顆 PC 積木都會呼叫一次——initScript 只掛一次，不然每次導頁都會重跑 N 份
+  if (!shimmedPages.has(page)) {
+    shimmedPages.add(page)
+    await page.addInitScript(shim).catch(() => { /* 舊頁面照樣用下面那行補 */ })
+  }
   await page.evaluate(shim).catch(() => { /* 頁面還沒好就算了，下一輪會再補 */ })
 }
 

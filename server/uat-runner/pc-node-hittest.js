@@ -134,7 +134,7 @@ export const PC_HITTEST_SOURCE = [
   /* CodeX e0bb3f3 [P2]：ScrollView 認得出來、可視區卻取不到（content／parent 讀不到）→ 一樣算量不到，不能略過 */
   '    for (let i = 0; i < clips.length; i++) { const m = clips[i].node ? rectOf(clips[i].node) : null;',
   '      if (!m) return { found: true, measurable: false, why: "量不到遮罩範圍（" + clips[i].why + "）", cx: Math.round(r.cx), cy: Math.round(r.cy) };',
-  '      if (!(r.cx >= m.left && r.cx <= m.right && r.cy >= m.top && r.cy <= m.bottom)) outside.push(clips[i].why); }',
+  '      if (!(r.cx >= m.left && r.cx <= m.right && r.cy >= m.top && r.cy <= m.bottom)) outside.push(clips[i].why + " 可視範圍 x" + Math.round(m.left) + "~" + Math.round(m.right) + " y" + Math.round(m.top) + "~" + Math.round(m.bottom)); }',
   '    return { found: true, measurable: true, name: nameOf(n), cx: Math.round(r.cx), cy: Math.round(r.cy), rx: r.cx, ry: r.cy, inWindow: inWindow,',
   '             clips: clips.length, outside: outside, visible: inWindow && outside.length === 0 }; };',
   '  window.__uatPcHit = {',
