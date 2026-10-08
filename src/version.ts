@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.44.0'
+export const APP_VERSION = '5.45.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.45.0', date: '2026-10-08', changes: ['feat(UAT PC 進機台 改讀卡片資料)：CodeX 方案 a～d、claude-osm-2 UAT 實測——pc_enter_machine 改讀每張卡片 MachinePlusItem._data（gmid／state／lockType），不再靠文字標籤（UAT 標籤是 1008 這種、舊格式對不上 → 永遠同款 0 台）。清單載完＝每張顯示中的卡片都有 _data 且連續兩次 gmid 集合相同；讀取失敗直接失敗（不當 0 台）；同款 0 台 → 明確「環境裡沒有」；空機＝state 0、lockType 0、沒離線、沒佔用徽章，沒有就每 1.5 秒重讀、最多等 15 秒（釋放約慢 8 秒）；點前重讀同一張卡（gmid、還空著、在畫面內、名稱已畫出來）；進場後核對實際 gmid（機台內 _data，讀不到看 enterGM），進錯台或核對不到都算失敗。留空或 * ＝整個大廳隨機挑一台空機（PC 使用者：不固定機台），候選與挑中的 gmid 寫進日誌。pcWaitLobby 加 requireLabels:false；反查器多 seenNode／intoNode（判可見與捲動仍只有一份）。pc-enter-machine-data 12 條；拿掉 lockType、15 秒等待、進錯台檢查各自會紅'] },
   { version: '5.44.0', date: '2026-10-08', changes: ['feat(UAT 積木 變數)：PC 使用者「不固定入口或機台」、CodeX 方案 e——fill／type／pc_click_node 的值可以寫 {{變數}}（讀值存的），例如讀到線上機台號再填進搜尋框。跟後台片段共用同一支 expandVars；變數不存在、空值、不是單一值 → 直接報錯（不會變空字串誤觸別的規則）；展開在積木一開頭做，危險動作判斷拿展開後的值；展開結果寫進日誌。step-vars 7 條，拿掉展開會紅'] },
   { version: '5.43.0', date: '2026-10-08', changes: ['feat(UAT PC 點節點 找不到就跳過)：PC 使用者（大廳廣告有時有、有時沒有），CodeX 方案 g——pc_click_node 可勾「找不到就跳過」：等 3 秒、場景讀得到、節點確定不存在 → 記 SKIP（agent／伺服器的跳過計數、TC 備註 ⏭）；場景讀不到 → 失敗（讀不到不等於沒有）；找到了卻點不到照樣失敗', 'fix(UAT 危險動作守門 帳號池中轉)：claude-osm-2 回報，CodeX 方案 h——起始網址是工作台給的 /api/url-pool/go/<帳號>?to=<base64> 時一律被當成正式環境（hostname 是工具自己）。改判解碼後的 to：只認可信工具來源（eric.osmslot.org、本機、私有網段）＋精確 go 路徑、只拆一層；解碼失敗、非 http(s)、又是一層中轉 → 擋；操作當下網址照樣檢查、逐積木放行照舊要勾。dangerous-guard 41 條；拿掉拆解會紅 3 條、拿掉只拆一層會紅 1 條'] },
   { version: '5.42.2', date: '2026-10-08', changes: ['fix(機台測試 iDeck)：CodeX 補審 3487482——[P1] 略過的鍵不進 outcomes，runIdeckSequence 卻拿 outcomes 的位置去取 buttons：略過 Bet88 後「還原 x1」按到 Bet88 還判 PASS；learn 的按回同樣錯位。改成記下每個 outcome 對應的按鈕索引。[P2] 收尾關卡過了之後又按還原（短等待），還原那一下晚開局不會再檢查（finalGateDone 沒重置）→ 誤判通過、漏撤銷學習值；改成每次真的點擊都重置。兩種模式都受影響。verdicts-probe 72、ideck-timing-probe 41，各自拿掉修正會紅'] },

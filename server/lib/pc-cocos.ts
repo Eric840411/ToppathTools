@@ -146,8 +146,13 @@ export async function pcLobbyDiag(page: Page): Promise<Omit<PcLobbyDiag, 'ready'
  *    ①Cocos 還沒起來 ②場景不是 lobby ③卡片在但名稱還沒渲染 ④真的空的——
  *    這四種的下一步完全不同（實測踩過：H5 那邊就因為訊息含糊被帶偏過一次）。
  */
-export async function pcWaitLobby(page: Page, timeoutMs = 60_000): Promise<PcLobbyDiag> {
+/**
+ * @param opts.requireLabels 預設 true（舊行為）。1008 pc_enter_machine 改讀 _data 後傳 false：
+ *   UAT 的卡片標籤是 `1008` 這種，對不上舊的名稱格式，labelled 會一直是 0——那顆積木自己用 _data 判斷清單載完
+ */
+export async function pcWaitLobby(page: Page, timeoutMs = 60_000, opts: { requireLabels?: boolean } = {}): Promise<PcLobbyDiag> {
   await pcInstallEvalShim(page)
+  const needLabels = opts.requireLabels !== false
   const started = Date.now()
   let last = await pcLobbyDiag(page)
   while (Date.now() - started < timeoutMs) {
@@ -158,7 +163,7 @@ export async function pcWaitLobby(page: Page, timeoutMs = 60_000): Promise<PcLob
     //    錯誤訊息卻寫成「這個視窗一次只看得到 0 張卡片」，看起來像解析度的問題。
     //    2026-09-18 實測 844x390：`machineItems: 2`、`hasGrid: false`，而 ready 照樣是 true。
     //    症狀還會時好時壞（同一個尺寸這輪過、下輪掛），因為純粹是搶快——最難查的那種。
-    if (last.hasCc && last.hasGrid && last.machineItems >= 20 && last.labelled > 0) {
+    if (last.hasCc && last.hasGrid && last.machineItems >= 20 && (!needLabels || last.labelled > 0)) {
       return { ...last, ready: true, waitedMs: Date.now() - started }
     }
     await page.waitForTimeout(1500)
@@ -578,6 +583,105 @@ export async function pcScrollIntoView(
   return last?.onScreen ? { x: last.x, y: last.y } : null
 }
 
+/**
+ * 1008 PC 大廳改讀卡片資料（CodeX 方案 a～d；claude-osm-2 UAT 實測）。
+ *
+ * 每張卡片（`machine_item`）上的 `MachinePlusItem` 元件有 `_data`：gmid／gameid／name／gamealias／state／lockType，
+ * **捲動之前就有**——不用像舊版那樣等文字標籤渲染（UAT 的標籤是 `1008` 這種，舊版的名稱格式根本對不上）。
+ *   - state：0＝空機；1、2＝有人（實測 B 進場後 0.5 秒內變 1；離開後約 8 秒才回 0）
+ *   - 空機＝state 0、lockType 0、沒離線（nOffline）、沒佔用徽章（nOccupied）——徽章是保守項
+ * ⚠️ 讀取失敗回 ok:false，**不能當成 0 台**（CodeX：讀取失敗不能當沒有）
+ * ⚠️ 位置與「在不在畫面內」用反查器的 seenNode（跟 assert_pc_node 同一份）
+ */
+export interface PcCard {
+  gmid: string; gameid: string; name: string; alias: string; gameName: string
+  state: number | null; lockType: number | null; offline: boolean; occupiedBadge: boolean; free: boolean
+  /** 畫面上那張卡片現在顯示的名稱（空＝還沒渲染） */
+  label: string
+  visible: boolean; x: number; y: number
+}
+export async function pcMachineCards(page: Page): Promise<{ ok: true; items: number; withData: number; cards: PcCard[] } | { ok: false; why: string }> {
+  await pcInstallHitTest(page)
+  return page.evaluate(() => {
+    type N = { name?: string; active?: boolean; activeInHierarchy?: boolean; children?: N[]; parent?: N | null; components?: Array<Record<string, unknown>> }
+    const w = window as unknown as { cc?: { director?: { getScene?: () => N } }; __uatPcHit?: { seenNode?: (n: N) => { found: boolean; visible?: boolean; cx?: number; cy?: number } } }
+    if (!w.cc?.director?.getScene) return { ok: false as const, why: '頁面上沒有 Cocos（cc）' }
+    const hit = w.__uatPcHit
+    if (!hit?.seenNode) return { ok: false as const, why: '反查器沒有掛上' }
+    const all: N[] = []
+    const walk = (n: N | null | undefined, d: number) => { if (!n || d > 18) return; all.push(n); for (const c of (n.children ?? [])) walk(c, d + 1) }
+    walk(w.cc.director.getScene(), 0)
+    const labelOf = (n: N | null | undefined): string => {
+      if (!n) return ''
+      for (const c of (n.components ?? [])) { const v = c?.string; if (typeof v === 'string' && v.trim()) return v.trim() }
+      for (const k of (n.children ?? [])) { const v = labelOf(k); if (v) return v }
+      return ''
+    }
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+    const cards: PcCard[] = []
+    let items = 0
+    for (const n of all) {
+      if (String(n.name ?? '') !== 'machine_item' || n.activeInHierarchy === false) continue
+      items++
+      const comp = (n.components ?? []).find(c => c && typeof c._data === 'object' && c._data !== null && typeof (c._data as { gmid?: unknown }).gmid === 'string')
+      if (!comp) continue
+      const d = comp._data as Record<string, unknown>
+      const gmid = String(d.gmid ?? '')
+      if (!gmid) continue
+      const row = n.parent?.parent ?? null
+      const gameNameNode = (row?.children ?? []).find(k => String(k.name ?? '') === 'game-name') ?? null
+      const nameNode = (n.children ?? []).find(k => String(k.name ?? '') === 'name') ?? null
+      const flag = (x: unknown) => !!x && typeof x === 'object' && (x as { active?: boolean }).active === true
+      const state = num(d.state), lockType = num(d.lockType)
+      const offline = flag(comp.nOffline), occupiedBadge = flag(comp.nOccupied)
+      const seen = hit.seenNode(n)
+      cards.push({
+        gmid, gameid: String(d.gameid ?? ''), name: String(d.name ?? ''), alias: String(d.gamealias ?? ''), gameName: labelOf(gameNameNode),
+        state, lockType, offline, occupiedBadge, free: state === 0 && lockType === 0 && !offline && !occupiedBadge,
+        label: labelOf(nameNode), visible: !!seen.visible, x: Math.round(seen.cx ?? -1), y: Math.round(seen.cy ?? -1),
+      })
+    }
+    return { ok: true as const, items, withData: cards.length, cards }
+  }).catch((e: unknown) => ({ ok: false as const, why: `讀取失敗：${e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e)}` }))
+}
+
+/** 把某個 gmid 的卡片捲進畫面（用反查器的 intoNode，跟 pc_click_node 的捲動同一份） */
+export async function pcScrollCardIntoView(page: Page, gmid: string): Promise<{ ok: boolean; why?: string }> {
+  await pcInstallHitTest(page)
+  return page.evaluate((gmid: string) => {
+    type N = { name?: string; children?: N[]; components?: Array<Record<string, unknown>> }
+    const w = window as unknown as { cc?: { director?: { getScene?: () => N } }; __uatPcHit?: { intoNode?: (n: N) => { ok: boolean; why?: string } } }
+    if (!w.cc?.director?.getScene || !w.__uatPcHit?.intoNode) return { ok: false, why: '沒有 Cocos 或反查器' }
+    const stack: N[] = [w.cc.director.getScene()]
+    while (stack.length) {
+      const n = stack.pop()!
+      if (String(n.name ?? '') === 'machine_item' && (n.components ?? []).some(c => (c?._data as { gmid?: string } | undefined)?.gmid === gmid)) return w.__uatPcHit.intoNode(n)
+      for (const k of (n.children ?? [])) stack.push(k)
+    }
+    return { ok: false, why: `大廳裡已經沒有 ${gmid} 的卡片` }
+  }, gmid).catch((e: unknown) => ({ ok: false, why: `捲動失敗：${e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e)}` }))
+}
+
+/** 機台裡讀得到的 gmid（場景裡任何元件的 _data.gmid／gmid 字串）；讀不到回空字串 */
+export async function pcInGameGmid(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    type N = { children?: N[]; components?: Array<Record<string, unknown>> }
+    const w = window as unknown as { cc?: { director?: { getScene?: () => N } } }
+    if (!w.cc?.director?.getScene) return ''
+    const RE = /^\d+-[A-Za-z0-9]+-\d+$/
+    const stack: N[] = [w.cc.director.getScene()]
+    while (stack.length) {
+      const n = stack.pop()!
+      for (const c of (n.components ?? [])) {
+        const a = (c?._data as { gmid?: unknown } | undefined)?.gmid, b = c?.gmid
+        for (const v of [a, b]) if (typeof v === 'string' && RE.test(v)) return v
+      }
+      for (const k of (n.children ?? [])) stack.push(k)
+    }
+    return ''
+  }).catch(() => '')
+}
+
 /** 進到機台之後，畫面上那台機器的名稱（例如 `Ingot-NWR2024`）。不在機台裡就回空字串 */
 export async function pcInGameMachineName(page: Page): Promise<string> {
   return page.evaluate(() => {
@@ -808,6 +912,9 @@ export const pcEngineCapabilities = {
   enterMachine: pcEnterMachine,
   sceneName: pcSceneName,
   inGameMachineName: pcInGameMachineName,
+  machineCards: pcMachineCards,
+  scrollCardIntoView: pcScrollCardIntoView,
+  inGameGmid: pcInGameGmid,
   scanLobby: pcScanLobby,
   findNode: pcFindNode,
   clickNode: pcClickNode,

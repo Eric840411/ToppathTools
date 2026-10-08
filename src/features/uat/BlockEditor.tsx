@@ -390,8 +390,8 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             )}
             {selected.action === 'pc_enter_machine' && (
               <label>機台
-                <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Rising Rockets（同款挑空的）或 Rising Rockets Emperor-141（指定）" />
-                <span className="uat-hint">只填遊戲名＝讓系統挑一台空的；填完整機台名＝指定那一台（進去後會核對實際進到哪一台）</span>
+                <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Coin Combo（同款隨機挑空的）、4186-COINCOMBO-0138（指定），或留空／*（任一台空機）" />
+                <span className="uat-hint">只填遊戲名＝同款裡隨機挑一台空的；填 gmid 或卡片名稱＝指定那一台；留空或 *＝整個大廳隨機挑一台空機。空機＝沒人、沒鎖定、沒離線；都沒有空機會等 15 秒（剛有人離開約 8 秒才釋放）再判失敗。挑了哪一台、實際進到哪一台都會寫進日誌，進錯台算失敗</span>
               </label>
             )}
             {selected.action === 'assert_pc_scene' && (

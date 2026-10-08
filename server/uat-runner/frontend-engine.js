@@ -434,82 +434,129 @@ export async function runFrontendStep(step, ctx) {
     markWsBefore(ctx);
     const pc = await requirePc(ctx, 'PC 進機台');
     const want = (step.value ?? '').trim();
-    // 留空的話要挑哪一台？「隨便一台」不是測試，是抽籤——報告上會看不出測的是什麼
-    if (!want) throw new Error('要指定機台：填 `Rising Rockets` 會挑同款空的一台，填 `Rising Rockets Emperor-141` 指定那一台');
-    await log(`⏳ ${idx} ${label} → ${want}`);
+    /**
+     * 1008 改讀卡片資料（CodeX 方案 a～d；claude-osm-2 UAT 實測）：
+     *   - 挑哪一台看每張卡片的 MachinePlusItem._data（gmid／state／lockType），不再靠文字標籤
+     *     （UAT 的標籤是 `1008`，舊版的名稱格式對不上 → 永遠「同款 0 台」）
+     *   - **留空或 `*`＝隨機挑一台空機**（PC 使用者：不固定機台）。原本刻意擋掉「隨便一台」是因為報告看不出測了哪台——
+     *     所以候選與實際進入的 gmid 一定寫進日誌。變數展開不套用在這顆，空變數不會誤觸隨機
+     */
+    const random = want === '' || want === '*';
+    await log(`⏳ ${idx} ${label} → ${random ? '隨機挑一台空機' : want}`);
 
-    await pc.installEvalShim(page);
-    const diag = await pc.waitLobby(page, 30000);
+    // 不要求舊格式的標籤（UAT 是 `1008` 這種）——清單載完改用下面的 _data 判斷
+    const diag = await pc.waitLobby(page, 30000, { requireLabels: false });
     if (!diag.ready) throw new Error(`大廳沒就緒：${pc.describeLobby(diag)}`);
-    // JACKPOT／廣告彈窗是畫在 canvas 上的節點，DOM 關不掉，要把節點 active 設成 false
     const closed = await pc.closePopups(page);
     if (closed) await log(`   🧹 關掉 ${closed} 個彈窗節點`);
-
-    /**
-     * ⚠️ **挑到一台不等於進得去，所以要換一台再試。**
-     *    從「看到它空著」到「捲回來點它」中間過了好幾秒，別人可能已經坐下；
-     *    也可能點在卡片的空白處。實測第一次就遇到（`點了 (292, 667) 但還停在大廳`）。
-     *    `pcSeekMachine` 的 `skip` 就是為這件事準備的——不跳過的話會對著同一台原地重試。
-     *
-     * ⚠️ 上限 3 次。失敗要看得出「試過哪幾台、各自為什麼」，不要只留最後一次的訊息。
-     */
-    /**
-     * 🚨 **整段期間要盯著關彈窗，關一次不夠。**
-     *    實測：進迴圈前關過、點之前也關過，點下去還是停在大廳——截圖顯示點擊當下
-     *    畫面中央又有一張「WIN THE JACKPOT」（畫在 canvas 上，會把點擊整個吃掉）。
-     *    seek + 捲動 + 再確認要好幾秒，那段時間只要有人中獎就會再播一張。
-     *    H5 早就有看門狗（`startLobbyPopupWatcher`），PC 這邊是這次才補上。
-     */
-    const stopWatcher = pc.startPopupWatcher(page, {
-      onClose: (n) => { void log(`   🧹 看門狗關掉 ${n} 個彈窗節點`); },
-    });
+    // 整段期間盯著關彈窗（中獎彈窗會把點擊整個吃掉；見 pc-cocos.ts startPcPopupWatcher）
+    const stopWatcher = pc.startPopupWatcher(page, { onClose: (n) => { void log(`   🧹 看門狗關掉 ${n} 個彈窗節點`); } });
     try {
-    /**
-     * 🚨 **剛載完的大廳要先捲一輪，卡片才點得動。**
-     *
-     * 實測 2026-09-19：載入後直接挑機台去點，`點了 (292, 712) 但還停在大廳`——
-     * 畫面上那張卡是**黑的**（快照還沒載）。而在另一輪（前面剛好做過一次全清單搜尋、
-     * 捲過整個列表）同樣的座標一點就進去了。差別只有「有沒有捲過」。
-     * 場景樹裡 699 個 `machine_item` 一開始就存在，**被延後生成的是文字與圖**，
-     * 所以「找得到名字」不代表「那張卡已經畫出來可以點」。
-     *
-     * ⚠️ 不要用這裡的台數當判準——它是現場資料，只拿來讓人看得出有沒有捲到東西。
-     */
-    // ⚠️ 捲的步數不能省。實測 8 步不夠、把整個清單捲過一輪（40 步）才點得進去——
-    //    差別就在目標那張卡有沒有被真的畫出來
-    const warm = await pc.collectMachines(page, { steps: 40 });
-    await log(`   🔄 先捲一輪讓卡片畫出來（看到 ${warm.machines?.length ?? 0} 台${warm.partial ? '、清單還沒掃完' : ''}）`);
-    const skip = new Set();
-    const tried = [];
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const seek = await pc.seekMachine(page, want, { skip });
       /**
-       * 🚨 **點之前要再關一次彈窗。**
-       *
-       * 進迴圈前關過了，但 seek 要花好幾秒，中間只要有人中獎就會再播一張
-       * 「WIN THE JACKPOT」——它是畫在 canvas 上的節點，**會把整個畫面的點擊吃掉**。
-       * 症狀是 `點了 (292, 712) 但還停在大廳`，看起來像座標算錯或機台被佔用，
-       * 實際上座標是對的、機台也是空的（實測截圖裡那張彈窗就蓋在畫面中央）。
+       * ① 清單載完：每張顯示中的卡片都有 _data，而且連續兩次（相隔 1 秒）的 gmid 集合一樣。
+       * ⚠️ 讀取失敗回 ok:false → 直接失敗，**不能當成 0 台**（CodeX：讀取失敗不能當沒有）。
+       * ⚠️ 不看 WS 的 getAllGMListReq：那條連線在頁面載入時就開了，積木執行時才掛監聽收不到；
+       *    _data 就是那則回應套用之後的結果，看它穩定下來等於看到回應套用完。
        */
-      const reclosed = await pc.closePopups(page);
-      if (reclosed) await log(`   🧹 點之前又冒出 ${reclosed} 個彈窗節點，已關掉`);
-      if (!seek.picked) {
-        const why = `找不到可用的「${want}」：看過 ${seek.scanned} 台，同款 ${seek.matched.total} 台、其中 ${seek.matched.free} 台空著`;
-        throw new Error(tried.length ? `${why}；先前試過 ${tried.join('、')}` : why);
+      const read = async () => {
+        const r = await pc.machineCards(page);
+        if (!r.ok) throw new Error(`讀不到大廳的機台資料（${r.why}）——讀不到不等於沒有這台`);
+        return r;
+      };
+      const key = (r) => r.cards.map(c => c.gmid).sort().join(',');
+      let cur = await read();
+      const loadDeadline = Date.now() + 20000;
+      for (;;) {
+        await page.waitForTimeout(1000);
+        const next = await read();
+        const settled = next.items > 0 && next.withData === next.items && key(next) === key(cur);
+        cur = next;
+        if (settled) break;
+        if (Date.now() > loadDeadline) throw new Error(`大廳機台資料 20 秒沒穩定下來（卡片 ${cur.items} 張、有資料 ${cur.withData} 張）`);
       }
-      const entered = await pc.enterMachine(page, seek.picked.name);
-      // 🚨 **點座標會點到隔壁**（實測：目標 Ingot-NWR2017、進去卻是 NWR2024）。
-      //    所以這裡報告的是「實際進到哪一台」，而且要讓它留在 log 裡——
-      //    不講的話報告會寫著 A 機台、證據圖卻是 B 機台拍的，畫面上完全看不出來。
-      if (entered.entered) {
-        await log(`✅ ${idx} ${label}（第 ${attempt} 次：挑中 ${seek.picked.name}、實際進到 ${entered.actual}）`);
+      const games = [...new Set(cur.cards.map(c => c.gameName || c.gameid))];
+      await log(`   📋 大廳清單載完：${cur.cards.length} 台、${games.length} 款`);
+
+      /** ② 候選：完整機台（gmid／卡片名稱／「遊戲名 卡片名稱」）優先；否則同款（遊戲名或 gameid） */
+      const w = want.toLowerCase();
+      const exactOf = (c) => [c.gmid, c.name, `${c.gameName} ${c.name}`].some(v => v.toLowerCase() === w);
+      const gameOf = (c) => c.gameName.toLowerCase() === w || c.gameid === w.replace(/\s+/g, '');
+      const candidatesOf = (r) => {
+        if (random) return r.cards;
+        const exact = r.cards.filter(exactOf);
+        return exact.length ? exact : r.cards.filter(gameOf);
+      };
+      let cands = candidatesOf(cur);
+      if (!cands.length) {
+        throw new Error(`環境裡沒有「${want}」：大廳清單載完共 ${cur.cards.length} 台（${games.slice(0, 12).join('、')}${games.length > 12 ? '…' : ''}），同款 0 台`);
+      }
+      const breakdown = (list) => {
+        const busy = list.filter(c => c.state !== 0).length, locked = list.filter(c => c.lockType !== 0).length;
+        const off = list.filter(c => c.offline).length, badge = list.filter(c => c.state === 0 && c.occupiedBadge).length;
+        return `有人 ${busy}、鎖定 ${locked}、離線 ${off}${badge ? `、有佔用徽章 ${badge}` : ''}`;
+      };
+
+      /** ③ 空機：最多等 15 秒（有人剛離開的機台約 8 秒後才釋放），每 1.5 秒重讀 */
+      const skip = new Set();
+      const tried = [];
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        let free = cands.filter(c => c.free && !skip.has(c.gmid));
+        const freeDeadline = Date.now() + 15000;
+        while (!free.length && Date.now() < freeDeadline) {
+          await page.waitForTimeout(1500);
+          cur = await read();
+          cands = candidatesOf(cur);
+          free = cands.filter(c => c.free && !skip.has(c.gmid));
+        }
+        if (!free.length) {
+          const scope = random ? '大廳全部' : `「${want}」同款`;
+          const why = `沒有空機：${scope} ${cands.length} 台都不能進（${breakdown(cands)}），等了 15 秒——資源不足，不是積木壞掉`;
+          throw new Error(tried.length ? `${why}；先前試過 ${tried.join('；')}` : why);
+        }
+        const pick = free[Math.floor(Math.random() * free.length)];
+        await log(`   🎯 第 ${attempt} 次：空機候選 ${free.length} 台（${free.slice(0, 8).map(c => c.gmid).join('、')}${free.length > 8 ? '…' : ''}），挑中 ${pick.gmid}（${pick.gameName || pick.gameid} ${pick.name}）`);
+
+        /**
+         * ④ 點之前確認：捲進畫面後**重讀同一張卡**——gmid 還在、還是空機、在畫面內、而且名稱已經畫出來
+         *    （資料齊全不代表卡片可點：沒畫出來的卡片點了沒反應）。
+         */
+        const moved = await pc.scrollCardIntoView(page, pick.gmid);
+        if (!moved.ok) { tried.push(`${pick.gmid}（捲不過去：${moved.why}）`); skip.add(pick.gmid); continue; }
+        let card = null;
+        const readyDeadline = Date.now() + 5000;
+        while (Date.now() < readyDeadline) {
+          await page.waitForTimeout(700);
+          const now = await read();
+          card = now.cards.find(c => c.gmid === pick.gmid) ?? null;
+          if (!card || !card.free || (card.visible && card.label)) break;
+        }
+        if (!card) { tried.push(`${pick.gmid}（捲過去之後卡片不見了）`); skip.add(pick.gmid); continue; }
+        if (!card.free) { tried.push(`${pick.gmid}（點之前被佔走了：${breakdown([card])}）`); skip.add(pick.gmid); continue; }
+        if (!card.visible) { tried.push(`${pick.gmid}（捲過去還是不在畫面內 @${card.x},${card.y}）`); skip.add(pick.gmid); continue; }
+        if (!card.label) { tried.push(`${pick.gmid}（卡片在畫面內但還沒畫出來，點了不會有反應）`); skip.add(pick.gmid); continue; }
+
+        /**
+         * ⑤ 點下去，進場後核對實際 gmid：先讀機台場景裡的 gmid；讀不到就看點擊後前端送出的 enterGM（console）。
+         *    🚨 進到別台是失敗，不是「照實記錄」——報告寫 A、證據拍的是 B，畫面上看不出來。
+         */
+        const consoleSeen = [];
+        const onConsole = (m) => { const t = m.text(); if (/enterGM/i.test(t)) consoleSeen.push(t); };
+        page.on('console', onConsole);
+        try {
+          await page.mouse.click(card.x, card.y);
+          await page.waitForTimeout(6000);
+        } finally { page.off('console', onConsole); }
+        const scene = await pc.sceneName(page);
+        if (scene === 'lobby') { tried.push(`${pick.gmid}（點了 (${card.x}, ${card.y}) 但還停在大廳）`); skip.add(pick.gmid); continue; }
+        const inGame = await pc.inGameGmid(page);
+        const fromConsole = consoleSeen.map(t => (t.match(/\d+-[A-Za-z0-9]+-\d+/) ?? [])[0]).find(Boolean) ?? '';
+        const actual = inGame || fromConsole;
+        if (!actual) throw new Error(`點了 ${pick.gmid} 之後換到場景 ${scene || '讀不到'}，但核對不到實際進的是哪一台（機台內與 enterGM 都讀不到 gmid）`);
+        if (actual.toUpperCase() !== pick.gmid.toUpperCase()) throw new Error(`挑的是 ${pick.gmid}，實際進到 ${actual}（${inGame ? '機台內讀到' : 'enterGM 送出'}）——進錯台，不能當成通過`);
+        await log(`✅ ${idx} ${label}（第 ${attempt} 次：進到 ${actual}，${pick.gameName || pick.gameid} ${pick.name}；核對來源 ${inGame ? '機台內' : 'enterGM'}）`);
         return { shots };
       }
-      tried.push(`${seek.picked.name}（${entered.reason ?? `場景 ${entered.scene || '讀不到'}`}）`);
-      await log(`   ↻ 第 ${attempt} 次沒進去：${tried[tried.length - 1]}`);
-      skip.add(seek.picked.name);
-    }
-    throw new Error(`連續 3 台都進不去：${tried.join('；')}`);
+      throw new Error(`連續 3 台都進不去：${tried.join('；')}`);
     } finally {
       // ⚠️ 一定要停。不停的話頁面關掉之後看門狗還在戳它，log 會冒出一堆無關的錯
       stopWatcher();
