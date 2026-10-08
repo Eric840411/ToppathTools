@@ -651,3 +651,28 @@ osm-qa-agent 的 `knowledge/games/<機種>/automation/machine-test.json` 可放 
 
 ### 第二期（還沒做）
 gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並回寫 learning 到 confirmed 的流程與人工確認按鈕
+
+## 音頻判 no sound 時再 Spin 重錄（v5.39.0，2026-10-08 使用者定案、osm-qa-agent 規格 spec-mt-audio-retry-1008、CodeX 定案）
+- **為什麼**：0216 連兩輪錄到數位全零（RMS -99.7），工具判 no sound，但使用者在現場聽得到聲音；0211 也全零一次，下一輪重跑就正常。使用者希望第一次驗證就給最終結果，不要事後再回頭改：「如果你判斷是 no sound，再多 spin 幾次，如果還是沒聲音，就寫 no sound」
+- **觸發條件**：只有 VB-Cable 的「真靜音」才觸發（`isAudioTrueSilence`：RMS 低於 -80，或 RMS 低於 -60 而且 crest 小於 6；stepAudio 跟重錄用同一份規則）。low sound、音色、media／WebAudio 退路都不觸發
+- **次數**：首次錄音加上最多重錄 2 次，所以最多錄音 3 次。每次重錄按 1 下 SPIN（`stepSpin(..., spinCount=1)`），錄音方式跟 Spin 步驟一樣
+- **重錄前的守衛**（`audioRetryPrecheck`，每一次都是真下注，要明確通過才按）：
+  - 沒有停止類或未知的提示框
+  - 上一把 Spin 有開局（用這個證明選單是關著的）
+  - 局狀態讀得到，而且不是開局中（FG／JP／Handpay 會讓局一直開著）
+  - 讀得到餘額，而且夠下一把；一把的金額從 moneyLog 裡 begin 那筆的 coin 差去算，算不出來就不重錄
+- **停止條件**：
+  - 有一次**有效錄音**（VB-Cable 而且讀得到）不再是靜音 → 用那一次的錄音照正常規則判，然後停止
+  - 錄音失敗或退回非 VB-Cable 的路徑 → 不算「有聲音」，停止，結果仍是 no sound
+  - 重錄的 Spin 失敗、被擋、或沒開局 → 停止，用已經錄到的判，結果仍是 no sound，寫明原因。然後最多等 45 秒讓局結束，確認機台回到安全狀態，再交給後面的步驟
+- **紀錄**：
+  - 原本的 Spin 步驟結果**不動**（CodeX）。重錄的 Spin 就算沒反應，也只記在音頻步驟
+  - 訊息最前面寫重錄經過，例：「音頻重錄：前 1 次靜音（-99.7/-90.3 dB），第 2 次錄到 -28.7/-6.1 dB → 用這次判」、「音頻重錄：錄音 3 次（首次＋重錄 2 次）都靜音（…）→ no sound」
+  - `extraData.audioRetries`：每次重錄的 Spin 結果、開局次數、RMS／峰值
+  - `extraData.audioFinal`：`{ silent, issues, recordings, stopReason }`
+- **批次判定**：`audioIssuesOf(step)` 有 audioFinal 就只看它，沒有（舊結果、非 VB-Cable）才照舊看訊息。原因是重錄成功時，訊息最前面的經過裡會出現「靜音」兩個字，用整段訊息比對會誤判成 no sound
+- 驗證：`npx tsx scripts/audio-retry-probe.ts`，18 條，跑產品的 audioSilenceRetry，Spin、錄音、頁面狀態用假的
+  - 規格的 4 個驗收情境：第 2 次恢復、三次都靜音、Handpay 中途停止、low sound 不重錄
+  - CodeX 的邊界：錄音失敗、退回別的路徑、Spin 沒開局或被擋、每一項守衛
+  - 突變（拿掉 audioFinal 判定、拿掉「沒開局就停」、拿掉「錄音無效就停」）共紅 4 條
+- ⚠️ 改到 runner，要部署 Spug，agent 也要按「更新程式碼」。還沒在真機上驗過

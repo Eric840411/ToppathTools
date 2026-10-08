@@ -286,6 +286,14 @@ const SPIN_NO_ROUND = /Spin 已點擊，但餘額未變化/
 // 音頻關鍵字只看「｜問題:」後面那段：0930 runner 在訊息中段加了「Media：… 未靜音: 0」，整句比對會把「未靜音」當成「靜音」→ 0337 誤判 no sound
 // 舊訊息沒有「問題:」段就退回整句（相容 0930 之前的結果，當時沒有 Media 段）
 const audioIssues = m => { const s = String(m ?? ''); const i = s.indexOf('問題:'); return i >= 0 ? s.slice(i) : s.replace(/Media：[^｜]*/g, '') }
+// 1008 音頻靜音重錄：runner 在 extraData.audioFinal 給最終判定（silent／issues＝最後那次錄音的「問題:」段）。
+// 有它就只看它——訊息最前面的重錄歷程會出現「靜音」兩個字，重錄成功時用整段訊息比對會誤判 no sound（CodeX）。沒有它（舊結果、非 VB-Cable）照舊看訊息
+export const audioIssuesOf = step => {
+  let f = null
+  try { f = JSON.parse(step?.extraData?.audioFinal ?? 'null') } catch { /* 舊版 */ }
+  if (f && typeof f.silent === 'boolean') return f.silent ? '靜音' : String(f.issues ?? '')
+  return audioIssues(step?.message)
+}
 // Spin 沒開局 → 音頻錄到的不是 Spin 的聲音（0266：上一輪錄到靜音被判 no sound，重跑錄到 -17.7 dB），音頻結果不採用
 // CodeX 0930：「沒開局」要有兩個證據——餘額沒變，且（有記錄的話）moneyNtc begin 0 次；runner 註記「選單狀態未知」時不能排除選單干擾
 // → 這兩種例外都改判 Spin 未驗（classify 'na'），不寫 spin no response。舊訊息沒有「開局訊號」段 → 只靠餘額（相容 0930 前的結果）
@@ -347,7 +355,7 @@ export function classify(step) {
   // 0929 使用者：沒有 CCTV 畫面（容器在但沒 video）也算驗證未過，不能只是 WARN（F 欄寫 no cctv）
   if (step.step === 'CCTV 號碼比對' && step.status === 'warn' && /找不到 video/.test(m)) return 'fail'
   // 0929 使用者：no sound（靜音）、low sound（音量偏低／偏小）都判未過；音色偏亮這類仍只記錄
-  if (step.step === '音頻檢測' && step.status === 'warn' && /靜音|音量偏低|音量偏小/.test(audioIssues(m))) return 'fail'
+  if (step.step === '音頻檢測' && step.status === 'warn' && /靜音|音量偏低|音量偏小/.test(audioIssuesOf(step))) return 'fail'
   // 0930 使用者（0266）：按了 SPIN、盒子也收到，但沒開局（餘額沒變）＝spin no response，驗證未過（原本只是 WARN，J 會判通過）
   if (step.step === 'Spin 測試' && step.status === 'warn' && SPIN_NO_ROUND.test(m)) return spinDoubtful(m) ? 'na' : 'fail'
   // 10-01 0342：「無法讀取餘額，無法確認是否執行」＝Spin 沒驗到（原本只是 WARN，整台可能被判通過）
@@ -606,8 +614,8 @@ export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
   else if (sp && classify(sp) === 'na') out.push('spin not verified')   // 含 Spin 前選單閘門沒放行（觸屏那項會另外寫 no response）
   if (fromSession && sessionSaysNoSound(result)) out.push('no sound')
   const au = fromSession ? null : get('音頻檢測')
-  if (au && /靜音/.test(audioIssues(msg(au)))) out.push('no sound')
-  else if (au && /音量偏低|音量偏小/.test(audioIssues(msg(au)))) out.push('low sound')
+  if (au && /靜音/.test(audioIssuesOf(au))) out.push('no sound')
+  else if (au && /音量偏低|音量偏小/.test(audioIssuesOf(au))) out.push('low sound')
   else if (au && classify(au) === 'fail') out.push('audio fail')
   else if (au && classify(au) === 'na') out.push('audio not verified')
   for (const [n, k] of [['iDeck 測試', 'ideck'], ['觸屏測試', 'touchscreen']]) {

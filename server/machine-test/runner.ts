@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
@@ -2690,7 +2690,7 @@ type SpinAudioRef = { data: SpinAudioData | null }
  * 結果訊息尾巴附「開局訊號 moneyNtc begin N 次」；batch 只有「餘額沒變＋begin 0 次」才判 spin no response，
  * 餘額沒變但有 begin → 當作餘額延遲、Spin 未驗；舊訊息沒有這段 → 維持原判（相容 0930 之前的結果）。
  */
-async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
+async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false, spinCount = 3): Promise<StepResult> {
   let begins = 0
   const onConsole = (m: import('playwright').ConsoleMessage) => {
     const t = m.text()
@@ -2698,7 +2698,7 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
   }
   page.on('console', onConsole)
   try {
-    const r = await stepSpinCore(page, emit, customSpinSel, customBalanceSel, spinAudioRef, aiAudio)
+    const r = await stepSpinCore(page, emit, customSpinSel, customBalanceSel, spinAudioRef, aiAudio, spinCount)
     await sleep(1500)   // begin 可能比餘額讀取晚一點印出來
     return { ...r, message: `${r.message}｜開局訊號 moneyNtc begin ${begins} 次` }
   } finally {
@@ -2718,7 +2718,7 @@ async function waitCreditsInserted(page: Page, emit: (msg: string) => void): Pro
   emit('⚠️ 等 30 秒仍在 Inserting credits，照原流程繼續')
 }
 
-async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
+async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false, spinCount = 3): Promise<StepResult> {
   await waitCreditsInserted(page, emit)
   const t0 = Date.now()
   try {
@@ -2778,7 +2778,8 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
     }
 
     // Click spin 3 times — more reliable balance-change detection
-    const SPIN_COUNT = 3
+    // 1008：音頻重錄只按 1 下（每一下都是真下注）
+    const SPIN_COUNT = Math.max(1, Math.min(3, spinCount))
 
     // Start audio recording BEFORE first spin click (10s covers full spin cycle)
     const audioSamplePromise: Promise<void> = spinAudioRef
@@ -2955,6 +2956,74 @@ async function checkMediaElements(page: Page): Promise<{
   return { hasUnmutedMedia: unmuted.length > 0, summary }
 }
 
+/**
+ * 1008 音頻判 no sound 時再 Spin 重錄（使用者定案、osm-qa-agent 規格 spec-mt-audio-retry-1008、CodeX 定案）。
+ *   - 只有 VB-Cable 的真靜音觸發（isAudioTrueSilence）；low sound、音色、退路路徑都不觸發
+ *   - 首次錄音＋最多重錄 2 次＝最多錄音 3 次；每一次都是真下注，按之前 audioRetryPrecheck 要明確通過
+ *   - 任一次**有效**錄音（VB-Cable、讀得到）不再靜音 → 用那一次照正常規則判、停止；錄音失敗／退回別的路徑不算「有聲音」
+ *   - 重錄的 Spin 沒開局、失敗、被擋 → 停止重錄，用已有錄音判（仍是 no sound），寫明原因；並等局結束確認機台回到安全狀態
+ *   - 原本的 Spin 步驟結果不動（CodeX）；過程記在 extraData.audioRetries，最終判定記在 extraData.audioFinal（批次看這個，不看訊息裡的字）
+ */
+export async function audioSilenceRetry(p: {
+  page: Page; emit: (msg: string) => void; first: StepResult; firstRef: SpinAudioRef; spinStep: StepResult | undefined
+  spinOnce: (ref: SpinAudioRef) => Promise<StepResult>; audioOf: (ref: SpinAudioRef) => Promise<StepResult>; stopped: () => boolean
+  /** 測試用：換掉讀頁面狀態的部分 */
+  probe?: { snap: () => Promise<{ log: MoneyEvent[] } | null>; balance: () => Promise<number | null>; popup: () => { stop: boolean; unknown: boolean }; idleWaitMs?: number }
+}): Promise<StepResult> {
+  const silentOf = (ref: SpinAudioRef) => ref.data?.method === 'vbcable' && isAudioTrueSilence(ref.data.rmsDb ?? ref.data.peakDb, ref.data.crestFactor)
+  const valid = (ref: SpinAudioRef) => ref.data?.method === 'vbcable'
+  const issuesOf = (m: string) => { const i = m.indexOf('問題:'); return i >= 0 ? m.slice(i) : '' }
+  const attemptOf = (ref: SpinAudioRef) => ({ rmsDb: ref.data?.rmsDb ?? null, peakDb: ref.data?.peakDb ?? null })
+  const beginsOf = (s: StepResult | undefined) => { const x = String(s?.message ?? '').match(/開局訊號 moneyNtc begin (\d+) 次/); return x ? Number(x[1]) : null }
+  const snapOf = p.probe?.snap ?? (() => readMoneySnap(p.page))
+  const balanceOf = p.probe?.balance ?? (() => readMachineBalance(p.page))
+  const popupOf = p.probe?.popup ?? (() => { const g = popupGuardOf(p.page); return { stop: !!g?.stop, unknown: !!g?.unknown } })
+  if (!valid(p.firstRef)) return p.first   // 不是 VB-Cable 路徑：照舊，不加 audioFinal（批次退回看訊息）
+  if (!silentOf(p.firstRef)) return { ...p.first, extraData: { ...(p.first.extraData ?? {}), audioFinal: JSON.stringify({ silent: false, issues: issuesOf(p.first.message), recordings: 1 }) } }
+
+  const attempts = [attemptOf(p.firstRef)]
+  const retries: Array<Record<string, unknown>> = []
+  let final = p.first, finalRef = p.firstRef, stopReason: string | null = null, lastSpinBegins = beginsOf(p.spinStep)
+  for (let k = 1; k <= 2; k++) {
+    if (p.stopped()) { stopReason = '使用者停止'; break }
+    const pop = popupOf()
+    const snap = await snapOf()
+    const why = audioRetryPrecheck({
+      popupStop: pop.stop, popupUnknown: pop.unknown, lastSpinBegins,
+      roundState: snap ? ideckRoundState(snap.log) : null,
+      balance: await balanceOf(), lastBet: snap ? lastBetFromMoneyLog(snap.log) : null,
+    })
+    if (why) { stopReason = why; break }
+    p.emit(`🔁 音頻靜音 → 第 ${k} 次重錄：再按 1 下 SPIN（真下注）`)
+    const ref: SpinAudioRef = { data: null }
+    const sr = await p.spinOnce(ref)
+    lastSpinBegins = beginsOf(sr)
+    retries.push({ k, spin: sr.status, spinMessage: String(sr.message).slice(0, 200), begins: lastSpinBegins, rmsDb: ref.data?.rmsDb ?? null, peakDb: ref.data?.peakDb ?? null, method: ref.data?.method ?? null })
+    if (sr.status === 'fail' || sr.status === 'skip' || !lastSpinBegins) {
+      stopReason = `第 ${k} 次重錄的 Spin ${sr.status === 'fail' || sr.status === 'skip' ? sr.status : '沒有開局'}（${String(sr.message).split('｜')[0].slice(0, 80)}）`
+      // 沒反應／逾時後仍可能延遲起局：等局結束再交給後面的步驟（CodeX）
+      const end = Date.now() + (p.probe?.idleWaitMs ?? 45_000)
+      while (Date.now() < end && !p.stopped()) { const s2 = await snapOf(); if (s2 && ideckRoundState(s2.log) !== 'open') break; await sleep(500) }
+      break
+    }
+    if (!valid(ref)) { stopReason = `第 ${k} 次重錄的錄音失敗或退回非 VB-Cable 路徑（不算有聲音）`; break }
+    attempts.push(attemptOf(ref))
+    if (!silentOf(ref)) { final = await p.audioOf(ref); finalRef = ref; break }
+  }
+  const recovered = !silentOf(finalRef)
+  const summary = audioRetrySummary({ attempts, recovered, stopReason })
+  p.emit(`🔁 ${summary}`)
+  return {
+    ...final,
+    message: `${summary}｜${final.message}`,
+    extraData: {
+      ...(final.extraData ?? {}),
+      audioRetries: JSON.stringify(retries),
+      audioFinal: JSON.stringify({ silent: !recovered, issues: issuesOf(final.message), recordings: attempts.length, stopReason }),
+    },
+  }
+}
+
 async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: SpinAudioRef, aiAudio = false, machineCode = '', sessionPrefix = '', audioConfig?: import('./types.js').AudioConfig | null): Promise<StepResult> {
   const t0 = Date.now()
   try {
@@ -3021,7 +3090,8 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
 
         // Per-machine thresholds resolved below (after this block)
         // Hard silence: near digital floor (-80 dB), AI cannot override this
-        const isTrueSilence = !isFinite(rmsDb) || rmsDb < -80 || (rmsDb < -60 && crestFactor < 6)
+        // 1008：規則抽到 verdicts.ts，重錄判斷用同一份
+        const isTrueSilence = isAudioTrueSilence(rmsDb, crestFactor)
         if (isTrueSilence) {
           issues.push(`靜音（RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，無音頻輸出）`)
         } else if (isFinite(rmsDb) && rmsDb < (audioConfig?.rmsMinDb ?? -60)) {
@@ -5893,7 +5963,15 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           if (steps.audio && await stepGate('音頻檢測')) {
-            const r4 = await capture(() => stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig))
+            let r4 = await capture(() => stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig))
+            // 1008 使用者：判成 no sound（VB-Cable 真靜音）就再 Spin 重錄，最多再 2 次（見 audioSilenceRetry）
+            r4 = await audioSilenceRetry({
+              page, emit, first: r4, firstRef: spinAudioRef,
+              spinStep: stepResults.find(x => x.step === 'Spin 測試'),
+              spinOnce: ref => stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, ref, aiAudio, 1),
+              audioOf: ref => stepAudio(page, emit, ref, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig),
+              stopped: () => this.stopped,
+            })
             stepResults.push(r4)
             this.log(`${workerTag} [${r4.status.toUpperCase()}] 音頻: ${r4.message}`, machineCode)
           }

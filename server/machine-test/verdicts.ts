@@ -727,3 +727,52 @@ export function ideckBackPick(outcomes: Array<{ name: string | null; result: Ide
   done.add(g(a))
   return n - 2
 }
+
+// ── 1008 音頻判 no sound 時再 Spin 重錄（使用者定案、osm-qa-agent 規格 spec-mt-audio-retry-1008、CodeX 定案）──────────
+// 首次錄音＋最多重錄 2 次＝最多錄音 3 次。只有 VB-Cable 的「真靜音」觸發；任一次有效錄音不再靜音就用那一次照正常規則判。
+/** VB-Cable 真靜音（stepAudio 與重錄共用這一份）：RMS < -80，或 RMS < -60 且 crest < 6；讀不到 RMS 也算 */
+export function isAudioTrueSilence(rmsDb: number | null | undefined, crestFactor: number | null | undefined): boolean {
+  const r = typeof rmsDb === 'number' ? rmsDb : NaN
+  const c = typeof crestFactor === 'number' ? crestFactor : 0
+  return !isFinite(r) || r < -80 || (r < -60 && c < 6)
+}
+/** 最近一次開局扣了多少（begin 那筆的 coin 比前一筆少多少）；算不出來回 null（呼叫端當成「不確定夠不夠下注」） */
+export function lastBetFromMoneyLog(log: Array<{ seq: number; coin: number; reason: string }>): number | null {
+  const s = [...log].sort((a, b) => a.seq - b.seq)
+  for (let i = s.length - 1; i > 0; i--) {
+    if (s[i].reason !== 'begin') continue
+    const d = s[i - 1].coin - s[i].coin
+    if (d > 0) return d
+  }
+  return null
+}
+/**
+ * 重錄前的守衛：全部**明確通過**才可以再按 SPIN（每一次都是真下注）。回傳 null＝可以；否則是不重錄的原因。
+ * CodeX：選單／局狀態讀不到也要中止；餘額要讀得到而且夠這一把。選單是否關著，用「原本的 Spin 有開局」當證據（選單開著 SPIN 不會開局）
+ */
+export function audioRetryPrecheck(p: {
+  popupStop: boolean; popupUnknown: boolean
+  /** 原本 Spin 步驟（或上一次重錄）的 moneyNtc begin 次數；null＝讀不到 */
+  lastSpinBegins: number | null
+  roundState: 'idle' | 'open' | 'unknown' | null
+  balance: number | null; lastBet: number | null
+}): string | null {
+  if (p.popupStop) return '畫面有異常提示框（停止類），不再按 SPIN'
+  if (p.popupUnknown) return '畫面有未知提示框，不再按 SPIN'
+  if (p.lastSpinBegins === null) return '讀不到上一把 Spin 有沒有開局（無法確認選單已關）'
+  if (p.lastSpinBegins === 0) return '上一把 Spin 沒有開局（選單可能開著或機台沒反應）'
+  if (p.roundState === null || p.roundState === 'unknown') return '讀不到局狀態（__moneyLog）'
+  if (p.roundState === 'open') return '還有一局沒結束（可能是 FG／JP／Handpay）'
+  if (p.balance === null) return '讀不到機台餘額'
+  if (p.lastBet === null) return '算不出一把的下注金額，無法確認餘額夠不夠'
+  if (p.balance < p.lastBet) return `餘額 ${p.balance} 不夠一把（${p.lastBet}）`
+  return null
+}
+/** 重錄歷程的一句話（寫在音頻步驟訊息最前面；批次判定看 extraData.audioFinal，不看這段字） */
+export function audioRetrySummary(p: { attempts: Array<{ rmsDb: number | null; peakDb: number | null }>; recovered: boolean; stopReason: string | null }): string {
+  const f = (a: { rmsDb: number | null; peakDb: number | null }) => `${a.rmsDb === null || !isFinite(a.rmsDb) ? '-∞' : a.rmsDb.toFixed(1)}/${a.peakDb === null || !isFinite(a.peakDb) ? '-∞' : a.peakDb.toFixed(1)}`
+  const n = p.attempts.length
+  const list = p.attempts.map(f).join('、')
+  if (p.recovered) return `音頻重錄：前 ${n - 1} 次靜音（${p.attempts.slice(0, -1).map(f).join('、')} dB），第 ${n} 次錄到 ${f(p.attempts[n - 1])} dB → 用這次判`
+  return `音頻重錄：錄音 ${n} 次（首次＋重錄 ${n - 1} 次）都靜音（${list} dB）${p.stopReason ? `；重錄中止：${p.stopReason}` : ''} → no sound`
+}
