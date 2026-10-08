@@ -8,11 +8,12 @@
 import { chromium } from 'playwright'
 import { runFrontendStep } from '../../server/uat-runner/frontend-engine.js'
 import { pcEngineCapabilities } from '../../server/lib/pc-cocos.js'
+import { attachPinusProbe } from '../../server/uat-runner/pinus-probe.js'
 
 let fail = 0
 const ok = (c: boolean, label: string, got?: unknown) => { if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got).slice(0, 400)}` : ''}`) }
 
-type Opts = { freeAfterMs?: number; enterAs?: string; noConsole?: boolean; throwOnData?: boolean; enterScene?: string; requestOnly?: boolean }
+type Opts = { freeAfterMs?: number; enterAs?: string; noConsole?: boolean; throwOnData?: boolean; enterScene?: string; requestOnly?: boolean; listResp?: 'good' | 'extra' | 'code500' | 'null' | 'throw' }
 const PAGE = (o: Opts) => `<!doctype html><body style="margin:0"><canvas style="position:absolute;left:0;top:0;width:1366px;height:768px"></canvas><script>
 var O = ${JSON.stringify(o)};
 var mk = function (name, wx, wy, w, h, comps) { var n = { name: name, active: true, worldPosition: { x: wx, y: wy }, worldScale: { x: 1, y: 1 },
@@ -65,6 +66,21 @@ document.querySelector('canvas').addEventListener('click', function (e) {
   }
 })
 window.cc = { director: { getScene: function () { return scene } }, view: { getVisibleSize: function () { return { width: 1366, height: 768 } } }, js: { getClassName: function () { return '' } } }
+// 假的 pinus（方法掛在 prototype 上，跟真的一樣，攔截器才補得到）——大廳一載入就要一次機台總表
+if (O.listResp) {
+  function P () {}
+  P.prototype.request = function (route, msg, cb) {
+    var good = { code: 200, list: { coincombo: [{ gmid: '4186-COINCOMBO-0138' }, { gmid: '4186-COINCOMBO-0140' }], dfdcgrand: [{ gmid: '4186-DFDCGRAND-0144' }], bwjl: [{ gmid: '4186-BWJL-1008' }] } }
+    var r = O.listResp === 'good' ? good
+      : O.listResp === 'extra' ? { code: 200, list: { coincombo: good.list.coincombo, nosuch: [{ gmid: '4186-NOSUCH-0001' }] } }
+      : O.listResp === 'code500' ? { code: 500 }
+      : O.listResp === 'null' ? null
+      : (function () { var o = { code: 200 }; Object.defineProperty(o, 'list', { enumerable: true, get: function () { throw new Error('boom') } }); return o })()
+    setTimeout(function () { cb(r) }, 10)
+  }
+  window.pinus = new P()
+  setTimeout(function () { window.pinus.request('hall.hallHandler.getAllGMListReq', {}, function () {}) }, 700)
+}
 </script></body>`
 
 const browser = await chromium.launch({ headless: true })
@@ -117,6 +133,28 @@ try {
   ok(/場景還是 讀不到/.test(emptyScene.err), '有 enterGMNtc 但場景名稱是空的 → 失敗', emptyScene.err)
   const blind = await run('Coin Combo', { noConsole: true })
   ok(/不能確認進了哪一台/.test(blind.err), '沒有 enterGMNtc（只有別人機台的廣播、場景裡 NoticeView 是別人的）→ 失敗，不能當成通過', blind.err)
+  // ── CodeX 審 809fb13 [P2]：串**真的** probe（attachPinusProbe），不直接餵整理好的 gmids ──
+  const viaProbe = async (value: string, listResp: Opts['listResp']) => {
+    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+    const html = PAGE({ listResp })
+    await page.route('http://probe.local/**', r => r.fulfill({ contentType: 'text/html', body: html }))
+    const probe = await attachPinusProbe(page)
+    await page.goto('http://probe.local/lobby')
+    await page.waitForTimeout(1500)
+    let err = ''
+    try { await runFrontendStep({ name: 'enter', action: 'pc_enter_machine', value }, { page, pc: pcEngineCapabilities, pinus: probe, log: async () => {}, idx: '1', screenshotDir: '', startUrl: 'https://uat-h5.osmslot.org/', state: { vars: {} } } as never) }
+    catch (e) { err = e instanceof Error ? e.message : String(e) }
+    await page.close()
+    return err
+  }
+  const pGood = await viaProbe('No Such Game', 'good')
+  ok(/環境裡沒有「No Such Game」.*總表共 4 台/.test(pGood), '真 probe：總表成功、4 台都套上 → 「環境沒有」', pGood)
+  const pExtra = await viaProbe('No Such Game', 'extra')
+  ok(/總表有 1 台還沒套到卡片/.test(pExtra), '真 probe：總表有卡片上沒有的 → 「還沒載完」', pExtra)
+  for (const bad of ['code500', 'null', 'throw'] as const) {
+    const e = await viaProbe('No Such Game', bad)
+    ok(/無法確認清單已經載完/.test(e) && !/環境裡沒有/.test(e), `真 probe：總表回應 ${bad} → 「無法確認」，不能判「環境沒有」`, e)
+  }
 } finally { await browser.close() }
 
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

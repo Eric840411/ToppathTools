@@ -71,14 +71,23 @@ export function pinusProbeSource(bufferMax = PAGE_BUFFER_MAX) {
     const entry = { direction, route: String(route || ''), payload: shaped, ts: Date.now() };
     // 1008 pc_enter_machine（CodeX 審 6a534be [P2]：穩定不等於完整）：大廳機台總表的回應要留**完整的 gmid 清單**——
     // payload 被 safeShape 截成 10 筆，拿它判「這款沒有」會漏。只抽 gmid 形狀的字串，最多走 20000 個節點
+    // CodeX 審 809fb13 [P2]：**complete 不能只看走訪有沒有走完**——{code:500}、null、欄位讀取丟例外，
+    // 原本都會變成 gmids:[]、complete:true，engine 就誤報「總表 0 台、環境沒有」。完整的條件：
+    //   回應是物件、沒有失敗的 code（只接受沒有 code，或 200／0）、走訪中沒有任何例外、走完、至少一台
     if (direction === 'response' && /getAllGMList/i.test(entry.route)) {
-      const gmids = []; const stack = [payload]; let seen = 0;
+      const gmids = []; let failed = '';
+      const code = payload && typeof payload === 'object' ? (function () { try { return payload.code; } catch (e) { failed = '讀 code 例外'; return undefined; } })() : undefined;
+      if (!payload || typeof payload !== 'object') failed = '回應不是物件';
+      else if (code !== undefined && code !== 200 && code !== 0) failed = '回應 code=' + code;
+      const stack = failed ? [] : [payload]; let seen = 0;
       while (stack.length && seen++ < 20000) {
         const v = stack.pop();
         if (typeof v === 'string') { if (/^[0-9]+-[A-Za-z0-9]+-[0-9]+$/.test(v) && gmids.indexOf(v) < 0) gmids.push(v); continue; }
-        if (v && typeof v === 'object') { try { for (const k of Object.keys(v)) stack.push(v[k]); } catch (e) {} }
+        if (v && typeof v === 'object') { try { for (const k of Object.keys(v)) stack.push(v[k]); } catch (e) { failed = '讀欄位例外'; break; } }
       }
-      entry.gmids = gmids; entry.complete = stack.length === 0;
+      if (!failed && stack.length) failed = '清單太大，沒走完';
+      if (!failed && !gmids.length) failed = '回應裡一台都沒有';
+      entry.gmids = gmids; entry.complete = !failed; if (failed) entry.incompleteWhy = failed;
     }
     buf.push(entry);
   }

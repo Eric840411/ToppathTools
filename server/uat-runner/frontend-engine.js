@@ -495,12 +495,15 @@ export async function runFrontendStep(step, ctx) {
          * 證明不了 → 失敗但**不說「沒有」**，說「無法確認」。
          */
         let listed = null;
+        let proofWhy = '';
         if (ctx.pinus) {
           await ctx.pinus.drain().catch(() => {});
           const resp = ctx.pinus.messages().filter(m => m.direction === 'response' && /getAllGMList/i.test(m.route) && Array.isArray(m.gmids)).pop();
-          if (resp && resp.complete !== false) listed = resp.gmids;
+          // 只認 probe 明確標成完整的（CodeX 審 809fb13 [P2]）；沒標、標成不完整都當成沒有證明
+          if (resp && resp.complete === true) listed = resp.gmids;
+          else if (resp) proofWhy = `總表回應不完整（${resp.incompleteWhy || '沒有標成完整'}）`;
         }
-        if (!listed) throw new Error(`大廳卡片裡沒有「${want}」（目前 ${cur.cards.length} 台），但拿不到大廳機台總表（getAllGMListReq）的回應，無法確認清單已經載完——不判「環境沒有」`);
+        if (!listed) throw new Error(`大廳卡片裡沒有「${want}」（目前 ${cur.cards.length} 台），但${proofWhy || '拿不到大廳機台總表（getAllGMListReq）的回應'}，無法確認清單已經載完——不判「環境沒有」`);
         const have = new Set(cur.cards.map(c => c.gmid));
         const missing = listed.filter(g => !have.has(g));
         if (missing.length) throw new Error(`大廳卡片裡沒有「${want}」，但總表有 ${missing.length} 台還沒套到卡片上（例如 ${missing.slice(0, 3).join('、')}）——清單還沒載完，不判「環境沒有」`);
