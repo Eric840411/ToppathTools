@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
@@ -2957,6 +2957,70 @@ async function checkMediaElements(page: Page): Promise<{
 }
 
 /**
+ * 1008 SPIN 一律最小注（使用者硬規則；先做後審）。Spin 前把面額／Credits／倍數三組各按到最小那顆，**每一顆都要確認**才 SPIN：
+ *   - 按下去之後 5 秒內要有 SEND／ON（同一個 seq）——伺服器收到了
+ *   - 按完 6 秒內**不能開局**（有些鍵本身就是開局鍵，例如按到已選中的 88Credits、ARUZE 的 BET 鍵）——開局了就不是「設注」，停手、不 SPIN
+ *   - 找不到下注鍵、同組最小值有兩顆、字看不懂、被提示框擋、點不到 → 一律不 SPIN（回 ok:false＋原因）
+ * 保守：不確定就不下注。回 ok:true 時 note 寫出按了哪幾顆。
+ */
+export async function ensureMinBet(page: Page, emit: (msg: string) => void, shouldStop?: () => boolean): Promise<{ ok: true; note: string } | { ok: false; why: string }> {
+  // 1) 找下注鍵（跟 iDeck 自動偵測同一組選擇器），讀按鈕字
+  let frame: import('playwright').Frame | null = null
+  let keys: Array<{ idx: number; text: string; el: ElementHandle }> = []
+  for (const f of page.frames()) {
+    try {
+      const els = await f.$$('[class*="btn_bet"], [class*="btn_play"]')
+      const vis: Array<{ idx: number; text: string; el: ElementHandle }> = []
+      for (const el of els) {
+        if (!await el.isVisible().catch(() => false)) continue
+        const text = ((await el.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim()
+        vis.push({ idx: vis.length, text, el })
+      }
+      if (vis.length) { frame = f; keys = vis; break }
+    } catch { /* frame detached */ }
+  }
+  if (!frame || !keys.length) return { ok: false, why: '找不到下注鍵（btn_bet／btn_play），無法確認是最小注' }
+  const pick = pickMinBetKeys(keys.map(k => ({ idx: k.idx, text: k.text })))
+  if (pick.ambiguous.length) return { ok: false, why: `下注鍵最小值不唯一：${pick.ambiguous.join('；')}` }
+  if (!pick.groups.length) return { ok: false, why: `下注鍵的字看不懂（${keys.map(k => k.text || '空').slice(0, 6).join('、')}），無法確認是最小注` }
+
+  // 2) 依序按：面額 → Credits → 倍數；監聽 SEND／ON 與 moneyNtc begin
+  const sends: Array<{ seq: number; ts: number }> = [], acks: Array<{ seq: number; ts: number }> = []
+  const onConsole = (m: import('playwright').ConsoleMessage) => {
+    const s = m.text().match(/^(SEND|ON):\s*(\d+)\s+hall\.hallHandler\.dealGMActionReq/)
+    if (s) (s[1] === 'SEND' ? sends : acks).push({ seq: Number(s[2]), ts: Date.now() })
+  }
+  page.on('console', onConsole)
+  const pressed: string[] = []
+  try {
+    for (const g of ['denom', 'credits', 'mult'] as const) {
+      const k = pick.picks[g]; if (!k) continue
+      if (shouldStop?.()) return { ok: false, why: '已停止' }
+      const el = keys[k.idx].el
+      const seq0 = await (async () => { const l = await readMoneyLog(page); return l.reduce((a, e) => Math.max(a, e.seq), 0) })()
+      const t0 = Date.now()
+      const act = await uiAct(page, 'game', `最小注：${k.text}`, el, () => el.evaluate((node: Element) => (node as HTMLElement).click()))
+      if (act === 'blocked') return { ok: false, why: `按「${k.text}」被擋下（${popupGuardOf(page)?.blockReason() ?? '禁點'}）` }
+      // 伺服器有收到：SEND 之後同一個 seq 的 ON
+      const send = await (async () => { const end = Date.now() + 5000; while (Date.now() < end) { const s = sends.find(x => x.ts >= t0); if (s) return s; await sleep(150) } return null })()
+      if (!send) return { ok: false, why: `按「${k.text}」後 5 秒沒有送出 dealGMActionReq（不確定有沒有設到）` }
+      const acked = await (async () => { const end = Date.now() + 5000; while (Date.now() < end) { if (acks.some(a => a.seq === send.seq)) return true; await sleep(150) } return false })()
+      if (!acked) return { ok: false, why: `按「${k.text}」後伺服器沒有回應（seq ${send.seq}）` }
+      // 不能開局：6 秒內出現新的 begin＝這顆是開局鍵 → 等局結束，停手
+      const opened = await (async () => { const end = Date.now() + IDECK_CONSERVATIVE_BEGIN_MS; while (Date.now() < end) { const l = await readMoneyLog(page); if (l.some(e => e.seq > seq0 && e.reason === 'begin')) return true; await sleep(300) } return false })()
+      if (opened) {
+        const end = Date.now() + 45_000
+        while (Date.now() < end && !shouldStop?.()) { const s = await readMoneySnap(page); if (s && ideckRoundState(s.log) !== 'open') break; await sleep(500) }
+        return { ok: false, why: `按「${k.text}」開了一局（這顆是開局鍵，不是單純設注），停手、不 SPIN` }
+      }
+      pressed.push(k.text)
+      emit(`最小注：已設「${k.text}」（伺服器已回應、沒有開局）`)
+    }
+  } finally { page.off('console', onConsole) }
+  return { ok: true, note: `最小注：${pressed.join('＋')}` }
+}
+
+/**
  * 1008 音頻判 no sound 時再 Spin 重錄（使用者定案、osm-qa-agent 規格 spec-mt-audio-retry-1008、CodeX 定案）。
  *   - 只有 VB-Cable 的真靜音觸發（isAudioTrueSilence）；low sound、音色、退路路徑都不觸發
  *   - 首次錄音＋最多重錄 2 次＝最多錄音 3 次；每一次都是真下注，按之前 audioRetryPrecheck 要明確通過
@@ -3470,6 +3534,11 @@ export async function stepIdeck(
     type Outcome = { label: string; text: string; name: string | null; seq: number | null; actionid: number | null; isspin: number | null; result: IdeckResult; shot: string | null; note: string
       /** 1007：要中止本台 iDeck（零後續點擊）的原因——歸屬不明、noAck 後無法確認狀態、晚到的局沒結束 */
       halt?: string
+      /** 1008：開局族群的大注鍵——沒有按（不算進 outcomes） */
+      skipped?: string
+      /** 1008：按下時的頁面時間與 moneyLog 最大 seq（族群判斷：最小那顆按完之後有沒有開局） */
+      clickAt?: number
+      moneySeqBefore?: number
       /** 1007：時間量測（毫秒；沒觀測到＝null）。t_ack＝點→ON、t_begin＝點→begin、t_round＝begin→end、t_ready 第一期不量（固定等待不能當實測） */
       timing?: { mode: 'fast' | 'conservative'; waitMs: number; why: string; t_ack: number | null; t_begin: number | null; t_round: number | null; t_ready: null; lateBeginMs?: number }
     }
@@ -3561,6 +3630,7 @@ export async function stepIdeck(
       if (ideckCaptureOn) learnCap.buttons.push({ idx, label, text: o.text, name: null, pre: await grabMainCrop(page, machineCode, join(learnDir, `${learnTag}-${idx}-pre.png`)), post1: null, post2: null })
       const tClick = Date.now()
       const me = { clickTs: g.now, fast: false, seqBefore: g.seqBefore, outcome: o, round: false }
+      o.clickAt = g.now; o.moneySeqBefore = g.seqBefore
       const prevPress = prev
       prev = me
       try {
@@ -3712,6 +3782,7 @@ export async function stepIdeck(
     let restore: Outcome | null = null
     let aborted = false
     const backOutcomes: Array<{ idx: string; o: Outcome }> = []
+    let familySkipped: Outcome[] = [], restoreSkipped: string | null = null, finalGateDone = false
     try {
       const before = await shoot('ideck-0-before')
       // 1007 learn 拍攝：第一顆按之前，不按任何鍵連拍 4 張、每張隔 3 秒（約 9 秒；0345 實測 3 張 3 秒抓不到慢慢跳的獎池數字）
@@ -3726,23 +3797,89 @@ export async function stepIdeck(
       emit(`共 ${buttons.length} 個按鈕，逐一點擊（每顆驗 SEND/ON 配對）...`)
       // 順序與中止規則在 verdicts.ts runIdeckSequence（有流程探針）：開轉逾時 → 後面零點擊（含面額選單、還原）；
       // 最後按回 BetMultiple1；有倍數鍵卻找不到這顆 → ideckVerdict 判失敗
+      // 1008 別下大注：先讀每顆的字，同族群改成由小到大按（最小那顆先，用它判斷是不是開局鍵）
+      const preTexts: Record<string, string> = {}
+      for (const b of buttons) {
+        try { const el = (await (page.frames()[b.frameIdx] ?? page.frames()[0]).$$(b.xpath))[0]; preTexts[b.label] = ((await el?.textContent()) ?? '').replace(/\s+/g, ' ').trim() } catch { preTexts[b.label] = '' }
+      }
+      const reordered = ideckFamilyOrder(buttons.map(b => preTexts[b.label] ?? '')).map(i => buttons[i])
+      if (reordered.some((b, i) => b !== buttons[i])) emit(`iDeck 依族群由小到大重排：${reordered.map(b => preTexts[b.label] || b.label).join('、')}`)
+      buttons.splice(0, buttons.length, ...reordered)
+      const liveOutcomes: Outcome[] = []
+      const familyMin: Partial<Record<'denom' | 'credits' | 'mult', string>> = {}
+      for (const b of buttons) { const f = classifyBetKey(preTexts[b.label] ?? ''); if (f && !familyMin[f.group]) familyMin[f.group] = b.label }
+      /** 這個族群的最小那顆按完之後有沒有開局；不確定也當成開局（回原因）。等滿保守窗口再看 */
+      const familyRoundOpening = async (g: 'denom' | 'credits' | 'mult'): Promise<string | null> => {
+        const minLabel = familyMin[g]
+        const mo = liveOutcomes.find(o => o.label === minLabel)
+        if (!mo) return '同族群最小那顆還沒按，不確定是不是開局鍵'
+        if (mo.result !== 'ack') return `同族群最小那顆「${mo.text}」沒確認（${mo.result}），當成開局鍵`
+        if (/有開局/.test(mo.note)) return `同族群最小那顆「${mo.text}」會開局（開局鍵），比它大的不按，避免大注`
+        if (mo.clickAt === undefined || mo.moneySeqBefore === undefined) return `同族群最小那顆「${mo.text}」沒有時間紀錄，不確定`
+        // 保守窗口內有沒有晚到的 begin
+        for (;;) {
+          const snap = await readMoneySnap(page)
+          if (!snap) return '讀不到局狀態，不確定是不是開局鍵'
+          if (snap.log.some(e => e.reason === 'begin' && e.seq > mo.moneySeqBefore!)) return `同族群最小那顆「${mo.text}」之後有開局，當成開局鍵`
+          if (snap.now - mo.clickAt >= IDECK_CONSERVATIVE_BEGIN_MS) return null
+          await sleep(300)
+        }
+      }
       const seq = await runIdeckSequence({
         buttons,
-        press: (b, idx) => { if (idx === 'restore') emit(`還原倍數：再按一次 ${b.label}（BetMultiple1）`); return clickOne(b.label, b.xpath, b.frameIdx, idx) },
+        press: async (b, idx) => {
+          if (idx === 'restore') emit(`還原倍數：再按一次 ${b.label}（BetMultiple1）`)
+          // 1008 別下大注：同族群的最小那顆按過、而且有開局（或不確定）→ 這個族群是開局鍵，比它大的不按
+          const fam = classifyBetKey(preTexts[b.label] ?? '')
+          const minOfFam = fam ? familyMin[fam.group] : null
+          if (fam && minOfFam && minOfFam !== b.label && /^\d+$/.test(idx)) {
+            const why = await familyRoundOpening(fam.group)
+            if (why) {
+              emit(`⏭ iDeck ${b.label}「${preTexts[b.label]}」不按：${why}`)
+              return { label: b.label, text: preTexts[b.label] ?? '', name: null, seq: null, actionid: null, isspin: null, result: 'noElement' as IdeckResult, shot: null, note: why, skipped: why }
+            }
+          }
+          const o = await clickOne(b.label, b.xpath, b.frameIdx, idx)
+          if (/^\d+$/.test(idx)) liveOutcomes.push(o)
+          return o
+        },
+        // 1008：倍數族群是開局鍵（x1 開了局、其他都沒按）→ 倍數本來就停在 x1，不再按（再按會再開一局）
+        skipRestore: os => { const x1 = os.find(o => o.name === 'BetMultiple1'); return x1 && /有開局/.test(x1.note) ? '倍數鍵是開局鍵，只按了 x1，倍數本來就在 x1' : null },
         settle, afterTimeout,
         shouldStop: () => shouldStop?.() ?? false,
+        // 1008 SPIN 一律最小注：還原時先按回最小的 Credits 鍵（再照舊按 BetMultiple1）。那一顆測試時開過局就不按（會再開一局）
+        minRestore: async os => {
+          // 1008：先過收尾關卡——最後一顆是短等待時，等滿保守窗口、抓晚到的 begin（不然會在局還沒被發現時又按一顆＝再下一注）
+          if (prev && prev.fast && !shouldStop?.()) {
+            const g = await gateBeforePress()
+            finalGateDone = true
+            if (g.ok === false) { emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}`; prev.outcome.result = 'spinTimeout'; prev.outcome.halt = g.why; return 'stop' }
+          }
+          const cands = os.map((o, i) => ({ i, o, c: classifyBetKey(btnTexts[o.label] ?? o.text ?? '') })).filter(x => x.c?.group === 'credits')
+          if (!cands.length) return null
+          const min = Math.min(...cands.map(x => x.c!.value))
+          const hits = cands.filter(x => x.c!.value === min)
+          if (hits.length !== 1 || /有開局/.test(hits[0].o.note)) { emit(`⚠️ 還原最小 Credits：${hits.length !== 1 ? '最小值不唯一' : `「${hits[0].o.text}」測試時開過局`}，不按`); return null }
+          // 最後按的 Credits 就是最小那顆 → 本來就在最小注，不再按（按到已選中的鍵，有些機種會直接開局）
+          const lastCredits = [...cands].sort((a, b) => a.i - b.i).at(-1)!
+          if (lastCredits.o.label === hits[0].o.label) return null
+          const bi = buttons.findIndex(b => b.label === hits[0].o.label)
+          return bi >= 0 ? bi : null
+        },
         // 1007 learn 來回按：只在拍攝模式做（多按的那一下不算進 outcomes、不影響判定）
         ...(ideckCaptureOn ? { back: (os: Outcome[]) => ideckBackPick(os.map(o => ({ name: o.name, result: o.result, round: /有開局/.test(o.note) })), backDone) } : {}),
       })
       if (seq.backs.length) emit(`📚 iDeck 指標學習：來回按 ${seq.backs.map(b => `${b.o.name ?? b.o.label}${b.o.result === 'ack' ? '' : '✗'}`).join('、')}`)
       outcomes.push(...seq.outcomes)
       restore = seq.restore
+      familySkipped = seq.skipped; restoreSkipped = seq.restoreSkipped ?? null
+      if (seq.minRestore) emit(`還原最小 Credits：${seq.minRestore.label}「${seq.minRestore.text}」${seq.minRestore.result === 'ack' ? '✓' : '✗（' + seq.minRestore.result + '）'}`)
       backOutcomes.push(...seq.backs.map(b => ({ idx: `back-${b.of + 1}`, o: b.o })))
       aborted = seq.aborted
       const haltWhy = [...seq.outcomes, ...(seq.restore ? [seq.restore] : [])].find(o => o.halt)?.halt
       if (aborted) emit(haltWhy ? `🛑 iDeck：${haltWhy} → 中止後面的 iDeck 點擊（不補點、不還原）` : `🛑 iDeck：開轉後 45 秒沒結束，中止後面的點擊（不補點、不還原）`)
       // 1007：最後一顆（或還原）是短等待 → 等它的保守窗口滿，再看有沒有晚到的 begin（沒有下一顆的關卡可以抓）
-      if (!aborted && prev && prev.fast && !shouldStop?.()) {
+      if (!aborted && !finalGateDone && prev && prev.fast && !shouldStop?.()) {
         const g = await gateBeforePress()
         // CodeX 139aa8d [P1]：收尾抓到晚開局、45 秒沒結束 → 那一顆要記成開轉逾時，不能留著 ack（沒有倍數鍵時 verdict 會放行成 PASS）
         if (g.ok === false) { aborted = true; emit(`🛑 iDeck：${g.why}`); prev.outcome.note += `；${g.why}`; prev.outcome.result = 'spinTimeout'; prev.outcome.halt = g.why }
@@ -3779,7 +3916,7 @@ export async function stepIdeck(
       }) }) } : {}),
     } }
 
-    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length, ambiguous })
+    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length, ambiguous, restoreSkipped, skipped: familySkipped.map(o => ({ label: o.label, text: o.text, why: o.skipped ?? '' })) })
     // 1007 iDeck 時間學習：時間模式＋每顆量測（extraData.ideckTiming，batch 收）
     const all = [...outcomes, ...(restore ? [restore] : [])]
     const fastN = all.filter(o => o.timing?.mode === 'fast').length
@@ -5952,7 +6089,15 @@ export class MachineTestRunner extends EventEmitter {
               this.log(`${workerTag} [SKIP] Spin: ${r3.message}`, machineCode)
             } else {
               emit(`Spin 前選單閘門：${gate.state}｜${gate.note}`)   // 1003：一律記，才知道閘門有沒有認出選單
-              let r3 = await capture(() => stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio))
+              // 1008 使用者硬規則「SPIN 一律用最小注」：先把面額／Credits／倍數按到最小並確認，確認不了就不按 SPIN（判未驗）
+              const minBet = await ensureMinBet(page, emit, () => this.stopped)
+              let r3: StepResult
+              if (minBet.ok === false) {
+                r3 = { step: 'Spin 測試', status: 'skip', message: `未驗：沒按 SPIN——無法確認是最小注（${minBet.why}）｜使用者規則：SPIN 一律最小注，不確定就不下注`, durationMs: 0 }
+              } else {
+                r3 = await capture(() => stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio))
+                r3 = { ...r3, message: `${r3.message}｜${minBet.note}` }
+              }
               // CodeX 0930：判斷不了選單時照原流程按，但要留註記——不能當成已排除選單干擾（batch 看到這段就不判 spin no response）
               if (gate.state === 'unknown' && /選單狀態未知/.test(gate.note)) r3 = { ...r3, message: `${r3.message}｜${gate.note}` }
               // 1003：自動學到的選單（參考圖＋比對區／關選單的觸屏格）交給 batch 寫回機種設定

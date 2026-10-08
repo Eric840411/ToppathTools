@@ -70,8 +70,8 @@ try {
   const fast = await run(page, NR)
   const slow = await run(page, NR, { cfg: null })
   const modes = fast.t.buttons?.map((b: { mode: string }) => b.mode)
-  // 有 BetMultiple1 → 最後會再按一次還原（第 4 下），也是保守
-  ok(JSON.stringify(modes) === '["fast","fast","conservative","conservative"]', '清單裡的兩顆（按鈕字 PLAY 11／33 Credits、action name Bet11／Bet33）短等待、BET 與還原保守', modes)
+  // 1008 別下大注：BETx1 會開局（倍數族群是開局鍵）→ 不再按 x1 還原；最後按的 Credits 是 33 → 按回最小的 PLAY 11
+  ok(JSON.stringify(modes) === '["fast","fast","conservative"]' && JSON.stringify(fast.clicks.map(c => c.name)) === '["Bet11","Bet33","BetMultiple1","Bet11"]', '清單裡的兩顆（PLAY 11／33 Credits）短等待、BET 保守；收尾按回最小 Credits、倍數是開局鍵不再還原', { modes, clicks: fast.clicks.map(c => c.name) })
   ok(fast.r.status === slow.r.status && fast.clicks.length === slow.clicks.length, '結果跟保守模式一致', { fast: fast.r.status, slow: slow.r.status })
   const gaps = (c: { ts: number }[]) => c.slice(1).map((x, i) => x.ts - c[i].ts)
   ok(gaps(fast.clicks).every((g, i) => modes[i] !== 'fast' || g >= IDECK_CONSERVATIVE_BEGIN_MS - 50) && gaps(fast.clicks).filter((_, i) => modes[i] === 'fast').length === 2, '短等待之後，下一顆仍等滿 6 秒靜默窗', gaps(fast.clicks))
@@ -80,14 +80,15 @@ try {
   ok(fast.t.buttons?.[2]?.t_round !== null && fast.t.buttons?.[0]?.t_begin === null && fast.t.buttons?.[0]?.t_ready === null, '時間欄位：沒觀測到記 null、t_ready 不填固定等待', fast.t.buttons?.[0])
 
   // 2. 晚到的 begin（短等待 1.5 秒之後、下一顆之前）→ 記在那一顆「有開局」、撤銷、後面改保守
-  const late = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }])
+  // 第二顆用不屬於任何族群的鍵（AUTO），不然「最小那顆有開局 → 同族群不按」會先擋下來（那條另有測試）
+  const late = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Auto', text: 'AUTO', aid: 33 }])
   ok(late.revokes.length === 1 && /晚到|才開局/.test(late.revokes[0]), '晚到的 begin → 撤銷機種學習值', late.revokes)
   ok(late.t.buttons?.[0]?.lateBeginMs > 1500 && /iDeck 開局 1 顆/.test(late.r.message) && late.t.buttons?.[1]?.mode === 'conservative', '那一顆記「有開局」、下一顆改保守', late.t.buttons?.map((b: { mode: string }) => b.mode))
   const endTs = late.log.filter(e => e.reason === 'end').at(-1)!.ts
   ok(late.clicks[1].ts >= endTs, '晚到的局結束之後才按下一顆', { end: endTs, next: late.clicks[1].ts })
 
   // 3. begin 在 5 秒（下一顆若沒有靜默窗就會先按下去）→ 有靜默窗：仍歸給前一顆、不會跟下一顆混
-  const mid = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 5000, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }])
+  const mid = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 5000, roundMs: 600 }, { name: 'Auto', text: 'AUTO', aid: 33 }])
   ok(mid.t.buttons?.[0]?.lateBeginMs >= 4900 && !mid.t.ambiguous && mid.clicks[1].ts > mid.log.find(e => e.reason === 'begin' && e.seq > 2)!.ts, '5 秒才開局 → 歸前一顆、下一顆在之後才按', mid.r.message.slice(0, 160))
 
   // 4. 雙來源亂序：流水（__moneyLog）顯示局還開著、console 卻先印了一個 end → gate 只認流水，等真的 end 才按
@@ -115,11 +116,14 @@ try {
 
   // 9. 歸屬不明（關掉靜默窗才走得到）：begin 在下一顆送出之後、又在上一顆短等待的窗口內 →
   //    本台 iDeck 中止（後面零點擊）、記 not verified、不判 fail、撤銷；stepIdeck 正常回傳（之後交回 stepGate 接觸屏／CCTV／退出）
-  const amb = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 5500, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }, { name: 'BetMultiple1', text: 'BETx1', aid: 1, beginAfter: 700 }], { noQuiet: true })
+  const amb = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 5500, roundMs: 600 }, { name: 'Auto', text: 'AUTO', aid: 33 }, { name: 'BetMultiple1', text: 'BETx1', aid: 1, beginAfter: 700 }], { noQuiet: true })
   ok(amb.r.status === 'skip' && /ideck not verified \(timing ambiguous\)/.test(amb.r.message), '歸屬不明 → not verified（不是 fail、也不是 pass）', amb.r.status)
   ok(amb.clicks.length === 2 && !amb.clicks.some(c => c.name === 'BetMultiple1'), '歸屬不明之後 iDeck 零點擊', amb.clicks.map(c => c.name))
   ok(amb.revokes.length === 1 && /歸屬不明/.test(amb.revokes[0]), '歸屬不明也撤銷', amb.revokes)
 
+  // 1008 別下大注：最小那顆（PLAY 11）晚到開局 → 同族群的 PLAY 33 不按
+  const fam = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 600 }, { name: 'Bet33', text: 'PLAY 33 Credits', aid: 33 }])
+  ok(fam.clicks.length === 1 && /略過 1 顆（PLAY 33 Credits：/.test(fam.r.message), '最小那顆晚到開局 → 同族群比它大的不按、寫出略過原因', { clicks: fam.clicks.map(c => c.name), msg: fam.r.message.slice(0, 200) })
   // CodeX 139aa8d [P1]：最後一顆（沒有倍數鍵、不會還原）短等待後才晚開局、45 秒都沒結束 → 不能 PASS
   const tail = await run(page, [{ name: 'Bet11', text: 'PLAY 11 Credits', aid: 11, beginAfter: 2500, roundMs: 120000 }])
   ok(tail.r.status === 'fail' && tail.t.buttons?.[0]?.result === 'spinTimeout', '末顆晚開局 45 秒沒結束 → 記開轉逾時，不是 PASS', { status: tail.r.status, result: tail.t.buttons?.[0]?.result })

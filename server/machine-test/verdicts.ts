@@ -20,6 +20,10 @@ export function ideckVerdict(p: {
   boxCount: number
   /** 1007 iDeck 時間學習：晚到的 begin 歸屬不明 → 本台 iDeck 中止。不因歧義判 fail、也不能算 pass（CodeX） */
   ambiguous?: string | null
+  /** 1008 SPIN 一律最小注：開局族群只按最小那顆，其餘略過（不算失敗、寫在訊息裡） */
+  skipped?: Array<{ label: string; text: string; why: string }>
+  /** 1008：倍數族群是開局鍵（只按了 x1）→ 倍數本來就停在 x1，不需還原 */
+  restoreSkipped?: string | null
 }): { status: 'pass' | 'warn' | 'fail' | 'skip'; message: string } {
   const { outcomes, restore, aborted, apiErr, boxCount } = p
   if (outcomes.length === 0) return { status: 'fail', message: '沒有可點的 iDeck 按鈕｜判定：flow fail' }
@@ -33,6 +37,7 @@ export function ideckVerdict(p: {
   let restoreTxt: string, restoreBad: 'noResponse' | 'flow' | null = null
   // 1007：沒有倍數鍵就不需要還原，中止本身不另算流程失敗（中止的原因——逾時、局沒結束——會在那一顆的結果裡判）
   if (aborted) { restoreTxt = hasMultiplier ? '；⚠️ 中止，沒有還原倍數' : '；中止（沒有倍數鍵，不需還原）'; restoreBad = hasMultiplier ? 'flow' : null }
+  else if (p.restoreSkipped) restoreTxt = `；不還原倍數（${p.restoreSkipped}）`
   else if (restore) {
     const ok = restore.result === 'ack'
     restoreTxt = `；還原 BetMultiple1 ${ok ? '✓' : '✗（⚠️ 倍數可能還留在最後按的那顆）'}`
@@ -42,6 +47,7 @@ export function ideckVerdict(p: {
   const boxTxt = apiErr ? `；盒子 log 未查（${apiErr}）` : `；盒子 log 新增 ${boxCount} 筆`
 
   let message = `server 回應 ${acked}/${total}（${detail}）${restoreTxt}${boxTxt}`
+  if (p.skipped?.length) message += `｜略過 ${p.skipped.length} 顆（${p.skipped.map(s => `${s.text || s.label}：${s.why}`).join('、')}）`
   if (bad.length) message += `｜未通過：${bad.map(o => `${o.label}「${o.text}」${o.result}${o.note ? '(' + o.note + ')' : ''}`).join('、')}`
 
   if (p.ambiguous) {
@@ -90,33 +96,54 @@ export async function runIdeckSequence<B, O extends { name: string | null; resul
   shouldStop: () => boolean
   /** 1007 learn 來回按（只在 ideckCapture 時給）：每按完一顆問要不要「按回」前面某顆（回傳它在 outcomes 的位置）；idx 記成 back-<那顆的 idx> */
   back?: (outcomes: O[]) => number | null
-}): Promise<{ outcomes: O[]; restore: O | null; aborted: boolean; stopped: boolean; backs: Array<{ of: number; o: O }> }> {
+  /** 1008 SPIN 一律最小注：還原倍數之前先按回這一顆（最小的 Credits 鍵；回傳它在 buttons 的位置，null＝不按）；idx 記成 restore-min */
+  minRestore?: (outcomes: O[]) => number | null | 'stop' | Promise<number | null | 'stop'>
+  /** 1008：還原 BetMultiple1 之前問一次，回傳原因＝不還原（倍數族群是開局鍵、只按了 x1） */
+  skipRestore?: (outcomes: O[]) => string | null
+}): Promise<{ outcomes: O[]; restore: O | null; aborted: boolean; stopped: boolean; backs: Array<{ of: number; o: O }>; minRestore?: O | null; skipped: O[]; restoreSkipped?: string | null }> {
+  const skipped: O[] = []
   const outcomes: O[] = []
   const backs: Array<{ of: number; o: O }> = []
   const step = async (b: B, idx: string) => {
     const o = await p.press(b, idx)
+    // 1008：press 回 skipped（開局族群的大注鍵）＝沒有按，不 settle、不算進 outcomes
+    if ((o as { skipped?: string }).skipped) return { o, timeout: false, skipped: true }
     if (o.result === 'spinTimeout' || o.halt) { await p.afterTimeout(o, idx); return { o, timeout: true } }
     await p.settle(o, idx)
     return { o, timeout: false }
   }
   for (let i = 0; i < p.buttons.length; i++) {
-    if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
-    const { o, timeout } = await step(p.buttons[i], String(i + 1))
+    if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs, skipped }
+    const st = await step(p.buttons[i], String(i + 1))
+    const { o, timeout } = st
+    if ((st as { skipped?: boolean }).skipped) { skipped.push(o); continue }
     outcomes.push(o)
-    if (timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs }
+    if (timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs, skipped }
     const bi = p.back?.(outcomes) ?? null
     if (bi !== null && bi >= 0 && bi < i) {
-      if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
+      if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs, skipped }
       const r = await step(p.buttons[bi], `back-${bi + 1}`)
       backs.push({ of: bi, o: r.o })
-      if (r.timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs }
+      if (r.timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs, skipped }
     }
   }
+  let minRestore: O | null = null
+  // 1008：minRestore 可以先做收尾的關卡（等最後一顆的保守窗口、晚到的局）；回 'stop'＝局沒結束，零後續點擊（連 x1 都不按）
+  const mi = (await p.minRestore?.(outcomes)) ?? null
+  if (mi === 'stop') return { outcomes, restore: null, aborted: true, stopped: false, backs, minRestore, skipped }
+  if (mi !== null && mi >= 0 && mi < p.buttons.length) {
+    if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs, minRestore, skipped }
+    const r = await step(p.buttons[mi], 'restore-min')
+    minRestore = r.o
+    if (r.timeout) return { outcomes, restore: null, aborted: true, stopped: false, backs, minRestore, skipped }
+  }
   const x1 = outcomes.findIndex(o => o.name === 'BetMultiple1')
-  if (x1 < 0) return { outcomes, restore: null, aborted: false, stopped: false, backs }
-  if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs }
+  if (x1 < 0) return { outcomes, restore: null, aborted: false, stopped: false, backs, minRestore, skipped }
+  const noRestore = p.skipRestore?.(outcomes) ?? null
+  if (noRestore) return { outcomes, restore: null, aborted: false, stopped: false, backs, minRestore, skipped, restoreSkipped: noRestore }
+  if (p.shouldStop()) return { outcomes, restore: null, aborted: false, stopped: true, backs, minRestore, skipped }
   const { o: restore, timeout } = await step(p.buttons[x1], 'restore')
-  return { outcomes, restore, aborted: timeout, stopped: false, backs }
+  return { outcomes, restore, aborted: timeout, stopped: false, backs, minRestore, skipped }
 }
 
 // ── 觸屏畫面判定（2026-09-29，規則跟 CodeX 對過兩輪；BZZF：點 18,9 開賠率表、再點一次關）──────────────
@@ -775,4 +802,49 @@ export function audioRetrySummary(p: { attempts: Array<{ rmsDb: number | null; p
   const list = p.attempts.map(f).join('、')
   if (p.recovered) return `音頻重錄：前 ${n - 1} 次靜音（${p.attempts.slice(0, -1).map(f).join('、')} dB），第 ${n} 次錄到 ${f(p.attempts[n - 1])} dB → 用這次判`
   return `音頻重錄：錄音 ${n} 次（首次＋重錄 ${n - 1} 次）都靜音（${list} dB）${p.stopReason ? `；重錄中止：${p.stopReason}` : ''} → no sound`
+}
+
+// ── 1008 SPIN 一律最小注（使用者硬規則：「SPIN 一律用最小注、別下大注」；先做後審，CodeX 14:59 後補看）──────────
+// iDeck 鍵依按鈕上的字分三組：面額（₱ 0.50）、Credits（PLAY 9 Credits／88Credits）、倍數（BETx1）。每組挑數字最小的那顆。
+// ⚠️ 同一組最小值有兩顆、字讀不懂 → 不猜（回 ambiguous），呼叫端就不 SPIN。
+export type BetKeyGroup = 'denom' | 'credits' | 'mult'
+export function classifyBetKey(text: string): { group: BetKeyGroup; value: number } | null {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim()
+  let m = t.match(/^BET\s*x\s*(\d+)$/i) ?? t.match(/^x\s*(\d+)$/i)
+  if (m) return { group: 'mult', value: Number(m[1]) }
+  m = t.match(/(\d+(?:\.\d+)?)\s*Credits?$/i)
+  if (m) return { group: 'credits', value: Number(m[1]) }
+  m = t.match(/^[₱P]\s*(\d+(?:\.\d+)?)$/)
+  if (m) return { group: 'denom', value: Number(m[1]) }
+  return null
+}
+export function pickMinBetKeys(keys: Array<{ idx: number; text: string }>): { picks: Partial<Record<BetKeyGroup, { idx: number; text: string; value: number }>>; ambiguous: string[]; groups: BetKeyGroup[] } {
+  const by: Partial<Record<BetKeyGroup, Array<{ idx: number; text: string; value: number }>>> = {}
+  for (const k of keys) { const c = classifyBetKey(k.text); if (c) (by[c.group] ??= []).push({ idx: k.idx, text: k.text, value: c.value }) }
+  const picks: Partial<Record<BetKeyGroup, { idx: number; text: string; value: number }>> = {}
+  const ambiguous: string[] = []
+  for (const g of ['denom', 'credits', 'mult'] as BetKeyGroup[]) {
+    const list = by[g]; if (!list?.length) continue
+    const min = Math.min(...list.map(x => x.value))
+    const hits = list.filter(x => x.value === min)
+    if (hits.length > 1) ambiguous.push(`${g} 最小值 ${min} 有 ${hits.length} 顆（${hits.map(h => h.text).join('、')}）`)
+    else picks[g] = hits[0]
+  }
+  return { picks, ambiguous, groups: Object.keys(by) as BetKeyGroup[] }
+}
+
+/**
+ * 1008 iDeck 依族群排序（使用者：「iDeck 會開局的狀況要在學習時驗證出來」、別下大注）：
+ * 同一族群（面額／Credits／倍數）佔用的位置不變，但族群內改成**由小到大**——最小那顆一定先按，用它判斷這個族群是不是開局鍵。
+ * 不屬於任何族群的鍵留在原位。回傳新順序（原本的 index）。
+ */
+export function ideckFamilyOrder(texts: string[]): number[] {
+  const fam = texts.map(t => classifyBetKey(t))
+  const order = texts.map((_, i) => i)
+  for (const g of ['denom', 'credits', 'mult'] as BetKeyGroup[]) {
+    const slots = fam.map((f, i) => (f?.group === g ? i : -1)).filter(i => i >= 0)
+    const sorted = [...slots].sort((a, b) => fam[a]!.value - fam[b]!.value || a - b)
+    slots.forEach((slot, k) => { order[slot] = sorted[k] })
+  }
+  return order
 }

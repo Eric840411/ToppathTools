@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.39.0'
+export const APP_VERSION = '5.40.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.40.0', date: '2026-10-08', changes: ['feat(機台測試 下注安全)：使用者硬規則「SPIN 一律最小注、別下大注」——Spin 前把面額／Credits／倍數各按到最小並確認（伺服器回應、沒開局），確認不了就不 SPIN（判未驗）；iDeck 依族群由小到大按，最小那顆會開局（或不確定）就當成開局族群、比它大的不按；還原改成按回最小 Credits，倍數是開局鍵時不再還原 x1；收尾先等晚到的局再還原（不然會多下一注）。不寫死機種，每台跑的當下驗出來（使用者同意先做後審）'] },
   { version: '5.39.0', date: '2026-10-08', changes: ['feat(機台測試 音頻)：判成 no sound（VB-Cable 真靜音）時再 Spin 重錄——首次＋最多重錄 2 次；每次按之前要明確通過守衛（沒有提示框、上一把有開局、局沒開著、餘額夠一把）；任一次有效錄音有聲音就用那次判，三次都靜音才 no sound；重錄的 Spin 失敗／沒開局／錄音無效就停並寫原因；原本的 Spin 步驟結果不動；批次改看結構化的 audioFinal（使用者定案、osm-qa-agent 規格、CodeX 定案）'] },
   { version: '5.38.1', date: '2026-10-08', changes: ['fix(UAT PC 節點路徑)：CodeX 審 96797d3——跳脫改看連續 [ 的奇偶（名字叫 tail[ 又重名時 tail[[[1] 原本解不開）；錄製器把名字含 [ 的唯一節點錄成 x[[0]（沒有 >），點擊與驗節點原本只在有 > 時走路徑解析而找不到，改成含 [ 先照路徑解、解不到再照名稱'] },
   { version: '5.38.0', date: '2026-10-08', changes: ['feat(UAT PC 節點路徑)：路徑每一段可寫 name[N] 指定同名兄弟的第 N 個（只算可見的、照 children 順序、從 0 算）；不寫照舊要唯一、第一段不准、越界／負數／小數 FAIL、名字含 [ 寫 [[；錄製器遇到同名兄弟自動錄成 [N] 並反解確認（claude-osm-2 T-A-002 More Games 8 個 item1、CodeX 定案）。pc_scroll 失敗改寫出例外原因'] },
