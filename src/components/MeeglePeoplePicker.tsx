@@ -7,6 +7,28 @@ import { useState } from 'react'
  * 選到名單裡的名字、按 Enter 或打逗號就加成一個標籤；× 移除。名單不在這裡給：呼叫端放一個 <datalist id={listId}>。
  * 樣式在 MeegleBatchCreateTab.css（.mb-picker*），用到的頁面都已經載入它。
  */
+/**
+ * 下拉名單：**一個人只出現一次**（使用者 1008 Lark：不同 Sheet 寫法不同——`lusa`、`lusa@toppath.tw`——
+ * 對照表裡是兩筆、其實是同一個人，下拉就出現一堆重複的人）。
+ * 同一個人＝同一個 userKey（沒有就看 email）。選哪一個寫法送出去都是同一個人，所以只留一個：
+ * 優先跟名字一樣的寫法、其次不是 email 的，其他寫法列在說明裡（打字搜尋時那些寫法照樣認得——對照表沒動）。
+ */
+export function meeglePeopleOptions(people: Array<{ alias: string; userKey?: string; email?: string; name?: string }>): Array<{ value: string; label: string }> {
+  const groups = new Map<string, typeof people>()
+  for (const p of people) {
+    const key = (p.userKey || p.email || p.alias).toLowerCase()
+    groups.set(key, [...(groups.get(key) ?? []), p])
+  }
+  return [...groups.values()].map(list => {
+    const name = list.find(p => p.name)?.name ?? ''
+    const pick = list.find(p => name && p.alias.toLowerCase() === name.toLowerCase())
+      ?? list.find(p => !p.alias.includes('@')) ?? list[0]
+    const others = [...new Set(list.map(p => p.alias).filter(a => a !== pick.alias))]
+    const email = list.find(p => p.email)?.email ?? ''
+    return { value: pick.alias, label: `${name || email || pick.alias}${others.length ? `（也寫作 ${others.join('、')}）` : ''}` }
+  })
+}
+
 export function MeeglePeoplePicker({ value, onChange, listId, label, emptyText = '— 不改 —' }: {
   value: string; onChange: (v: string) => void; listId: string; label: string; emptyText?: string
 }) {

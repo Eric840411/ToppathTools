@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.45.2'
+export const APP_VERSION = '5.45.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.45.3', date: '2026-10-08', changes: ['fix(Meegle 人員下拉 去重複)：使用者 Lark 回報——不同 Sheet 對同一個人寫法不同（lusa、lusa@toppath.tw），人員對照表裡是兩筆，開單「批量設定」與修改「固定值」的下拉就出現重複的人。改成同一個 userKey（沒有就看 email）只列一次：優先跟名字一樣的寫法、其次不是 email 的，其他寫法列在說明（也寫作 …）。只改下拉的顯示，對照表與送出邏輯不動（選哪個寫法都是同一個人）。開單與修改共用 meeglePeopleOptions'] },
   { version: '5.45.2', date: '2026-10-08', changes: ['fix(UAT PC 進機台 總表判定)：CodeX 複審 809fb13 [P2]——probe 的 complete 只看走訪有沒有走完：回應 {code:500}、null、欄位讀取丟例外都變成 gmids:[]、complete:true，engine 誤報「總表共 0 台，環境沒有」。改成回應是物件、沒有失敗的 code（只接受沒有、200、0）、走訪中沒有例外、走完、至少一台才標完整，否則寫 incompleteWhy；engine 只認 complete===true，其餘一律「無法確認」。測試改串真的 attachPinusProbe（原本直接餵整理好的 gmids），換回舊 probe 三條會紅'] },
   { version: '5.45.1', date: '2026-10-08', changes: ['fix(UAT PC 進機台／找不到就跳過)：CodeX 審 6a534be——[P1] 只有送出請求、場景是空字串或 loading 也會 PASS：改成要同時有「場景＝game」與 enterGMNtc，最多等 15 秒。[P2] 跳過時讀取異常也會 SKIP（pcFindNode 吞例外）：新增三態 pcNodePresence，讀不到就失敗。[P2] 穩定不等於完整：同款 0 台時要拿 pinus 攔截器記下的 getAllGMListReq 完整 gmid 清單（probe 新增 gmids），總表每台都已套到卡片才判「環境沒有」，否則說「還沒載完」或「無法確認」。另依 claude-osm-2 UAT 實測：拿掉「機台內任何元件的 gmid」——NoticeView、廣播帶的是別人機台的 gmid；只認 ON: n enterGMNtc。pc-enter-machine-data 17 條、pc-click-popup 15 條，各修正拿掉都會紅'] },
   { version: '5.45.0', date: '2026-10-08', changes: ['feat(UAT PC 進機台 改讀卡片資料)：CodeX 方案 a～d、claude-osm-2 UAT 實測——pc_enter_machine 改讀每張卡片 MachinePlusItem._data（gmid／state／lockType），不再靠文字標籤（UAT 標籤是 1008 這種、舊格式對不上 → 永遠同款 0 台）。清單載完＝每張顯示中的卡片都有 _data 且連續兩次 gmid 集合相同；讀取失敗直接失敗（不當 0 台）；同款 0 台 → 明確「環境裡沒有」；空機＝state 0、lockType 0、沒離線、沒佔用徽章，沒有就每 1.5 秒重讀、最多等 15 秒（釋放約慢 8 秒）；點前重讀同一張卡（gmid、還空著、在畫面內、名稱已畫出來）；進場後核對實際 gmid（機台內 _data，讀不到看 enterGM），進錯台或核對不到都算失敗。留空或 * ＝整個大廳隨機挑一台空機（PC 使用者：不固定機台），候選與挑中的 gmid 寫進日誌。pcWaitLobby 加 requireLabels:false；反查器多 seenNode／intoNode（判可見與捲動仍只有一份）。pc-enter-machine-data 12 條；拿掉 lockType、15 秒等待、進錯台檢查各自會紅'] },

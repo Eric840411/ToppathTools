@@ -10,7 +10,7 @@ import './MeegleBatchStatusTab.css'
 import './MeegleBatchEditTab.css'
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
-import { MeeglePeoplePicker } from '../components/MeeglePeoplePicker'
+import { MeeglePeoplePicker, meeglePeopleOptions } from '../components/MeeglePeoplePicker'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -348,7 +348,7 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
     <div className="mb-page mc-page ms-page me-page">
       {prodModal}
       {/* 人員固定值的下拉名單（人員對照表）：value＝對照表的別名（送出時後端照別名對人），顯示名字 */}
-      <datalist id="me-people-options">{[...new Map(people.map(p => [p.alias, p])).values()].map(p => <option key={p.alias} value={p.alias}>{p.name}{p.email ? `（${p.email}）` : ''}</option>)}</datalist>
+      <datalist id="me-people-options">{meeglePeopleOptions(people).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</datalist>
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量修改</h2>

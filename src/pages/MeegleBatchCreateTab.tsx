@@ -11,7 +11,7 @@ import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css' // .mc-loadbar：網址列＋讀取鈕同一行，跟其他分頁一樣（使用者 10/05）
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
-import { MeeglePeoplePicker as PeoplePicker } from '../components/MeeglePeoplePicker'
+import { MeeglePeoplePicker as PeoplePicker, meeglePeopleOptions } from '../components/MeeglePeoplePicker'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -811,7 +811,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                         </div>
                       ))}
                     </div>
-                    <datalist id="mb-people-options">{people.map(p => <option key={p.alias} value={p.alias}>{p.name || p.email}</option>)}</datalist>
+                    <datalist id="mb-people-options">{meeglePeopleOptions(people).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</datalist>
                   </section>
                   <section className="mb-bulk-sec mb-bulk-sec--full">
                     <div className="mb-bulk-sec-head">

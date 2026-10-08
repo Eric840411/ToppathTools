@@ -634,3 +634,13 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 - 原本的測試 fixture 用 `C:/a.mp4`（有副檔名）——跟正式環境的快取路徑不一樣，所以一直綠著。改用 uuid 路徑
 - ⚠️ 還沒驗證 Meegle 拿到 video/mp4 後真的能播（也可能有編碼問題，例如 H.265）；舊的影片要重送
 
+
+### 人員下拉去重複（v5.45.3，2026-10-08）
+
+- **起因**：使用者在 Lark 回報，不同 Sheet 對同一個人寫法不同（例如 `lusa`、`lusa@toppath.tw`）。人員對照表裡是兩筆，其實是同一個人，結果開單「批量設定」和修改「固定值」的人員下拉出現一堆重複的人
+- **改法**：同一個 userKey 只列一次（沒有 userKey 就看 email，不分大小寫）
+  - 留哪個寫法：優先跟名字一樣的；其次不是 email 的
+  - 其他寫法列在說明裡（「也寫作 …」）
+- 只改下拉的顯示。對照表和送出邏輯都沒動：選哪一個寫法送出去，都是同一個人
+- 開單與修改共用 `meeglePeopleOptions`（`src/components/MeeglePeoplePicker.tsx`）
+- 測試：`scripts/ui-checks/meegle-people-options.test.ts`
