@@ -488,7 +488,23 @@ export async function runFrontendStep(step, ctx) {
       };
       let cands = candidatesOf(cur);
       if (!cands.length) {
-        throw new Error(`環境裡沒有「${want}」：大廳清單載完共 ${cur.cards.length} 台（${games.slice(0, 12).join('、')}${games.length > 12 ? '…' : ''}），同款 0 台`);
+        /**
+         * CodeX 審 6a534be [P2]：**穩定不等於完整**——兩次讀到同一份「部分清單」就判「沒有這款」會誤判。
+         * 要說「環境沒有」得先證明清單完整：大廳機台總表（getAllGMListReq）的回應裡每一台都已經套到卡片上。
+         * 回應由 host 一開頁就掛的 pinus 攔截器記下（ctx.pinus；積木執行時才掛監聽會收不到）。
+         * 證明不了 → 失敗但**不說「沒有」**，說「無法確認」。
+         */
+        let listed = null;
+        if (ctx.pinus) {
+          await ctx.pinus.drain().catch(() => {});
+          const resp = ctx.pinus.messages().filter(m => m.direction === 'response' && /getAllGMList/i.test(m.route) && Array.isArray(m.gmids)).pop();
+          if (resp && resp.complete !== false) listed = resp.gmids;
+        }
+        if (!listed) throw new Error(`大廳卡片裡沒有「${want}」（目前 ${cur.cards.length} 台），但拿不到大廳機台總表（getAllGMListReq）的回應，無法確認清單已經載完——不判「環境沒有」`);
+        const have = new Set(cur.cards.map(c => c.gmid));
+        const missing = listed.filter(g => !have.has(g));
+        if (missing.length) throw new Error(`大廳卡片裡沒有「${want}」，但總表有 ${missing.length} 台還沒套到卡片上（例如 ${missing.slice(0, 3).join('、')}）——清單還沒載完，不判「環境沒有」`);
+        throw new Error(`環境裡沒有「${want}」：大廳機台總表共 ${listed.length} 台、都已套到卡片（${games.slice(0, 12).join('、')}${games.length > 12 ? '…' : ''}），同款 0 台`);
       }
       const breakdown = (list) => {
         const busy = list.filter(c => c.state !== 0).length, locked = list.filter(c => c.lockType !== 0).length;
@@ -536,24 +552,38 @@ export async function runFrontendStep(step, ctx) {
         if (!card.label) { tried.push(`${pick.gmid}（卡片在畫面內但還沒畫出來，點了不會有反應）`); skip.add(pick.gmid); continue; }
 
         /**
-         * ⑤ 點下去，進場後核對實際 gmid：先讀機台場景裡的 gmid；讀不到就看點擊後前端送出的 enterGM（console）。
+         * ⑤ 點下去，進場後核對實際 gmid：看伺服器推來的 `ON: <n> enterGMNtc {…, gmid: …}`（console）。
          *    🚨 進到別台是失敗，不是「照實記錄」——報告寫 A、證據拍的是 B，畫面上看不出來。
+         *    🚨 **只認 enterGMNtc 這一則**（claude-osm-2 UAT 實測）：廣播（broadcastReq）與跑馬燈也帶 gmid，
+         *       而且是**別人的機台**（4186-MOREPUFF-0134）；機台場景裡 NoticeView 的 data.gmid 也是別人的。
+         *       所以不能「找任何帶 gmid 的東西」——那會報出錯的機台。機台內也沒有可靠的欄位（GameRoad.gmid 是空的）。
+         *    ⚠️ 前端 debug 關著時（正式站）不會印這一行 → 核對不到 → 失敗。
+         */
+        /**
+         * CodeX 審 6a534be [P1]：**送出請求不是進場的證據**。成功要同時滿足：
+         *   - 場景換成 `game`（空字串、loading 都不算）
+         *   - 收到伺服器推來的 enterGMNtc（只認這一則，見上）
+         * 最多等 15 秒；點完還停在大廳＝沒進去（換一台），其他不完整的狀態一律失敗。
          */
         const consoleSeen = [];
-        const onConsole = (m) => { const t = m.text(); if (/enterGM/i.test(t)) consoleSeen.push(t); };
+        const onConsole = (m) => { const t = m.text(); if (/^ON:\s*\d+\s+enterGMNtc\b/.test(t)) consoleSeen.push(t); };
         page.on('console', onConsole);
+        let scene = '';
         try {
           await page.mouse.click(card.x, card.y);
-          await page.waitForTimeout(6000);
+          const enterDeadline = Date.now() + 15000;
+          for (;;) {
+            await page.waitForTimeout(1000);
+            scene = await pc.sceneName(page);
+            if ((scene === 'game' && consoleSeen.length) || Date.now() > enterDeadline) break;
+          }
         } finally { page.off('console', onConsole); }
-        const scene = await pc.sceneName(page);
-        if (scene === 'lobby') { tried.push(`${pick.gmid}（點了 (${card.x}, ${card.y}) 但還停在大廳）`); skip.add(pick.gmid); continue; }
-        const inGame = await pc.inGameGmid(page);
-        const fromConsole = consoleSeen.map(t => (t.match(/\d+-[A-Za-z0-9]+-\d+/) ?? [])[0]).find(Boolean) ?? '';
-        const actual = inGame || fromConsole;
-        if (!actual) throw new Error(`點了 ${pick.gmid} 之後換到場景 ${scene || '讀不到'}，但核對不到實際進的是哪一台（機台內與 enterGM 都讀不到 gmid）`);
-        if (actual.toUpperCase() !== pick.gmid.toUpperCase()) throw new Error(`挑的是 ${pick.gmid}，實際進到 ${actual}（${inGame ? '機台內讀到' : 'enterGM 送出'}）——進錯台，不能當成通過`);
-        await log(`✅ ${idx} ${label}（第 ${attempt} 次：進到 ${actual}，${pick.gameName || pick.gameid} ${pick.name}；核對來源 ${inGame ? '機台內' : 'enterGM'}）`);
+        if (scene === 'lobby' && !consoleSeen.length) { tried.push(`${pick.gmid}（點了 (${card.x}, ${card.y}) 但還停在大廳）`); skip.add(pick.gmid); continue; }
+        const actual = consoleSeen.map(t => (t.match(/gmid"?\s*:\s*"?(\d+-[A-Za-z0-9]+-\d+)/) ?? [])[1]).find(Boolean) ?? '';
+        if (!actual) throw new Error(`點了 ${pick.gmid} 之後場景是 ${scene || '讀不到'}，15 秒內沒收到 enterGMNtc——不能確認進了哪一台（前端 debug 關著時不會印），不當成通過`);
+        if (scene !== 'game') throw new Error(`收到 ${actual} 的 enterGMNtc，但 15 秒後場景還是 ${scene || '讀不到'}，不是機台場景（game）——沒有確認進場完成，不當成通過`);
+        if (actual.toUpperCase() !== pick.gmid.toUpperCase()) throw new Error(`挑的是 ${pick.gmid}，實際進到 ${actual}（enterGMNtc）——進錯台，不能當成通過`);
+        await log(`✅ ${idx} ${label}（第 ${attempt} 次：進到 ${actual}，${pick.gameName || pick.gameid} ${pick.name}；以 enterGMNtc 核對）`);
         return { shots };
       }
       throw new Error(`連續 3 台都進不去：${tried.join('；')}`);
@@ -694,13 +724,14 @@ export async function runFrontendStep(step, ctx) {
      *   - 找到了 → 照常點；點不到（在畫面外等）照樣失敗——不整段 catch 吞掉
      */
     if (step.skipIfMissing === true) {
+      // CodeX 審 6a534be [P2]：用三態的 nodePresence——pcFindNode 會把讀取例外吞成「找不到」
       const deadline = Date.now() + 3000;
-      let found = await pc.findNode(page, want);
-      while (!found && Date.now() < deadline) { await page.waitForTimeout(500); found = await pc.findNode(page, want); }
-      if (!found) {
+      let p = await pc.nodePresence(page, want);
+      while (p === 'no' && Date.now() < deadline) { await page.waitForTimeout(500); p = await pc.nodePresence(page, want); }
+      if (typeof p === 'object') throw new Error(`讀不到場景樹（${p.error}），無法確認「${want}」不存在——勾了找不到就跳過，但讀不到不等於沒有`);
+      if (p === 'no') {
         const scene = await pc.sceneName(page);
-        if (!scene) throw new Error(`讀不到場景樹，無法確認「${want}」不存在（勾了找不到就跳過，但讀不到不等於沒有）`);
-        await log(`⏭ ${idx} ${label}（場景 ${scene} 裡沒有「${want}」，照設定跳過）`);
+        await log(`⏭ ${idx} ${label}（場景 ${scene || '?'} 裡沒有「${want}」，照設定跳過）`);
         return { shots, skipped: `沒有「${want}」` };
       }
     }

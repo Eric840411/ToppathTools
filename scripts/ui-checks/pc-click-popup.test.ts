@@ -60,6 +60,10 @@ try {
   ok(/場景樹裡找不到/.test(missNo.err), '沒勾 → 照舊失敗', missNo.err)
   const blind = await run('box_close', { skipIfMissing: true }, '<!doctype html><body><canvas></canvas></body>')
   ok(/讀不到場景樹/.test(blind.err) && !blind.out?.skipped, '勾了但場景讀不到 → 失敗（讀不到不等於沒有）', blind)
+  // CodeX 審 6a534be [P2]：場景名稱讀得到、但走訪場景樹丟例外 → 不能 SKIP
+  const THROWS = '<!doctype html><body><canvas style="width:100px;height:100px"></canvas><script>var sc = { name: "lobby", components: [] }; Object.defineProperty(sc, "children", { get: function () { throw new Error("boom") } }); window.cc = { director: { getScene: function () { return sc } }, view: { getVisibleSize: function () { return { width: 100, height: 100 } } } }</script></body>'
+  const boom = await run('box_close', { skipIfMissing: true }, THROWS)
+  ok(/讀不到場景樹/.test(boom.err) && !boom.out?.skipped, '勾了、場景名稱讀得到但走訪丟例外 → 失敗（不能 SKIP）', boom)
   const hit = await run('box_close', { skipIfMissing: true })
   ok(hit.err === '' && !hit.out?.skipped && hit.clicked.length === 1, '勾了、節點在 → 照常點、不算跳過', hit)
 } finally { await browser.close() }

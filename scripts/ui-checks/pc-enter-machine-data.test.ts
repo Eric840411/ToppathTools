@@ -12,7 +12,7 @@ import { pcEngineCapabilities } from '../../server/lib/pc-cocos.js'
 let fail = 0
 const ok = (c: boolean, label: string, got?: unknown) => { if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got).slice(0, 400)}` : ''}`) }
 
-type Opts = { freeAfterMs?: number; enterAs?: string; noInGameGmid?: boolean; noConsole?: boolean; throwOnData?: boolean }
+type Opts = { freeAfterMs?: number; enterAs?: string; noConsole?: boolean; throwOnData?: boolean; enterScene?: string; requestOnly?: boolean }
 const PAGE = (o: Opts) => `<!doctype html><body style="margin:0"><canvas style="position:absolute;left:0;top:0;width:1366px;height:768px"></canvas><script>
 var O = ${JSON.stringify(o)};
 var mk = function (name, wx, wy, w, h, comps) { var n = { name: name, active: true, worldPosition: { x: wx, y: wy }, worldScale: { x: 1, y: 1 },
@@ -54,9 +54,13 @@ document.querySelector('canvas').addEventListener('click', function (e) {
       window.__entered.push(d.gmid)
       if (d.state !== 0 || d.lockType !== 0) return
       var gmid = O.enterAs || d.gmid
-      if (!O.noConsole) console.log('SEND: 9 hall.hallHandler.enterGMReq', JSON.stringify({ gmid: gmid }))
-      var g = mk('game', 683, 384, 1366, 768); g.components = []; g.name = 'game'
-      if (!O.noInGameGmid) add(g, mk('gm', 0, 0, 1, 1, [{ _data: { gmid: gmid } }]))
+      // 照 UAT 實測的順序與格式：先來一則別人機台的廣播（帶 gmid，不能被拿去核對），再來 enterGMNtc
+      console.log('ON: 13 status.statusHandler.broadcastReq', { gameid: 'morepuff', gmid: '4186-MOREPUFF-0134' })
+      if (O.requestOnly) console.log('SEND: 9 hall.hallHandler.enterGMReq', { gmid: gmid })
+      else if (!O.noConsole) console.log('ON: 0 enterGMNtc', { event: 'enterGMNtc', roundstate: 2, gameid: d.gameid, gmid: gmid, coin: 1000000 })
+      var g = mk('game', 683, 384, 1366, 768); g.components = []; g.name = O.enterScene !== undefined ? O.enterScene : 'game'
+      // 機台場景裡的陷阱：NoticeView 的 data.gmid／_data.gmid 是別人的機台
+      add(g, mk('notice_view', 0, 0, 1, 1, [{ data: { gmid: '4186-MOREPUFF-0134' }, _data: { gmid: '4186-MOREPUFF-0134' } }]))
       scene = g; return }
   }
 })
@@ -65,13 +69,15 @@ window.cc = { director: { getScene: function () { return scene } }, view: { getV
 
 const browser = await chromium.launch({ headless: true })
 try {
-  const run = async (value: string, o: Opts = {}) => {
+  const run = async (value: string, o: Opts = {}, listed?: string[]) => {
+    // host 一開頁就掛的 pinus 攔截器（agent-runner 的 attachPinusProbe）——只模擬它的 drain／messages
+    const pinus = listed ? { drain: async () => {}, messages: () => [{ direction: 'response', route: 'hall.hallHandler.getAllGMListReq', gmids: listed, complete: true }] } : undefined
     const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
     await page.setContent(PAGE(o))
     const logs: string[] = []
     let err = ''
     const t0 = Date.now()
-    try { await runFrontendStep({ name: 'enter', action: 'pc_enter_machine', value }, { page, pc: pcEngineCapabilities, log: async (m: string) => { logs.push(m) }, idx: '1', screenshotDir: '', startUrl: 'https://uat-h5.osmslot.org/', state: { vars: {} } } as never) }
+    try { await runFrontendStep({ name: 'enter', action: 'pc_enter_machine', value }, { page, pc: pcEngineCapabilities, pinus, log: async (m: string) => { logs.push(m) }, idx: '1', screenshotDir: '', startUrl: 'https://uat-h5.osmslot.org/', state: { vars: {} } } as never) }
     catch (e) { err = e instanceof Error ? e.message : String(e) }
     const entered = await page.evaluate(() => (window as unknown as { __entered: string[] }).__entered)
     await page.close()
@@ -86,8 +92,13 @@ try {
   ok(star.err === '' && star.entered.length === 1, '「*」也是隨機', star)
   const exact = await run('4186-COINCOMBO-0140')
   ok(exact.err === '' && JSON.stringify(exact.entered) === '["4186-COINCOMBO-0140"]', '填完整 gmid → 指定那一台', exact)
-  const none = await run('No Such Game')
-  ok(/環境裡沒有「No Such Game」.*同款 0 台/.test(none.err) && none.entered.length === 0, '沒有這款 → 明確失敗、不捲不點', none.err)
+  const none = await run('No Such Game', {}, ['4186-COINCOMBO-0138', '4186-COINCOMBO-0140', '4186-DFDCGRAND-0144', '4186-BWJL-1008'])
+  ok(/環境裡沒有「No Such Game」.*總表共 4 台.*同款 0 台/.test(none.err) && none.entered.length === 0, '沒有這款（總表 4 台都已套到卡片）→ 明確「環境沒有」、不捲不點', none.err)
+  // CodeX 審 6a534be [P2]：穩定的部分清單不能判「沒有」
+  const partial = await run('No Such Game', {}, [...['4186-COINCOMBO-0138', '4186-COINCOMBO-0140', '4186-DFDCGRAND-0144', '4186-BWJL-1008'], '4186-NOSUCH-0001'])
+  ok(/總表有 1 台還沒套到卡片.*不判「環境沒有」/.test(partial.err), '總表還有沒套到的 → 說「還沒載完」，不說「沒有」', partial.err)
+  const noProof = await run('No Such Game')
+  ok(/無法確認清單已經載完/.test(noProof.err) && !/環境裡沒有/.test(noProof.err), '拿不到總表回應 → 說「無法確認」，不說「沒有」', noProof.err)
   const busy = await run('Dancing Drums')
   ok(/沒有空機.*鎖定 1/.test(busy.err) && busy.entered.length === 0 && busy.ms >= 15000, '同款都不能進 → 等滿 15 秒後失敗、寫出原因（鎖定）', { err: busy.err, ms: busy.ms })
   const lag = await run('Coin Combo', { freeAfterMs: 4000 })
@@ -96,10 +107,16 @@ try {
   ok(/讀不到大廳的機台資料/.test(broken.err) && broken.entered.length === 0, '_data 讀取失敗 → 失敗（不能當成 0 台）', broken.err)
   const wrong = await run('Coin Combo', { enterAs: '4186-COINCOMBO-0138' })
   ok(/實際進到 4186-COINCOMBO-0138.*進錯台/.test(wrong.err), '進到別台 → 失敗', wrong.err)
-  const viaConsole = await run('Coin Combo', { noInGameGmid: true })
-  ok(viaConsole.err === '' && viaConsole.logs.some(l => /核對來源 enterGM/.test(l)), '機台內讀不到 gmid → 用 enterGM 核對', viaConsole.logs.slice(-1))
-  const blind = await run('Coin Combo', { noInGameGmid: true, noConsole: true })
-  ok(/核對不到實際進的是哪一台/.test(blind.err), '兩邊都讀不到 gmid → 失敗（不能當成通過）', blind.err)
+  ok(a.logs.some(l => /以 enterGMNtc 核對/.test(l)), '用 enterGMNtc 核對（前面那則別人機台的廣播沒有被拿去用）', a.logs.slice(-1))
+  // CodeX 審 6a534be [P1]：送出請求、場景沒換成 game 都不算進場
+  const reqOnly = await run('Coin Combo', { requestOnly: true })
+  ok(/15 秒內沒收到 enterGMNtc/.test(reqOnly.err), '只有 enterGMReq（送出請求）→ 失敗', reqOnly.err)
+  const loading = await run('Coin Combo', { enterScene: 'loading' })
+  ok(/場景還是 loading.*不是機台場景/.test(loading.err), '有 enterGMNtc 但場景停在 loading → 失敗', loading.err)
+  const emptyScene = await run('Coin Combo', { enterScene: '' })
+  ok(/場景還是 讀不到/.test(emptyScene.err), '有 enterGMNtc 但場景名稱是空的 → 失敗', emptyScene.err)
+  const blind = await run('Coin Combo', { noConsole: true })
+  ok(/不能確認進了哪一台/.test(blind.err), '沒有 enterGMNtc（只有別人機台的廣播、場景裡 NoticeView 是別人的）→ 失敗，不能當成通過', blind.err)
 } finally { await browser.close() }
 
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

@@ -645,6 +645,22 @@ export async function pcMachineCards(page: Page): Promise<{ ok: true; items: num
   }).catch((e: unknown) => ({ ok: false as const, why: `讀取失敗：${e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e)}` }))
 }
 
+/**
+ * 節點在不在（三態）——給「找不到就跳過」用。CodeX 審 6a534be [P2]：pcFindNode 把例外吞成 null，
+ * 「讀取失敗」會被當成「不存在」而 SKIP。這支**不吞**：沒有 Cocos、場景是空的、反查器沒掛上、走訪丟例外 → error。
+ * 解析用反查器的 resolveAny（跟 pcFindNode／assert_pc_node 同一份找法）。
+ */
+export async function pcNodePresence(page: Page, id: string): Promise<'yes' | 'no' | { error: string }> {
+  await pcInstallHitTest(page)
+  return page.evaluate((id: string) => {
+    const w = window as unknown as { cc?: { director?: { getScene?: () => unknown } }; __uatPcHit?: { node?: (id: string) => unknown } }
+    if (!w.cc?.director?.getScene) throw new Error('頁面上沒有 Cocos')
+    if (!w.cc.director.getScene()) throw new Error('場景是空的')
+    if (!w.__uatPcHit?.node) throw new Error('反查器沒有掛上')
+    return w.__uatPcHit.node(id) ? 'yes' as const : 'no' as const
+  }, id).catch((e: unknown) => ({ error: e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e) }))
+}
+
 /** 把某個 gmid 的卡片捲進畫面（用反查器的 intoNode，跟 pc_click_node 的捲動同一份） */
 export async function pcScrollCardIntoView(page: Page, gmid: string): Promise<{ ok: boolean; why?: string }> {
   await pcInstallHitTest(page)
@@ -660,26 +676,6 @@ export async function pcScrollCardIntoView(page: Page, gmid: string): Promise<{ 
     }
     return { ok: false, why: `大廳裡已經沒有 ${gmid} 的卡片` }
   }, gmid).catch((e: unknown) => ({ ok: false, why: `捲動失敗：${e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e)}` }))
-}
-
-/** 機台裡讀得到的 gmid（場景裡任何元件的 _data.gmid／gmid 字串）；讀不到回空字串 */
-export async function pcInGameGmid(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    type N = { children?: N[]; components?: Array<Record<string, unknown>> }
-    const w = window as unknown as { cc?: { director?: { getScene?: () => N } } }
-    if (!w.cc?.director?.getScene) return ''
-    const RE = /^\d+-[A-Za-z0-9]+-\d+$/
-    const stack: N[] = [w.cc.director.getScene()]
-    while (stack.length) {
-      const n = stack.pop()!
-      for (const c of (n.components ?? [])) {
-        const a = (c?._data as { gmid?: unknown } | undefined)?.gmid, b = c?.gmid
-        for (const v of [a, b]) if (typeof v === 'string' && RE.test(v)) return v
-      }
-      for (const k of (n.children ?? [])) stack.push(k)
-    }
-    return ''
-  }).catch(() => '')
 }
 
 /** 進到機台之後，畫面上那台機器的名稱（例如 `Ingot-NWR2024`）。不在機台裡就回空字串 */
@@ -913,8 +909,8 @@ export const pcEngineCapabilities = {
   sceneName: pcSceneName,
   inGameMachineName: pcInGameMachineName,
   machineCards: pcMachineCards,
+  nodePresence: pcNodePresence,
   scrollCardIntoView: pcScrollCardIntoView,
-  inGameGmid: pcInGameGmid,
   scanLobby: pcScanLobby,
   findNode: pcFindNode,
   clickNode: pcClickNode,

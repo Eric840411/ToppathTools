@@ -68,7 +68,19 @@ export function pinusProbeSource(bufferMax = PAGE_BUFFER_MAX) {
     if (buf.length >= BUF_MAX) { droppedCount++; return; }
     let shaped;
     try { shaped = safeShape(payload, 3); } catch { shaped = '[unserializable]'; }
-    buf.push({ direction, route: String(route || ''), payload: shaped, ts: Date.now() });
+    const entry = { direction, route: String(route || ''), payload: shaped, ts: Date.now() };
+    // 1008 pc_enter_machine（CodeX 審 6a534be [P2]：穩定不等於完整）：大廳機台總表的回應要留**完整的 gmid 清單**——
+    // payload 被 safeShape 截成 10 筆，拿它判「這款沒有」會漏。只抽 gmid 形狀的字串，最多走 20000 個節點
+    if (direction === 'response' && /getAllGMList/i.test(entry.route)) {
+      const gmids = []; const stack = [payload]; let seen = 0;
+      while (stack.length && seen++ < 20000) {
+        const v = stack.pop();
+        if (typeof v === 'string') { if (/^[0-9]+-[A-Za-z0-9]+-[0-9]+$/.test(v) && gmids.indexOf(v) < 0) gmids.push(v); continue; }
+        if (v && typeof v === 'object') { try { for (const k of Object.keys(v)) stack.push(v[k]); } catch (e) {} }
+      }
+      entry.gmids = gmids; entry.complete = stack.length === 0;
+    }
+    buf.push(entry);
   }
 
   // 沿 prototype chain 找到真正定義這個方法的物件，補在那裡（見檔頭註解）
