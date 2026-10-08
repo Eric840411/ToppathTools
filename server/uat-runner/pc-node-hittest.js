@@ -191,6 +191,8 @@ export const PC_HITTEST_SOURCE = [
   '          const t = labelOf(k); if (t) out.push(t); else stack.push(k); } }',
   '      return out.join(" "); },',
   '    seen: (id) => seenImpl(id),',
+  /* 1008：識別字 -> 節點本身（關彈窗時要避開「目標所在的那一塊」，跟找節點用同一份解析） */
+  '    node: (id) => resolveAny(id),',
   '    find: (id) => { const n = resolve(id); if (!n) return null; const r = rectOf(n);',
   '      if (!r) return null;',
   '      return { name: nameOf(n), label: labelOf(n), x: Math.round(r.cx), y: Math.round(r.cy),',
@@ -203,6 +205,7 @@ export const PC_HITTEST_SOURCE = [
  * 在頁面上裝好反查器（同一頁重複呼叫是安全的）。
  * @param {import('playwright').Page} page
  */
+export { installPcHitTest as pcInstallHitTest };
 export async function installPcHitTest(page) {
   await page.evaluate(PC_HITTEST_SOURCE).catch(() => {});
 }

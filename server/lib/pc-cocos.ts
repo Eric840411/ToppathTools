@@ -25,7 +25,7 @@
  * ⚠️ 這裡的函式都跑在瀏覽器 context（`page.evaluate`），所以不能引用外面的變數。
  */
 import type { Page } from 'playwright'
-import { pcResolveNodeId, pcScrollNodeIntoView } from '../uat-runner/pc-node-hittest.js'
+import { pcResolveNodeId, pcScrollNodeIntoView, pcInstallHitTest } from '../uat-runner/pc-node-hittest.js'
 
 export interface PcMachine {
   /** 畫面上的名稱，例如 `Leprechaun-NCH1505`（跟 H5 的 `.grid-item-name` 同格式） */
@@ -194,10 +194,20 @@ export function describePcLobby(d: PcLobbyDiag): string {
  * ⚠️ PC 版一進站就會跳中獎彈窗，而它是**畫在 canvas 上的節點**，DOM 關不掉——
  *    不處理的話每張截圖都被它蓋住。做法是把節點 `active` 設成 false。
  */
-export async function pcClosePopups(page: Page): Promise<number> {
-  return page.evaluate(() => {
+/**
+ * @param keep 要點的目標（名稱或路徑）。🚨 1008 claude-osm-2 PC T-A-002：`pc_click_node advertView>ad_bg>box_close`
+ *   點之前先關彈窗，結果把 advertView 整塊關掉，box_close 跟著消失 → 「場景樹裡找不到」。
+ *   v5.40.0 沒事只是因為那時關彈窗被 __name 炸掉、什麼都沒關。所以：**目標所在的那幾層祖先不關**。
+ *   解析目標用反查器的 resolveAny（跟 assert_pc_node 同一份），不另寫一套。
+ */
+export async function pcClosePopups(page: Page, keep?: string): Promise<number> {
+  if (keep) await pcInstallHitTest(page)
+  return page.evaluate((keep?: string) => {
     const cc = (window as unknown as { cc?: { director?: { getScene?: () => unknown } } }).cc
     if (!cc?.director?.getScene) return 0
+    const hit = (window as unknown as { __uatPcHit?: { node?: (id: string) => unknown } }).__uatPcHit
+    const keepSet = new Set<unknown>()
+    for (let cur = (keep && hit?.node ? hit.node(keep) : null) as { parent?: unknown } | null; cur; cur = (cur.parent ?? null) as { parent?: unknown } | null) keepSet.add(cur)
     const all: Array<{ name?: string; active?: boolean; children?: unknown[] }> = []
     const walk = (n: { name?: string; active?: boolean; children?: unknown[] } | null, d: number) => {
       if (!n || d > 16) return
@@ -217,10 +227,11 @@ export async function pcClosePopups(page: Page): Promise<number> {
       //    找它的方法：**不要猜名字**，用「面積大 + 位置在畫面中央 + activeInHierarchy」去撈
       //    （`luck_box` 這種名字看起來很像卻是右下角的寶箱按鈕，145×141，關掉會弄壞大廳）。
       if (!/^(jackpot|winner|advert|advertview|ad_bg|ad-sp|notice_view|notice_bg|jackpotboard|eff_jackpot|handpay_reward)/i.test(name)) continue
+      if (keepSet.has(n)) continue
       if (n.active) { n.active = false; closed++ }
     }
     return closed
-  }).catch(() => 0)
+  }, keep).catch(() => 0)
 }
 
 /**

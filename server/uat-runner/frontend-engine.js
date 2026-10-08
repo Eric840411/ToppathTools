@@ -616,7 +616,8 @@ export async function runFrontendStep(step, ctx) {
     guardDangerousStep({ step, what: { node: want, text: step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
     await log(`⏳ ${idx} ${label} → ${want}`);
     // 點之前關一次彈窗：中獎彈窗會把整個畫面的點擊吃掉（見 pc-cocos.ts 的說明）
-    const closed = await pc.closePopups(page);
+    // ⚠️ 1008：目標本身就在彈窗裡（例如廣告的 box_close）時，那一塊不能關——關了目標就跟著消失
+    const closed = await pc.closePopups(page, want);
     if (closed) await log(`   🧹 關掉 ${closed} 個彈窗節點`);
     const res = await pc.clickNode(page, want);
     if (!res.ok) throw new Error(res.reason ?? `點不到「${want}」`);
