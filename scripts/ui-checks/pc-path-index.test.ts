@@ -5,7 +5,9 @@
  *     多層索引；名字含 [ 用 [[ 跳脫；錄製（at）產出的識別字反解回同一顆。
  */
 import { chromium } from 'playwright'
-import { installPcHitTest } from '../../server/uat-runner/pc-node-hittest.js'
+import { installPcHitTest, pcNodeVisibility } from '../../server/uat-runner/pc-node-hittest.js'
+import { pcFindNode, pcInstallEvalShim } from '../../server/lib/pc-cocos.js'
+import { runFrontendStep } from '../../server/uat-runner/frontend-engine.js'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -25,6 +27,8 @@ const grid = add(canvasN, mk('grid', 900, 400)); grid.components[0] = { width: 4
 for (let r = 0; r < 2; r++) { const row = add(grid, mk('row', 900, 300 + r * 100)); row.components[0] = { width: 300, height: 50, anchorX: .5, anchorY: .5 }
   for (let c = 0; c < 2; c++) add(row, mk('cell', 800 + c * 150, 300 + r * 100)) }
 add(canvasN, mk('x[0]', 1200, 700))   // 名字本身含 [
+const tails = add(canvasN, mk('tails', 600, 650)); tails.components[0] = { width: 400, height: 60, anchorX: .5, anchorY: .5 }
+add(tails, mk('tail[', 500, 650)); add(tails, mk('tail[', 700, 650))   // 同名、而且名字以 [ 結尾
 window.cc = { director: { getScene: () => scene }, view: { getVisibleSize: () => ({ width: 1366, height: 768 }) } }
 </script></body>`
 
@@ -58,6 +62,24 @@ ok(hit?.id === 'content>item1[1]', '錄製（at）在同名兄弟上錄成 …>i
   ok(hitCell?.id === 'grid>row[0]>cell[1]', '多層同名：錄成 grid>row[0]>cell[1]', hitCell)
   const hitEsc = await at(1200, 700)
   ok(hitEsc?.id === 'x[[0]', '名字含 [ 的錄製會自動跳脫成 [[', hitEsc)
+  // CodeX 96797d3 [P2] ①：名字叫 tail[ 又重名 → 錄成 tails>tail[[[1]（[[ 是跳脫、最後的 [1] 是序號），要解得回去
+  const hitTail = await at(700, 650)
+  ok(hitTail?.id === 'tails>tail[[[1]', '名字以 [ 結尾又重名 → 錄成 tails>tail[[[1]', hitTail)
+  const backTail = hitTail?.id ? await find(hitTail.id) : null
+  ok(backTail?.x === 700, '連續 [ 依奇偶判斷：tail[[[1] 解回第 2 個 tail[', backTail)
+  ok((await find('tails>tail[[[0]'))?.x === 500 && (await find('tails>tail[[')) === null, 'tail[[[0] 是第 1 個；tail[[（純名稱）重名 → 解析不到', null)
+  // CodeX 96797d3 [P2] ②：唯一名字 x[0] 錄成 x[[0]（沒有 >）→ 積木層（pcFindNode／可見判定）也要找得到
+  await pcInstallEvalShim(page)
+  const fn = await pcFindNode(page, 'x[[0]')
+  ok(fn?.found === true && fn.x === 1200, 'pcFindNode 收到 x[[0]（沒有 >）也走路徑解析', fn)
+  const vis = await pcNodeVisibility(page, 'x[[0]')
+  ok(vis?.found === true && vis.cx === 1200, '可見判定（resolveAny）收到 x[[0] 也找得到', vis)
+  ok((await pcFindNode(page, 'x[0]'))?.x === 1200, '使用者照字面打 x[0]：路徑解析不到 → 退回名稱比對，仍找得到', null)
+  const logs: string[] = []
+  const pc = { sceneName: async () => 'lobby', installEvalShim: async () => {}, findNode: pcFindNode }
+  let blockOk = true
+  try { await runFrontendStep({ action: 'assert_pc_node', name: '驗 x[0]', value: 'x[[0]' }, { idx: '1', label: '驗 x[0]', log: async (l: string) => { logs.push(l) }, page, pc, startUrl: 'http://x/', recordedLocator: () => null }) } catch { blockOk = false }
+  ok(blockOk, '積木 assert_pc_node 用錄出來的 x[[0] 通過（積木層往返）', logs)
 } finally { await browser.close() }
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
 process.exit(fail ? 1 : 0)

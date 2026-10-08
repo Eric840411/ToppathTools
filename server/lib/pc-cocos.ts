@@ -664,6 +664,11 @@ export async function pcFindNode(
     if (!viaPath) return null
     return { found: true, name: viaPath.name, label: viaPath.label, x: viaPath.x, y: viaPath.y, inViewport: viaPath.inViewport }
   }
+  // 1008（CodeX 96797d3 [P2]）：錄製器把名字含 [ 的唯一節點錄成 x[[0]（沒有 >）——含 [ 的先照路徑解析，解不到再照名稱／標籤找
+  if (want.includes('[')) {
+    const viaPath = await pcResolveNodeId(page, want)
+    if (viaPath) return { found: true, name: viaPath.name, label: viaPath.label, x: viaPath.x, y: viaPath.y, inViewport: viaPath.inViewport }
+  }
   return page.evaluate((target: string) => {
     interface N {
       name?: string; activeInHierarchy?: boolean; children?: N[]

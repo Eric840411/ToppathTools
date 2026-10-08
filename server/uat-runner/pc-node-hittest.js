@@ -73,7 +73,9 @@ export const PC_HITTEST_SOURCE = [
   '  const parseSeg = (seg) => { const e = seg.length - 1;',
   '    if (seg.charAt(e) !== "]") return { name: unescSeg(seg), idx: -1 };',
   '    const o = seg.lastIndexOf("["); if (o < 0) return { name: unescSeg(seg), idx: -1 };',
-  '    if (o > 0 && seg.charAt(o - 1) === "[") return { name: unescSeg(seg), idx: -1 };',
+  /* CodeX 96797d3 [P2]：用「連續 [ 的個數」奇偶判斷——偶數＝都是跳脫的 [[，奇數＝最後那個是序號的開頭（名字叫 tail[ 時是 tail[[[1]） */
+  '    let k = 0; while (o - k >= 0 && seg.charAt(o - k) === "[") k++;',
+  '    if (k % 2 === 0) return { name: unescSeg(seg), idx: -1 };',
   '    const num = seg.slice(o + 1, e); if (!/^[0-9]+$/.test(num)) return null;',
   '    return { name: unescSeg(seg.slice(0, o)), idx: Number(num) }; };',
   '  /* 節點 -> 識別字：唯一的名字就用名字，否則往上接到第一個唯一的祖先；同名兄弟加 [N]。產出後一定反解一次，回到同一顆才用 */',
@@ -108,6 +110,8 @@ export const PC_HITTEST_SOURCE = [
   /* 1008 assert_pc_node 必須在畫面內（CodeX）：名稱與路徑兩種識別字都要能用；名稱找法跟 pcFindNode 一樣（先比名字、再比標籤） */
   '  const resolveAny = (id) => { const want = String(id || "").trim(); if (!want) return null;',
   '    if (want.indexOf(">") >= 0) return resolve(want);',
+  /* CodeX 96797d3 [P2]：錄製器會把名字含 [ 的唯一節點錄成 x[[0]（沒有 >）——含 [ 的先照路徑解析，解不到再退回名稱／標籤 */
+  '    if (want.indexOf("[") >= 0) { const viaPath = resolve(want); if (viaPath) return viaPath; }',
   '    const list = nodes(); let hit = null;',
   '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && nameOf(list[i].n) === want) hit = list[i].n;',
   '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && labelOf(list[i].n) === want) hit = list[i].n;',
