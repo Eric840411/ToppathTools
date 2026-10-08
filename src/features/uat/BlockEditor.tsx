@@ -376,6 +376,12 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <span className="uat-hint">先比節點名稱、再比標籤文字，**都要完全相等**——模糊比對會點到隔壁那顆按鈕，而畫面上看起來只是「沒反應」</span>
               </label>
             )}
+            {selected.action === 'assert_pc_node' && (
+              <label className="uat-check">
+                <input type="checkbox" checked={selected.inViewport === true} onChange={event => updateSelected({ inViewport: event.target.checked || undefined })} />必須在畫面內
+                <span className="uat-hint">勾了：節點中心要在視窗內、也在清單的可視區（遮罩）內，而且捲動停下來才算；不在就判失敗。不勾：只要節點存在就通過（在視窗外只記一筆提醒）。只看中心點，不保證整列完整顯示</span>
+              </label>
+            )}
             {selected.action === 'pc_enter_machine' && (
               <label>機台
                 <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Rising Rockets（同款挑空的）或 Rising Rockets Emperor-141（指定）" />

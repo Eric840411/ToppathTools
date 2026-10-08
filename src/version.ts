@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.36.4'
+export const APP_VERSION = '5.37.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.37.0', date: '2026-10-08', changes: ['feat(UAT PC 驗節點)：assert_pc_node 新增「必須在畫面內」——中心點要在視窗內、也在所有祖先遮罩（Mask、ScrollView 可視區）內，位置要穩定（連續兩次取樣相同）才算；遮罩量不到就判失敗；名稱與路徑兩種寫法都適用；最多等 15 秒、不自動捲動；沒勾照舊（claude-osm-2 PC T-A-002 提出、CodeX 定案）'] },
   { version: '5.36.4', date: '2026-10-08', changes: ['fix(建置)：v5.36.0 新增的 server/machine-test/ideck-button-key.js 沒被複製進 dist-server（tsc 不輸出手寫 .js，原本只整包複製 uat-runner/）→ worker 一啟動就 ERR_MODULE_NOT_FOUND（本機 04:00 排程重啟後重啟迴圈，部署 Spug 也會一樣）。build-server 改成複製 server/ 底下所有手寫 .js，並新增守門：dist-server 每個相對 import 都要找得到檔案，找不到建置直接失敗（已驗：拿掉複製會紅）'] },
   { version: '5.36.3', date: '2026-10-08', changes: ['fix(UAT 後台 read_table)：CodeX 複審——純中文欄名的空別名原本也拿來判重與比對，「姓名｜金額」會被改名成「金額 #2」、keyColumn=金額 選到姓名；空別名不再參與'] },
   { version: '5.36.2', date: '2026-10-08', changes: ['fix(UAT 後台 read_table)：兩層表頭（colspan）與跨列儲存格（rowspan）讀錯欄（vipUpgradeSetting：Platinum 的 Relegation 讀成 1,000，其實是 Upgrade Amount）——改成只讀選到的那張表、依 colspan／rowspan 建網格；欄名接各層表頭（Upgrade Cycle／Upgrade Amount／Relegation Cycle／Relegation Amount），單層表頭不變；rowspan 補值、缺格補空、重名加 #2 且避開別名衝突；keyColumn 精確優先、對到多欄就報錯（claude-osm-2 回報、CodeX 同意做法）'] },

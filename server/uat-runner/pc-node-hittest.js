@@ -86,6 +86,33 @@ export const PC_HITTEST_SOURCE = [
   '      if (kids.length !== 1) return null;',
   '      cur = kids[0]; }',
   '    return cur; };',
+  /* 1008 assert_pc_node 必須在畫面內（CodeX）：名稱與路徑兩種識別字都要能用；名稱找法跟 pcFindNode 一樣（先比名字、再比標籤） */
+  '  const resolveAny = (id) => { const want = String(id || "").trim(); if (!want) return null;',
+  '    if (want.indexOf(">") >= 0) return resolve(want);',
+  '    const list = nodes(); let hit = null;',
+  '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && nameOf(list[i].n) === want) hit = list[i].n;',
+  '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && labelOf(list[i].n) === want) hit = list[i].n;',
+  '    return hit; };',
+  /* 遮罩：祖先上的 Mask 元件（用類別名認），以及 ScrollView 的可視區（content 的父節點）。
+     要通過**所有**祖先遮罩、也要在視窗內；有遮罩卻量不到範圍 → measurable:false，不能退回只看視窗 */
+  '  const classOf = (c) => { const cc = window.cc; try { if (cc && cc.js && cc.js.getClassName) { const k = cc.js.getClassName(c); if (k) return String(k); } } catch (e) {}',
+  '    return String((c && (c.__classname__ || (c.constructor && c.constructor.name))) || ""); };',
+  '  const clipsOf = (n) => { const out = []; let cur = n.parent;',
+  '    for (let i = 0; i < 40 && cur; i++) { const cs = cur.components || [];',
+  '      for (let k = 0; k < cs.length; k++) { const c = cs[k]; if (!c) continue;',
+  '        if (/(^|\\.)Mask$/.test(classOf(c))) out.push({ node: cur, why: "Mask " + nameOf(cur) });',
+  '        if (typeof c.scrollToOffset === "function" && c.content && c.content.parent) out.push({ node: c.content.parent, why: "ScrollView " + nameOf(cur) }); }',
+  '      cur = cur.parent; }',
+  '    return out; };',
+  '  const seenImpl = (id) => { const n = resolveAny(id); if (!n) return { found: false };',
+  '    const r = rectOf(n); if (!r) return { found: true, measurable: false, why: "量不到節點大小" };',
+  '    const inWindow = r.cx >= 0 && r.cx <= window.innerWidth && r.cy >= 0 && r.cy <= window.innerHeight;',
+  '    const clips = clipsOf(n); const outside = [];',
+  '    for (let i = 0; i < clips.length; i++) { const m = rectOf(clips[i].node);',
+  '      if (!m) return { found: true, measurable: false, why: "量不到遮罩範圍（" + clips[i].why + "）", cx: Math.round(r.cx), cy: Math.round(r.cy) };',
+  '      if (!(r.cx >= m.left && r.cx <= m.right && r.cy >= m.top && r.cy <= m.bottom)) outside.push(clips[i].why); }',
+  '    return { found: true, measurable: true, name: nameOf(n), cx: Math.round(r.cx), cy: Math.round(r.cy), inWindow: inWindow,',
+  '             clips: clips.length, outside: outside, visible: inWindow && outside.length === 0 }; };',
   '  window.__uatPcHit = {',
   '    /* 座標 -> { id, name, label, depth, ambiguous } */',
   '    at: (x, y) => {',
@@ -139,6 +166,7 @@ export const PC_HITTEST_SOURCE = [
   '          if (!visible(k)) continue;',
   '          const t = labelOf(k); if (t) out.push(t); else stack.push(k); } }',
   '      return out.join(" "); },',
+  '    seen: (id) => seenImpl(id),',
   '    find: (id) => { const n = resolve(id); if (!n) return null; const r = rectOf(n);',
   '      if (!r) return null;',
   '      return { name: nameOf(n), label: labelOf(n), x: Math.round(r.cx), y: Math.round(r.cy),',
@@ -196,6 +224,14 @@ export async function pcScrollNodeIntoView(page, id) {
  *    label 元件上的字串——直接讀比截圖辨識準（不怕字體、動畫、背景），而且零依賴。
  * ⚠️ 讀不到回 `null`，**不要回空字串**：兩者意思完全不同（找不到節點 vs 節點上沒字），
  *    混在一起的話「驗到空字串＝通過」這種錯會出現。
+ */
+export async function pcNodeVisibility(page, id) {
+  await installPcHitTest(page);
+  return page.evaluate((want) => window.__uatPcHit?.seen ? window.__uatPcHit.seen(want) : null, id).catch(() => null);
+}
+
+/**
+ * 讀某個節點上的文字（Cocos label）—— 見下方。
  */
 export async function pcNodeText(page, id) {
   await installPcHitTest(page);

@@ -35,7 +35,7 @@ import { runBackendOps } from './backend-ops.js';
 import { clickRecorded, countRecorded, describeLocateFailure, locateRecorded } from './recorded-selector.js';
 import { h5BackToLobby, h5InGame } from './h5-seat.js';
 import { guardDangerousStep } from './dangerous-actions.js';
-import { pcNodeAtPoint, pcNodeText } from './pc-node-hittest.js';
+import { pcNodeAtPoint, pcNodeText, pcNodeVisibility } from './pc-node-hittest.js';
 import { evaluateExpr } from './expr.js';
 /**
  * PC（Cocos）版的能力**由 host 從 ctx 給**（`ctx.pc`），這支不自己 import。
@@ -631,6 +631,35 @@ export async function runFrontendStep(step, ctx) {
       node = await pc.findNode(page, want);
     }
     if (!node) throw new Error(`場景樹裡找不到「${want}」（等了 15 秒；名稱與標籤都比過了）`);
+    if (step.inViewport === true) {
+      /**
+       * 1008「必須在畫面內」（claude-osm-2 PC T-A-002：點上排遊戲→跳到那一列、TOP→回到第一列；CodeX 定案）：
+       *   - 中心點要在視窗內，**而且**在所有祖先遮罩（Mask、ScrollView 可視區）內；有遮罩卻量不到範圍 → FAIL，不退回只看視窗
+       *   - 名稱與路徑兩種寫法都適用（pcNodeVisibility 用同一份解析）
+       *   - 要等條件**穩定**才算：連續兩次取樣（相隔 400ms）位置不變且都在畫面內——捲動動畫途經畫面不能算 PASS
+       *   - 最多等 15 秒；斷言本身**不捲動**
+       *   ⚠️ 只證明「中心點在可視範圍」，不代表整列完整顯示或沒被其他面板蓋住
+       */
+      const vDeadline = Date.now() + 15_000;
+      let last = null, prev = null, stable = false;
+      for (;;) {
+        last = await pcNodeVisibility(page, want);
+        if (last?.found && last.measurable && last.visible && prev?.visible && prev.cx === last.cx && prev.cy === last.cy) { stable = true; break; }
+        if (Date.now() >= vDeadline) break;
+        prev = last;
+        await page.waitForTimeout(400);
+      }
+      if (!stable) {
+        const why = !last ? '量測失敗（反查器不在）'
+          : !last.found ? '節點不見了'
+          : !last.measurable ? last.why
+          : !last.visible ? `${last.inWindow ? '' : '中心點在視窗外；'}${last.outside?.length ? `在遮罩外（${last.outside.join('、')}）` : ''}（@${last.cx},${last.cy}）`
+          : '位置一直在變（捲動沒停）';
+        throw new Error(`「${want}」不在畫面內：${why}（要求必須在畫面內，等了 15 秒）`);
+      }
+      await log(`✅ ${idx} ${label}（${node.name}${node.label ? ` 「${node.label}」` : ''} 在畫面內 @${last.cx},${last.cy}，遮罩 ${last.clips} 層）`);
+      return { shots };
+    }
     await log(`✅ ${idx} ${label}（${node.name}${node.label ? ` 「${node.label}」` : ''} @${node.x},${node.y}${node.inViewport ? '' : '、⚠️ 在視窗外'}）`);
     return { shots };
   }

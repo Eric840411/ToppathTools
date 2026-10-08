@@ -43,6 +43,8 @@ export interface AutoStep {
    * （跟 Backend 同一條規則。）
    */
   tcId?: string
+  /** assert_pc_node：必須在畫面內（視窗＋所有祖先遮罩、位置穩定）；沒勾＝只要存在 */
+  inViewport?: boolean
   /**
    * `backend_snippet`：要跑哪一份後台設定片段。
    *
