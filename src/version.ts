@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.46.2'
+export const APP_VERSION = '5.46.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.46.3', date: '2026-10-09', changes: ['fix(Meegle 批量評論 不能送的原因看不到)：CodeX 補審 v5.45.4～5.46.2 [P2]——「這一列目前不能送」原本要 remote.status === ok 才顯示，v5.46.0 起不讀遠端（一直是 idle），清空評論只看到「待處理」、看不到「評論是空的」，旁邊還說格式不完整仍可送出。拿掉遠端條件；這一列不能送時不再顯示「仍可送出」。ai-gate 補清空評論的檢查，換回舊條件會紅'] },
   { version: '5.46.2', date: '2026-10-08', changes: ['fix(Meegle 批量評論 只跳一個彈窗)：使用者 Lark 指出——送正式空間時格式提醒跟正式確認會連跳兩個彈窗。改成正式空間把格式提醒併進正式確認（useProdConfirm 多一個選填的 warn 區塊），測試空間才單獨跳格式提醒。meegle-comment-prod-confirm（正式空間、送出端點擋掉）：只有一個彈窗、裡面列出缺的細項、取消不送'] },
   { version: '5.46.1', date: '2026-10-08', changes: ['fix(Meegle 批量評論 格式提醒)：使用者 Lark 要求——格式不完整不再標「待補資料」（AI 用的模板不一定有那些細項，一直跳很干擾），列表一樣顯示「可送出」；改成按「前往送出」時跳彈窗列出哪幾列不完整、缺什麼，按「照樣送出」才送、「取消」回 ③。規則本身不變（跟 Jira 共用 comment-text.ts）。順手修：Meegle 的彈窗（含正式空間確認）掛在 body，吃不到 .mb-page 的變數，按鈕變成沒樣式的純文字——變數改成 .mb-page 與 .msp-modal-back 共用一份'] },
   { version: '5.46.0', date: '2026-10-08', changes: ['feat(Meegle 批量評論 只發 Comment)：使用者 Lark 要求——不再寫 Meegle 測試頁的測試說明，只發 Comment。③ 拿掉測試說明欄、「覆寫測試頁」開關、整格覆寫紅字，也拿掉讀 Meegle 現況／遠端被改過要確認覆寫那套（使用者確認可拿掉）；圖片與影片的預覽、移除、新增都搬到 Comment 底下（原本圖片顯示在測試說明下，實際兩邊都有發，看起來不直覺）。送出一律 overwriteDesc:false（後端照舊只把圖片傳成評論附件、影片各一則評論）。「AI 整理測試說明」改名「AI 整理評論內容」，AI 分析改看 Comment；格式檢查改看 Comment。使用說明、管理頁授權說明同步。使用者說先做、CodeX 20:26 恢復後補審'] },

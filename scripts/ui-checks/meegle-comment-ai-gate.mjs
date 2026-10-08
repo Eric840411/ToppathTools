@@ -101,6 +101,16 @@ check('基準（不勾 AI）可以送——AI 是唯一的變因', baseline === 
 // 1008 只發 Comment：③ 沒有測試說明欄、圖片與影片在 Comment 底下；送出時不覆寫測試說明
 check('③ 沒有「測試說明」欄、沒有「覆寫測試頁」開關', (await page.locator('textarea[aria-label="測試說明內容"]').count()) === 0 && (await page.getByText('覆寫測試頁').count()) === 0)
 check('③ Comment 欄底下是「圖片與影片」', (await page.locator('.mc-panel', { hasText: 'Comment' }).locator('.mc-sub-head', { hasText: '圖片與影片' }).count()) === 1)
+// CodeX 補審 [P2]：不讀遠端之後，「這一列目前不能送」的原因要看得到；清空評論時不能同時說「仍可送出」
+const cmtBox = page.locator('textarea[aria-label="評論內容"]')
+const keep = await cmtBox.inputValue()
+await cmtBox.fill('')
+await page.waitForTimeout(300)
+const panel = (await page.locator('.mc-panel', { hasText: 'Comment' }).innerText()).replace(/\s+/g, ' ')
+check('清空評論 → 看得到「這一列目前不能送：評論是空的」', /這一列目前不能送：評論是空的/.test(panel), panel.slice(-120))
+check('清空評論 → 不會同時說「仍可送出」', !/仍可送出/.test(panel))
+await cmtBox.fill(keep)
+await page.waitForTimeout(300)
 // 1008 使用者：格式不完整不再標「待補資料」，列表一樣是「可送出」；送出前用彈窗列出來
 const dots = await page.locator('.mc-dot').allInnerTexts()
 check('格式不完整的列顯示「可送出」（不是待補資料）', dots.every(d => d === '可送出'), dots.join(','))

@@ -717,7 +717,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                     {cur.ai === 'error' && <div className="mb-alert mb-alert--bad">AI 失敗：{cur.aiError}（內容維持原文，可重試）
                       <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void runAi(cur.rowIndex, useAiFormat, useAiReview, true)}>重試</button></div>}
                     <textarea className="mc-text" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value, commentEdited: true }, true)} rows={14} aria-label="評論內容" />
-                    {missing.length > 0 && <div className="mc-missing"><Icon name="warn" /> 格式不完整（仍可送出）：{missing.join('、')}</div>}
+                    {/* 這一列本來就不能送時不說「仍可送出」（CodeX 補審：清空評論後兩句話互相矛盾） */}
+                    {missing.length > 0 && !curIssue && <div className="mc-missing"><Icon name="warn" /> 格式不完整（仍可送出）：{missing.join('、')}</div>}
                     <div className="mc-sub-head">圖片與影片
                       <span className="mc-sub-actions">
                         {/* 常駐（使用者 10/02）：Sheet 有附件卻讀成 0 個時不會報錯，沒有這顆就沒地方重抓。只做每列、不做全域——重載會把清單換回 Sheet 版本 */}
@@ -765,7 +766,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
                         {cur.review ? <div className="mc-review-text">{cur.review}</div> : <div className="mb-muted mc-empty">{cur.ai === 'running' ? '分析中…' : '還沒分析（沒有分析就不會留這則）'}</div>}
                       </div>
                     )}
-                    {curIssue && cur.remote.status === 'ok' && <div className="mb-hint mb-hint--warn">這一列目前不能送：{curIssue}</div>}
+                    {/* CodeX 補審 [P2]：原本要 remote.status === 'ok' 才顯示——v5.46.0 起不讀遠端（一直是 idle），「評論是空的」「身分不能用」都看不到 */}
+                    {curIssue && <div className="mb-hint mb-hint--warn">這一列目前不能送：{curIssue}</div>}
                   </section>
                 </>
               )}
