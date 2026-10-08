@@ -720,3 +720,9 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
   - `scripts/ui-checks/meegle-people-auto.mjs`（真名單）：只自動帶 Tim、Albert；Eric、Tim Chen、Nobody 不帶；切空間後舊結果晚回不會 verify
   - 突變測試：拿掉 bulkOk 條件、拿掉卸載作廢，各自會紅
   - 修好 3 支因版面改過而壞掉的舊腳本（關聯需求改在 ③ 批量設定裡選）
+- **CodeX 審 9961c04（v5.47.1 修）**，[P2]：自動 verify 還沒回時就能送出
+  - 問題：確認框寫「Tim 不帶」，送出時 verify 剛好成功，後端照對照表就帶了 Tim，確認的內容跟實際送出的不一樣
+  - 改法：人員比對或 verify 進行中時鎖住送出鍵，旁邊寫「人員比對中」
+  - 確認框關掉之後用最新結果再比一次；人員結果變了，就用新結果再確認一次
+  - 測試：`meegle-people-auto.mjs` 補「verify 晚 4 秒回」的情況，拿掉鎖會紅
+  - 必填角色：CodeX 接受「既有的 unknownRequired 會擋整批」這個做法，撤回逐列檢查的要求

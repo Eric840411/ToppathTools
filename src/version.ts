@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.47.0'
+export const APP_VERSION = '5.47.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.47.1', date: '2026-10-09', changes: ['fix(Meegle 開單 人員比對中不能送)：CodeX 審 9961c04 [P2]——自動 verify 還沒回時就能送出：確認框寫「Tim 不帶」，送出時 verify 剛好成功，後端照對照表就帶了 Tim，確認的內容跟實際不一樣。改成人員比對／verify 進行中鎖住送出鍵（寫「人員比對中」）；確認框關掉後用最新結果比對，人員結果變了就用新結果再確認一次。meegle-people-auto 補「verify 晚 4 秒回」：比對中鎖住、回來才解鎖、確認框用的是比對完的結果；拿掉鎖會紅。必填角色：CodeX 接受「既有 unknownRequired 會擋整批」，撤回逐列檢查要求'] },
   { version: '5.47.0', date: '2026-10-09', changes: ['feat(Meegle 開單 人員不用逐一綁定)：使用者 Lark 提議、CodeX 定案——改回 Jira 的方式：對得上就帶、對不上不擋。讀完 Sheet 直接進 ③（② 人員對照改成可選、可從步驟列點回去）；猜人結果回來就自動確認「完整名字＋名單唯一＋租戶名錄也唯一（checkDirectoryLabel）」的人（Eric 這種名單唯一但租戶同名的不帶；partial 不帶），寫入仍走 verify（伺服器重新核對）、每筆送前再檢查使用者有沒有改過那列、記下驗證版本。③ 人員下拉＝空間掛過角色的人（Meegle 沒有完整成員名錄：team list 兩個空間都是空的），畫面寫明不是完整名錄；選到或打 email 會走 verify 記下。③ 標「X 對不上，不帶」；送出前列出實際送出且仍有人對不上的列（正式空間併進正式確認、測試空間只在有提醒時跳），對照表讀不到時寫「無法核對」。切空間（分頁重新掛載）時作廢舊流程，晚回的猜人結果不再 verify。必填角色：兩個空間建立都不要求任何角色（實測 meta-create-fields／meta-roles），將來變必填會被既有的「不支援的必填欄位」擋下。useProdConfirm 測試空間也能只顯示提醒，評論分頁改用它（移除自己的那份彈窗）。新增 meegle-people-auto（真名單：只自動帶 Tim、Albert；Eric、Tim Chen、Nobody 不帶；切空間舊結果晚回不 verify），拿掉 bulkOk 條件或卸載作廢都會紅；修好 3 支因版面改過而壞掉的舊腳本'] },
   { version: '5.46.3', date: '2026-10-09', changes: ['fix(Meegle 批量評論 不能送的原因看不到)：CodeX 補審 v5.45.4～5.46.2 [P2]——「這一列目前不能送」原本要 remote.status === ok 才顯示，v5.46.0 起不讀遠端（一直是 idle），清空評論只看到「待處理」、看不到「評論是空的」，旁邊還說格式不完整仍可送出。拿掉遠端條件；這一列不能送時不再顯示「仍可送出」。ai-gate 補清空評論的檢查，換回舊條件會紅'] },
   { version: '5.46.2', date: '2026-10-08', changes: ['fix(Meegle 批量評論 只跳一個彈窗)：使用者 Lark 指出——送正式空間時格式提醒跟正式確認會連跳兩個彈窗。改成正式空間把格式提醒併進正式確認（useProdConfirm 多一個選填的 warn 區塊），測試空間才單獨跳格式提醒。meegle-comment-prod-confirm（正式空間、送出端點擋掉）：只有一個彈窗、裡面列出缺的細項、取消不送'] },

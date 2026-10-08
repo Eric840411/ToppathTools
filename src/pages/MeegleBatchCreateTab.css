@@ -245,6 +245,7 @@
 .mb-c-sel { color: var(--mb-info); }
 .mb-c-ok { color: var(--mb-ok); }
 .mb-c-bad { color: var(--mb-bad); }
+.mb-c-wait { color: var(--mb-warn); } /* 1009：人員比對中，送出鍵先鎖住 */
 
 /* ── ④ 送出結果 ── */
 .mb-tally { margin-bottom: 12px; }

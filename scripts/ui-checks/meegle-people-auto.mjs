@@ -117,6 +117,50 @@ async function openCreate(page) {
   await ctx.close()
 }
 
+// ── 第三段：verify 晚回時不能送（CodeX 審 9961c04 [P2]）──
+{
+  console.log('[verify 晚回：比對完成前不能送]')
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+  const { posted } = await base(ctx)
+  // 覆寫 verify：故意晚 4 秒才回（比照確認框開著時才回來的情況）
+  const verified = []
+  await ctx.unroute('**/api/meegle/batch/people/verify')
+  const map2 = []
+  await ctx.unroute('**/api/meegle/batch/people')
+  await ctx.route('**/api/meegle/batch/people', r => r.fulfill({ json: { ok: true, people: map2 } }))
+  await ctx.route('**/api/meegle/batch/people/verify', async r => {
+    const b = r.request().postDataJSON(); verified.push(b)
+    await new Promise(res => setTimeout(res, 4000))
+    map2.push({ alias: b.alias.trim().toLowerCase(), userKey: b.userKey, email: b.email, name: b.alias })
+    await r.fulfill({ json: { ok: true, person: {} } })
+  })
+  const tim = { userKey: '2', email: 'tim@toppath.tw', name: 'Tim', names: ['Tim'] }
+  await ctx.route('**/api/meegle/batch/people/roster', r => r.fulfill({ json: { ok: true, users: [tim], fetchedAt: Date.now() } }))
+  await ctx.route('**/api/meegle/batch/people/suggest', r => {
+    const { aliases } = r.request().postDataJSON()
+    return r.fulfill({ json: { ok: true, suggestions: aliases.map(a => a === 'Tim' ? { alias: a, status: 'unique', confidence: 'exact', user: tim, bulkOk: true, note: '' } : { alias: a, status: 'none', bulkOk: false, note: '' }) } })
+  })
+  const page = await ctx.newPage()
+  await openCreate(page)
+  await page.getByRole('button', { name: /批量設定/ }).click()
+  await page.locator('select:has(option[value="900001"])').first().selectOption('900001')
+  await page.getByRole('button', { name: '套用到已勾選的列' }).click()
+  for (let i = 0; i < 40 && !verified.length; i++) await page.waitForTimeout(100)
+  const send = page.getByRole('button', { name: /^送出 \d+ 列$/ })
+  const foot = async () => (await page.locator('.mb-foot-sum').innerText()).replace(/\s+/g, ' ')
+  check('verify 還沒回 → 送出鍵鎖住、寫「人員比對中」', verified.length === 1 && await send.isDisabled() && /人員比對中/.test(await foot()), await foot())
+  await page.waitForTimeout(5000)
+  check('verify 回來 → 解鎖', await send.isEnabled(), await foot())
+  await send.click()
+  const dlg = page.getByRole('dialog')
+  await dlg.waitFor({ timeout: 5000 }).catch(() => {})
+  const dtxt = (await dlg.innerText().catch(() => '')).replace(/\s+/g, ' ')
+  check('確認框用的是比對完成後的結果（Tim 已帶入，不在對不上清單；其他 4 列在）', !/Tim——/.test(dtxt.replace('Tim Chen', '')) && /有 4 列有人員對不上/.test(dtxt), dtxt.slice(0, 160))
+  await dlg.getByRole('button', { name: '取消' }).click().catch(() => {})
+  check('沒有真的送出', posted.length === 0)
+  await ctx.close()
+}
+
 await browser.close()
 console.log(fail ? `\n❌ ${fail} 項失敗` : '\n✅ 全部通過')
 process.exit(fail ? 1 : 0)

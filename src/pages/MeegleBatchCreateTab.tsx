@@ -141,6 +141,13 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const [bulkConfirming, setBulkConfirming] = useState(false)
   // 晚回保護：每次讀 Sheet／重查都換一個序號，舊的回應回來時序號對不上就丟掉（CodeX 2026-10-05）
   const suggestSeq = useRef(0)
+  /**
+   * CodeX 審 9961c04 [P2]：人員還在比對／verify 時不能送——確認框寫「Tim 不帶」、送出時 verify 剛好成功，
+   * 後端照對照表就帶了 Tim，確認的內容跟實際不一樣。計數＞0 時鎖住送出鍵
+   */
+  const [resolving, setResolving] = useState(0)
+  const resolvingRef = useRef(0)
+  const bumpResolving = (d: number) => { resolvingRef.current += d; setResolving(resolvingRef.current) }
   // 1008（CodeX）：切空間會重新掛載這個分頁（key 帶空間），但舊實例的非同步流程還在跑——
   // 晚回的猜人結果會照樣去 verify、寫進對照表。卸載時作廢序號，舊流程看到序號變了就停
   useEffect(() => () => { suggestSeq.current++ }, [])
@@ -320,6 +327,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const aliases = aliasRows.filter(a => !a.person).map(a => a.alias)
     const seq = ++suggestSeq.current
     setRosterState(s => ({ ...s, loading: true, error: '' }))
+    bumpResolving(1)
     try {
       const r = await api<{ users: RosterPerson[]; fetchedAt: number }>('/api/meegle/batch/people/roster', { refresh, space })
       if (seq !== suggestSeq.current) return
@@ -358,7 +366,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     } catch (e) {
       if (seq !== suggestSeq.current) return
       setRosterState(s => ({ ...s, loading: false, error: (e as Error).message }))
-    }
+    } finally { bumpResolving(-1) }
   }
 
   /**
@@ -369,12 +377,15 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   async function resolvePicked(value: string) {
     const added = value.split(/[,，、]/).map(x => x.trim()).filter(x => /@/.test(x) && !personMap[normAlias(x)])
     if (!added.length) return
+    bumpResolving(1)
+    try {
     for (const email of added) {
       const picked = rosterByEmail(email)
       try { await api('/api/meegle/batch/people/verify', { alias: email, email, space, ...(picked ? { userKey: picked.userKey } : {}) }); setPickErrors(e => { const n = { ...e }; delete n[normAlias(email)]; return n }) }
       catch (e) { setPickErrors(x => ({ ...x, [normAlias(email)]: (e as Error).message })) }
     }
     await loadPeople()
+    } finally { bumpResolving(-1) }
   }
 
   /** 全部確認：只確認 bulkOk、使用者沒親手改過、格子裡還是建議那個 email 的列；逐一走 verify */
@@ -588,8 +599,21 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
       rows: rowsWithGap.map(({ r, gaps }) => ({ label: r.plan.name || '（沒有名稱）', detail: `${gaps.join('；')}——不帶` })),
     }
   }
+  // 確認框關掉後要拿「現在」的人員結果比對（closure 裡的是按下去那一刻的）
+  const peopleWarnRef = useRef<ReturnType<typeof peopleWarn>>(undefined)
+  peopleWarnRef.current = peopleWarn()
+  const sendCountRef = useRef(0)
+  sendCountRef.current = sendable.length
   async function submitAndShow() {
-    if (otherSpace || !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendable.length, warn: peopleWarn() }))) return
+    if (otherSpace || resolvingRef.current) return
+    // 確認期間人員結果變了（verify 晚回、名單重整）→ 用新的結果再確認一次，確認的內容要跟實際送出的一致（CodeX）
+    for (let round = 0; ; round++) {
+      const shown = JSON.stringify(peopleWarnRef.current ?? null)
+      if (!(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: sendCountRef.current, warn: peopleWarnRef.current }))) return
+      if (resolvingRef.current) return
+      if (JSON.stringify(peopleWarnRef.current ?? null) === shown) break
+      if (round >= 2) return
+    }
     // 重驗通過才切到結果頁；沒過就留在預覽頁，擋下原因（sendNote／createBlock）才看得到（CodeX 1006 [P2]）
     await submit(true, () => setStep(4))
   }
@@ -1014,8 +1038,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
             {sendNote && !createBlock && <div className="mb-alert mb-alert--bad">{sendNote}</div>}
             <footer className="mb-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(unmappedAliases.length || aliasRows.length ? 2 : 1)}>上一步</button>
-              <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b></div>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length || !!otherSpace} onClick={() => void submitAndShow()}>
+              <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b>{resolving > 0 && <span className="mb-c-wait">・人員比對中，完成後才能送出</span>}</div>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length || !!otherSpace || resolving > 0} onClick={() => void submitAndShow()}>
                 {running ? `送出中 ${progress.done}/${progress.total}` : `送出 ${sendable.length} 列`}
               </button>
             </footer>
