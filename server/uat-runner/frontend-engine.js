@@ -112,19 +112,27 @@ function frontendVars(ctx) {
  * ⚠️ 引用的變數不存在要**在跑後台之前就失敗**——原樣把 `{{machine}}` 填進搜尋欄的話，
  *    後台會乖乖查一個叫「{{machine}}」的東西、查到 0 筆，錯誤看起來像資料不存在（CodeX 10-02 實測重現）。
  */
-export function fillSnippetVars(steps, ctx) {
-  const text = JSON.stringify(steps ?? []);
-  if (!/\{\{\s*[\w.]+\s*\}\}/.test(text)) return steps ?? [];
+const VAR_REF = /\{\{\s*([\w.]+)\s*\}\}/g;
+const HAS_VAR_REF = /\{\{\s*[\w.]+\s*\}\}/;
+/**
+ * 字串裡的 `{{變數}}` 換成前台變數——**全部共用這一支**（後台片段、fill／type、pc_click_node；CodeX 方案 e）。
+ * 變數不存在、是空值或不是單一值 → 直接報錯，不會換成空字串（空字串會讓 pc_enter_machine 的「留空＝隨機」被誤觸發）。
+ */
+export function expandVars(text, ctx, where) {
   const vars = frontendVars(ctx);
   const lookup = (nameRef) => nameRef.split('.').reduce((cur, part) => (cur === undefined || cur === null ? cur : cur[part]), vars);
+  return String(text).replace(VAR_REF, (_, name) => {
+    const v = lookup(name);
+    if (v === undefined || v === null || typeof v === 'object' || String(v) === '') throw new Error(`${where}引用的變數「${name}」不存在、是空值或不是單一值`);
+    return String(v);
+  });
+}
+
+export function fillSnippetVars(steps, ctx) {
+  const text = JSON.stringify(steps ?? []);
+  if (!HAS_VAR_REF.test(text)) return steps ?? [];
   const sub = (value) => {
-    if (typeof value === 'string') {
-      return value.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, name) => {
-        const v = lookup(name);
-        if (v === undefined || v === null || typeof v === 'object') throw new Error(`後台片段引用的變數「${name}」不存在或不是單一值`);
-        return String(v);
-      });
-    }
+    if (typeof value === 'string') return expandVars(value, ctx, '後台片段');
     if (Array.isArray(value)) return value.map(sub);
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sub(v)]));
     return value;
@@ -327,8 +335,21 @@ export function compileFrontendSteps(steps) {
  *   decodePng?: (buffer: Buffer) => object,
  * }} ctx
  */
+/** 1008 這幾顆的 value 可以寫 `{{變數}}`（PC 使用者：不固定入口或機台，先讀畫面再拿來用；CodeX 方案 e） */
+const VAR_VALUE_ACTIONS = new Set(['type', 'fill', 'pc_click_node']);
+
 export async function runFrontendStep(step, ctx) {
   const { idx, label, log, page } = ctx;
+  /**
+   * ⚠️ **展開要在積木一開頭做**——危險動作的判斷（guardDangerousStep）在各積木裡面，
+   *    要拿展開後的值去判；拿 `{{target}}` 去判的話，危險的節點名被包在變數裡就認不出來。
+   * ⚠️ 展開的結果要寫進日誌：報告要看得出實際用了什麼值，而不是只看到 `{{machineNo}}`。
+   */
+  if (VAR_VALUE_ACTIONS.has(step.action) && typeof step.value === 'string' && HAS_VAR_REF.test(step.value)) {
+    const value = expandVars(step.value, ctx, `「${step.name || step.action}」`);
+    await log(`   🔤 ${idx} ${label}：${step.value} → ${value}`);
+    step = { ...step, value };
+  }
   /**
    * 這一步產出的證據檔（目前只有截圖積木會放東西進來）。
    *

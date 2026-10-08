@@ -368,12 +368,12 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 </label>
               </>
             )}
-            {selected.action === 'type' && <label>輸入內容<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} /></label>}
+            {selected.action === 'type' && <label>輸入內容<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} /><span className="uat-hint">可以寫 {'{{變數}}'}（前面用「讀值」存的），例如 {'{{machineNo}}'}；變數不存在或是空的會直接判失敗</span></label>}
             {/* PC（Cocos）：沒有 DOM 可選，所以欄位問的是機台與場景，不是 selector */}
             {['pc_click_node', 'assert_pc_node'].includes(selected.action) && (
               <label>節點
                 <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="btn-road（節點名）或 Road（畫面上的字）" />
-                <span className="uat-hint">先比節點名稱、再比標籤文字，**都要完全相等**——模糊比對會點到隔壁那顆按鈕，而畫面上看起來只是「沒反應」</span>
+                <span className="uat-hint">先比節點名稱、再比標籤文字，**都要完全相等**——模糊比對會點到隔壁那顆按鈕，而畫面上看起來只是「沒反應」{selected.action === 'pc_click_node' ? <>。可以寫 {'{{變數}}'}，例如 {'menu_ScrollView>view>content>{{game}}'}</> : null}</span>
               </label>
             )}
             {selected.action === 'assert_pc_node' && (
