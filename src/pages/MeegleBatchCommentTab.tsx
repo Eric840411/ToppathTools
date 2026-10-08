@@ -67,8 +67,10 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
   return <svg className="mb-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICON_PATHS[name]} /></svg>
 }
 
-async function api<T>(url: string, body?: unknown): Promise<T> {
-  const r = await fetch(url, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+async function api<T>(url: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
+  const r = await fetch(url, body === undefined ? { signal } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal })
+    .catch((e: unknown) => { throw (e as Error)?.name === 'TimeoutError' ? new Error(`逾時（${Math.round((timeoutMs ?? 0) / 1000)} 秒沒有回應）`) : e })
   const j = await r.json().catch(() => ({ ok: false, message: `HTTP ${r.status}` }))
   if (!r.ok || j.ok === false) throw Object.assign(new Error(j.message || `HTTP ${r.status}`), { code: j.code })
   return j as T
@@ -337,9 +339,11 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
       const raw = format ? buildAiCommentRawText(rec, commentColumn) : it.text
       const cacheKey = JSON.stringify({ rowIndex, raw, format, review, promptId, model })
       const cached = force ? undefined : aiCacheRef.current.get(cacheKey)
+      // 1008：AI 全部結束才能送（CodeX）——所以一定要有期限，不然一支卡住的請求會讓「前往送出」永遠鎖住。
+      // 伺服器端 AI 呼叫最多 600 秒（routes/gemini.ts），這裡多給 60 秒，逾時就記成失敗（照失敗列的規則處理）
       const j = cached ?? await api<{ text: string; review: string | null }>('/api/meegle/comment/ai', {
         rawText: raw, summary: it.summary, format, review, promptId, modelSpec: model, ...aiContextFor(rec, it.text),
-      })
+      }, 660_000)
       aiCacheRef.current.set(cacheKey, { text: j.text, review: j.review })
       setItems(prev => prev.map(x => {
         if (x.rowIndex !== rowIndex) return x
@@ -376,6 +380,12 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     return ''
   }
   const sendable = items.filter(it => !itemIssue(it))
+  /**
+   * 1008 使用者 Lark 回報、CodeX 定案：勾了 AI 的話，**整批 AI 都結束（成功或失敗）才能送**。
+   * 原本只送已完成的列（例如 10／56）、沒有提示就進④，剩下的列等於被丟下。不做「部分送出」。
+   */
+  const aiPendingOf = (list: Item[]) => list.filter(it => it.ai === 'queued' || it.ai === 'running').length
+  const aiPending = aiPendingOf(items)
 
   // ── ④ 送出 ──
   // 送出中、單列重試／繼續送出中都算忙：這時切空間會卸掉畫面，但後端還在寫（CodeX review 025fe7c [P2]）
@@ -383,10 +393,13 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   useEffect(() => { onBusyChange?.(running || anyRowBusy) }, [running, anyRowBusy, onBusyChange])
 
   async function submit() {
-    const list = sendable
-    if (!list.length || otherSpace) return
+    if (aiPendingOf(itemsRef.current) || !sendable.length || otherSpace) return
     // 正式空間：每批送出前確認一次（CodeX）
-    if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: list.length }))) return
+    if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: sendable.length }))) return
+    // ⚠️ 確認框開著的時候可能有人重跑 AI——關掉之後用**最新的**狀態再檢查一次、再取要送的列（CodeX）
+    if (aiPendingOf(itemsRef.current)) return
+    const list = itemsRef.current.filter(it => !itemIssue(it))
+    if (!list.length) return
     const id = batchId || newStepId()
     if (!batchId) setBatchId(id)
     setStep(4); setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
@@ -762,8 +775,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
             </div>
             <footer className="mb-foot mc-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
-              <span className="mb-foot-sum">可送出 <b>{sendable.length}</b> / {items.length} 列</span>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace} onClick={() => void submit()}>前往送出</button>
+              <span className="mb-foot-sum">可送出 <b>{sendable.length}</b> / {items.length} 列{aiPending > 0 && <span className="mc-ai-wait">｜AI 尚有 <b>{aiPending}</b> 列待完成（含排隊），全部結束才能送出</span>}</span>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace || aiPending > 0} onClick={() => void submit()}>前往送出</button>
             </footer>
           </div>
         )}

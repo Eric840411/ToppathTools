@@ -95,3 +95,5 @@
 .mc-att-error { flex-direction: column; gap: 6px; }
 .mc-att-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mc-att-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 1008：AI 還沒全部結束時，送出列旁的提示（全部結束才能送） */
+.mc-ai-wait { color: var(--mb-warn); font-weight: 400; }

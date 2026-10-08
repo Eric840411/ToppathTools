@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.45.3'
+export const APP_VERSION = '5.45.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.45.4', date: '2026-10-08', changes: ['fix(Meegle 評論 AI 全部結束才能送)：使用者 Lark 回報、CodeX 定案——勾了 AI 時，③ 在 AI 還在跑就能按「前往送出」（例如 10／56），只送已完成的列、沒有提示就進④，剩下的列等於被丟下。改成本批有任何列 AI 排隊／處理中就停用「前往送出」，旁邊顯示「AI 尚有 N 列待完成（含排隊）」；全部結束（成功或失敗都算）才解鎖，失敗列照原本規則。submit() 也檢查，正式空間確認框關掉後用最新狀態再檢查一次、再取要送的列。AI 請求加 660 秒期限（伺服器端 600 秒），逾時記成失敗，按鈕不會永久鎖住。不做部分送出。meegle-comment-ai-gate（真 Sheet、AI 與送出端點攔截）：拿掉按鈕鎖會紅在「一列完成、一列還在跑仍不能送」'] },
   { version: '5.45.3', date: '2026-10-08', changes: ['fix(Meegle 人員下拉 去重複)：使用者 Lark 回報——不同 Sheet 對同一個人寫法不同（lusa、lusa@toppath.tw），人員對照表裡是兩筆，開單「批量設定」與修改「固定值」的下拉就出現重複的人。改成同一個 userKey（沒有就看 email）只列一次：優先跟名字一樣的寫法、其次不是 email 的，其他寫法列在說明（也寫作 …）。只改下拉的顯示，對照表與送出邏輯不動（選哪個寫法都是同一個人）。開單與修改共用 meeglePeopleOptions'] },
   { version: '5.45.2', date: '2026-10-08', changes: ['fix(UAT PC 進機台 總表判定)：CodeX 複審 809fb13 [P2]——probe 的 complete 只看走訪有沒有走完：回應 {code:500}、null、欄位讀取丟例外都變成 gmids:[]、complete:true，engine 誤報「總表共 0 台，環境沒有」。改成回應是物件、沒有失敗的 code（只接受沒有、200、0）、走訪中沒有例外、走完、至少一台才標完整，否則寫 incompleteWhy；engine 只認 complete===true，其餘一律「無法確認」。測試改串真的 attachPinusProbe（原本直接餵整理好的 gmids），換回舊 probe 三條會紅'] },
   { version: '5.45.1', date: '2026-10-08', changes: ['fix(UAT PC 進機台／找不到就跳過)：CodeX 審 6a534be——[P1] 只有送出請求、場景是空字串或 loading 也會 PASS：改成要同時有「場景＝game」與 enterGMNtc，最多等 15 秒。[P2] 跳過時讀取異常也會 SKIP（pcFindNode 吞例外）：新增三態 pcNodePresence，讀不到就失敗。[P2] 穩定不等於完整：同款 0 台時要拿 pinus 攔截器記下的 getAllGMListReq 完整 gmid 清單（probe 新增 gmids），總表每台都已套到卡片才判「環境沒有」，否則說「還沒載完」或「無法確認」。另依 claude-osm-2 UAT 實測：拿掉「機台內任何元件的 gmid」——NoticeView、廣播帶的是別人機台的 gmid；只認 ON: n enterGMNtc。pc-enter-machine-data 17 條、pc-click-popup 15 條，各修正拿掉都會紅'] },
