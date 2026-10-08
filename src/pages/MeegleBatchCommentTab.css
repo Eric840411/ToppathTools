@@ -98,3 +98,6 @@
 .mc-att-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 /* 1008：AI 還沒全部結束時，送出列旁的提示（全部結束才能送） */
 .mc-ai-wait { color: var(--mb-warn); font-weight: 400; }
+/* 1008：送出前的格式提醒清單 */
+.mc-fmt-list { margin: 0 0 12px; padding-left: 18px; max-height: 40vh; overflow: auto; display: grid; gap: 6px; font-size: 13px; }
+.mc-fmt-list li span { display: block; color: var(--mb-warn, #f5b73b); font-size: 12px; } /* 彈窗掛在 body，.mb-page 的變數吃不到，要有退路 */

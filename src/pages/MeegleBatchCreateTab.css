@@ -3,7 +3,8 @@
    一個外框卡片＋步驟列，一次只顯示一步：① 讀取與預設 ② 人員對照 ③ 預覽與勾選 ④ 送出結果。
    普通版：深藍底、藍色主按鈕。修仙版：墨綠底、金線外框與角飾、青玉主按鈕——只換配色與裝飾，結構不變。 */
 
-.mb-page {
+/* 1008：變數也給彈窗用——彈窗用 createPortal 掛在 body（不在 .mb-page 裡），沒有這些變數按鈕會變成沒樣式的純文字 */
+.mb-page, .msp-modal-back {
   --mb-bg: #0a1424;
   --mb-card: #0d1a2e;
   --mb-card2: #0f1f37;
@@ -20,6 +21,8 @@
   --mb-pending: #b48cff;
   --mb-info: #5aa7ff;
   --mb-orange: #f59a3b;
+}
+.mb-page {
   display: flex; flex-direction: column; gap: 16px;
   color: var(--mb-text);
   min-width: 0;
@@ -301,7 +304,7 @@
 }
 
 /* ══════════ 修仙版：墨綠底、金線外框＋角飾、青玉主按鈕（只換配色與裝飾，結構不變）══════════ */
-:root[data-theme-mode="xianxia"] .mb-page {
+:root[data-theme-mode="xianxia"] .mb-page, :root[data-theme-mode="xianxia"] .msp-modal-back {
   --mb-bg: #0a1412;
   --mb-card: #0d1a17;
   --mb-card2: #10201c;

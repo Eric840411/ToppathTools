@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ModelSelector } from '../components/ModelSelector'
 import { acquireAttachmentLease, uploadJiraAttachment, type UploadedAttachment } from '../lib/jiraAttachmentUpload'
 import { aiContextFor, buildAiCommentRawText, getField, validateCommentSections } from '../features/batch-comment/comment-text'
@@ -99,6 +100,32 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
   const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
   const [confirmProd, prodModal] = useProdConfirm(space)
+  /**
+   * 1008 使用者：格式不完整不再標「待補資料」（AI 用的模板不一定有那些細項，一直跳很干擾），列表一樣顯示「可送出」；
+   * 改成**送出前**列出哪幾列格式不完整、缺什麼，讓人決定要不要照樣送。彈窗掛 body（跨功能踩坑 #7）
+   */
+  const [fmtAsk, setFmtAsk] = useState<Array<{ summary: string; missing: string[] }> | null>(null)
+  const fmtResolver = useRef<((ok: boolean) => void) | null>(null)
+  const confirmFormat = (rows: Array<{ summary: string; missing: string[] }>) =>
+    rows.length ? new Promise<boolean>(resolve => { fmtResolver.current = resolve; setFmtAsk(rows) }) : Promise.resolve(true)
+  const fmtDone = (ok: boolean) => { fmtResolver.current?.(ok); fmtResolver.current = null; setFmtAsk(null) }
+  const fmtModal = fmtAsk && createPortal(
+    <div className="msp-modal-back" onClick={() => fmtDone(false)}>
+      <div className="msp-modal" role="dialog" aria-modal="true" aria-labelledby="mc-fmt-title" onClick={e => e.stopPropagation()}
+        onKeyDown={e => { if (e.key === 'Escape') fmtDone(false) }}>
+        <h3 id="mc-fmt-title" className="msp-modal-title">有 {fmtAsk.length} 列評論格式不完整</h3>
+        <p className="msp-modal-note">格式不完整不會擋送出，只是提醒你確認。要補的話按「取消」回去改。</p>
+        <ul className="mc-fmt-list">
+          {fmtAsk.map((r, i) => <li key={i}><b>{r.summary}</b><span>缺：{r.missing.join('、')}</span></li>)}
+        </ul>
+        <div className="msp-modal-actions">
+          <button type="button" className="mb-btn" onClick={() => fmtDone(false)}>取消</button>
+          <button type="button" className="mb-btn mb-btn--primary" autoFocus onClick={() => fmtDone(true)}>照樣送出</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -378,6 +405,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
 
   async function submit() {
     if (aiPendingOf(itemsRef.current) || !sendable.length || otherSpace) return
+    // 1008：格式不完整的列在送出前列出來（不擋，只確認）
+    if (!(await confirmFormat(sendable.map(it => ({ summary: it.summary || `#${it.workItemId}`, missing: validateCommentSections(it.commentText) })).filter(r => r.missing.length)))) return
     // 正式空間：每批送出前確認一次（CodeX）
     if (!(await confirmProd({ op: 'Meegle 評論', sheet: loadedUrl, count: sendable.length }))) return
     // ⚠️ 確認框開著的時候可能有人重跑 AI——關掉之後用**最新的**狀態再檢查一次、再取要送的列（CodeX）
@@ -493,13 +522,13 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     if (it.overwriteDesc && it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
     if (it.ai === 'running' || it.ai === 'queued' || (it.overwriteDesc && (it.remote.status === 'loading' || it.remote.status === 'idle')) || it.attLoading) return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : it.attLoading ? '附件載入中' : '讀取中' }
     if (itemIssue(it)) return { cls: 'warn', text: '待處理' }
-    if (validateCommentSections(it.commentText).length) return { cls: 'pending', text: '待補資料' }
     return { cls: 'ok', text: '可送出' }
   }
 
   return (
     <div className="mb-page mc-page">
       {prodModal}
+      {fmtModal}
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量評論</h2>

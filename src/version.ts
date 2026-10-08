@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.46.0'
+export const APP_VERSION = '5.46.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.46.1', date: '2026-10-08', changes: ['fix(Meegle 批量評論 格式提醒)：使用者 Lark 要求——格式不完整不再標「待補資料」（AI 用的模板不一定有那些細項，一直跳很干擾），列表一樣顯示「可送出」；改成按「前往送出」時跳彈窗列出哪幾列不完整、缺什麼，按「照樣送出」才送、「取消」回 ③。規則本身不變（跟 Jira 共用 comment-text.ts）。順手修：Meegle 的彈窗（含正式空間確認）掛在 body，吃不到 .mb-page 的變數，按鈕變成沒樣式的純文字——變數改成 .mb-page 與 .msp-modal-back 共用一份'] },
   { version: '5.46.0', date: '2026-10-08', changes: ['feat(Meegle 批量評論 只發 Comment)：使用者 Lark 要求——不再寫 Meegle 測試頁的測試說明，只發 Comment。③ 拿掉測試說明欄、「覆寫測試頁」開關、整格覆寫紅字，也拿掉讀 Meegle 現況／遠端被改過要確認覆寫那套（使用者確認可拿掉）；圖片與影片的預覽、移除、新增都搬到 Comment 底下（原本圖片顯示在測試說明下，實際兩邊都有發，看起來不直覺）。送出一律 overwriteDesc:false（後端照舊只把圖片傳成評論附件、影片各一則評論）。「AI 整理測試說明」改名「AI 整理評論內容」，AI 分析改看 Comment；格式檢查改看 Comment。使用說明、管理頁授權說明同步。使用者說先做、CodeX 20:26 恢復後補審'] },
   { version: '5.45.4', date: '2026-10-08', changes: ['fix(Meegle 評論 AI 全部結束才能送)：使用者 Lark 回報、CodeX 定案——勾了 AI 時，③ 在 AI 還在跑就能按「前往送出」（例如 10／56），只送已完成的列、沒有提示就進④，剩下的列等於被丟下。改成本批有任何列 AI 排隊／處理中就停用「前往送出」，旁邊顯示「AI 尚有 N 列待完成（含排隊）」；全部結束（成功或失敗都算）才解鎖，失敗列照原本規則。submit() 也檢查，正式空間確認框關掉後用最新狀態再檢查一次、再取要送的列。AI 請求加 660 秒期限（伺服器端 600 秒），逾時記成失敗，按鈕不會永久鎖住。不做部分送出。meegle-comment-ai-gate（真 Sheet、AI 與送出端點攔截）：拿掉按鈕鎖會紅在「一列完成、一列還在跑仍不能送」'] },
   { version: '5.45.3', date: '2026-10-08', changes: ['fix(Meegle 人員下拉 去重複)：使用者 Lark 回報——不同 Sheet 對同一個人寫法不同（lusa、lusa@toppath.tw），人員對照表裡是兩筆，開單「批量設定」與修改「固定值」的下拉就出現重複的人。改成同一個 userKey（沒有就看 email）只列一次：優先跟名字一樣的寫法、其次不是 email 的，其他寫法列在說明（也寫作 …）。只改下拉的顯示，對照表與送出邏輯不動（選哪個寫法都是同一個人）。開單與修改共用 meeglePeopleOptions'] },

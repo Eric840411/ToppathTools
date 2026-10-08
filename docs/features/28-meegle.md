@@ -675,3 +675,14 @@ v5.24.0 加了「AI 產生／手改任務名稱」（`nameOverride`），但開�
 - 後端仍要求 `description` 不能是空的，所以前端在測試說明空白時改送 Comment 內容（不會寫入，只是過驗證）
 - 測試：`meegle-comment-ai-gate.mjs`（送出的 body 是 `overwriteDesc:false`、送出的評論是 AI 整理過的內容）、`meegle-comment-walkthrough.mjs`（兩種版面）
 - 使用者說先做；CodeX 待補審
+
+### 批量評論：格式不完整改成送出前提醒（v5.46.1，2026-10-08，使用者 Lark 要求）
+
+- 列表不再標「待補資料」，格式不完整的列一樣顯示「可送出」
+  - 原因：AI 用的 Prompt 模板不一定有那些細項（例如「OSM專用模板」沒有主要流程、延伸測試、風險或需留意事項），一直跳很干擾
+- 按「前往送出」時跳彈窗，列出哪幾列不完整、各缺什麼
+  - 「照樣送出」才送，「取消」回 ③
+  - ③ 每列底下的「格式不完整（仍可送出）」提示照舊
+- 規則本身沒改，跟 Jira 共用 `src/features/batch-comment/comment-text.ts`（五區塊加必填細項，「名稱：內容」）
+- 順手修：Meegle 的彈窗用 createPortal 掛在 body，不在 `.mb-page` 裡，吃不到 `--mb-*` 變數，按鈕變成沒樣式的純文字（正式空間確認彈窗也一樣）
+  - 改法：變數改成 `.mb-page, .msp-modal-back` 共用一份，修仙版也一樣
