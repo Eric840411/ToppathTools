@@ -309,6 +309,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     if (!email) return false
     const ver = editVer.current[alias] ?? 0
     setVerifying(v => ({ ...v, [alias]: true })); setVerifyError(v => ({ ...v, [alias]: '' }))
+    // CodeX 審 d712df8 [P2]：② 手動驗證也要算進「人員比對中」（含最後的 loadPeople），不然驗證還沒回就能去 ③ 送出
+    bumpResolving(1)
     try {
       const picked = rosterByEmail(email)
       await api('/api/meegle/batch/people/verify', { alias, email, space, ...(picked ? { userKey: picked.userKey } : {}) })
@@ -319,7 +321,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
       if ((editVer.current[alias] ?? 0) !== ver) setEditingAlias(s => new Set(s).add(alias))
       else setEditingAlias(s => { const n = new Set(s); n.delete(alias); return n })
       return true
-    } catch (e) { setVerifyError(v => ({ ...v, [alias]: (e as Error).message })); return false } finally { setVerifying(v => ({ ...v, [alias]: false })) }
+    } catch (e) { setVerifyError(v => ({ ...v, [alias]: (e as Error).message })); return false } finally { setVerifying(v => ({ ...v, [alias]: false })); bumpResolving(-1) }
   }
 
   // 進 ② 時：讀名單＋猜人。只猜未對照的；建議只預填「還沒手動填過」的格子，不蓋掉使用者打的字
@@ -399,13 +401,14 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const seq = suggestSeq.current
     const plan = bulkTargets.map(a => ({ alias: a.alias, email: (draftRef.current[a.alias] ?? '').trim().toLowerCase(), ver: editVer.current[a.alias] ?? 0 }))
     setBulkConfirming(true)
+    bumpResolving(1)   // 全部確認整段（含最後的 loadPeople）都算人員比對中
     try {
       for (const t of plan) {
         if (suggestSeq.current !== seq) break
         if ((editVer.current[t.alias] ?? 0) !== t.ver || (draftRef.current[t.alias] ?? '').trim().toLowerCase() !== t.email) continue
         await verifyAlias(t.alias, false)
       }
-    } finally { await loadPeople(); setBulkConfirming(false) }
+    } finally { await loadPeople(); setBulkConfirming(false); bumpResolving(-1) }
   }
 
   // ── 送出 ──

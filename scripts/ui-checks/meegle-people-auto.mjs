@@ -161,6 +161,39 @@ async function openCreate(page) {
   await ctx.close()
 }
 
+// ── 第四段：② 手動驗證晚回 → 切到 ③ 送出仍鎖住（CodeX 審 d712df8 [P2]）──
+{
+  console.log('[② 手動驗證晚回 → ③ 仍鎖住]')
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+  const { posted } = await base(ctx)
+  const verified = []
+  await ctx.unroute('**/api/meegle/batch/people/verify')
+  await ctx.route('**/api/meegle/batch/people/verify', async r => { verified.push(r.request().postDataJSON()); await new Promise(res => setTimeout(res, 4000)); await r.fulfill({ json: { ok: true, person: {} } }) })
+  // 不自動帶任何人（建議都對不上），只測手動驗證
+  await ctx.route('**/api/meegle/batch/people/roster', r => r.fulfill({ json: { ok: true, users: [], fetchedAt: Date.now() } }))
+  await ctx.route('**/api/meegle/batch/people/suggest', r => r.fulfill({ json: { ok: true, suggestions: [] } }))
+  const page = await ctx.newPage()
+  await openCreate(page)
+  await page.getByRole('button', { name: /批量設定/ }).click()
+  await page.locator('select:has(option[value="900001"])').first().selectOption('900001')
+  await page.getByRole('button', { name: '套用到已勾選的列' }).click()
+  const send = page.getByRole('button', { name: /^送出 \d+ 列$/ })
+  await page.waitForTimeout(500)
+  check('一開始（沒有在比對）送出鍵可以按', await send.isEnabled())
+  await page.locator('.mb-step', { hasText: '人員對照' }).click()
+  const row = page.locator('.mb-person', { has: page.locator('.mb-person-name', { hasText: /^Eric$/ }) })
+  await row.locator('input').fill('eric.wu@toppath.tw')
+  await row.getByRole('button', { name: '驗證' }).click()
+  await page.waitForTimeout(300)
+  await page.locator('.mb-step', { hasText: '預覽與勾選' }).click()
+  await page.waitForTimeout(300)
+  check('② 驗證還沒回、切到 ③ → 送出鍵鎖住、寫「人員比對中」', verified.length === 1 && await send.isDisabled() && /人員比對中/.test(await page.locator('.mb-foot-sum').innerText()), await page.locator('.mb-foot-sum').innerText())
+  await page.waitForTimeout(5000)
+  check('驗證回來（含重讀對照表）→ 解鎖', await send.isEnabled())
+  check('沒有真的送出', posted.length === 0)
+  await ctx.close()
+}
+
 await browser.close()
 console.log(fail ? `\n❌ ${fail} 項失敗` : '\n✅ 全部通過')
 process.exit(fail ? 1 : 0)
