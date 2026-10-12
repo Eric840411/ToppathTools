@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.47.3'
+export const APP_VERSION = '5.48.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.48.0', date: '2026-10-12', changes: ['feat(Meegle 批量修改 人員下拉列空間人員)：使用者 Lark——② 固定值的人員下拉只有對照表那幾個人，改成跟開單一樣列這個空間掛過角色的人（＋對照表裡名單外的人，同一個 email 只出現一次）。選到還沒對照的 email 自動建立對照，對照中「下一步」鎖住；對不上的列出原因、那幾列照舊擋下。人員對照的選單也改用同一份名單。順手修「建立對照」沒帶 space 一律 400'] },
   { version: '5.47.3', date: '2026-10-09', changes: ['fix(Meegle 送出確認彈窗 鍵盤走不出去)：CodeX 指出——彈窗只有遮罩與 aria-modal，鍵盤 Tab 還是走得到背景的按鈕（例如確認框開著時改人員）。開著時把整個 App（#root）設成 inert，彈窗掛在 body 不受影響；關掉恢復。開單、評論、狀態、修改四個分頁共用這一個彈窗。meegle-comment-prod-confirm 補「Tab 15 次焦點都在彈窗裡」「關掉後背景恢復」，拿掉 inert 會紅'] },
   { version: '5.47.2', date: '2026-10-09', changes: ['fix(Meegle 開單 ② 手動驗證也鎖送出)：CodeX 複審 d712df8 [P2]——② 單筆驗證、全部確認沒算進「人員比對中」，按了驗證馬上切到 ③ 就能送出，verify 之後才寫進對照表、後端照樣帶入確認框說不帶的人。單筆驗證（含最後 loadPeople）、全部確認整段都算進鎖。meegle-people-auto 補「② 驗證晚 4 秒回 → 切 ③ 送出鍵鎖住、回來才解鎖」，拿掉會紅'] },
   { version: '5.47.1', date: '2026-10-09', changes: ['fix(Meegle 開單 人員比對中不能送)：CodeX 審 9961c04 [P2]——自動 verify 還沒回時就能送出：確認框寫「Tim 不帶」，送出時 verify 剛好成功，後端照對照表就帶了 Tim，確認的內容跟實際不一樣。改成人員比對／verify 進行中鎖住送出鍵（寫「人員比對中」）；確認框關掉後用最新結果比對，人員結果變了就用新結果再確認一次。meegle-people-auto 補「verify 晚 4 秒回」：比對中鎖住、回來才解鎖、確認框用的是比對完的結果；拿掉鎖會紅。必填角色：CodeX 接受「既有 unknownRequired 會擋整批」，撤回逐列檢查要求'] },

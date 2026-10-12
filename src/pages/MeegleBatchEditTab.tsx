@@ -12,6 +12,7 @@ import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
 import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
 import { MeeglePeoplePicker, meeglePeopleOptions } from '../components/MeeglePeoplePicker'
 import type { MeegleSpace } from '../../shared/meegle-space'
+import type { RosterPerson } from '../../shared/meegle-people-match'
 
 /**
  * Meegle 批量修改（Jira 頁「Meegle 修改」分頁）。取代 Jira 批量修改，Sheet 不變。
@@ -93,6 +94,12 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
   const [mapping, setMapping] = useState<Record<string, string>>({})   // 對不到的名字 → 選的人的 email
   const [mapBusy, setMapBusy] = useState('')
   const [mapError, setMapError] = useState('')
+  // 空間人員名單（跟開單 ③ 同一支 roster）：固定值下拉與人員對照都列這份，不再只列對照表（使用者 2026-10-12 Lark）
+  const [roster, setRoster] = useState<RosterPerson[] | null>(null)
+  const [rosterState, setRosterState] = useState({ loading: false, error: '' })
+  const [pickErrors, setPickErrors] = useState<Record<string, string>>({})
+  // 從名單選人後還在建立對照的件數：> 0 時不能進 ③（預覽會把還沒對照完的人當成對不到）
+  const [resolving, setResolving] = useState(0)
 
   // ③ 預覽
   const [checked, setChecked] = useState<Set<number>>(new Set())
@@ -113,6 +120,7 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
 
   useEffect(() => {
     void loadMeta()
+    void loadRoster()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   /** 讀 meta；不在一開始清掉錯誤——「重新檢查」時引導卡留著，成功才撤 */
@@ -121,6 +129,41 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
       await api<{ options: Record<string, Option[]>; people: Person[]; detailBase: string }>('/api/meegle/edit/meta', { space }).then(j => { setOptions(j.options); setPeople(j.people); setDetailBase(j.detailBase) })
       setMetaError(null)
     } catch (e) { setMetaError({ code: (e as { code?: string }).code, message: (e as Error).message }) }
+  }
+  async function loadRoster(refresh = false) {
+    setRosterState({ loading: true, error: '' })
+    try {
+      const r = await api<{ users: RosterPerson[] }>('/api/meegle/batch/people/roster', { refresh, space })
+      setRoster(r.users); setRosterState({ loading: false, error: '' })
+    } catch (e) { setRosterState({ loading: false, error: (e as Error).message }) }
+  }
+  /** 下拉：空間人員（值＝email、顯示名字）＋對照表裡名單外的人（值＝對照別名）；同一個 email 只出現一次 */
+  const peopleOptions = useMemo(() => {
+    const listed = (roster ?? []).filter(u => u.email)
+    const emails = new Set(listed.map(u => u.email.toLowerCase()))
+    return [
+      ...listed.map(u => ({ value: u.email, label: u.name || u.email })),
+      ...meeglePeopleOptions(people.filter(p => !p.email || !emails.has(p.email.toLowerCase()))),
+    ]
+  }, [roster, people])
+  /**
+   * 固定值選到／打了 email、而且對照表還沒有 → 走 verify 記下來（伺服器核對 email、user_key；同開單 resolvePicked）。
+   * 核對不過 → 名字留在格子裡、列出原因；預覽會照舊把那幾列標成對不到。
+   */
+  async function resolvePicked(value: string) {
+    const added = splitNames(value).filter(x => /@/.test(x) && !knownAliases.has(norm(x)))
+    if (!added.length) return
+    setResolving(n => n + 1)
+    try {
+      for (const email of added) {
+        const picked = (roster ?? []).find(u => u.email.toLowerCase() === email.toLowerCase())
+        try {
+          await api('/api/meegle/batch/people/verify', { alias: email, email, space, ...(picked ? { userKey: picked.userKey } : {}) })
+          setPeople(p => [...p, { alias: norm(email), name: picked?.name || email, email }])
+          setPickErrors(x => { const n = { ...x }; delete n[norm(email)]; return n })
+        } catch (e) { setPickErrors(x => ({ ...x, [norm(email)]: (e as Error).message })) }
+      }
+    } finally { setResolving(n => n - 1) }
   }
   async function recheck() {
     if (checking) return
@@ -174,8 +217,9 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
     if (!email) return
     setMapBusy(alias); setMapError('')
     try {
-      await api('/api/meegle/batch/people/verify', { alias, email })
-      setPeople(p => [...p, { alias: norm(alias), name: people.find(x => x.email === email)?.name ?? email, email }])
+      const picked = (roster ?? []).find(u => u.email.toLowerCase() === email.toLowerCase())
+      await api('/api/meegle/batch/people/verify', { alias, email, space, ...(picked ? { userKey: picked.userKey } : {}) })
+      setPeople(p => [...p, { alias: norm(alias), name: picked?.name || people.find(x => x.email === email)?.name || email, email }])
     } catch (e) { setMapError(`${alias}：${(e as Error).message}`) } finally { setMapBusy('') }
   }
 
@@ -335,8 +379,8 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
     )
     if (f.kind === 'date') return <input type="date" className="mb-input" value={value.replace(/\//g, '-')} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
     if (f.kind === 'multi') return <textarea className="mb-input me-fixed-text" rows={2} value={value} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
-    // 人員：下拉＋搜尋、可複選（使用者 2026-10-06），跟開單的批量設定同一個元件；名單是人員對照表（下方 datalist）
-    if (f.kind === 'role') return <MeeglePeoplePicker listId="me-people-options" label={`${f.label} 固定值`} value={value} onChange={onChange} emptyText="選人或打字搜尋" />
+    // 人員：下拉＋搜尋、可複選（使用者 2026-10-06），跟開單的批量設定同一個元件；名單是空間人員＋對照表（下方 datalist）
+    if (f.kind === 'role') return <MeeglePeoplePicker listId="me-people-options" label={`${f.label} 固定值`} value={value} onChange={v => { onChange(v); void resolvePicked(v) }} emptyText="選人或打字搜尋" />
     return <input className="mb-input" value={value} onChange={e => onChange(e.target.value)} aria-label={`${f.label} 固定值`} />
   }
 
@@ -347,8 +391,8 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
   return (
     <div className="mb-page mc-page ms-page me-page">
       {prodModal}
-      {/* 人員固定值的下拉名單（人員對照表）：value＝對照表的別名（送出時後端照別名對人），顯示名字 */}
-      <datalist id="me-people-options">{meeglePeopleOptions(people).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</datalist>
+      {/* 人員固定值的下拉名單：空間人員（value＝email，選了會先建立對照）＋對照表裡名單外的人（value＝別名） */}
+      <datalist id="me-people-options">{peopleOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</datalist>
       <section className="mb-card mb-shell">
         <header className="mb-shell-head">
           <h2 className="mb-shell-title">Meegle 批量修改</h2>
@@ -480,17 +524,24 @@ export function MeegleBatchEditTab({ space, onBusyChange, onGoBind, initialSheet
                   <span className="me-person-name">{n}</span><Icon name="arrow" /><span className="me-person-miss">未找到人員</span>
                   <select className="mb-select" value={mapping[n] ?? ''} aria-label={`${n} 對照到`} onChange={e => setMapping(x => ({ ...x, [n]: e.target.value }))}>
                     <option value="">選擇人員</option>
-                    {[...new Map(people.map(p => [p.email, p])).values()].map(p => <option key={p.email} value={p.email}>{p.name}（{p.email}）</option>)}
+                    {[...new Map([...(roster ?? []).filter(u => u.email).map(u => ({ name: u.name, email: u.email })), ...people.filter(p => p.email)].map(p => [p.email.toLowerCase(), p])).values()].map(p => <option key={p.email} value={p.email}>{p.name}（{p.email}）</option>)}
                   </select>
                   <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={!mapping[n] || mapBusy === n} onClick={() => void mapPerson(n)}>{mapBusy === n ? '對照中…' : '建立對照'}</button>
                 </div>
               ))}
-              {unmapped.length > 0 && <p className="mb-hint">清單只有已經對照過的人；全新的人請到「Meegle 開單」分頁填 email 建立對照。沒對照的名字，那幾列會被擋下。</p>}
+              <p className="mb-hint">
+                {rosterState.loading ? '正在讀取空間人員…'
+                  : rosterState.error ? <span className="mb-badge mb-badge--bad">讀不到空間人員名單：{rosterState.error}（下拉只剩對照過的人，名單外的人可在固定值直接輸入 email）</span>
+                  : `下拉是這個空間掛過角色的 ${(roster ?? []).filter(u => u.email).length} 人＋對照過的人，不是完整名錄；名單外的人在固定值直接輸入 email。`}
+                {' '}<button type="button" className="mb-btn mb-btn--small" disabled={rosterState.loading} onClick={() => void loadRoster(true)}>重新整理名單</button>
+              </p>
+              {unmapped.length > 0 && <p className="mb-hint">沒對照的名字，那幾列會被擋下。</p>}
+              {Object.keys(pickErrors).length > 0 && <div className="mb-alert mb-alert--warn">{Object.entries(pickErrors).map(([k, m]) => <div key={k}>{k}：{m}（這個人對不上，用到的列會被擋下）</div>)}</div>}
               {mapError && <div className="mb-alert mb-alert--bad">{mapError}</div>}
             </section>
             <div className="mb-pane-actions">
               <button type="button" className="mb-btn mb-btn--outline" onClick={() => setStep(1)}>上一步</button>
-              <button type="button" className="mb-btn mb-btn--primary" disabled={!chosen.length || !activeCount} onClick={() => void goPreview()}>下一步</button>
+              <button type="button" className="mb-btn mb-btn--primary" disabled={!chosen.length || !activeCount || resolving > 0} onClick={() => void goPreview()}>{resolving > 0 ? '人員對照中…' : '下一步'}</button>
             </div>
           </div>
         )}
