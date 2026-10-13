@@ -248,6 +248,23 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     !result.fails.some(f => f.includes('登入失敗')), JSON.stringify(result.fails));
 }
 
+// ── ⑩ 引擎的 notes 是字串，不能逐字拆成一字一行 ─────────────────────────────
+// 1013 osm-qa-agent 回報：run 1e32e0e6 的日誌每行只有一個字（「🔧 k」「🔧 e」…），500 行上限只剩最後幾百字。
+// 要造出「引擎真的有 note」的情況才驗得到——點不到按鈕會產生一則 ❌ note。
+{
+  const { browser } = stubBrowser({ failOn: '#bad' });
+  const lines = [];
+  await runBackendOps(browser, {
+    backendUrl: 'https://cp.example/', username: USERNAME, password: PASSWORD, title: 't',
+    onNote: (line) => lines.push(line),
+    steps: [{ action: 'click', selector: '#bad' }],
+  });
+  const engine = lines.filter(l => l.startsWith('🔧 ') && !l.startsWith('🔧 後台'));
+  check('⑩ 前提：引擎真的回了 note（不然這條是空的）', engine.length > 0, JSON.stringify(lines));
+  check('⑩ ⚠️ 引擎 note 一則一行，不是一字一行',
+    engine.length > 0 && engine.every(l => [...l.slice(3)].length > 1), JSON.stringify(engine.slice(0, 5)));
+}
+
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

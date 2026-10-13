@@ -164,6 +164,13 @@ export function createBackendOpContext(page, { baseUrl, onNote = () => {} }) {
  *   capture：片段跑完、關掉後台頁之前呼叫一次，回傳證據路徑（host 決定存到哪）
  * @returns {Promise<{ ok: boolean, notes: string[], fails: string[], vars?: object, shots?: string[] }>}
  */
+/** runSteps 的 notes（字串，以「 | 」相接；舊版或其他來源可能是陣列）→ 一則一行 */
+export function engineNotes(notes) {
+  if (Array.isArray(notes)) return notes.map(String);
+  if (typeof notes === 'string') return notes.split(' | ').filter(n => n.trim());
+  return [];
+}
+
 export async function runBackendOps(browser, options) {
   const { backendUrl, username, password, steps, title = '後台設定', onNote = () => {}, capture = null } = options;
   const fails = [];
@@ -209,7 +216,9 @@ export async function runBackendOps(browser, options) {
 
     const ctx = createBackendOpContext(page, { baseUrl: backendUrl, onNote: say });
     const result = await runSteps(steps, ctx, { autoScreenshot: false, state });
-    for (const note of result?.notes ?? []) say(`🔧 ${redact(note)}`);
+    // ⚠️ runSteps 的 notes 是用「 | 」接好的**字串**（block-engine.js），不是陣列。
+    //    直接 for…of 會逐字拆開，日誌變成一字一行（「🔧 k」「🔧 e」…），500 行上限只剩最後幾百個字
+    for (const note of engineNotes(result?.notes)) say(`🔧 ${redact(note)}`);
     for (const problem of result?.criticalFails ?? []) fails.push(redact(problem));
     /**
      * 片段結束時的後台畫面當證據（例：讀到的 Jackpot Ranking 表格）。
