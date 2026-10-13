@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ModelSelector } from '../components/ModelSelector'
 import GeminiSettingsModal from '../components/GeminiSettingsModal'
 import type { AccountInfo } from '../accountTypes'
+import { ideckXpathProblem, ideckXpathProblems } from '../../shared/ideck-xpath'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
 interface StepResult {
@@ -207,23 +208,34 @@ function ProfilesPanel() {
       ...(editing.entryTouchPoints2 ?? []),
     ].filter(s => s.trim() !== '')
     const badCoords = allCoords.filter(s => !isValidCoord(s))
-    // ideckXpaths: only basic non-empty check (no format constraint)
-    const badXpaths = (editing.ideckXpaths ?? []).filter(s => !s.trim())
+    // iDeck XPath（v5.50.0）：結構規則跟 server 共用 shared/ideck-xpath.ts；語法再用瀏覽器的 document.evaluate 驗
+    //   （LIONLINK、SQUIDGAME 都出過開頭多一個 b 的錯字，存得進去、跑的時候那顆被跳過還判 PASS）
+    const xpathList = (editing.ideckXpaths ?? []).map(s => s.trim())
+    const badXpaths = [
+      ...ideckXpathProblems(xpathList).map(x => `第 ${x.index} 條${x.problem}`),
+      ...xpathList.flatMap((x, i) => { if (ideckXpathProblem(x)) return []; try { document.evaluate(x, document, null, XPathResult.ANY_TYPE, null); return [] } catch (e) { return [`第 ${i + 1} 條 XPath 語法錯誤（${e instanceof Error ? e.message.slice(0, 80) : String(e)}）`] } }),
+    ]
     if (badCoords.length > 0) {
       alert(`座標格式錯誤：${badCoords.join('、')}\n請使用「數字,數字」格式，例如 18,9`)
       return
     }
     if (badXpaths.length > 0) {
-      alert('iDeck XPath 列表中有空白項目，請移除或填入 XPath 字串')
+      alert(`iDeck XPath 有問題，沒有存檔：\n${badXpaths.join('\n')}`)
       return
     }
     setSaving(true)
-    await fetch('/api/machine-test/profiles', {
+    const res = await fetch('/api/machine-test/profiles', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...editing, machineType: editing.machineType.trim().toUpperCase() }),
-    })
+      body: JSON.stringify({ ...editing, ideckXpaths: xpathList, machineType: editing.machineType.trim().toUpperCase() }),
+    }).catch(() => null)
     setSaving(false)
+    // 原本不看回應：server 拒存（400）時畫面照樣關掉，看起來像存好了
+    if (!res?.ok) {
+      const j = await res?.json().catch(() => null) as { message?: string; details?: Array<{ message?: string }> } | null
+      alert(`存檔失敗：${j?.details?.map(d => d.message).filter(Boolean).join('；') || j?.message || (res ? `HTTP ${res.status}` : '連不到伺服器')}`)
+      return
+    }
     setEditing(null)
     load()
   }

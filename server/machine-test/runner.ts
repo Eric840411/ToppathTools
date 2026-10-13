@@ -3400,6 +3400,9 @@ export async function stepIdeck(
       }
     } catch { /* 診斷失敗不影響測試 */ }
 
+    // 1013 LIONLINK（osm-qa-agent spec #1-2，CodeX 同意）：profile 有設、卻解析不到的 xpath 要記成 noElement 進 outcomes——
+    //   原本只 emit「跳過」，那一顆不進 outcomes，ideckVerdict 只看 outcomes → 漏按 3 CREDITS 照樣判 PASS 9/9
+    const missingXpaths: Array<{ label: string; xpath: string }> = []
     if (betRandomXpaths && betRandomXpaths.length > 0) {
       emit(`使用隨機下注 XPath 列表（${betRandomXpaths.length} 個）...`)
       const frames = page.frames()
@@ -3416,7 +3419,7 @@ export async function stepIdeck(
             }
           } catch { /* frame detached */ }
         }
-        if (!found) emit(`xpath[${i + 1}] ⚠️ 找不到元素，跳過`)
+        if (!found) { emit(`xpath[${i + 1}] ⚠️ 找不到元素（記成 noElement，不能算通過）`); missingXpaths.push({ label: `xpath[${i + 1}]`, xpath: xp }) }
       }
     } else if (!profile?.ideckRowClass) {
       // ── 自動偵測 iDeck 按鈕（2026-09-22 加）─────────────────────────────────
@@ -3877,6 +3880,7 @@ export async function stepIdeck(
       })
       if (seq.backs.length) emit(`📚 iDeck 指標學習：來回按 ${seq.backs.map(b => `${b.o.name ?? b.o.label}${b.o.result === 'ack' ? '' : '✗'}`).join('、')}`)
       outcomes.push(...seq.outcomes)
+      outcomes.push(...missingXpaths.map(m => ({ label: m.label, text: '', name: null, seq: null, actionid: null, isspin: null, result: 'noElement' as const, shot: null, note: 'profile xpath 找不到元素' })))
       restore = seq.restore
       familySkipped = seq.skipped; restoreSkipped = seq.restoreSkipped ?? null
       if (seq.minRestore) emit(`還原最小 Credits：${seq.minRestore.label}「${seq.minRestore.text}」${seq.minRestore.result === 'ack' ? '✓' : '✗（' + seq.minRestore.result + '）'}`)

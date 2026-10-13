@@ -752,3 +752,18 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
     - 修法：每次真的點擊都重置
   - 兩種模式都受影響
   - 測試：verdicts-probe 72、ideck-timing-probe 41；各自拿掉修正會紅
+
+## 1013 LIONLINK 檢討修正（v5.50.0 起，osm-qa-agent 規格 `reports/spec-mt-ai-lessons-1013.md`，CodeX 逐項定案）
+
+對照 873-LIONLINK-0231～0245 的 Local agent 與 AI agent 結果，補 runner 的誤判。#4（CCTV 放大重讀／盤面比對）使用者決定**不做**，讀錯的由 osm-qa-agent 人工複核。
+
+### #1-2 profile 的 iDeck xpath 解析不到 → noElement（v5.50.0）
+- 原本只 emit「跳過」、那一顆不進 outcomes，`ideckVerdict` 只看 outcomes → LIONLINK 漏按 3 CREDITS 照樣 **PASS 9/9**
+- 現在記成 `noElement`（note「profile xpath 找不到元素」），分母算進去（2/3），判 FAIL（flow fail）
+- 探針 `scripts/ideck-missing-xpath-probe.ts`（真 stepIdeck＋假頁面）：拿掉補登會紅、紅的內容是「server 回應 2/2」PASS
+
+### #10 存 profile 時檢查 XPath（v5.50.0）
+- 規則共用 `shared/ideck-xpath.ts`：trim 後開頭必須是 `/` 或 `(`、括號／中括號成對、引號關好，不合格拒存並指出第幾條
+- 編輯頁另外用瀏覽器 `document.evaluate` 驗語法（server 沒有 XPath 引擎）；存檔現在會看回應，server 拒存會跳出原因（原本不看回應，400 也照樣關掉視窗）
+- ⚠️ 已經存在的壞 xpath 不會自動修，但下次編輯那個 profile 時會擋下來，要先改好才存得進去
+- 測試 `shared/ideck-xpath.test.ts` 13 條；真 worker 對 data.db 副本打過（壞的 400、好的存成 trim 後的值）

@@ -42,6 +42,7 @@ import {
 import { bindHeavyTaskOwner, finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 import { disconnectAgentsByToken as disconnectAgentsByTokenIn } from '../agent-token-disconnect.js'
+import { ideckXpathProblems } from '../../shared/ideck-xpath.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -179,7 +180,10 @@ const profileSchema = z.object({
   notes:             z.string().optional().nullable(),
   entryTouchPoints:  z.array(z.string()).optional().nullable(),
   entryTouchPoints2: z.array(z.string()).optional().nullable(),
-  ideckXpaths:       z.array(z.string()).optional().nullable(),
+  // v5.50.0：先 trim 再檢查開頭／括號成對，不合格就拒存並指出第幾條（規則跟前端共用 shared/ideck-xpath.ts）
+  ideckXpaths:       z.array(z.string().transform(s => s.trim())).optional().nullable().superRefine((list, ctx) => {
+    for (const { index, problem } of ideckXpathProblems(list ?? [])) ctx.addIssue({ code: 'custom', path: [index - 1], message: `iDeck XPath 第 ${index} 條${problem}` })
+  }),
   audioConfig:       audioConfigSchema,
   expectedScreens:   z.number().int().min(1).optional().nullable(),
 })
