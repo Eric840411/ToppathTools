@@ -53,6 +53,8 @@ export function ideckVerdict(p: {
   if (p.ambiguous) {
     // 中止前已經有真的「送了沒回」→ 那是確定的問題，照判 no response；其他（含沒還原倍數）都歸在歧義底下、記未驗
     if (bad.some(o => NO_RESPONSE.includes(o.result))) return { status: 'fail', message: `${message}｜⚠️ ${p.ambiguous}｜判定：no response` }
+    // 1013（CodeX 749a324 [P2]）：profile xpath 找不到元素也是確定的問題，跟開局歸屬無關，不能被另一顆的歧義降成 SKIP
+    if (bad.some(o => o.result === 'noElement')) return { status: 'fail', message: `${message}｜⚠️ ${p.ambiguous}｜判定：flow fail` }
     return { status: 'skip', message: `${message}｜⚠️ ${p.ambiguous}｜判定：ideck not verified (timing ambiguous)` }
   }
   if (bad.length || restoreBad) {

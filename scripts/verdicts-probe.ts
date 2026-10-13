@@ -14,6 +14,9 @@ const cases: Array<[string, string, string]> = [
   ['一顆沒回應', (() => { const r = V({ outcomes: [...bzzf().slice(0, 4), O('Bet38', 'noAck')] }); return `${r.status}/${tag(r.message)}` })(), 'fail/no response'],
   ['前端沒送出＝流程失敗（CodeX 0929）', (() => { const r = V({ outcomes: [...bzzf().slice(0, 4), O('Bet38', 'notSent')] }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],
   ['找不到元素＝流程失敗', (() => { const r = V({ outcomes: [...bzzf().slice(0, 4), O('Bet38', 'noElement')] }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],
+  // 1013（CodeX 749a324 [P2]）：xpath 確定找不到，不能被另一顆的開局歸屬不明降成 SKIP
+  ['找不到元素＋歸屬不明 → 仍是流程失敗', (() => { const r = V({ outcomes: [...bzzf().slice(0, 4), O(null, 'noElement')], ambiguous: '晚到的 begin 歸屬不明' }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],
+  ['對照：只有歸屬不明（沒有確定的失敗）→ SKIP', V({ ambiguous: '晚到的 begin 歸屬不明' }).status, 'skip'],
   ['沒有倍數鍵、全部回應', V({ outcomes: [O('Bet30'), O('Bet60')], restore: null }).status, 'pass'],
   ['盒子查得到但 0 筆 → WARN', V({ apiErr: null, boxCount: 0 }).status, 'warn'],
   ['盒子 0 筆不能把 FAIL 降成 WARN', V({ apiErr: null, boxCount: 0, outcomes: [...bzzf().slice(0, 4), O('Bet38', 'noAck')] }).status, 'fail'],

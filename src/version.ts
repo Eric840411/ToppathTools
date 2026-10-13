@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.50.0'
+export const APP_VERSION = '5.50.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.50.1', date: '2026-10-13', changes: ['fix(機台測試 iDeck 找不到元素被降成 SKIP)：CodeX 審 749a324 [P2]——補進的 noElement 遇到另一顆開局歸屬不明（ambiguous）時，ideckVerdict 整個降成 SKIP，確定找不到的 xpath 被蓋掉。改成 noElement 跟 no response 一樣是確定的問題，歸屬不明時照樣判 FAIL（flow fail）。verdicts-probe 補兩條（找不到＋歸屬不明 → FAIL；只有歸屬不明 → SKIP），拿掉修正會紅'] },
   { version: '5.50.0', date: '2026-10-13', changes: ['feat(機台測試 1013 LIONLINK 檢討，第一批)：osm-qa-agent 規格 spec-mt-ai-lessons-1013、CodeX 逐項定案——#1-2 profile 有設、卻解析不到的 iDeck xpath 記成 noElement 進結果（原本跳過那顆、只看有按到的，LIONLINK 漏按 3 CREDITS 照樣 PASS 9/9），分母算進去、判 FAIL；#10 存 profile 時檢查 iDeck XPath：開頭必須是 / 或 (、括號引號成對，規則前後端共用 shared/ideck-xpath.ts，編輯頁再用 document.evaluate 驗語法，存檔會看伺服器回應（原本 400 也照樣關掉視窗）。ideck-missing-xpath-probe 6 條（拿掉補登會紅、紅成 2/2 PASS）、ideck-xpath.test 13 條；真 worker 對 data.db 副本驗過。runner 的改動要更新 Local Agent 才生效'] },
   { version: '5.49.3', date: '2026-10-13', changes: ['fix(H5／PC 腳本存檔 steps 被清光)：osm-qa-agent 1013 改 27 支腳本綁定時發現——PUT /api/frontend-auto/scripts/:id 沒帶 steps 會把整份腳本的步驟靜默清成 []（同一支 handler 對綁定欄位卻是沒帶就保留）。CodeX 定案：沒帶＝保留（SQL 直接不動 steps 欄）、[]＝清空、陣列＝替換、JSON 陣列字串照舊；null／物件／數字／布林／壞字串 → 400、整筆不更新；POST 沒帶＝新腳本空陣列，非法值一樣 400。規則抽到 server/frontend-script-steps.ts。前端存檔每次都帶 steps，這次沒有資料受影響（27 支逐支全文比對過備份）。frontend-script-steps.test 13 條，換回舊寫法會紅 6 條；也用真的 worker 對 data.db 副本打過'] },
   { version: '5.49.2', date: '2026-10-13', changes: ['fix(UAT 後台片段 日誌一字一行)：osm-qa-agent 回報 run 1e32e0e6——日誌每行只有一個字（「🔧 k」「🔧 e」…），500 行上限只剩最後幾百字。runSteps 回的 notes 是用「 | 」接好的字串，backend-ops 卻 for…of 當陣列逐字拆。改成 engineNotes() 拆回一則一行。backend-ops.test ⑩（點不到按鈕造出真的 note），換回舊寫法會紅、紅的內容跟回報一樣。agent 端程式，要更新 Local Agent 才生效'] },
