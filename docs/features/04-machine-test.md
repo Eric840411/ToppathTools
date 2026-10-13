@@ -827,3 +827,12 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - ⚠️ 用的是**測前**的後台狀態；跑測試期間被改就看不到
 - ⚠️ F 欄多了 `test machine`、`not offered` 兩個詞（原本使用者定「大廳找不到＝offline」）
 - 測試：`scripts/ui-checks/lobby-missing.test.mjs` 10 條，用真的後台項目（`fixtures/egm-list/873-LIONLINK-0239.json`）＋真的 `shortLine`
+
+### #9 測前檢查 LuckyLink 三態（v5.56.0，batch）
+- QAT `/slot/egmList` 用 pageSize 10000 抓全表一直回 `40000 Operation timed out`；原本讀取失敗跟「清單沒有」都變 null → 每台都報「Egm list 沒有這台」＋「預期有接」（0237／0239／0240／0245 假警報）
+- `scripts/machine-test/luckylink-lookup.mjs`：每台三態 found／absent（API 成功、查完仍沒有完整 gmid）／unknown（無法確認，附原因）
+  - 全表失敗 → 逐台用 gmid 最後一段查（同號只查一次）；**machineNumber 是跨渠道的子字串比對**（0231 也撈到 892-COINCOMBO-0231，osm-qa-agent 實測）→ 只認完整 gmid
+  - 這頁滿了就翻下一頁；每個請求看 code 20000（實測是數字）、接例外、20 秒 timeout；data 沒有 items 陣列＝unknown（不當成空陣列）；單台失敗只影響那一台
+- `judgeMachineInfo` 第 5 個參數 `llUnknown`：無法確認時不比對任何 LuckyLink 預期值（有、協議、版本），只留一條「LuckyLink 無法確認（原因），預期值沒有比對」；盒子檢查照常；登入失敗也算無法確認。`preTestLines`／報告寫「無法確認（原因）」，不寫「沒有這台」
+- 測試：`scripts/ui-checks/luckylink-lookup.test.mjs` 24 條（含真的回應 `fixtures/luckylink/egmlist-1013.json`：跨渠道同號、空結果）、`pretest-luckylink.test.mjs` 11 條（mock fetch 跑真的 preTestCheck／報告）；突變（不翻頁、用機台號比對、失敗當沒有、舊接線、舊報告）各自會紅
+- 實跑（1013 QAT，唯讀）：全表照樣逾時 → 逐台查：0231 有接 SAS 1.1.6、0998 確定不存在

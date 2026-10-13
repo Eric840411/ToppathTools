@@ -1,0 +1,121 @@
+{
+  "fetchedAt": "2026-10-13T14:58:40.495Z",
+  "note": "LuckyLink QAT /slot/egmList 原始回應（token/serial/ip 遮掉）",
+  "hit-0231": {
+    "request": {
+      "method": "POST",
+      "path": "/slot/egmList?token=xxx&clientversion=1.0.6.6",
+      "body": {
+        "channelId": "",
+        "machineNumber": "0231",
+        "serialNumber": "",
+        "groupName": "",
+        "page": 1,
+        "pageSize": 10000
+      }
+    },
+    "httpStatus": 200,
+    "response": {
+      "data": {
+        "items": [
+          {
+            "_id": {
+              "$oid": "68cd23b2a6562b713a8506b9"
+            },
+            "id": 4277,
+            "name": "lionlink",
+            "assetnumber": "0231",
+            "serialnumber": "xxx",
+            "isactive": true,
+            "groupid": 48,
+            "gmchannel": "873",
+            "gmid": "873-LIONLINK-0231",
+            "gmname": "lionlink",
+            "coinin": 7448,
+            "isMeterInited": true,
+            "initMeterTimestamp": 1787306541160,
+            "sasversion": "602",
+            "accountdenom": 0.01,
+            "clientSendTime": 1791893893314,
+            "clientversion": "1.1.6",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1758274482744"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1791893893365"
+              }
+            },
+            "__v": 0,
+            "groupName": "LionLink",
+            "checklevelCount": true,
+            "state": false
+          },
+          {
+            "_id": {
+              "$oid": "6abf7168d322a5f6d8357ac3"
+            },
+            "id": 6376,
+            "name": "coincombo",
+            "assetnumber": "0231",
+            "serialnumber": "xxx",
+            "isactive": true,
+            "groupid": 150,
+            "gmchannel": "892",
+            "gmid": "892-COINCOMBO-0231",
+            "gmname": "coincombo",
+            "coinin": 2640,
+            "isMeterInited": true,
+            "initMeterTimestamp": 1790937100215,
+            "sasversion": "602",
+            "accountdenom": 0.01,
+            "clientSendTime": 1791252444636,
+            "clientversion": "1.1.10",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1790931304877"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1791252444678"
+              }
+            },
+            "__v": 0,
+            "groupName": "PGR-Test Coin Combo",
+            "checklevelCount": true,
+            "state": false
+          }
+        ],
+        "total": 2
+      },
+      "code": 20000,
+      "message": "success"
+    }
+  },
+  "empty-nomatch": {
+    "request": {
+      "method": "POST",
+      "path": "/slot/egmList?token=xxx&clientversion=1.0.6.6",
+      "body": {
+        "channelId": "",
+        "machineNumber": "QAFIXTURE-NOMATCH-0000",
+        "serialNumber": "",
+        "groupName": "",
+        "page": 1,
+        "pageSize": 10000
+      }
+    },
+    "httpStatus": 200,
+    "response": {
+      "data": {
+        "items": [],
+        "total": 0
+      },
+      "code": 20000,
+      "message": "success"
+    }
+  }
+}

@@ -26,6 +26,7 @@
 import { evaluateIdeckScreens, loadIdeckCrop, evaluateWildRow, loadWildRow } from './ideck-screen-check.mjs'
 import { learnIndicators, drawRegions } from './ideck-indicator-learn.mjs'
 import { ideckButtonKey } from '../../server/machine-test/ideck-button-key.js'
+import { lookupLuckyLink, LL_TIMEOUT_MS } from './luckylink-lookup.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1160,18 +1161,18 @@ async function fetchBoxInfo(channel) {
   const items = j.data.items ?? []
   return { host, map: new Map(items.map(x => [x.machineName, x])), complete: Number.isFinite(Number(j.data.total)) && Number(j.data.total) === items.length }
 }
-async function fetchLuckyLinkInfo() {
+async function fetchLuckyLinkInfo(codes) {
   const B = 'https://luckylink-backendserver.osmslot.org', O = 'https://luckylink-backendtest.osmslot.org'
   const h = { 'content-type': 'application/json', origin: O, referer: O + '/' }
-  const lj = await (await fetch(B + '/auth/login', { method: 'POST', headers: h, body: JSON.stringify({ username: 'admin', password: secret('MT_LUCKYLINK_BACKEND_PASSWORD', 'luckyLinkBackendPassword') }) })).json().catch(() => null)
+  const lj = await fetch(B + '/auth/login', { method: 'POST', headers: h, body: JSON.stringify({ username: 'admin', password: secret('MT_LUCKYLINK_BACKEND_PASSWORD', 'luckyLinkBackendPassword') }), signal: AbortSignal.timeout(LL_TIMEOUT_MS) }).then(r => r.json()).catch(() => null)
   if (!lj?.data?.token) return { err: 'LuckyLink QAT 登入失敗' }
-  const j = await (await fetch(`${B}/slot/egmList?token=${lj.data.token}&clientversion=1.0.6.6`, { method: 'POST', headers: h, body: JSON.stringify({ channelId: '', machineNumber: '', serialNumber: '', groupName: '', page: 1, pageSize: 10000 }) })).json().catch(() => null)
-  const items = j?.data?.items
-  if (!Array.isArray(items)) return { err: 'LuckyLink Egm list 讀取失敗' }
-  return { map: new Map(items.map(x => [String(x.gmid).toUpperCase(), x])) }
+  // v5.56.0：全表（pageSize 10000）在 QAT 會一直 40000 逾時 → 逐台查；每台三態，見 luckylink-lookup.mjs
+  const fetchPage = async (body) => (await fetch(`${B}/slot/egmList?token=${lj.data.token}&clientversion=1.0.6.6`, { method: 'POST', headers: h, body: JSON.stringify(body), signal: AbortSignal.timeout(LL_TIMEOUT_MS) })).json()
+  return lookupLuckyLink(codes, { fetchPage })
 }
 // 純函式（探針測）：一台的資訊 → 列＋與預期值的差異
-export function judgeMachineInfo(code, box, ll, expect = {}) {
+// llUnknown（v5.56.0）：LuckyLink 讀取失敗的原因。有值＝無法確認：不說「清單沒有」，也不比對任何 LuckyLink 預期值（不算通過，原因列進 issues）
+export function judgeMachineInfo(code, box, ll, expect = {}, llUnknown = null) {
   const proto = ll ? llProtocol(ll.sasversion) : ''
   const linked = !!(ll && proto && ll.isactive)
   const row = {
@@ -1179,7 +1180,7 @@ export function judgeMachineInfo(code, box, ll, expect = {}) {
     online: box?.onlineState ?? null, status: box?.machineStatus ?? null,
     // 1013 spec #8：大廳找不到時判原因用（後台 EGM List 欄位；istest 沒設是 0）
     istest: box ? (box.istest ?? null) : null, isShowClient: box ? (box.isShowClient ?? null) : null, isUsed: box ? (box.isUsed ?? null) : null,
-    llListed: !!ll, llLinked: linked, llProtocol: proto || null, llVer: ll?.clientversion || null,
+    llListed: llUnknown ? null : !!ll, llLinked: llUnknown ? null : linked, llUnknown: llUnknown || null, llProtocol: proto || null, llVer: ll?.clientversion || null,
     llAuthorized: ll ? !!ll.isactive : null, llOnline: ll ? !!ll.state : null, llGroup: ll?.groupName || null,
   }
   const issues = []
@@ -1188,6 +1189,8 @@ export function judgeMachineInfo(code, box, ll, expect = {}) {
   else if (box.onlineState !== 'online') issues.push(`盒子 ${box.onlineState ?? '狀態不明'}`)
   if (expect.machineVer && !eq(row.boxVer, expect.machineVer)) issues.push(`盒子版號 ${row.boxVer ?? '查不到'}，預期 ${expect.machineVer}`)
   if (expect.machineModel && !eq(row.model, expect.machineModel)) issues.push(`Machine model ${row.model ?? '查不到'}，預期 ${expect.machineModel}`)
+  const llExpected = expect.luckylink || expect.llProtocol || expect.llVer
+  if (llUnknown) { if (llExpected) issues.push(`LuckyLink 無法確認（${llUnknown}），預期值沒有比對`); return { row, issues } }
   if (expect.luckylink === 'yes' && !linked) issues.push(ll ? `LuckyLink 沒接上（${proto || '沒有協議'}、${ll.isactive ? '已授權' : '未授權'}${row.llGroup ? '' : '、沒有群組'}），預期有接` : 'LuckyLink Egm list 沒有這台，預期有接')
   if (expect.luckylink === 'no' && linked) issues.push(`LuckyLink 有接（${proto}），預期沒接`)
   if (expect.llProtocol && !eq(proto, expect.llProtocol)) issues.push(`LuckyLink 協議 ${proto || '無'}，預期 ${expect.llProtocol}`)
@@ -1197,10 +1200,12 @@ export function judgeMachineInfo(code, box, ll, expect = {}) {
 export async function preTestCheck(codes, expect = {}) {
   const chans = [...new Set(codes.map(c => c.split('-')[0]))]
   const boxes = Object.fromEntries(await Promise.all(chans.map(async ch => [ch, await fetchBoxInfo(ch)])))
-  const ll = await fetchLuckyLinkInfo()
-  const errs = [...Object.values(boxes).filter(b => b.err).map(b => b.err), ...(ll.err ? [ll.err] : [])]
+  const ll = await fetchLuckyLinkInfo(codes).catch(e => ({ err: `LuckyLink 查詢失敗（${String(e?.message ?? e).slice(0, 80)}）` }))
+  const errs = [...Object.values(boxes).filter(b => b.err).map(b => b.err), ...(ll.err ? [ll.err] : []), ...(ll.errs ?? [])]
   const rows = codes.map(c => {
-    const r = judgeMachineInfo(c, boxes[c.split('-')[0]]?.map?.get(c) ?? null, ll.map?.get(c.toUpperCase()) ?? null, expect)
+    // 登入失敗（ll.err）也是無法確認，不是清單沒有
+    const s = ll.status?.get(c.toUpperCase()) ?? { state: 'unknown', why: ll.err || '沒有查詢結果' }
+    const r = judgeMachineInfo(c, boxes[c.split('-')[0]]?.map?.get(c) ?? null, s.state === 'found' ? s.item : null, expect, s.state === 'unknown' ? s.why : null)
     r.row.boxListComplete = boxes[c.split('-')[0]]?.complete === true   // 1013 spec #8：這台的渠道清單是否完整
     return r
   })
@@ -1226,7 +1231,7 @@ export function lobbyMissingReason(row) {
 export function preTestLines(p) {
   const out = []
   for (const { row: r, issues } of p.rows) {
-    out.push(`${r.code}｜盒子 ${r.boxVer ?? '—'}｜model ${r.model ?? '—'}｜${r.online ?? '—'}/${r.status ?? '—'}｜LuckyLink ${r.llLinked ? `有接 ${r.llProtocol} ${r.llVer ?? ''}`.trim() : r.llListed ? `沒接（${r.llProtocol ?? '無協議'}、${r.llAuthorized ? '已授權' : '未授權'}${r.llGroup ? `、群組 ${r.llGroup}` : '、無群組'}）` : 'Egm list 沒有這台'}${issues.length ? `｜⚠️ ${issues.join('；')}` : ''}`)
+    out.push(`${r.code}｜盒子 ${r.boxVer ?? '—'}｜model ${r.model ?? '—'}｜${r.online ?? '—'}/${r.status ?? '—'}｜LuckyLink ${r.llUnknown ? `無法確認（${r.llUnknown}）` : r.llLinked ? `有接 ${r.llProtocol} ${r.llVer ?? ''}`.trim() : r.llListed ? `沒接（${r.llProtocol ?? '無協議'}、${r.llAuthorized ? '已授權' : '未授權'}${r.llGroup ? `、群組 ${r.llGroup}` : '、無群組'}）` : 'Egm list 沒有這台'}${issues.length ? `｜⚠️ ${issues.join('；')}` : ''}`)
   }
   return out
 }
