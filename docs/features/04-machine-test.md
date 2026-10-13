@@ -796,3 +796,14 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - `aftBreaker`：連續 2 台失敗、**已知且相同**的 state → 停批（訊息帶 🛑，batch 不自動續跑）。窗口外的舊紀錄不算；state 不明不算；查不到／AFT 成功／進場成功都把計數歸零
 - 多 worker 並行時「連續」是依完成順序算（單一大廳時就是機台順序）
 - 探針 `scripts/aft-breaker-probe.ts`：純函式 13 條＋**真的 runWorker**（假 runMachine、假 daily-analysis）5 條——連續 2 台 87 → 第 3 台不派、87→40→40 停在第 3 台、中間成功會歸零；拿掉停批那一行會紅 4 條
+
+### #7 局沒結束：Take 優先、扣款就停、盲推上限照實測注額（v5.53.0）
+- 0236：一局沒收分最後被閒置踢出（機台不會自動 Take Win）；0231／0237：Hold & Spin、feature 要推到結束
+- `superviseOpenRound`（未監控機台開局 35 秒沒 end 的處理器）：
+  - **Take 優先**：只在機種**確定 Take＝收分**時才按（profile `clickTake` 或 `bonusAction=takewin`；CodeX：須確認該機種確為收分），按畫面上看得到的 `.my-button.btn_take`／`.btn_take`／`.btn_takewin`，點前重查 end／停止，算進動作次數；按到了這一輪就不再按別的
+  - SPIN 照舊要 OCR 判成 spin 才按
+  - **扣款守門**：這局 begin 的餘額（moneyNtc coin）——局還開著、之後任何一筆 coin 比它少＝按到付費局 → 回 `debit`，立刻交人工、**不叫卡住救援**；而且同一台之後不管哪一局都直接回 debit（按 SPIN 開了新局，begin 換了，原本用 beginSeq 的快取擋不住）。begin 沒有餘額就不啟用守門（照舊）
+- 盲推（退出被 feature 擋住、不在監控時連按 SPIN）：
+  - 單把成本＝這台**實測注額**（moneyNtc 相鄰兩局 begin 的差，`lastBetFromMoneyLog`），上限＝14 倍（`BLIND_SPEND_SPINS`）。原本 10,000／100,000 是照 BZZF 的全域常數，LIONLINK 最小注 18 時等於沒上限。**注額不明就不盲推**
+  - 已花＝**累積扣款**（`noteBlindDebit`：只加變少的部分），派彩不抵銷；餘額只在兩下之間讀一次，變多的區間裡按的每一下照單把成本算（保守：可能提早停，不會多花）
+- 測試：`open-round-runner-probe`（真 makeOpenRoundHandler＋假頁面）補 6 條、`open-round-probe` 補 3 條（扣款不叫救援）、`blind-burst-probe` 補 7 條；拿掉按後守門／Take 不檢查機種／debit 不黏住／改回淨額，各自會紅

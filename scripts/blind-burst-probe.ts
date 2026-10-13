@@ -1,17 +1,18 @@
 // runBlindBurst 探針（2026-09-30，CodeX 要求用模擬驗證停止條件，不在實機花到上限）：npx tsx scripts/blind-burst-probe.ts
 // 每個案例都用假時鐘＋假餘額，檢查：何時停（halt 原因）、總共真的送出幾下（sent）。
-import { runBlindBurst, type BlindBurstState } from '../server/machine-test/verdicts.js'
+import { runBlindBurst, blindBudget, extraSpinDecision, noteBlindDebit, type BlindBurstState } from '../server/machine-test/verdicts.js'
 
 type Opt = {
   presses?: number; bal0?: number | null; balAfter?: (sent: number) => number | null
   stopAt?: number; deadlineAt?: number; handpayAt?: number; maxPresses?: number
+  spinCost?: number; maxSpend?: number; burstMs?: number
 }
 async function sim(o: Opt) {
   let t = 0, sent = 0
   const state: BlindBurstState = { presses: o.presses ?? 0, bal0: o.bal0 === undefined ? undefined : o.bal0 }
   const bal = o.balAfter ?? (n => 2_000_000 - n * 7_000)
   const r = await runBlindBurst({
-    state, maxPresses: o.maxPresses ?? 96, maxSpend: 100_000, spinCost: 10_000, burstMs: 60_000, intervalMs: 5000,
+    state, maxPresses: o.maxPresses ?? 96, maxSpend: o.maxSpend ?? 100_000, spinCost: o.spinCost ?? 10_000, burstMs: o.burstMs ?? 60_000, intervalMs: 5000,
     now: () => t, sleep: async ms => { t += ms },
     isStopped: () => o.stopAt !== undefined && sent >= o.stopAt,
     deadlineExceeded: () => o.deadlineAt !== undefined && sent >= o.deadlineAt,
@@ -48,6 +49,24 @@ const cases: Array<[string, () => Promise<string>, string]> = [
 ]
 
 let fail = 0
+// ── 1013 spec #7（CodeX）：單把成本＝實測注額、上限 14 倍、累積扣款（派彩不抵銷）、注額不明就停 ──
+const lion = blindBudget(18)!
+cases.push(['blindBudget：實測注額 18 → 單把 18、上限 252（14 倍）', async () => `${lion.spinCost}/${lion.maxSpend}`, '18/252'])
+cases.push(['blindBudget：注額不明（null／0／NaN）→ null（不盲推）', async () => `${blindBudget(null)}/${blindBudget(0)}/${blindBudget(Number.NaN)}`, 'null/null/null'])
+cases.push(['⚠️ 注額不明（spinCost 無限大）→ 一下都不按', async () => { const r = await sim({ spinCost: Number.POSITIVE_INFINITY, maxSpend: 0 }); return `${has(r.halt, '注額不明')}/${r.sent}` }, '注額不明/0'])
+// LIONLINK：每把 18，第 3 下中 +1,000。淨額算法會把額度補回來（一直按到 20 下）；累積扣款到 14 下（252）就停
+cases.push(['⚠️ 派彩不抵銷：每把 18、中途中 +1,000 → 累積扣到上限就停（不會因為中獎多按）', async () => {
+  const r = await sim({ ...lion, burstMs: 100_000, balAfter: n => 2_000_000 - n * 18 + (n >= 3 ? 1_000 : 0) })
+  return `${has(r.halt, '剩餘額度不夠再付一把')}/${r.sent}`
+}, '剩餘額度不夠再付一把/14'])
+cases.push(['noteBlindDebit：只加「變少」的部分', async () => { const st = {}; for (const b of [1000, 982, 2000, 1982, 1964]) noteBlindDebit(st, b); return String((st as { debited?: number }).debited) }, '54'])
+cases.push(['extraSpinDecision：有給 state 用累積扣款（派彩不抵銷）', async () => {
+  const st = { debited: 240, lastSeenBal: 5000 }
+  const d = extraSpinDecision({ stopped: false, presses: 0, maxPresses: 96, bodyText: '', bal: 9000, bal0: 2000, maxSpend: 252, spinCost: 18, state: st })
+  return `${d.ok}/${d.reason?.includes('已扣 240') ?? false}`
+}, 'false/true'])
+cases.push(['extraSpinDecision：注額不明 → 不按', async () => { const d = extraSpinDecision({ stopped: false, presses: 0, maxPresses: 96, bodyText: '', bal: 1000, bal0: 1000, maxSpend: 0, spinCost: Number.POSITIVE_INFINITY }); return `${d.ok}/${d.reason?.includes('注額不明') ?? false}` }, 'false/true'])
+
 for (const [name, fn, want] of cases) {
   const got = await fn()
   const ok = got === want

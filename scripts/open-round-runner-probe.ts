@@ -4,15 +4,19 @@
 import { makeOpenRoundHandler } from '../server/machine-test/runner.js'
 
 type Ev = { seq: number; coin: number; reason: string; ts: number }
-function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean } }) {
+function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean }) {
   const log: Ev[] = o.noMoney ? [] : [{ seq: 1, coin: 2_000_000, reason: 'begin', ts: Date.now() - 40_000 }]
-  let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0
+  let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0, takes = 0
+  // guardedClick 先取座標再用真滑鼠點：記下最後一個取座標的元素，mouse.click 才知道點的是哪一顆
+  let lastBoxKind: 'spin' | 'tap' | 'take' = 'spin'
   const ended = () => log.some(e => e.reason === 'end')
   const pushEnd = () => { if (!ended()) log.push({ seq: 2, coin: 2_100_000, reason: 'end', ts: Date.now() }) }
-  const onClick = (kind: 'spin' | 'tap') => {
+  const onClick = (kind: 'spin' | 'tap' | 'take') => {
     if (ended()) clicksAfterEnd++
     if (o.stopFlag?.v) clicksAfterStop++
-    clicks++; if (kind === 'spin') spins++; else taps++
+    clicks++; if (kind === 'spin') spins++; else if (kind === 'take') takes++; else taps++
+    // 1013 #7：按 SPIN 其實開了一局付費局 → 新的 begin、餘額比這局 begin 少
+    if (kind === 'spin' && o.debitOnSpin && !ended()) log.push({ seq: log.length + 1, coin: 2_000_000 - 18 * spins, reason: 'begin', ts: Date.now() })
     if (o.endAfterClicks !== undefined && clicks >= o.endAfterClicks && !ended()) log.push({ seq: 2, coin: 2_100_000, reason: 'end', ts: Date.now() })
   }
   const evaluate = async (fn: unknown) => {
@@ -28,13 +32,13 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
     if (src.includes('Want to reserve')) return false
     return o.body
   }
-  const el = (kind: 'spin' | 'tap') => ({
+  const el = (kind: 'spin' | 'tap' | 'take') => ({
     isVisible: async () => true,
     click: async () => { onClick(kind) },
     // 1007 uiAct 會先用 evaluate 查禁點／頁面內攔截計數：只有真正的 click() 才算點
     evaluate: async (fn: unknown) => { if (String(fn).includes('.click()')) onClick(kind); return undefined },
     // 模擬：取座標的期間 end 推來了（CodeX 4c320d4 補測）
-    boundingBox: async () => { if (o.endDuringBox) pushEnd(); return { x: 0, y: 0, width: 10, height: 10 } },
+    boundingBox: async () => { lastBoxKind = kind; if (o.endDuringBox) pushEnd(); return { x: 0, y: 0, width: 10, height: 10 } },
   })
   const frame = {
     url: () => 'https://h5.example/game',
@@ -45,21 +49,21 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
   const page = {
     frames: () => [frame],
     evaluate,
-    $$: async (sel: string) => (/spin/i.test(sel) ? [el('spin')] : []),
+    $$: async (sel: string) => (/btn_take/.test(sel) ? (o.take ? [el('take')] : []) : /spin/i.test(sel) ? [el('spin')] : []),
     screenshot: async () => Buffer.from('png'),
-    mouse: { click: async () => { onClick('spin') } },
+    mouse: { click: async () => { onClick(lastBoxKind) } },
     getByText: () => ({ count: async () => 0, nth: () => ({ isVisible: async () => false }) }),
     locator: () => ({ count: async () => 0 }),
   }
-  return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps }) }
+  return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps, takes }) }
 }
 const quick = { pollMs: 5, quietMs: 0, maxMs: 300, maxActs: 20 }
-async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick> }) {
+async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; clickTake?: boolean }) {
   const stopFlag = { v: false }
   const f = fakePage({ ...o, stopFlag })
   const h = makeOpenRoundHandler({
     page: f.page, emit: () => {}, machineCode: '000-FAKE-0001',
-    getProfile: () => ({ machineType: 'FAKE', bonusAction: o.action ?? 'spin', touchPoints: o.touchPoints ?? [] }) as never,
+    getProfile: () => ({ machineType: 'FAKE', bonusAction: o.action ?? 'spin', touchPoints: o.touchPoints ?? [], clickTake: o.clickTake ?? false }) as never,
     sinceSeq: 0, osmStatus: () => undefined, stopped: () => stopFlag.v, filePrefix: 'probe-',
     ocr: async () => o.body, timing: { ...quick, ...(o.timing ?? {}) },
   })
@@ -102,6 +106,19 @@ for (const n of [1, 2, 3, 4, 5, 6]) {
   check('[P2] 一輪 5 格、上限 3 → 實際只點 3 下', `${r.r1}/${r.taps}`, 'stalled/3') }
 { const r = await run({ body: 'FREE GAMES', noMoney: true })
   check('沒有任何 moneyNtc → 不啟動、不點', `${r.r1}/${r.clicks}`, 'null/0') }
+
+// ── 1013 spec #7（CodeX）：Take 優先（只在機種確定 Take＝收分時）、扣款守門 ──
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', take: true, clickTake: true, endAfterClicks: 1 })
+  check('#7 機種確定 Take＝收分、畫面有 Take → 先按 Take（不按 SPIN），收到 end 就停', `${r.r1}/${r.takes}/${r.spins}/${r.clicksAfterEnd}`, 'done/1/0/0') }
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', take: true, clickTake: false, endAfterClicks: 2 })
+  check('#7 機種沒確定 Take＝收分 → 不按 Take，照舊 OCR＋SPIN', `${r.r1}/${r.takes}/${r.spins}`, 'done/0/2') }
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', take: true, clickTake: false, action: 'takewin', endAfterClicks: 1 })
+  check('#7 bonusAction=takewin 也算確定收分 → 按 Take', `${r.r1}/${r.takes}`, 'done/1') }
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', debitOnSpin: true, timing: { maxActs: 20, maxMs: 2000 } })
+  check('⚠️ #7 按 SPIN 後餘額比這局 begin 少、局還開著 → debit，只按了 1 下就停（不再按、不救援）', `${r.r1}/${r.spins}`, 'debit/1')
+  check('#7 同一局再問 → 直接回 debit（不重跑）', `${r.r2}/${r.secondMs < 100}`, 'debit/true') }
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', endAfterClicks: 2 })
+  check('#7 對照：沒有扣款 → 照舊按到 end', `${r.r1}/${r.spins}`, 'done/2') }
 
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)

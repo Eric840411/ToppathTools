@@ -14,9 +14,13 @@ type Sim = {
   stopAt?: number
   maxActs?: number
   touchesPerRound?: number
+  /** 1013 #7：第幾下 SPIN 之後餘額比這局 begin 少（undefined＝不扣） */
+  debitAfterPresses?: number
+  /** 1013 #7：給卡住救援（立刻觸發），記錄有沒有被叫到 */
+  withRescue?: boolean
 }
 async function sim(o: Sim) {
-  let t = 0, ended = false, presses = 0, touches = 0, pressAfterEnd = 0, ftCalls = 0
+  let t = 0, ended = false, presses = 0, touches = 0, pressAfterEnd = 0, ftCalls = 0, rescues = 0
   const isEnded = () => { if (o.endAt !== undefined && t >= o.endAt) ended = true; return ended }
   const r = await superviseOpenRound({
     ended: async () => isEnded(),
@@ -29,12 +33,18 @@ async function sim(o: Sim) {
     pressSpin: async () => { if (ended) pressAfterEnd++; presses++; return true },
     touch: async (budget: number) => { const n = Math.min(o.touchesPerRound ?? 1, budget); for (let i = 0; i < n; i++) { if (ended) pressAfterEnd++; touches++ } return n },
     now: () => t, sleep: async ms => { t += ms },
-    maxMs: 300_000, maxActs: o.maxActs ?? 40, quietMs: 8_000, pollMs: 5_000, stallMs: 120_000,
+    ...(o.debitAfterPresses !== undefined ? { debited: async () => presses >= o.debitAfterPresses! } : {}),
+    ...(o.withRescue ? { rescue: async () => { rescues++; return 'spin' as const } } : {}),
+    maxMs: 300_000, maxActs: o.maxActs ?? 40, quietMs: 8_000, pollMs: 5_000, stallMs: o.withRescue ? 0 : 120_000,
   })
-  return { ...r, presses, touches, pressAfterEnd }
+  return { ...r, presses, touches, pressAfterEnd, rescues }
 }
 
 const cases: Array<[string, () => Promise<string>, string]> = [
+  // 1013 #7（CodeX）：扣款即交人工、禁止後續救援
+  ['⚠️ #7 按一下 SPIN 就扣款 → debit，只按 1 下、救援一次都沒叫', async () => { const r = await sim({ debitAfterPresses: 1, withRescue: true }); return `${r.result}/${r.presses}/${r.rescues}` }, 'debit/1/0'],
+  ['#7 一開始就已經扣款 → debit、一下都不按', async () => { const r = await sim({ debitAfterPresses: 0 }); return `${r.result}/${r.presses}` }, 'debit/0'],
+  ['#7 對照：沒扣款、有救援 → 照舊會叫救援', async () => { const r = await sim({ withRescue: true, endAt: 20_000 }); return `${r.result}/${r.rescues > 0}` }, 'done/true'],
   ['關遮罩途中收到 end → done、一下都沒按', async () => { const r = await sim({ endDuringOverlay: true }); return `${r.result}/${r.presses}` }, 'done/0'],
   ['OCR 途中收到 end → done、OCR 之後不按（按前重查）', async () => { const r = await sim({ endDuringScreen: true }); return `${r.result}/${r.presses}/${r.pressAfterEnd}` }, 'done/0/0'],
   ['end 沒來、畫面已回普通局（OCR 看不到 SPIN 指示）→ 不按、逾時 stalled', async () => { const r = await sim({ screen: 'unknown' }); return `${r.result}/${r.presses}` }, 'stalled/0'],

@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, blindBudget, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -1485,7 +1485,7 @@ const BONUS_OCR_PROMPT = 'This is a screenshot of a slot machine screen during a
  * 綁定「這次進機台」：sinceSeq＝進機台時 moneyNtc 流水的序號，換台就是新的處理器。
  * 回傳 null＝不需要處理（沒有開著的局／沒有 moneyNtc 訊號／OSMWatcher 有監控交給原流程）。
  */
-export type OpenRoundHandler = (where: string) => Promise<{ result: 'done' | 'stalled' | 'stopped'; note: string } | null>
+export type OpenRoundHandler = (where: string) => Promise<{ result: 'done' | 'stalled' | 'stopped' | 'debit'; note: string } | null>
 
 /**
  * 疑似特殊遊戲時，畫面上的 SPIN 指示算不算「特殊遊戲中」的證據（CodeX 2d513b6 [P1]）。
@@ -1542,8 +1542,11 @@ export function makeOpenRoundHandler(o: {
   const { page, emit, machineCode } = o
   const ocr = o.ocr ?? (async (png: Buffer) => callGeminiVisionViaProxy(BONUS_OCR_PROMPT, png.toString('base64')))
   // 同一局已經判過 stalled／stopped → 之後再問直接回同一個結果，不重跑 8 分鐘（呼叫端據此停手交人工）
-  let failed: { beginSeq: number; result: 'stalled' | 'stopped'; note: string } | null = null
+  let failed: { beginSeq: number; result: 'stalled' | 'stopped' | 'debit'; note: string } | null = null
+  // 1013 #7：一旦按到付費局（debit），之後不管是哪一局都不再自動操作——按 SPIN 開了新局，begin 換了，用 beginSeq 的快取擋不住
+  let debitHalt: string | null = null
   return async (where: string) => {
+    if (debitHalt) return { result: 'debit' as const, note: debitHalt }
     let trg = openRoundTrigger({ log: await readMoneyLog(page), sinceSeq: o.sinceSeq, now: Date.now(), osmStatus: o.osmStatus() })
     // 局還年輕（< 35 秒）：等到滿門檻或收到 end 再判斷——正常局最長 28 秒
     // ⚠️ 用 === false 收窄（這個 tsconfig 下 !trg.start 不會把 union 收窄）
@@ -1569,6 +1572,13 @@ export function makeOpenRoundHandler(o: {
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
     const ft = featureTapsConfig(machineCode)
     let ftCursor = 0
+    // 1013 spec #7：這局 begin 的餘額（moneyNtc coin）——之後局還開著、餘額卻比它少＝按到付費局 → 立刻交人工。讀不到就不守門（照舊）
+    const beginCoin = (await readMoneyLog(page)).find(e => e.seq === beginSeq)?.coin
+    const guardOn = typeof beginCoin === 'number' && Number.isFinite(beginCoin)
+    if (!guardOn) emit(`（這局 begin 沒有餘額，扣款守門不啟用）`)
+    let debitNote = ''
+    // Take＝收分只在機種確定時才按（CodeX：須確認該機種確為收分）：profile clickTake 或 bonusAction=takewin
+    const takeIsCollect = profile?.clickTake === true || action === 'takewin'
     try {
       const r = await superviseOpenRound({
         ended, stop,
@@ -1607,15 +1617,28 @@ export function makeOpenRoundHandler(o: {
           taps += n
           return n
         },
+        takeWin: takeIsCollect ? async () => {
+          const r = await guardedClick(page, ['.my-button.btn_take', '.btn_take', '.btn_takewin'], mustStop)
+          if (r === 'clicked') { taps++; emit(`（疑似特殊遊戲：按 Take 收分）`) }
+          return r === 'clicked'
+        } : undefined,
+        debited: guardOn ? async () => {
+          const l = await readMoneyLog(page)
+          if (l.some(e => e.seq > beginSeq && e.reason === 'end')) return false   // 局已經結束：之後的扣款是別的事，不在這裡判
+          const low = l.find(e => e.seq > beginSeq && typeof e.coin === 'number' && e.coin < beginCoin!)
+          if (low) debitNote = `餘額 ${beginCoin} → ${low.coin}（${low.reason}），局還沒結束`
+          return !!low
+        } : undefined,
         // ⚠️ 不接卡住救援（bonusStallRescue）：它用 classifyBonusText 判斷要不要按 SPIN，普通局畫面也會被判成 spin，
         //    內層點擊也沒有逐下重讀 end。卡住就 stalled、交人工（CodeX 2d513b6 [P1]）
         now: Date.now, sleep: async ms => { await sleep(ms) },
         maxMs: o.timing?.maxMs ?? 8 * 60_000, maxActs, quietMs: o.timing?.quietMs ?? 8_000, pollMs: o.timing?.pollMs ?? 8_000, stallMs: BONUS_STALL_MS,
       })
       const ways = [...new Set(r.how.map(h => h.replace(/\(.*\)$/, '')))].join('、') || '只等待'
-      const note = `疑似特殊遊戲（未監控，依 moneyNtc 判斷）：處理方式 ${ways}，實際點擊 ${taps} 下，耗時 ${(r.ms / 1000).toFixed(0)} 秒，結果 ${r.result === 'done' ? 'done（收到 end）' : `${r.result}${handpay ? '（Handpay）' : ''}——已停止自動操作，請人工處理`}`
+      const note = `疑似特殊遊戲（未監控，依 moneyNtc 判斷）：處理方式 ${ways}，實際點擊 ${taps} 下，耗時 ${(r.ms / 1000).toFixed(0)} 秒，結果 ${r.result === 'done' ? 'done（收到 end）' : r.result === 'debit' ? `debit——⚠️ 按到了付費局（${debitNote}），已停止所有自動操作，請人工處理` : `${r.result}${handpay ? '（Handpay）' : ''}——已停止自動操作，請人工處理`}`
       emit(`${r.result === 'done' ? '✅' : '🆘'} ${where}：${note}`)
       if (r.result !== 'done') failed = { beginSeq, result: r.result, note }
+      if (r.result === 'debit') debitHalt = note
       return { result: r.result, note }
     } finally { /* 沒有背景計時器要收 */ }
   }
@@ -5948,8 +5971,12 @@ export class MachineTestRunner extends EventEmitter {
           // 扣款上限：BZZF 一般 Spin 約 7,000/下（0234 三下 -21,200），100,000 ≈ 14 下付費 Spin。
           // 單把估價 10,000 → 剩餘額度不到一把就不按（硬上限，最後一把也不會超過 BLIND_MAX_SPEND）。
           const BLIND_MAX_PRESSES = 96
-          const BLIND_MAX_SPEND = 100_000
-          const BLIND_SPIN_COST = 10_000
+          // 1013 spec #7（CodeX）：單把成本＝這台實測注額（moneyNtc 相鄰兩局 begin 的差），上限＝14 倍（原本 BZZF 的 10,000／100,000 是全域常數，
+          //   LIONLINK 最小注 18 時等於沒上限）。注額不明就不盲推。到進退出步驟時才讀（Spin／iDeck 已經跑過局）
+          const blindBet = lastBetFromMoneyLog(await readMoneyLog(page))
+          const blindCap = blindBudget(blindBet)
+          const BLIND_MAX_SPEND = blindCap?.maxSpend ?? 0
+          const BLIND_SPIN_COST = blindCap?.spinCost ?? Number.POSITIVE_INFINITY
           // 每次退出嘗試的截圖都收起來（停批／失敗的回傳物件是重組的，不會帶到最後一次的 extraData）
           const exitShotsAll: string[] = []
           const exitUntilLobby = async (): Promise<StepResult> => {
@@ -6093,7 +6120,7 @@ export class MachineTestRunner extends EventEmitter {
                         stopped: this.stopped, presses: blind.presses, maxPresses: BLIND_MAX_PRESSES,
                         bodyText: await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''),
                         bal: await readMachineBalance(page), bal0: blind.bal0,
-                        maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST,
+                        maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST, state: blind,
                       })
                       if (d.ok) { blind.presses++; acts++ }
                       return d

@@ -324,7 +324,7 @@ export async function runTouchVisualFlow(d: {
 //   停止指令／整台時限到期／單台次數上限／畫面 Handpay／餘額讀不到／剩餘額度不夠再付一把。
 // 「剩餘額度不夠再付一把」是硬上限：要求 maxSpend − 已花 ≥ spinCost 才按，所以最後一把也不會超過 maxSpend。
 /** lastBal／lastPresses：上一次讀到的機台餘額與當時的累計次數（1007 合理性檢查用） */
-export type BlindBurstState = { presses: number; bal0: number | null | undefined; lastBal?: number; lastPresses?: number }
+export type BlindBurstState = { presses: number; bal0: number | null | undefined; lastBal?: number; lastPresses?: number; debited?: number; lastSeenBal?: number; lastSeenPresses?: number }
 export async function runBlindBurst(d: {
   state: BlindBurstState
   maxPresses: number
@@ -342,6 +342,7 @@ export async function runBlindBurst(d: {
 }): Promise<{ halt: string | null; pressed: number }> {
   const s = d.state
   let pressed = 0
+  if (!Number.isFinite(d.spinCost) || d.spinCost <= 0) return { halt: '注額不明（讀不到這台實際扣款），不盲推', pressed }
   if (s.bal0 === undefined) s.bal0 = await d.readBalance()
   if (s.bal0 == null) return { halt: '讀不到前端餘額，無法確認扣款上限', pressed }
   const end = d.now() + d.burstMs
@@ -360,8 +361,9 @@ export async function runBlindBurst(d: {
       if (drop > allowed) return { halt: `待核對：機台餘額一次少了 ${drop}（${s.lastBal} → ${bal}），超過合理範圍 ${allowed}，可能讀錯，先停手`, pressed }
     }
     s.lastBal = bal; s.lastPresses = s.presses
-    const spent = Math.max(0, s.bal0 - bal)
-    if (d.maxSpend - spent < d.spinCost) return { halt: `剩餘額度不夠再付一把（已少 ${spent}，上限 ${d.maxSpend}，單把估 ${d.spinCost}）`, pressed }
+    // 1013：累積扣款（派彩不抵銷），不是 bal0 − bal 的淨額
+    const spent = noteBlindDebit(s, bal, s.presses, d.spinCost)
+    if (d.maxSpend - spent < d.spinCost) return { halt: `剩餘額度不夠再付一把（已扣 ${spent}，上限 ${d.maxSpend}，單把 ${d.spinCost}）`, pressed }
     await d.press()
     s.presses++; pressed++
     await d.sleep(d.intervalMs)
@@ -443,13 +445,39 @@ export async function runTouchThenSpin(d: {
 }
 
 // 兩段式補按 SPIN 的關卡判定（純函式，runner 的 extraSpinGuard 只負責讀狀態、呼叫這支）：跟盲推每一下前的關卡同一套
-export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPresses: number; bodyText: string; bal: number | null; bal0: number | null | undefined; maxSpend: number; spinCost: number }): { ok: boolean; reason?: string } {
+/**
+ * 1013 spec #7（CodeX）：盲推的扣款上限算**累積扣款**——每次讀到餘額，比上一次少的部分加進 debited；派彩（變多）不抵銷。
+ * 原本用 bal0 − bal（淨額），中一把就把額度補回來，等於沒上限。回傳更新後的 debited
+ */
+export function noteBlindDebit(state: { debited?: number; lastSeenBal?: number; lastSeenPresses?: number }, bal: number, presses?: number, spinCost?: number): number {
+  if (state.lastSeenBal !== undefined) {
+    if (bal < state.lastSeenBal) state.debited = (state.debited ?? 0) + (state.lastSeenBal - bal)
+    // 餘額只在兩下之間讀一次：這段期間按了、又剛好中獎 → 那一下的成本藏在淨增加裡。
+    // 派彩不能抵銷（CodeX）→ 變多的區間，這段期間按的每一下都照單把成本算（保守：可能提早停，不會多花）
+    else if (bal > state.lastSeenBal && presses !== undefined && spinCost !== undefined && Number.isFinite(spinCost)) {
+      const k = Math.max(0, presses - (state.lastSeenPresses ?? presses))
+      state.debited = (state.debited ?? 0) + k * spinCost
+    }
+  }
+  state.lastSeenBal = bal
+  if (presses !== undefined) state.lastSeenPresses = presses
+  return state.debited ?? 0
+}
+/** 1013：盲推單把成本＝實測注額（spinCost）、上限＝BLIND_SPEND_SPINS 倍；注額不明就不盲推（回 null） */
+export const BLIND_SPEND_SPINS = 14
+export function blindBudget(measuredBet: number | null | undefined): { spinCost: number; maxSpend: number } | null {
+  if (typeof measuredBet !== 'number' || !Number.isFinite(measuredBet) || measuredBet <= 0) return null
+  return { spinCost: measuredBet, maxSpend: measuredBet * BLIND_SPEND_SPINS }
+}
+export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPresses: number; bodyText: string; bal: number | null; bal0: number | null | undefined; maxSpend: number; spinCost: number; state?: { debited?: number; lastSeenBal?: number; lastSeenPresses?: number } }): { ok: boolean; reason?: string } {
   if (s.stopped) return { ok: false, reason: '收到停止指令' }
   if (s.presses >= s.maxPresses) return { ok: false, reason: `已達單台上限 ${s.maxPresses} 下` }
   if (/hand\s*-?\s*pay/i.test(s.bodyText)) return { ok: false, reason: '畫面出現 Handpay' }
+  if (!Number.isFinite(s.spinCost) || s.spinCost <= 0) return { ok: false, reason: '注額不明（讀不到這台實際扣款），不盲推' }
   if (s.bal == null || s.bal0 == null) return { ok: false, reason: '讀不到前端餘額' }
-  const spent = Math.max(0, s.bal0 - s.bal)
-  if (s.maxSpend - spent < s.spinCost) return { ok: false, reason: `剩餘額度不夠再付一把（已少 ${spent}）` }
+  // 有給 state＝累積扣款（派彩不抵銷）；沒給才退回舊的淨額算法（舊呼叫端相容）
+  const spent = s.state ? noteBlindDebit(s.state, s.bal, s.presses, s.spinCost) : Math.max(0, s.bal0 - s.bal)
+  if (s.maxSpend - spent < s.spinCost) return { ok: false, reason: `剩餘額度不夠再付一把（已扣 ${spent}，上限 ${s.maxSpend}）` }
   return { ok: true }
 }
 
@@ -540,7 +568,11 @@ export function applyFeatureRound(s: ExitFeatureState, r: { result: string; curs
 //     沒有證據就等，逾時 stalled——end 延遲／漏送時寧可停在 stalled 交人工
 //   - 從頭到尾沒有 begin（讀不到 moneyNtc）＝不啟動
 export const OPEN_ROUND_SUSPECT_MS = 35_000
-export type OpenRoundResult = { result: 'done' | 'stalled' | 'stopped'; acts: number; ms: number; how: string[] }
+// 1013 spec #7（CodeX）：
+//   - Take Win 優先：只在這個機種確定 Take＝收分（profile clickTake 或 bonusAction=takewin）時才給 takeWin；每一下前重查 end／停止、算進動作次數
+//   - SPIN 照舊要 OCR 判成 spin 才按
+//   - 扣款守門：這一局還開著、機台餘額低於這局 begin 的餘額 → 回 debit，立刻交人工，**不做任何後續救援**
+export type OpenRoundResult = { result: 'done' | 'stalled' | 'stopped' | 'debit'; acts: number; ms: number; how: string[] }
 export async function superviseOpenRound(d: {
   /** 這一局（綁定開始時那筆 begin）收到 end 了沒 */
   ended: () => Promise<boolean>
@@ -558,6 +590,10 @@ export async function superviseOpenRound(d: {
   touch: (budget: number) => Promise<number>
   /** 卡住救援（只做一次）：回傳學到的動作 */
   rescue?: () => Promise<'spin' | 'touchscreen' | null>
+  /** 1013：按畫面上看得到的 Take（收分）；呼叫端只在機種確定 Take＝收分時才給。點之前自己重查 end／停止，回傳有沒有真的點 */
+  takeWin?: () => Promise<boolean>
+  /** 1013：這一局還開著、餘額卻低於這局 begin 的餘額（＝按到付費局）。讀不到 begin 餘額就不給 */
+  debited?: () => Promise<boolean>
   now: () => number
   sleep: (ms: number) => Promise<void>
   maxMs: number
@@ -570,13 +606,23 @@ export async function superviseOpenRound(d: {
   const how: string[] = []
   let acts = 0, action = d.action, ftOn = !!d.featureTaps, rescued = false, lastProgress = t0
   const out = (result: OpenRoundResult['result']): OpenRoundResult => ({ result, acts, ms: d.now() - t0, how })
+  const debit = async () => !!d.debited && await d.debited()
   while (true) {
     if (await d.ended()) return out('done')
     if (d.stop()) return out('stopped')
+    if (await debit()) { how.push('debit'); return out('debit') }   // 扣款：立刻交人工，不救援
     if (d.now() - t0 >= d.maxMs) return out('stalled')
     if (acts >= d.maxActs) { await d.sleep(d.pollMs); continue }   // 點擊上限：只被動等 end
     await d.closeOverlays()
     if (await d.ended()) return out('done')   // 關遮罩途中收到 end
+    // Take Win 優先（收分不會下注）：按到了就等下一輪再看，這一輪不再按別的
+    if (d.takeWin && acts < d.maxActs && !d.stop() && !(await d.ended())) {
+      if (await d.takeWin()) {
+        acts++; how.push('take'); lastProgress = d.now()
+        if (await debit()) { how.push('debit'); return out('debit') }
+        await d.sleep(d.pollMs); continue
+      }
+    }
     // 動作上限算**實際點擊次數**（CodeX 2d513b6 [P2]：一輪點位原本只算一次）
     if (ftOn && d.featureTaps) {
       const r = await d.featureTaps(d.maxActs - acts)
@@ -594,6 +640,8 @@ export async function superviseOpenRound(d: {
         if (await d.pressSpin()) { acts++; how.push('spin') }
       } else if (s !== 'spin') how.push(`wait(${s})`)
     }
+    // 任何一下點擊之後：餘額比這局 begin 少、局還開著 → 按到付費局，立刻停（不進下面的救援）
+    if (await debit()) { how.push('debit'); return out('debit') }
     if (d.rescue && !rescued && d.now() - lastProgress >= d.stallMs) {
       rescued = true
       const learned = await d.rescue()
