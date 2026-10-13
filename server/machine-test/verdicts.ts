@@ -911,31 +911,31 @@ export function orderBoxTimeline(tl: BoxLogEntry[]): BoxLogEntry[] {
 
 /** 每顆 usb 的回應狀態：answered／none／unknown（附原因） */
 export function usbResponseStates(ordered: BoxLogEntry[]): Map<BoxLogEntry, { state: 'answered' | 'none' | 'unknown'; why: string }> {
-  type Group = { usbs: BoxLogEntry[]; hw: number; tainted: boolean }
+  // 組＝窗口互相重疊的 usb。hw 只算進「組」，**不從組裡拿掉任何一筆的期限**——
+  //   CodeX c287073 [P2]：原本 hw 一到就 pending.shift()，把某一筆的期限丟掉；A＝0 秒、B＝9 秒、hw＝11 秒時，
+  //   11 秒的 hw 可能是 A 晚回（B 其實沒回），但 B 的期限被丟掉 → 21 秒的 C 收到 hw 被判 ok（應該是未驗：可能是 B 晚回）。
+  // 組結束：全部回完（hw 數＝usb 數）就提早結束；否則等組裡最晚的期限過了才結束，並記下這個期限——
+  //   沒回完的組，裡面每一筆都可能是沒回的那筆，之後 10 秒內開的新組收到的 hw 可能是它晚到的
+  type Group = { usbs: BoxLogEntry[]; lastDeadline: number; hw: number; tainted: boolean }
   const groups: Group[] = []
-  let pending: Array<{ usb: BoxLogEntry; deadline: number }> = []
   let cur: Group | null = null
-  let lastExpiredUnanswered = -Infinity
-  const expire = (t: number) => {
-    const left = pending.filter(p => p.deadline >= t)
-    // 逾時離開等待清單的：記下時間（之後 10 秒內開的新組，可能收到它晚到的 hw）
-    for (const p of pending) if (p.deadline < t) lastExpiredUnanswered = Math.max(lastExpiredUnanswered, p.deadline)
-    pending = left
-    if (!pending.length) cur = null
-  }
+  let lastUnresolved = -Infinity
+  const close = () => { if (cur && cur.hw < cur.usbs.length) lastUnresolved = Math.max(lastUnresolved, cur.lastDeadline); cur = null }
+  const expire = (t: number) => { if (cur && t > cur.lastDeadline) close() }
   for (const e of ordered) {
     const t = boxSecs(e.time)
     if (e.type === 'usb_coordinate') {
       expire(t)
-      if (!cur) { cur = { usbs: [], hw: 0, tainted: t - lastExpiredUnanswered <= BOX_CHAIN_WINDOW_S }; groups.push(cur) }
-      cur.usbs.push(e); pending.push({ usb: e, deadline: t + BOX_CHAIN_WINDOW_S })
+      if (!cur) { cur = { usbs: [], lastDeadline: -Infinity, hw: 0, tainted: t - lastUnresolved <= BOX_CHAIN_WINDOW_S }; groups.push(cur) }
+      cur.usbs.push(e); cur.lastDeadline = Math.max(cur.lastDeadline, t + BOX_CHAIN_WINDOW_S)
     } else if (e.type === 'hw_response') {
       expire(t)
-      if (!cur) continue   // 沒有等待中的 usb：逾時晚到或不相干，不補給任何一筆
-      cur.hw++; pending.shift()   // shift 只是算「還有幾筆在等」，不代表歸給哪一筆
-      if (!pending.length) cur = null
+      if (!cur) continue   // 沒有開著的組：逾時晚到或不相干，不補給任何一筆
+      cur.hw++
+      if (cur.hw >= cur.usbs.length) close()   // 全部回完：不管哪一筆配哪一筆，都有回
     }
   }
+  close()
   const horizon = ordered.reduce((m, e) => Math.max(m, boxSecs(e.time)), -Infinity)
   const out = new Map<BoxLogEntry, { state: 'answered' | 'none' | 'unknown'; why: string }>()
   for (const g of groups) {

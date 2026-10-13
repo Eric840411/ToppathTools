@@ -63,6 +63,13 @@ ok(touchChainVerdict(c).status === 'skip', '只有未驗 → 步驟判 SKIP（�
 c = C([S(0, 'A'), U(0), S(11, 'B'), U(11), H(12), END(40)], ['A', 'B'])
 ok(c.A.state === 'noHw', '逾時晚到的 hw 不補給原本那筆（A noHw）', c.A)
 ok(c.B.state === 'unknown', '⚠️ 前一筆剛逾時、新組收到 hw → 可能是舊那筆晚到的，B 未驗', c.B)
+// CodeX c287073 [P2]：A＝0、B＝9、hw＝11（可能是 A 晚回、B 其實沒回）；C＝21、hw＝22（可能是 B 晚回）→ C 也要未驗
+c = C([S(0, 'A'), U(0), S(9, 'B'), U(9), H(11), S(21, 'C'), U(21), H(22), END(50)], ['A', 'B', 'C'])
+ok(c.A.state === 'unknown' && c.B.state === 'unknown', 'A／B 同組只回一筆 → 都未驗', c)
+ok(c.C.state === 'unknown', '⚠️ C 開組時 B 的期限（19 秒）才過 2 秒 → C 收到的 hw 可能是 B 晚回 → 未驗（原本 shift 丟掉 B 的期限，C 被判 ok）', c.C)
+// 對照：組全部回完才提早結束，不留污染
+c = C([S(0, 'A'), U(0), H(1), S(9, 'B'), U(9), H(10), S(21, 'C'), U(21), H(22), END(50)], ['A', 'B', 'C'])
+ok(c.A.state === 'ok' && c.B.state === 'ok' && c.C.state === 'ok', '對照：每一筆都有回 → 全部 ok（不會因為改法變嚴而誤標未驗）', c)
 // 晚回且沒有下一筆：hw 單獨在窗口外 → 不補給任何一筆
 c = C([S(0, 'A'), U(0), H(15), END(40)], ['A'])
 ok(c.A.state === 'noHw', '窗口外才到的 hw → A 仍是 noHw', c.A)
