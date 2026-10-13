@@ -49,6 +49,8 @@ const PHRASES = [
   // 1013 spec #2 盒子三層（長的放前面，免得被下面的「筆」「機台」先換掉）
   ['server 已回應；盒子已送出', 'server responded; box sent'], ['觀察窗口內未見機台回應', 'no machine response seen within the window'],
   ['盒子 log 0 筆，未確認機台端', 'box log 0 entries, machine side not confirmed'], ['盒子 log 沒有這次的 iDeck 指令（未確認）', 'box log has none of these iDeck commands (not confirmed)'],
+  // 1013 spec #8 大廳找不到的原因
+  ['大廳未提供這台，疑似未開放', 'not offered by the lobby, possibly not opened'], ['OSM 後台設成 Test', 'set to Test in the OSM back office'], ['大廳找不到的原因無法確認', 'cause of not being in the lobby cannot be confirmed'], ['測前查詢', 'pre-test query'], ['後台 EGM List 也沒有這台', 'not in the back-office EGM List either'],
   ['盒子三層：收到', 'Box 3-layer: received'], ['盒子三層', 'Box 3-layer'], ['確定送出', 'confirmed sent'], ['機台回應', 'machine responded'], ['未確認', 'not confirmed'],
   ['盒子沒送到機台', 'box did not send to machine'], ['機台不回應', 'machine no response'], ['盒子沒收到', 'box did not receive'],
   ['log 還沒涵蓋完整 10 秒', 'log does not cover the full 10 s'], ['前一筆逾時沒回，這組的回應可能是它晚到的', 'previous one timed out; this reply may be its late answer'],

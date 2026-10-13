@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.54.0'
+export const APP_VERSION = '5.55.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.55.0', date: '2026-10-13', changes: ['feat(機台測試 大廳找不到分原因)：osm-qa-agent spec #8、CodeX 有條件同意——0239 被後台設成 Test，結果只寫「大廳找不到」、F 欄 offline。改用測前已查的後台 EGM List（total＝items 才算完整；每筆有 istest／isShowClient／isUsed／machineStatus）分原因：istest=1 → 後台設成 Test（F test machine）；不是 Test、盒子在線 → 大廳未提供、疑似未開放並列出那幾個欄位（F not offered）；盒子離線 → offline；後台查不到 → 原因無法確認（F 照舊）。不用大廳 WS（binary、沒有總數，證明不了完整）。lobby-missing.test 10 條，用真的後台項目。英文報告補翻譯'] },
   { version: '5.54.0', date: '2026-10-13', changes: ['feat(機台測試 Spin 扣款起點)：osm-qa-agent spec #6、CodeX 有條件同意——剛進機台還沒有 moneyNtc 時，原本只能寫「餘額變化未驗」。改成記下 enterGMNtc 的 coin（0231 實測＝盒子入帳 2,000,000、跟 moneyNtc 同單位；leaveGMNtc 的 coin 是帳號錢包，不混用）當起點，逐局算扣款（上一筆 − 這局 begin）寫進訊息與 extraData：扣款 0 可能是免費局、負的是流水不連續，都記未驗。只記錄、不改 Spin 判定（畫面 BET 值還沒讀，扣款與注額是否相符這次不判）。verdicts-probe 用 0231 實際流水 18／18／28／38／58／88 全對上，machine-coin-tracker-probe 驗真的注入腳本。要更新 Local Agent 才生效'] },
   { version: '5.53.0', date: '2026-10-13', changes: ['feat(機台測試 局沒結束的處理)：osm-qa-agent spec #7、CodeX 定案——① 未監控機台開局沒結束時 Take 優先：只在機種確定 Take＝收分（profile clickTake 或 bonusAction=takewin）才按，點前重查 end；SPIN 照舊要 OCR 判成 spin。② 扣款守門：局還開著、餘額比這局 begin 少＝按到付費局 → 立刻交人工、不救援，同一台之後都不再自動操作。③ 盲推上限改成這台實測注額 × 14（原本全域 10,000／100,000，LIONLINK 最小注 18 時等於沒上限），注額不明就不盲推；已花改算累積扣款，派彩不抵銷。open-round-runner-probe／open-round-probe／blind-burst-probe 共補 16 條，4 種突變各自會紅。要更新 Local Agent 才生效'] },
   { version: '5.52.1', date: '2026-10-13', changes: ['fix(機台測試 AFT 熔斷)：CodeX 審 5354c74——[P1] 多 worker 時只在跑完機台後看 haltReason：A 失敗後進 800ms 等待、B 觸發停批，A 醒來照樣派出 C → 取下一台之前也檢查。[P2] 查 AFT 的 fetch／讀回應沒有 timeout，API 不回應會卡住、按停止也解不開 → 整段 20 秒總時限＋每次 fetch 6 秒上限（含讀 body），停止時 0.5 秒內中止；逾時或停止回 unknown（不算進熔斷）。aft-breaker-probe 21 條（補兩個 worker、API 不回應 20 秒、卡住時按停止 1 秒內脫離），舊版會派出 C、且卡死在 API 不回應那條'] },

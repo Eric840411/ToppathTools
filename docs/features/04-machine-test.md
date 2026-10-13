@@ -814,3 +814,16 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - `roundDeductions`：每局扣款＝上一筆 moneyNtc 的餘額（第一局用進場餘額）− 這局 begin：> 0 paid；＝ 0 可能是免費局（**不能要求 > 0**，記未驗）；< 0 流水不連續（記未驗）。訊息寫「餘額 2000000（進場）→ …，每局扣款 18、…」，`extraData.spinDeductions` 留明細
 - **不改 Spin 判定**：畫面 BET 值還沒讀，「扣款與注額不符」這次不判（規格寫「能讀到畫面 BET 值時」）
 - 測試：`verdicts-probe` 用 0231 實際流水（mt-fixtures-1013/q3：18、18、28、38、58、88 全部對上）＋免費局／不連續／沒有起點；`machine-coin-tracker-probe`（真的注入腳本）補 enterGMNtc 記起點、不算機台餘額、leaveGMNtc 錢包不會蓋掉
+
+### #8 大廳找不到機台：分原因（v5.55.0，batch）
+- 0239 被 OSM 後台設成 Test，結果只寫「大廳找不到機台代碼」、F 欄 offline
+- **不用大廳的 WS 判**：大廳 GM 清單（getAllGMListReq 回應）是 binary pinus、看不到總數，證明不了完整（osm-qa-agent 1013：10-13 沒有任何原始 frame 存檔）
+- 改用測前已經查的**後台 EGM List**（`backendservertest /egm/floor/egmList`，`fetchBoxInfo`）：`data.total`＝items 筆數才算完整清單；每筆都帶 `istest`（數字，沒設是 0）、`isShowClient`、`isUsed`、`machineStatus`、`onlineState`
+- `lobbyMissingReason`（判定前補進進場訊息「｜原因：…」）：
+  - `istest` 是 1 → 「OSM 後台設成 Test（EGM List istest=1，測前查詢）——不是離線」→ F `test machine`
+  - 不是 Test、盒子在線 → 「大廳未提供這台，疑似未開放」＋列出 isShowClient／isUsed／machineStatus／istest（CodeX：缺席只能說未提供、疑似未開放；不叫大家都去查 Test）→ F `not offered`
+  - 盒子不在線 → F 照舊 `offline`
+  - 後台沒有這台：清單完整 → 寫「後台 EGM List 也沒有這台」；不完整或沒有測前資料 → 「原因無法確認」（**不說 offline 的原因，F 照舊**）
+- ⚠️ 用的是**測前**的後台狀態；跑測試期間被改就看不到
+- ⚠️ F 欄多了 `test machine`、`not offered` 兩個詞（原本使用者定「大廳找不到＝offline」）
+- 測試：`scripts/ui-checks/lobby-missing.test.mjs` 10 條，用真的後台項目（`fixtures/egm-list/873-LIONLINK-0239.json`）＋真的 `shortLine`
