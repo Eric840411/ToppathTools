@@ -1082,6 +1082,31 @@ export function touchChainVerdict(chains: Record<string, { state: BoxChainState;
   return { status: 'pass', ok, total, detail, tag: '' }
 }
 
+// ─── 每局扣款（1013 spec #6，CodeX 有條件同意）────────────────────────────────────────────────
+// 起點＝enterGMNtc 的 coin（本台入帳後餘額；osm-qa-agent 用 0231 實測：＝盒子 credit_load 2,000,000、跟 moneyNtc 同單位）。
+// 每局扣款＝上一筆 moneyNtc 的餘額（第一局用起點）− 這局 begin 的餘額：
+//   > 0 → paid；＝ 0 → zero（可能是免費局，**不能要求 > 0**，記未驗）；< 0 → gap（流水不連續，記未驗）
+// 只產生紀錄與訊息，不改 Spin 判定（畫面 BET 值還沒讀，「扣款與注額不符」這次不判）
+export type RoundDeduction = { seq: number; prev: number; begin: number; deduction: number; kind: 'paid' | 'zero' | 'gap' }
+export function roundDeductions(start: number | null, log: Array<{ seq: number; coin: number; reason: string }>): { rounds: RoundDeduction[]; note: string } {
+  const s = [...log].sort((a, b) => a.seq - b.seq)
+  let prev: number | null = start
+  const rounds: RoundDeduction[] = []
+  for (const e of s) {
+    if (e.reason === 'begin' && prev !== null && Number.isFinite(e.coin)) {
+      const d = prev - e.coin
+      rounds.push({ seq: e.seq, prev, begin: e.coin, deduction: d, kind: d > 0 ? 'paid' : d === 0 ? 'zero' : 'gap' })
+    }
+    if (Number.isFinite(e.coin)) prev = e.coin
+  }
+  const paid = rounds.filter(r => r.kind === 'paid'), zero = rounds.filter(r => r.kind === 'zero'), gap = rounds.filter(r => r.kind === 'gap')
+  const last = s.length ? s[s.length - 1].coin : null
+  const parts = [`餘額 ${start ?? '?'}（進場）→ ${last ?? '?'}`, paid.length ? `每局扣款 ${paid.map(r => r.deduction).join('、')}` : '沒有確認到扣款']
+  if (zero.length) parts.push(`${zero.length} 局扣款 0（可能是免費局，未驗）`)
+  if (gap.length) parts.push(`${gap.length} 局流水不連續（未驗）`)
+  return { rounds, note: parts.join('，') }
+}
+
 // ─── AFT 轉入失敗熔斷（1013 spec #5，CodeX 定案）─────────────────────────────────────────────
 // 10-13 晚上 0233～0245 共 12 台進場 AFT 轉入失敗（盒子 aft_in_end success:false state=87），之後全部卡成 Occupied——
 // 一路連打下去只會鎖住更多台。這比較可能是帳號或 AFT 系統端的問題，不是單台。

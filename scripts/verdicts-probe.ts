@@ -1,12 +1,20 @@
 // verdicts.ts 探針（2026-09-29）：npx tsx scripts/verdicts-probe.ts
-import { audioRoutingNote, ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
+import { audioRoutingNote, roundDeductions, ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
 
 const O = (name: string | null, result: IdeckResult = 'ack'): IdeckOutcome => ({ label: name ?? 'x', text: '', name, result, note: '' })
 const bzzf = () => [O('BetMultiple1'), O('BetMultiple2'), O('BetMultiple10'), O('Bet18'), O('Bet38')]
 const V = (p: Partial<Parameters<typeof ideckVerdict>[0]>) => ideckVerdict({ outcomes: bzzf(), restore: O('BetMultiple1'), aborted: false, apiErr: 'CMDB', boxCount: 0, ...p })
 const tag = (m: string) => m.match(/判定：(no response|flow fail)/)?.[1] ?? '-'
 
+// 1013 spec #6：0231 實際的 moneyNtc（osm-qa-agent mt-fixtures-1013/q3，console 解碼；進場 enterGMNtc coin 2,000,000）
+const M = (seq: number, coin: number, reason: string) => ({ seq, coin, reason })
+const q3 = [M(1, 1999982, 'begin'), M(2, 1999982, 'end'), M(3, 1999964, 'begin'), M(4, 1999989, 'end'), M(5, 1999961, 'begin'), M(6, 1999966, 'end'), M(7, 1999928, 'begin'), M(8, 1999928, 'end'), M(9, 1999870, 'begin'), M(10, 2001436, 'end'), M(11, 2001348, 'begin'), M(12, 2001788, 'end')]
 const cases: Array<[string, string, string]> = [
+  ['#6 0231 實際流水：起點 enterGMNtc 2,000,000 → 每局扣款 18、18、28、38、58、88（全部 paid）', roundDeductions(2_000_000, q3).rounds.map(r => `${r.deduction}${r.kind === 'paid' ? '' : r.kind}`).join(','), '18,18,28,38,58,88'],
+  ['#6 訊息寫出起點、終點與每局扣款', roundDeductions(2_000_000, q3).note, '餘額 2000000（進場）→ 2001788，每局扣款 18、18、28、38、58、88'],
+  ['#6 扣款 0（免費局）→ 不能要求 > 0，記未驗', roundDeductions(1000, [M(1, 982, 'begin'), M(2, 982, 'end'), M(3, 982, 'begin'), M(4, 1100, 'end')]).note, '餘額 1000（進場）→ 1100，每局扣款 18，1 局扣款 0（可能是免費局，未驗）'],
+  ['#6 流水不連續（begin 比上一筆多）→ 記未驗', roundDeductions(1000, [M(1, 982, 'begin'), M(3, 1500, 'begin')]).rounds.map(r => r.kind).join(','), 'paid,gap'],
+  ['#6 沒有起點 → 第一局不算（不猜）', String(roundDeductions(null, [M(1, 982, 'begin'), M(2, 982, 'end'), M(3, 964, 'begin')]).rounds.map(r => r.deduction).join(',')), '18'],
   // 1013 spec #11：錄音裝置診斷（只附訊息，不影響判定）
   ['錄音裝置正確 → 沒有警告', /⚠️/.test(audioRoutingNote({ render: { name: 'CABLE Input (VB-Audio Virtual Cable)', id: 'a', why: null }, capture: { name: 'CABLE Output (VB-Audio Virtual Cable)', id: 'b', why: null } })) ? 'warn' : 'ok', 'ok'],
   ['⚠️ 預設錄音是麥克風 → 寫出來', /預設錄音不是 CABLE Output/.test(audioRoutingNote({ render: { name: 'CABLE Input (VB-Audio Virtual Cable)', id: 'a', why: null }, capture: { name: 'Microphone (Realtek Audio)', id: 'b', why: null } })) ? 'flag' : '-', 'flag'],

@@ -807,3 +807,10 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
   - 單把成本＝這台**實測注額**（moneyNtc 相鄰兩局 begin 的差，`lastBetFromMoneyLog`），上限＝14 倍（`BLIND_SPEND_SPINS`）。原本 10,000／100,000 是照 BZZF 的全域常數，LIONLINK 最小注 18 時等於沒上限。**注額不明就不盲推**
   - 已花＝**累積扣款**（`noteBlindDebit`：只加變少的部分），派彩不抵銷；餘額只在兩下之間讀一次，變多的區間裡按的每一下照單把成本算（保守：可能提早停，不會多花）
 - 測試：`open-round-runner-probe`（真 makeOpenRoundHandler＋假頁面）補 6 條、`open-round-probe` 補 3 條（扣款不叫救援）、`blind-burst-probe` 補 7 條；拿掉按後守門／Take 不檢查機種／debit 不黏住／改回淨額，各自會紅
+
+### #6 Spin 扣款起點改用進場餘額（v5.54.0，只記錄、不改判定）
+- 原本剛進機台還沒有 moneyNtc 時，Spin 只能寫「Spin 前尚無機台餘額，餘額變化未驗」（LIONLINK 每台都是）
+- `PINUS_TRACKER_SCRIPT` 多記 `enterGMNtc` 的 coin（`window.__enterCoin`）：osm-qa-agent 用 0231 實測＝盒子 credit_load 目標 2,000,000、跟 moneyNtc **同單位**（credits；begin＝扣完注的餘額，2000000−18＝1999982）。**leaveGMNtc 的 coin 是帳號錢包（不同單位）**，不能混用
+- `roundDeductions`：每局扣款＝上一筆 moneyNtc 的餘額（第一局用進場餘額）− 這局 begin：> 0 paid；＝ 0 可能是免費局（**不能要求 > 0**，記未驗）；< 0 流水不連續（記未驗）。訊息寫「餘額 2000000（進場）→ …，每局扣款 18、…」，`extraData.spinDeductions` 留明細
+- **不改 Spin 判定**：畫面 BET 值還沒讀，「扣款與注額不符」這次不判（規格寫「能讀到畫面 BET 值時」）
+- 測試：`verdicts-probe` 用 0231 實際流水（mt-fixtures-1013/q3：18、18、28、38、58、88 全部對上）＋免費局／不連續／沒有起點；`machine-coin-tracker-probe`（真的注入腳本）補 enterGMNtc 記起點、不算機台餘額、leaveGMNtc 錢包不會蓋掉

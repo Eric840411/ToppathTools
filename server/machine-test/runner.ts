@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, blindBudget, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, roundDeductions, blindBudget, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -713,6 +713,12 @@ export const PINUS_TRACKER_SCRIPT = `
         if (data && typeof data.coin === 'number') {
           window.__lastCoin = data.coin;
           window.__coinUpdatedAt = Date.now();
+        }
+        // 1013 spec #6：enterGMNtc 的 coin＝本台入帳後餘額（osm-qa-agent 實測：＝盒子 credit_load 目標、跟 moneyNtc 同單位）
+        //   → Spin 前還沒有 moneyNtc 時拿它當扣款起點（原本只能寫「餘額變化未驗」）
+        if (route === 'enterGMNtc' && data && typeof data.coin === 'number') {
+          window.__enterCoin = data.coin;
+          window.__enterCoinAt = Date.now();
         }
         if (route === 'moneyNtc' && data && typeof data.coin === 'number') {
           window.__lastMachineCoin = data.coin;
@@ -2492,6 +2498,17 @@ export function parseCashOutCredit(text: string): number | null {
   const n = Number(m[1].replace(/,/g, ''))
   return Number.isFinite(n) ? n : null
 }
+/** 1013 spec #6：這次進場 enterGMNtc 帶的 coin（本台入帳後餘額）；任何一個 frame 有就用（大廳與遊戲 iframe 都掛了追蹤） */
+async function readEnterCoin(page: Page): Promise<number | null> {
+  for (const frame of page.frames()) {
+    try {
+      const v = await frame.evaluate(() => (window as unknown as Record<string, unknown>).__enterCoin as number | null ?? null)
+      if (typeof v === 'number' && Number.isFinite(v)) return v
+    } catch { /* frame detached */ }
+  }
+  return null
+}
+
 async function readMachineBalance(page: Page): Promise<number | null> {
   let fallback: number | null = null
   for (const frame of page.frames()) {
@@ -2967,11 +2984,17 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
     // CodeX 1007：Spin 前還沒有機台餘額（剛進機台沒開過局）時，不退回其他來源——用「這次點擊之後的新 begin」確認開局、end 確認完成，
     // 餘額變化標未驗
     if (nBegin > 0 && nEnd > 0) {
+      // 1013 spec #6（CodeX）：起點改用 enterGMNtc 的 coin，逐局算扣款（上一筆餘額 − 這局 begin）。只寫進訊息、不改判定：
+      //   扣款 0 可能是免費局（不能要求 > 0）、負的＝流水不連續 → 都記未驗；畫面 BET 值還沒讀，「扣款與注額不符」這次不判
+      const enterCoin = await readEnterCoin(page)
+      const ded = roundDeductions(enterCoin, newMoney)
+      const balTxt = enterCoin === null ? 'Spin 前尚無機台餘額、也沒有進場餘額，餘額變化未驗' : ded.note
       return {
         step: 'Spin 測試',
         status: 'pass',
-        message: `✅ Spin 確認執行（${SPIN_COUNT} 次，本次 moneyNtc begin ${nBegin}／end ${nEnd}；Spin 前尚無機台餘額，餘額變化未驗${balanceAfter !== null ? `，Spin 後 ${balanceAfter}` : ''}）`,
+        message: `✅ Spin 確認執行（${SPIN_COUNT} 次，本次 moneyNtc begin ${nBegin}／end ${nEnd}；${balTxt}${balanceAfter !== null ? `，Spin 後 ${balanceAfter}` : ''}）`,
         durationMs: Date.now() - t0,
+        extraData: { spinDeductions: JSON.stringify({ v: 1, start: enterCoin, rounds: ded.rounds }) },
       }
     }
     return {
