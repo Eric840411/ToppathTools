@@ -16,43 +16,52 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class AudioDefaults {
+  // [PreserveSig]: the int return is the native HRESULT (without it .NET rewrites the signature and the int is not an HRESULT).
   [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
   }
   [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IMMDevice {
-    int Activate(ref Guid iid, int clsCtx, IntPtr p, out IntPtr ppv);
-    int OpenPropertyStore(int access, out IPropertyStore store);
-    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr p, out IntPtr ppv);
+    [PreserveSig] int OpenPropertyStore(int access, out IPropertyStore store);
+    [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
   }
   [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IPropertyStore {
-    int GetCount(out int c);
-    int GetAt(int i, out PropertyKey k);
-    int GetValue(ref PropertyKey k, out PropVariant v);
+    [PreserveSig] int GetCount(out int c);
+    [PreserveSig] int GetAt(int i, out PropertyKey k);
+    [PreserveSig] int GetValue(ref PropertyKey k, out PropVariant v);
   }
   [StructLayout(LayoutKind.Sequential)] struct PropertyKey { public Guid fmtid; public int pid; }
-  [StructLayout(LayoutKind.Explicit)] struct PropVariant { [FieldOffset(0)] public short vt; [FieldOffset(8)] public IntPtr p; }
+  // Full PROPVARIANT: vt (2) + 3 reserved WORDs (6) + 16-byte union = 24 bytes on x64 (16 on x86). The union is padded
+  // with two pointer-sized fields so GetValue never writes past the struct.
+  [StructLayout(LayoutKind.Sequential)] struct PropVariant { public ushort vt; public ushort r1; public ushort r2; public ushort r3; public IntPtr p; public IntPtr p2; }
   [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumeratorCom { }
+  [DllImport("ole32.dll")] static extern int PropVariantClear(ref PropVariant v);
+
+  static void Check(int hr, string what) { if (hr != 0) throw new Exception(what + " HRESULT 0x" + hr.ToString("X8")); }
 
   // Returns "friendlyName<TAB>id", or "" when there is no default endpoint
   public static string Get(int flow) {
     IMMDeviceEnumerator e = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
     IMMDevice d;
     int hr = e.GetDefaultAudioEndpoint(flow, 0, out d);
-    if (hr != 0 || d == null) return "";
+    // E_NOTFOUND (0x80070490): there is no default endpoint for this flow
+    if (hr == unchecked((int)0x80070490) || d == null) return "";
+    Check(hr, "GetDefaultAudioEndpoint");
     string id;
-    d.GetId(out id);
+    Check(d.GetId(out id), "GetId");
     IPropertyStore s;
-    d.OpenPropertyStore(0, out s);
+    Check(d.OpenPropertyStore(0, out s), "OpenPropertyStore");
     PropertyKey k = new PropertyKey();
     k.fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0");
     k.pid = 14;
-    PropVariant v;
-    s.GetValue(ref k, out v);
-    string name = (v.vt == 31) ? Marshal.PtrToStringUni(v.p) : null;
+    PropVariant v = new PropVariant();
+    Check(s.GetValue(ref k, out v), "GetValue");
+    string name = null;
+    try { if (v.vt == 31) name = Marshal.PtrToStringUni(v.p); } finally { PropVariantClear(ref v); }
     return (name == null ? "" : name) + "\t" + id;
   }
 }
