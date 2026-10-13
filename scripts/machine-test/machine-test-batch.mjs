@@ -579,9 +579,8 @@ export function shortLine(rawResult, j, orientation, stepsRun = ALL_STEPS) {
     if (/AFT error state=/.test(msg(entry))) return 'AFT error'
     if (/Occupied（AUDIT MODE/.test(msg(entry))) return 'audit mode'
     if (/機台 Occupied/.test(msg(entry))) return 'occupied'
-    // 1013 spec #8：大廳找不到但後台是 Test／盒子在線 → 不是 offline（原因在訊息「｜原因：」那段）
-    if (/大廳找不到機台代碼/.test(msg(entry)) && /｜原因：OSM 後台設成 Test/.test(msg(entry))) return 'test machine'
-    if (/大廳找不到機台代碼/.test(msg(entry)) && /｜原因：大廳未提供這台/.test(msg(entry))) return 'not offered'
+    // 1013 spec #8：大廳找不到、後台是 Test → test machine（使用者 1013：只加這一個詞；其他照舊 offline，原因在訊息「 | reason: 」）
+    if (/大廳找不到機台代碼/.test(msg(entry)) && /\| reason: set to Test in the OSM back office/.test(msg(entry))) return 'test machine'
     return /大廳找不到機台代碼|enterGMNtc errcode=(?!0\b)/.test(msg(entry)) ? 'offline' : 'entry fail'
   }
   const st = get('推流檢測')
@@ -1217,16 +1216,18 @@ export async function preTestCheck(codes, expect = {}) {
 }
 // ── 大廳找不到機台：分原因（1013 spec #8，CodeX：完整清單缺席只能說「未提供，疑似未開放」；Test 要後台證據；沒查到盒子狀態不等於 offline）──
 // 依據是測前查的後台 EGM List（不是大廳 WS：那份是 binary、沒有總數，證明不了完整）。回傳附在進場訊息後面的一句，F 欄由 shortLine 依開頭判
+// 使用者 1013（Lark 15:12，osm-qa-agent-82 轉達）：「不要顯示中文」——這句會進 Lark，一律英文；
+//   F 欄只新增 test machine；「不是 Test 卻不在大廳」使用者說通常不會發生 → 不加新詞，F 照舊 offline，原因只寫在訊息
 export function lobbyMissingReason(row) {
-  if (!row) return '大廳找不到的原因無法確認（測前沒有這台的後台資料）'
+  if (!row) return 'cause unknown (no back-office data from the pre-test check)'
   if (row.boxVer === null && row.model === null && row.online === null) {
-    return row.boxListComplete ? '後台 EGM List 也沒有這台（清單完整）' : '大廳找不到的原因無法確認（後台 EGM List 沒有這台、清單是否完整無法確認）'
+    return row.boxListComplete ? 'not in the back-office EGM List either (list complete)' : 'cause unknown (not in the back-office EGM List; list completeness unknown)'
   }
   const isTest = row.istest === 1 || row.istest === '1' || row.istest === true
-  const fields = `isShowClient=${row.isShowClient ?? '?'}、isUsed=${row.isUsed ?? '?'}、machineStatus=${row.status ?? '?'}、istest=${row.istest ?? '?'}`
-  if (isTest) return `OSM 後台設成 Test（EGM List istest=${row.istest}，測前查詢）——不是離線｜${fields}`
-  if (row.online !== 'online') return `盒子 ${row.online ?? '狀態不明'}（測前查詢）｜${fields}`
-  return `大廳未提供這台，疑似未開放（盒子在線、後台不是 Test；${fields}，測前查詢）`
+  const fields = `isShowClient=${row.isShowClient ?? '?'}, isUsed=${row.isUsed ?? '?'}, machineStatus=${row.status ?? '?'}, istest=${row.istest ?? '?'}`
+  if (isTest) return `set to Test in the OSM back office (EGM List istest=${row.istest}, pre-test check), not offline; ${fields}`
+  if (row.online !== 'online') return `box ${row.online ?? 'status unknown'} (pre-test check); ${fields}`
+  return `not offered by the lobby, possibly not opened (box online, not Test; ${fields}; pre-test check)`
 }
 export function preTestLines(p) {
   const out = []
@@ -1619,9 +1620,9 @@ async function main() {
     if (notExecuted(result)) { log(`${code} 未執行（${result.steps[0]?.message?.slice(0, 80) ?? ''}）：當成沒收到結果，Lark 不回寫`); return }
     // 1013 spec #8：大廳找不到 → 用測前的後台 EGM List 分原因，排在 judge 之前（F 欄會依這句改寫）
     { const en = result.steps?.find(s => s.step === '進入機台')
-      if (en?.status === 'fail' && /大廳找不到機台代碼/.test(en.message ?? '') && !/｜原因：/.test(en.message ?? '')) {
+      if (en?.status === 'fail' && /大廳找不到機台代碼/.test(en.message ?? '') && !/\| reason: /.test(en.message ?? '')) {
         const row = (summary.preTest?.rows ?? []).find(x => x.row?.code === code)?.row ?? null
-        en.message += `｜原因：${lobbyMissingReason(row)}`
+        en.message += ` | reason: ${lobbyMissingReason(row)}`
         log(`${code} 大廳找不到 → ${lobbyMissingReason(row)}`)
       } }
     result.sessionAudio = sessionAudioStats(m.evidence?.audio)

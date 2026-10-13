@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.56.0'
+export const APP_VERSION = '5.56.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.56.1', date: '2026-10-13', changes: ['change(機台測試 大廳找不到的原因)：使用者 1013（Lark，osm-qa-agent-82 轉達）——「不要顯示中文」：原因那句（會進 Lark）改英文；F 欄只新增 test machine（後台 istest=1），「不是 Test 卻不在大廳」使用者說通常不會發生 → 不加 not offered，F 照舊 offline、原因只寫在訊息。lobby-missing.test 11 條（含每一種原因都沒有中文，塞回中文會紅）'] },
   { version: '5.56.0', date: '2026-10-13', changes: ['feat(機台測試 測前 LuckyLink 三態)：osm-qa-agent 回報、CodeX 定案——QAT LuckyLink 全表查詢一直逾時，原本讀取失敗跟清單沒有都報「Egm list 沒有這台」＋「預期有接」（假警報）。改成每台三態（找到／確定不存在／無法確認）：全表失敗逐台查（機台號是跨渠道子字串比對，只認完整 gmid）、翻頁查完才判不存在、每個請求看 code 20000 與 timeout；無法確認時不比對任何 LuckyLink 預期值、訊息與報告寫「無法確認（原因）」。luckylink-lookup.test 24 條（含真回應）、pretest-luckylink.test 11 條；實跑 QAT：全表逾時 → 逐台查 0231 有接、0998 確定不存在'] },
   { version: '5.55.0', date: '2026-10-13', changes: ['feat(機台測試 大廳找不到分原因)：osm-qa-agent spec #8、CodeX 有條件同意——0239 被後台設成 Test，結果只寫「大廳找不到」、F 欄 offline。改用測前已查的後台 EGM List（total＝items 才算完整；每筆有 istest／isShowClient／isUsed／machineStatus）分原因：istest=1 → 後台設成 Test（F test machine）；不是 Test、盒子在線 → 大廳未提供、疑似未開放並列出那幾個欄位（F not offered）；盒子離線 → offline；後台查不到 → 原因無法確認（F 照舊）。不用大廳 WS（binary、沒有總數，證明不了完整）。lobby-missing.test 10 條，用真的後台項目。英文報告補翻譯'] },
   { version: '5.54.0', date: '2026-10-13', changes: ['feat(機台測試 Spin 扣款起點)：osm-qa-agent spec #6、CodeX 有條件同意——剛進機台還沒有 moneyNtc 時，原本只能寫「餘額變化未驗」。改成記下 enterGMNtc 的 coin（0231 實測＝盒子入帳 2,000,000、跟 moneyNtc 同單位；leaveGMNtc 的 coin 是帳號錢包，不混用）當起點，逐局算扣款（上一筆 − 這局 begin）寫進訊息與 extraData：扣款 0 可能是免費局、負的是流水不連續，都記未驗。只記錄、不改 Spin 判定（畫面 BET 值還沒讀，扣款與注額是否相符這次不判）。verdicts-probe 用 0231 實際流水 18／18／28／38／58／88 全對上，machine-coin-tracker-probe 驗真的注入腳本。要更新 Local Agent 才生效'] },

@@ -819,14 +819,14 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 0239 被 OSM 後台設成 Test，結果只寫「大廳找不到機台代碼」、F 欄 offline
 - **不用大廳的 WS 判**：大廳 GM 清單（getAllGMListReq 回應）是 binary pinus、看不到總數，證明不了完整（osm-qa-agent 1013：10-13 沒有任何原始 frame 存檔）
 - 改用測前已經查的**後台 EGM List**（`backendservertest /egm/floor/egmList`，`fetchBoxInfo`）：`data.total`＝items 筆數才算完整清單；每筆都帶 `istest`（數字，沒設是 0）、`isShowClient`、`isUsed`、`machineStatus`、`onlineState`
-- `lobbyMissingReason`（判定前補進進場訊息「｜原因：…」）：
-  - `istest` 是 1 → 「OSM 後台設成 Test（EGM List istest=1，測前查詢）——不是離線」→ F `test machine`
-  - 不是 Test、盒子在線 → 「大廳未提供這台，疑似未開放」＋列出 isShowClient／isUsed／machineStatus／istest（CodeX：缺席只能說未提供、疑似未開放；不叫大家都去查 Test）→ F `not offered`
-  - 盒子不在線 → F 照舊 `offline`
-  - 後台沒有這台：清單完整 → 寫「後台 EGM List 也沒有這台」；不完整或沒有測前資料 → 「原因無法確認」（**不說 offline 的原因，F 照舊**）
+- `lobbyMissingReason`（判定前補進進場訊息「 | reason: …」，**英文**——使用者 1013：「不要顯示中文」，這句會進 Lark）：
+  - `istest` 是 1 → `set to Test in the OSM back office (EGM List istest=1, pre-test check), not offline` → F `test machine`
+  - 不是 Test、盒子在線 → `not offered by the lobby, possibly not opened (…isShowClient／isUsed／machineStatus／istest…)`（CodeX：缺席只能說未提供、疑似未開放）→ **F 照舊 `offline`**（使用者 1013：這種情況通常不會發生，不加新詞，原因只寫在訊息）
+  - 盒子不在線 → `box offline …` → F `offline`
+  - 後台沒有這台：清單完整 → `not in the back-office EGM List either`；不完整或沒有測前資料 → `cause unknown …`（F 照舊 `offline`）
 - ⚠️ 用的是**測前**的後台狀態；跑測試期間被改就看不到
-- ⚠️ F 欄多了 `test machine`、`not offered` 兩個詞（原本使用者定「大廳找不到＝offline」）
-- 測試：`scripts/ui-checks/lobby-missing.test.mjs` 10 條，用真的後台項目（`fixtures/egm-list/873-LIONLINK-0239.json`）＋真的 `shortLine`
+- F 欄只多了 `test machine`（使用者 1013 Lark 確認，osm-qa-agent-82 轉達）
+- 測試：`scripts/ui-checks/lobby-missing.test.mjs` 11 條，用真的後台項目（`fixtures/egm-list/873-LIONLINK-0239.json`）＋真的 `shortLine`；含「每一種原因都沒有中文」（塞回中文會紅）
 
 ### #9 測前檢查 LuckyLink 三態（v5.56.0，batch）
 - QAT `/slot/egmList` 用 pageSize 10000 抓全表一直回 `40000 Operation timed out`；原本讀取失敗跟「清單沒有」都變 null → 每台都報「Egm list 沒有這台」＋「預期有接」（0237／0239／0240／0245 假警報）
