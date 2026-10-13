@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -3791,14 +3791,16 @@ export async function stepIdeck(
       const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
       return d?.is_ideck === true || d?.is_ideck === 1
     }
-    const fetchBox = async (): Promise<{ entries: LogEntry[]; err: string | null }> => {
+    // 1013 spec #2：也回整份 timeline（三層配對要看 usb_coordinate／hw_response，不只 iDeck 的 success_json）
+    const fetchBox = async (): Promise<{ entries: LogEntry[]; timeline: LogEntry[]; err: string | null }> => {
       try {
         const res = await fetch(apiUrl)
-        if (!res.ok) return { entries: [], err: `HTTP ${res.status}` }
+        if (!res.ok) return { entries: [], timeline: [], err: `HTTP ${res.status}` }
         const json = await res.json() as { success?: boolean; message?: string; data?: { timeline?: LogEntry[] } }
-        if (json.success === false) return { entries: [], err: json.message ?? 'success:false' }
-        return { entries: (json.data?.timeline ?? []).filter(isIdeck), err: null }
-      } catch (err) { return { entries: [], err: `例外 ${err}` } }
+        if (json.success === false) return { entries: [], timeline: [], err: json.message ?? 'success:false' }
+        const timeline = json.data?.timeline ?? []
+        return { entries: timeline.filter(isIdeck), timeline, err: null }
+      } catch (err) { return { entries: [], timeline: [], err: `例外 ${err}` } }
     }
     const keyOf = (e: LogEntry) => `${e.time}|${JSON.stringify(e.data)}`
     const baseline = await fetchBox()
@@ -3945,7 +3947,10 @@ export async function stepIdeck(
       }) }) } : {}),
     } }
 
-    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length, ambiguous, restoreSkipped, skipped: familySkipped.map(o => ({ label: o.label, text: o.text, why: o.skipped ?? '' })) })
+    // 1013 spec #2（CodeX）：盒子三層——這次 iDeck 的指令有沒有送到機台、機台有沒有回應。只在確定零回應時升 WARN，有歧義／缺 log 只記未確認
+    const ideckChain = apiErr ? null : ideckBoxChain(successChains(after.timeline, e => isIdeck(e as LogEntry) && !baselineKeys.has(keyOf(e as LogEntry))))
+    if (ideckChain) emit(`iDeck ${ideckChain.note}`)
+    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length, ambiguous, restoreSkipped, skipped: familySkipped.map(o => ({ label: o.label, text: o.text, why: o.skipped ?? '' })), boxChain: ideckChain })
     // 1007 iDeck 時間學習：時間模式＋每顆量測（extraData.ideckTiming，batch 收）
     const all = [...outcomes, ...(restore ? [restore] : [])]
     const fastN = all.filter(o => o.timing?.mode === 'fast').length
@@ -4453,7 +4458,8 @@ async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineC
   return done(r.status, r.message, { noise: r.noise, opened: r.opened, closed: r.closed, clicks: r.clicks })
 }
 
-async function stepTouchscreen(
+// export：給 scripts/touch-chain-probe.ts（假頁面＋假盒子 log）用
+export async function stepTouchscreen(
   page: Page,
   emit: (msg: string) => void,
   machineCode: string,
@@ -4818,8 +4824,12 @@ async function stepTouchscreen(
       const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
       return clickedLabels.has(String(d?.cmd ?? ''))
     })
-    const passed = matched.length
     const total = buttons.length
+    // 1013 spec #2（CodeX）：每一格要有完整三層證據（盒子收到 → 送到機台 → 機台回應）才算過。原本 passed＝matched.length，
+    //   只看「盒子收到」，而且同一格重複的 success 可以補別格的缺（0237：盒子送了、機台 hw_response 0，照樣 PASS 3/3）
+    const isNewTouch = (e: LogEntry) => !baselineKeys.has(`${e.time}|${JSON.stringify(e.data)}`)
+    const chainV = apiErr ? null : touchChainVerdict(boxChains(tlAll, buttons.map(b => b.label), isNewTouch))
+    const passed = chainV?.ok ?? 0
     // learn 模式：「盒子收到指令」不算數，要後面 10 秒內跟著 usb_coordinate（盒子真的動作了）才算這格學得到
     const secs = (t: string) => { const [h, m, s] = t.split(':').map(Number); return h * 3600 + m * 60 + s }
     // 對應要綁在「這一筆」之後：usb_coordinate 必須出現在它後面、下一筆觸屏 success_json 之前（CodeX 0929：
@@ -4848,17 +4858,13 @@ async function stepTouchscreen(
       + (sentPer.length ? ` ｜WS: ${sentPer.join('；')}` : '')
       + (sentCount < total && listenerDiag ? ` ｜監聽: ${listenerDiag}` : '')
       + (passed < total ? ` ｜診斷 ${[scanNote, ...clickDiag].filter(Boolean).join('；')}` : '')
+      + (chainV ? ` ｜盒子三層：${chainV.detail}${chainV.tag ? `｜${chainV.tag}` : ''}` : '')
 
     if (apiErr) {
       emit(`⚠️ 機台 log API 查不到資料（${apiErr}）→ 觸屏未驗`)
       return { step: '觸屏測試', status: 'skip', message: `未驗：機台 log API 查不到 ${effectiveGmid}（${apiErr}）｜${message}`, durationMs: Date.now() - t0, ...learnT }
     }
-    if (passed === 0) {
-      return { step: '觸屏測試', status: 'fail', message, durationMs: Date.now() - t0, ...learnT }
-    } else if (passed < total) {
-      return { step: '觸屏測試', status: 'warn', message, durationMs: Date.now() - t0, ...learnT }
-    }
-    return { step: '觸屏測試', status: 'pass', message, durationMs: Date.now() - t0, ...learnT }
+    return { step: '觸屏測試', status: chainV!.status, message: chainV!.status === 'skip' ? `未驗：${message}` : message, durationMs: Date.now() - t0, ...learnT }
   } catch (e) {
     return { step: '觸屏測試', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }

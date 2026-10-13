@@ -46,6 +46,13 @@ const PHRASES = [
   ['音量偏低', 'volume low'], ['音量過大', 'volume too high'], ['可能受其', 'possibly affected by'],
 
   // ── iDeck ──
+  // 1013 spec #2 盒子三層（長的放前面，免得被下面的「筆」「機台」先換掉）
+  ['server 已回應；盒子已送出', 'server responded; box sent'], ['觀察窗口內未見機台回應', 'no machine response seen within the window'],
+  ['盒子 log 0 筆，未確認機台端', 'box log 0 entries, machine side not confirmed'], ['盒子 log 沒有這次的 iDeck 指令（未確認）', 'box log has none of these iDeck commands (not confirmed)'],
+  ['盒子三層：收到', 'Box 3-layer: received'], ['盒子三層', 'Box 3-layer'], ['確定送出', 'confirmed sent'], ['機台回應', 'machine responded'], ['未確認', 'not confirmed'],
+  ['盒子沒送到機台', 'box did not send to machine'], ['機台不回應', 'machine no response'], ['盒子沒收到', 'box did not receive'],
+  ['log 還沒涵蓋完整 10 秒', 'log does not cover the full 10 s'], ['前一筆逾時沒回，這組的回應可能是它晚到的', 'previous one timed out; this reply may be its late answer'],
+  ['無法確定是哪一筆沒回', 'cannot tell which one got no reply'], ['格盒子 log 無法確認三層', ' cells: box log cannot confirm all 3 layers'],
   ['server 回應', 'server responded'], ['還原', 'restored'], ['中止，沒有還原倍數', 'aborted, multiplier not restored'],
   ['沒有倍數鍵，不需還原', 'no multiplier key, no restore needed'], ['盒子 log 新增', 'box log added'], ['盒子 log 未查', 'box log not checked'],
   ['筆', ' entries'], ['未通過', 'Failed'], ['秒內', 's'], ['機台 log API 查不到', 'machine log API cannot find'],

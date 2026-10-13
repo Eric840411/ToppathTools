@@ -24,7 +24,8 @@ const cases: Array<[string, string, string]> = [
   ['找不到元素＋歸屬不明 → 仍是流程失敗', (() => { const r = V({ outcomes: [...bzzf().slice(0, 4), O(null, 'noElement')], ambiguous: '晚到的 begin 歸屬不明' }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],
   ['對照：只有歸屬不明（沒有確定的失敗）→ SKIP', V({ ambiguous: '晚到的 begin 歸屬不明' }).status, 'skip'],
   ['沒有倍數鍵、全部回應', V({ outcomes: [O('Bet30'), O('Bet60')], restore: null }).status, 'pass'],
-  ['盒子查得到但 0 筆 → WARN', V({ apiErr: null, boxCount: 0 }).status, 'warn'],
+  // 1013（CodeX）：原本 0 筆 → WARN；改成只記未確認（usb＝0／缺 log 不升 WARN，跟盒子三層判定一致）
+  ['盒子查得到但 0 筆 → 只記未確認（PASS＋註記）', (() => { const r = V({ apiErr: null, boxCount: 0 }); return `${r.status}/${/盒子 log 0 筆，未確認機台端/.test(r.message)}` })(), 'pass/true'],
   ['盒子 0 筆不能把 FAIL 降成 WARN', V({ apiErr: null, boxCount: 0, outcomes: [...bzzf().slice(0, 4), O('Bet38', 'noAck')] }).status, 'fail'],
   ['盒子有筆數 → PASS', V({ apiErr: null, boxCount: 5 }).status, 'pass'],
   ['沒按鈕', ideckVerdict({ outcomes: [], restore: null, aborted: false, apiErr: null, boxCount: 0 }).status, 'fail'],

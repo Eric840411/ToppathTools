@@ -40,6 +40,8 @@ export function ideckVerdict(p: {
   skipped?: Array<{ label: string; text: string; why: string }>
   /** 1008：倍數族群是開局鍵（只按了 x1）→ 倍數本來就停在 x1，不需還原 */
   restoreSkipped?: string | null
+  /** 1013 spec #2：這次 iDeck 的盒子三層統計（ideckBoxChain）；沒查到盒子 log 就不給 */
+  boxChain?: ReturnType<typeof ideckBoxChain> | null
 }): { status: 'pass' | 'warn' | 'fail' | 'skip'; message: string } {
   const { outcomes, restore, aborted, apiErr, boxCount } = p
   if (outcomes.length === 0) return { status: 'fail', message: '沒有可點的 iDeck 按鈕｜判定：flow fail' }
@@ -60,7 +62,7 @@ export function ideckVerdict(p: {
     if (!ok) restoreBad = NO_RESPONSE.includes(restore.result) ? 'noResponse' : 'flow'
   } else if (hasMultiplier) { restoreTxt = '；⚠️ 有倍數鍵但找不到 BetMultiple1，還原未驗證'; restoreBad = 'flow' }
   else restoreTxt = '；沒有倍數鍵，不需還原'
-  const boxTxt = apiErr ? `；盒子 log 未查（${apiErr}）` : `；盒子 log 新增 ${boxCount} 筆`
+  const boxTxt = apiErr ? `；盒子 log 未查（${apiErr}）` : `；盒子 log 新增 ${boxCount} 筆${p.boxChain ? `（${p.boxChain.note}）` : ''}`
 
   let message = `server 回應 ${acked}/${total}（${detail}）${restoreTxt}${boxTxt}`
   if (p.skipped?.length) message += `｜略過 ${p.skipped.length} 顆（${p.skipped.map(s => `${s.text || s.label}：${s.why}`).join('、')}）`
@@ -78,7 +80,10 @@ export function ideckVerdict(p: {
     const flow = bad.some(o => !NO_RESPONSE.includes(o.result)) || restoreBad === 'flow'
     return { status: 'fail', message: `${message}｜判定：${flow ? 'flow fail' : 'no response'}` }
   }
-  if (!apiErr && boxCount === 0) return { status: 'warn', message: `${message}｜⚠️ server 全部回應但盒子 log 0 筆，待查` }
+  // 1013（CodeX）：盒子 log 0 筆／usb 0 只記未確認，不升 WARN（原本 boxCount===0 → WARN，會跟三層判定一起誤升）
+  if (!apiErr && boxCount === 0) return { status: 'pass', message: `${message}｜盒子 log 0 筆，未確認機台端` }
+  // 1013 spec #2：server 都回應、但盒子 log **確定**送了指令卻一筆回應都沒有（0237：usb 15／26、hw 0）。只在既有判定是 PASS 時才升 WARN
+  if (p.boxChain?.noResponse) return { status: 'warn', message: `${message}｜⚠️ server 已回應；盒子已送出 ${p.boxChain.sent} 筆，觀察窗口內未見機台回應` }
   return { status: 'pass', message }
 }
 
@@ -872,4 +877,159 @@ export function ideckFamilyOrder(texts: string[]): number[] {
     slots.forEach((slot, k) => { order[slot] = sorted[k] })
   }
   return order
+}
+
+// ─── 盒子 log 三層配對（1013 spec #2，CodeX 定案）─────────────────────────────────────────────
+// 一次觸屏／iDeck 在盒子 log 是三層：success_json{cmd,is_touch}（盒子收到）→ usb_coordinate（盒子送到機台）→ hw_response（機台有回應）。
+// 只有「盒子收到」不等於機台有反應：0237 盒子送了 usb 15／26 次、機台 hw_response 0（停在 SELECT DENOM），原本照樣判 PASS 3/3；
+// 0245 盒子 success_json 都在、連 usb 都沒送。正常台 hw 數＝usb 數（0231 16/16、0232 15/15）。
+//
+// 配對規則：
+//   - usb：綁在這一筆 success 之後、下一筆觸屏 success 之前、10 秒內（沿用原本 followedByUsb）
+//   - hw：沒有序號可對（只有 raw payload；gmid／userid 是整台的），而且會**晚到下一筆 success 之後**（0231：usb 6,4 → success 8,4 → hw）
+//     → 不能用「下一筆之前」的窗口，也不能 FIFO 硬配（A 沒回、B 有回時 FIFO 會把 B 的 hw 配給 A，CodeX）。
+//     改成「重疊群組」：等待中的 usb（各自 10 秒窗口，從 usb 發生時間起算）互相重疊就是同一組；hw 只歸到「組」，不歸到某一筆。
+//     組內 hw 數＝usb 數 → 全部有回；hw 是 0 → 全部沒回；介於兩者 → 這組每一格都**未驗**（不硬配 PASS）
+//   - 群組包含同一台**所有** usb（含非測試操作），避免借到別筆的 hw
+//   - 窗口過了才到的 hw 不補給任何一筆；剛有一筆逾時沒回、10 秒內又開新組 → 新組的 hw 可能是舊那筆晚到的，有 hw 就算未驗
+//   - log 不夠長（窗口還沒過完 log 就結束了）→ 沒回的那格算未驗，不算機台不回應
+export type BoxLogEntry = { time: string; type: string; data: unknown }
+export type BoxChainState = 'ok' | 'noUsb' | 'noHw' | 'unknown' | 'noBox'
+export const BOX_CHAIN_WINDOW_S = 10
+
+const boxData = (e: BoxLogEntry): Record<string, unknown> => {
+  if (typeof e.data === 'string') { try { return JSON.parse(e.data) as Record<string, unknown> } catch { return {} } }
+  return (e.data ?? {}) as Record<string, unknown>
+}
+const boxSecs = (t: string) => { const [h, m, s] = String(t).split(':').map(Number); return h * 3600 + m * 60 + s }
+const isTouchSuccess = (e: BoxLogEntry) => { if (e.type !== 'success_json') return false; const d = boxData(e); return d.is_touch === true || d.is_touch === 1 }
+
+/** API 的排序方向沒保證：頭尾比一下，統一成由舊到新（同原本 stepTouchscreen 的做法） */
+export function orderBoxTimeline(tl: BoxLogEntry[]): BoxLogEntry[] {
+  return tl.length > 1 && boxSecs(tl[0].time) > boxSecs(tl[tl.length - 1].time) ? [...tl].reverse() : tl
+}
+
+/** 每顆 usb 的回應狀態：answered／none／unknown（附原因） */
+export function usbResponseStates(ordered: BoxLogEntry[]): Map<BoxLogEntry, { state: 'answered' | 'none' | 'unknown'; why: string }> {
+  type Group = { usbs: BoxLogEntry[]; hw: number; tainted: boolean }
+  const groups: Group[] = []
+  let pending: Array<{ usb: BoxLogEntry; deadline: number }> = []
+  let cur: Group | null = null
+  let lastExpiredUnanswered = -Infinity
+  const expire = (t: number) => {
+    const left = pending.filter(p => p.deadline >= t)
+    // 逾時離開等待清單的：記下時間（之後 10 秒內開的新組，可能收到它晚到的 hw）
+    for (const p of pending) if (p.deadline < t) lastExpiredUnanswered = Math.max(lastExpiredUnanswered, p.deadline)
+    pending = left
+    if (!pending.length) cur = null
+  }
+  for (const e of ordered) {
+    const t = boxSecs(e.time)
+    if (e.type === 'usb_coordinate') {
+      expire(t)
+      if (!cur) { cur = { usbs: [], hw: 0, tainted: t - lastExpiredUnanswered <= BOX_CHAIN_WINDOW_S }; groups.push(cur) }
+      cur.usbs.push(e); pending.push({ usb: e, deadline: t + BOX_CHAIN_WINDOW_S })
+    } else if (e.type === 'hw_response') {
+      expire(t)
+      if (!cur) continue   // 沒有等待中的 usb：逾時晚到或不相干，不補給任何一筆
+      cur.hw++; pending.shift()   // shift 只是算「還有幾筆在等」，不代表歸給哪一筆
+      if (!pending.length) cur = null
+    }
+  }
+  const horizon = ordered.reduce((m, e) => Math.max(m, boxSecs(e.time)), -Infinity)
+  const out = new Map<BoxLogEntry, { state: 'answered' | 'none' | 'unknown'; why: string }>()
+  for (const g of groups) {
+    const n = g.usbs.length
+    for (const u of g.usbs) {
+      let st: { state: 'answered' | 'none' | 'unknown'; why: string }
+      if (g.hw >= n) st = g.tainted ? { state: 'unknown', why: '前一筆逾時沒回，這組的回應可能是它晚到的' } : { state: 'answered', why: '' }
+      // 整組一筆回應都沒有：窗口已被 log 涵蓋完的那幾筆＝確定沒回（窗口內只要有 hw 就會算進這組）；還沒涵蓋完的才是未驗。
+      //   0237 實測：沒有回應時 usb 會一路串成同一組，不能因為最後一筆接近 log 結尾就整組變未驗
+      else if (g.hw === 0) st = boxSecs(u.time) + BOX_CHAIN_WINDOW_S <= horizon ? { state: 'none', why: '' } : { state: 'unknown', why: 'log 還沒涵蓋完整 10 秒' }
+      else st = { state: 'unknown', why: `同時 ${n} 筆在等、只回 ${g.hw} 筆，無法確定是哪一筆沒回` }
+      out.set(u, st)
+    }
+  }
+  return out
+}
+
+/**
+ * 每個點過的格子（success_json 的 cmd）→ 三層狀態。
+ * isNew：排除點擊前就存在的 success（呼叫端用 baseline 判斷）。同一格有多筆 success 時，有一筆三層齊全就算 ok；
+ * 沒有就取確定的失敗（機台不回應 > 盒子沒送 > 未驗）——重複的 success 不能補別格的缺（CodeX）
+ */
+export function boxChains(timeline: BoxLogEntry[], labels: string[], isNew: (e: BoxLogEntry) => boolean = () => true): Record<string, { state: BoxChainState; why: string }> {
+  const per: Record<string, Array<{ state: BoxChainState; why: string }>> = Object.fromEntries(labels.map(l => [l, []]))
+  for (const c of successChains(timeline, isNew)) if (c.cmd in per) per[c.cmd].push({ state: c.state, why: c.why })
+  // 有一次三層齊全就算 ok；否則確定的失敗優先（某一次確定沒回，比另一次 log 沒涵蓋完更有資訊），最後才是未驗
+  const rank: Record<BoxChainState, number> = { ok: 0, noHw: 1, noUsb: 2, unknown: 3, noBox: 4 }
+  return Object.fromEntries(labels.map(l => {
+    const xs = per[l]
+    if (!xs.length) return [l, { state: 'noBox' as BoxChainState, why: '' }]
+    const ok = xs.find(x => x.state === 'ok')
+    return [l, ok ?? [...xs].sort((a, b) => rank[a.state] - rank[b.state])[0]]
+  }))
+}
+
+/** 每一筆新的觸屏／iDeck success_json → 三層狀態（觸屏依格子彙整，iDeck 直接統計） */
+export function successChains(timeline: BoxLogEntry[], isNew: (e: BoxLogEntry) => boolean = () => true): Array<{ cmd: string; time: string; state: Exclude<BoxChainState, 'noBox'>; why: string }> {
+  const ordered = orderBoxTimeline(timeline)
+  const usbState = usbResponseStates(ordered)
+  const out: Array<{ cmd: string; time: string; state: Exclude<BoxChainState, 'noBox'>; why: string }> = []
+  for (let i = 0; i < ordered.length; i++) {
+    const s = ordered[i]
+    if (!isTouchSuccess(s) || !isNew(s)) continue
+    const cmd = String(boxData(s).cmd ?? '')
+    let usb: BoxLogEntry | null = null
+    for (let k = i + 1; k < ordered.length; k++) {
+      const u = ordered[k]
+      if (boxSecs(u.time) - boxSecs(s.time) > BOX_CHAIN_WINDOW_S) break
+      if (isTouchSuccess(u)) break
+      if (u.type === 'usb_coordinate') { usb = u; break }
+    }
+    if (!usb) {
+      // 窗口還沒過完 log 就結束（後面也沒有下一筆觸屏把窗口關掉）→ 未驗；否則確定盒子沒送
+      const horizon = boxSecs(ordered[ordered.length - 1].time)
+      const open = boxSecs(s.time) + BOX_CHAIN_WINDOW_S > horizon && !ordered.slice(i + 1).some(isTouchSuccess)
+      out.push(open ? { cmd, time: s.time, state: 'unknown', why: 'log 還沒涵蓋完整 10 秒' } : { cmd, time: s.time, state: 'noUsb', why: '' })
+      continue
+    }
+    const r = usbState.get(usb)!
+    out.push(r.state === 'answered' ? { cmd, time: s.time, state: 'ok', why: '' } : r.state === 'none' ? { cmd, time: s.time, state: 'noHw', why: '' } : { cmd, time: s.time, state: 'unknown', why: r.why })
+  }
+  return out
+}
+
+/**
+ * iDeck 的盒子三層統計（1013 spec #2，CodeX：iDeck 不靠「開局鍵」判，改看盒子 log 有沒有機台回應）。
+ * 只在**確定**的情況回 noResponse：這次 iDeck 的指令都有送到機台（usb）、每一筆的等待窗口都被 log 涵蓋、配對沒有歧義，而且一筆回應都沒有。
+ * 有歧義／log 不完整／usb＝0 → 只記未確認（不升 WARN）。驗的是通訊回應，不代表驗過開局能力。
+ */
+export function ideckBoxChain(chains: Array<{ state: Exclude<BoxChainState, 'noBox'> }>): { received: number; sent: number; answered: number; unknown: number; noResponse: boolean; note: string } {
+  const received = chains.length
+  const answered = chains.filter(c => c.state === 'ok').length
+  const noHw = chains.filter(c => c.state === 'noHw').length
+  const unknown = chains.filter(c => c.state === 'unknown').length
+  const sent = answered + noHw   // 確定有送 usb、而且配得到狀態的筆數
+  const noResponse = received > 0 && noHw === received   // 每一筆都確定「有送、沒回」
+  const note = received === 0 ? '盒子 log 沒有這次的 iDeck 指令（未確認）'
+    : `盒子三層：收到 ${received}、確定送出 ${sent}、機台回應 ${answered}${unknown ? `、未確認 ${unknown}` : ''}${chains.length - sent - unknown ? `、沒送到機台 ${chains.length - sent - unknown}` : ''}`
+  return { received, sent, answered, unknown, noResponse, note }
+}
+
+/** 觸屏的盒子 log 判定（apiErr 由呼叫端先處理成未驗） */
+export function touchChainVerdict(chains: Record<string, { state: BoxChainState; why: string }>): { status: 'pass' | 'warn' | 'fail' | 'skip'; ok: number; total: number; detail: string; tag: string } {
+  const labels = Object.keys(chains)
+  const by = (s: BoxChainState) => labels.filter(l => chains[l].state === s)
+  const ok = by('ok').length, total = labels.length
+  const mark: Record<BoxChainState, string> = { ok: '✓', noUsb: '✗盒子沒送到機台', noHw: '✗機台不回應', unknown: '?未驗', noBox: '✗盒子沒收到' }
+  const detail = labels.map(l => `${l}${mark[chains[l].state]}${chains[l].state === 'unknown' && chains[l].why ? `(${chains[l].why})` : ''}`).join(' ')
+  const noHw = by('noHw'), noUsb = by('noUsb'), noBox = by('noBox'), unk = by('unknown')
+  // 確定的失敗先判；有 usb 沒 hw＝機台不回應（no response），連 usb 都沒有＝盒子沒送（flow fail）
+  if (noHw.length) return { status: 'fail', ok, total, detail, tag: `判定：no response（機台不回應：${noHw.join('、')}）` }
+  if (noUsb.length) return { status: 'fail', ok, total, detail, tag: `判定：flow fail（盒子沒送到機台：${noUsb.join('、')}）` }
+  // 盒子沒收到：沿用原本規則（一格都沒有＝FAIL、部分＝WARN）
+  if (noBox.length) return ok === 0 && !unk.length ? { status: 'fail', ok, total, detail, tag: '判定：no response' } : { status: 'warn', ok, total, detail, tag: `盒子沒收到：${noBox.join('、')}` }
+  if (unk.length) return { status: 'skip', ok, total, detail, tag: `未驗：${unk.length} 格盒子 log 無法確認三層` }
+  return { status: 'pass', ok, total, detail, tag: '' }
 }

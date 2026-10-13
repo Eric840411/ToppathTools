@@ -774,3 +774,16 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 讀不到就寫原因，不猜名字（原本的 `getDefaultAudioDevice` 讀不到會回一個寫死的「Realtek High Definition Audio」，那支只用在還原裝置，這次沒動）
 - ⚠️ 這支 .ps1 要**純 ASCII**：Windows PowerShell 5.1 把沒有 BOM 的 .ps1 當 cp950 讀，C# 區塊裡的中文註解會吃掉下一行，型別編譯失敗
 - 已加進 agent 白名單（`machine-test/audio-defaults.ps1`）；`verdicts-probe` 補 5 條（正確、錄音是麥克風、播放不對、讀不到、名稱讀不到）
+
+### #2 盒子 log 三層判定：觸屏／iDeck（v5.51.0）
+- 一次觸屏／iDeck 在盒子 log 是三層：`success_json`（盒子收到）→ `usb_coordinate`（盒子送到機台）→ `hw_response`（機台有回應）。原本只看第一層，0237（停在 SELECT DENOM，盒子送了 usb 15／26、hw 0）照樣 **PASS 3/3**；0245 盒子連 usb 都沒送也會 PASS
+- 真資料（`scripts/ui-checks/fixtures/box-chain/`，osm-qa-agent 1013 抓的 daily-analysis 切片，同一台修好前後各一份）：正常台 hw 數＝usb 數
+- 配對（共用 `verdicts.ts` 的 `successChains`／`usbResponseStates`）：
+  - usb 綁在這一筆之後、下一筆觸屏之前、10 秒內
+  - hw **會晚到下一筆 success 之後**（0231 實際順序），而且沒有序號 → 不能 FIFO 硬配（A 沒回、B 有回會把 B 的 hw 配給 A）。改成「重疊群組」：等待中的 usb 窗口互相重疊就同一組，組內 hw 數＝usb 數 → 都有回；0 → 都沒回；介於兩者 → 這組都**未驗**
+  - 群組含同一台所有 usb（含非測試操作）；窗口過了才到的 hw 不補給任何一筆；剛有一筆逾時沒回、10 秒內開的新組收到 hw → 未驗（可能是舊那筆晚到的）
+  - log 沒涵蓋完 10 秒窗口 → 未驗，不算機台不回應；同一格多次點擊有一次三層齊就 ok，否則確定的失敗優先
+- 觸屏判定：有 usb 沒 hw → FAIL `判定：no response（機台不回應：…）`；連 usb 都沒有 → FAIL `判定：flow fail（盒子沒送到機台：…）`；盒子沒收到沿用原規則；只有未驗 → SKIP。「API 確認 X/Y」的 X 改成**三層齊的格數**（報告與頁面的 regex 照舊能讀），訊息尾巴加「盒子三層：6,4✓ 8,4✗機台不回應…」
+- iDeck：**不靠「開局鍵」判**（isspin 不可靠：BZZF Credits 是 isspin:1 卻不開局；LIONLINK 知識檔與規格對哪些鍵會開局說法矛盾）。改看盒子三層：每一筆都確定「有送、沒回」才升 WARN「server 已回應；盒子已送出 N 筆，觀察窗口內未見機台回應」；有歧義／缺 log／usb＝0 只記未確認；既有 FAIL／SKIP 優先。驗的是通訊回應，**不代表驗過開局能力**
+- 一起改：iDeck 原本「server 全部回應但盒子 log 0 筆 → WARN」改成只記「盒子 log 0 筆，未確認機台端」（CodeX：不然會跟三層判定一起誤升）
+- 測試：`scripts/ui-checks/box-chain.test.ts` 31 條（真資料 8＋合成 23：跨 success 晚回、中間漏一筆、重疊漏一筆、逾時晚回、最後一筆等滿 10 秒、重複 success 不補缺、非測試 usb、iDeck 不蓋過 FAIL／SKIP）；5 種突變各自會紅。`scripts/touch-chain-probe.ts` 用真的 stepTouchscreen／stepIdeck＋假頁面＋假 daily-analysis 驗接線 6 條，換回舊的 matched.length 判定會紅

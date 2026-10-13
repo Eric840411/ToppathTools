@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.50.4'
+export const APP_VERSION = '5.51.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.51.0', date: '2026-10-13', changes: ['feat(機台測試 盒子 log 三層判定)：osm-qa-agent spec #2、CodeX 定案——觸屏／iDeck 原本只看盒子「收到」，0237 停在 SELECT DENOM（盒子送了 usb、機台 hw_response 0）照樣 PASS 3/3、0245 盒子連 usb 都沒送也 PASS。改成每一格都要三層齊（success_json → usb_coordinate → hw_response）：有 usb 沒 hw → FAIL no response（機台不回應），沒有 usb → FAIL flow fail（盒子沒送到機台），log 沒涵蓋完或配對有歧義 → 未驗；「API 確認 X/Y」改算三層齊的格數，重複的 success 不能補別格的缺。hw 沒有序號而且會晚到下一筆之後，用重疊群組配對（不 FIFO 硬配），逾時晚回不補給下一筆。iDeck 不靠開局鍵（isspin 不可靠），盒子確定送了、一筆回應都沒有才升 WARN（server 已回應；盒子已送出 N 筆，觀察窗口內未見機台回應），既有 FAIL／SKIP 優先；原本「盒子 log 0 筆 → WARN」改成只記未確認。box-chain.test 31 條（真盒子 log 6 份＋合成情境），5 種突變各自會紅；touch-chain-probe 用真的 stepTouchscreen／stepIdeck 驗接線 6 條。英文報告補翻譯。要更新 Local Agent 才生效'] },
   { version: '5.50.4', date: '2026-10-13', changes: ['fix(機台測試 錄音裝置診斷 錯誤被吞掉)：CodeX 審 ffb98dc [P2]——`|| d == null` 在 Check(hr) 之前，呼叫失敗時 endpoint 一律是 NULL，E_OUTOFMEMORY 之類的錯誤都被寫成 no default endpoint。改成只有 E_NOTFOUND 回「沒有預設裝置」，其他先 Check(hr)、成功後才檢查 device。加 -SimulateHr 測試掛鉤，新增 scripts/audio-defaults-probe.mjs 3 條（正常、E_NOTFOUND、E_OUTOFMEMORY 保留方法名與 HRESULT），換回舊寫法會紅'] },
   { version: '5.50.3', date: '2026-10-13', changes: ['fix(機台測試 錄音裝置診斷 COM 互通)：CodeX 審 41af859 兩個 [P2]——① PROPVARIANT 宣告成 16 bytes，x64 實際是 24，GetValue 有越界寫入風險 → 補完整結構（實測 Marshal.SizeOf＝24），讀完用 PropVariantClear 釋放；② COM 方法回傳 int 卻沒 [PreserveSig]，那個 int 不是原生 HRESULT → 每個方法補 [PreserveSig]，每一步都檢查 HRESULT（沒有預設裝置 E_NOTFOUND 回空、其他錯誤丟出原因）。在這台實跑仍讀到 CABLE Input／CABLE Output'] },
   { version: '5.50.2', date: '2026-10-13', changes: ['feat(機台測試 錄音裝置診斷)：osm-qa-agent spec #11、CodeX 同意（只診斷、不影響判定）——錄音（record-spin.ps1）錄的是 Windows 預設錄音裝置，播放切到 CABLE Input 只解決一半，預設錄音若是麥克風就會整段 -70 dB、看起來像機台沒聲音（0234 工具 -71.9 dB、AI 錄得到）。新增 audio-defaults.ps1（Core Audio，只讀），跟錄音同時讀預設播放／錄音裝置，寫進音頻訊息與 extraData.audioRouting，不是 CABLE 時加 ⚠️；讀不到寫原因、不猜名字。已加進 agent 白名單；verdicts-probe 補 5 條。要更新 Local Agent 才生效'] },
