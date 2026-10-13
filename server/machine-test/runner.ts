@@ -357,6 +357,25 @@ async function recordVBCable(durationMs: number, keepWav = false, savePath?: str
 
 // ─── Machine Log API (daily-analysis) ────────────────────────────────────────
 
+// 1013 spec #5：進場失敗後查 AFT 的總時限與單次 fetch 上限（CodeX 5354c74 [P2]：原本 fetch 沒有 timeout，API 不回應會卡住、停止也解不開）
+export const AFT_LOOKUP_MS = 20_000
+const AFT_FETCH_MS = 6_000
+/** fetch＋讀 JSON 整段有上限；isStopped 為真時（每 500ms 檢查）也會中止 */
+export async function fetchJsonWithin(url: string, ms: number, isStopped: () => boolean = () => false): Promise<unknown> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(new Error(`逾時 ${Math.round(ms / 1000)} 秒`)), Math.max(1, ms))
+  const poll = setInterval(() => { if (isStopped()) ac.abort(new Error('收到停止指令')) }, 500)
+  try {
+    const res = await fetch(url, { signal: ac.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    // 讀回應也綁同一個 signal：body 卡住時 abort 會讓 json() 丟錯
+    return await res.json()
+  } catch (e) {
+    if (ac.signal.aborted) throw ac.signal.reason instanceof Error ? ac.signal.reason : new Error(String(ac.signal.reason))
+    throw e
+  } finally { clearTimeout(timer); clearInterval(poll) }
+}
+
 // learn 模式交給 batch 端的結構化資料版本；batch 對不上版本就整台不寫 profile
 export const LEARN_VER = 1
 
@@ -6274,20 +6293,24 @@ export class MachineTestRunner extends EventEmitter {
     const gmid = this.debugGmid ? machineCode.replace(/^[^-]+/, this.debugGmid) : machineCode
     const fromMs = Date.parse(startedAt) - 60_000, toMs = Date.now() + 6 * 60_000
     const dates = [...new Set([fromMs, toMs].map(ms => new Date(ms + 8 * 3600_000).toISOString().slice(0, 10)))]
+    // CodeX 5354c74 [P2]：整段查詢 20 秒總時限（含 fetch 與讀回應），每一次 fetch 也有自己的上限；停止時最慢 2 秒內脫離
+    const deadline = Date.now() + AFT_LOOKUP_MS
+    const left = () => deadline - Date.now()
     let lastErr = ''
-    for (let i = 0; i < 4 && !this.stopped; i++) {
+    while (left() > 0 && !this.stopped) {
       for (const date of dates) {
+        if (left() <= 0 || this.stopped) break
         try {
-          const res = await fetch(`${DAILY_ANALYSIS_BASE}?gmid=${encodeURIComponent(gmid)}&date=${encodeURIComponent(date)}`)
-          if (!res.ok) { lastErr = `HTTP ${res.status}`; continue }
-          const json = await res.json() as { data?: { timeline?: LogEntry[] } }
+          const json = await fetchJsonWithin(`${DAILY_ANALYSIS_BASE}?gmid=${encodeURIComponent(gmid)}&date=${encodeURIComponent(date)}`, Math.min(left(), AFT_FETCH_MS), () => this.stopped) as { data?: { timeline?: LogEntry[] } }
           const hit = findAftInEnd(json.data?.timeline ?? [], { uid, fromMs, toMs, date })
           if (hit) return hit
-        } catch (e) { lastErr = String(e).slice(0, 80) }
+        } catch (e) { lastErr = String(e instanceof Error ? e.message : e).slice(0, 80) }
       }
-      if (i < 3) await sleep(5000)
+      // 等下一次之前也看停止與時限（分段睡，停止最慢 0.5 秒內反應）
+      for (let w = 0; w < 10 && left() > 0 && !this.stopped; w++) await sleep(Math.min(500, Math.max(0, left())))
     }
-    return { kind: 'unknown', why: lastErr ? `盒子 log 查詢失敗（${lastErr}）` : '盒子 log 20 秒內沒有這次進場的 aft_in_end' }
+    if (this.stopped) return { kind: 'unknown', why: '收到停止指令，AFT 查詢中止' }
+    return { kind: 'unknown', why: lastErr ? `盒子 log 查詢失敗（${lastErr}）` : `盒子 log ${AFT_LOOKUP_MS / 1000} 秒內沒有這次進場的 aft_in_end` }
   }
 
   /** runMachine 最後呼叫（抽出來給 scripts/aft-breaker-probe.ts 測：真的 runWorker＋假的 runMachine＋假的盒子 log） */
@@ -6306,6 +6329,8 @@ export class MachineTestRunner extends EventEmitter {
   private async runWorker(browser: Browser, queue: MachineQueue, lobbyUrl: string, workerId: number, steps: MachineTestSession['steps'], aiAudio = false): Promise<void> {
     this.log(`[Worker-${workerId}] 啟動（大廳：${lobbyUrl.slice(0, 60)}...）`)
     while (!this.stopped) {
+      // CodeX 5354c74 [P1]：多 worker 時，別的 worker 可能在這個 worker 等待（800ms）期間觸發停批 → 取下一台**之前**也要看
+      if (this._haltReason) break
       const machineCode = queue.next()
       if (!machineCode) break
       await this.runMachine(browser, machineCode, lobbyUrl, workerId, steps, aiAudio)

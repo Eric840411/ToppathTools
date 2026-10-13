@@ -76,6 +76,43 @@ try {
   failState = { 'T-1': 87, 'T-2': 87 }
   r = await runQueue(['T-1', 'T-2', 'T-3'], code => code === 'T-2' ? { status: 'pass', message: '' } : occupied())
   ok(!r.haltReason, '中間一台進場成功 → 不算連續', r.haltReason)
+
+  // CodeX 5354c74 [P1]：兩個 worker 共用佇列。A（worker1）87 失敗後進 800ms 等待；B（worker2）晚一點 87 失敗觸發停批 →
+  //   worker1 醒來不能再派 C（原本只在跑完機台後看 haltReason）
+  failState = { 'A': 87, 'B': 87, 'C': 87, 'D': 87 }
+  {
+    const runner = new MachineTestRunner() as unknown as Record<string, any>
+    const dispatched: string[] = []
+    runner.runMachine = async function (_b: unknown, code: string, lobbyUrl: string) {
+      dispatched.push(code)
+      if (code === 'B') await new Promise(res => setTimeout(res, 200))
+      await this.afterEntryAft(code, lobbyUrl, new Date().toISOString(), [{ step: '進入機台', ...occupied(), durationMs: 0 }], () => {})
+    }
+    const q = ['A', 'B', 'C', 'D']
+    const next = () => q.shift() ?? null
+    await Promise.all([runner.runWorker(null, { next }, lobby, 1, {}, false), new Promise(res => setTimeout(res, 50)).then(() => runner.runWorker(null, { next }, lobby, 2, {}, false))])
+    ok(JSON.stringify(dispatched) === '["A","B"]', '⚠️ 兩個 worker：B 觸發停批時 worker1 在等待中 → 醒來不再派 C、D', dispatched)
+  }
+
+  // CodeX 5354c74 [P2]：API 不回應 → 20 秒總時限到就回 unknown；按停止 → 2 秒內脫離
+  globalThis.fetch = ((_url: unknown, init?: RequestInit) => new Promise((_res, rej) => {
+    init?.signal?.addEventListener('abort', () => rej(init.signal!.reason))   // 永遠不回，只認 abort
+  })) as typeof fetch
+  {
+    const runner = new MachineTestRunner() as unknown as Record<string, any>
+    const t0 = Date.now()
+    const a = await runner.lookupAft('T-9', uid, new Date().toISOString())
+    const ms = Date.now() - t0
+    ok(a.kind === 'unknown' && ms >= 19_000 && ms < 23_000, `API 一直不回應 → ${(ms / 1000).toFixed(1)} 秒後回 unknown（20 秒上限）`, { a, ms })
+  }
+  {
+    const runner = new MachineTestRunner() as unknown as Record<string, any>
+    const t0 = Date.now()
+    setTimeout(() => { runner.stopped = true }, 1000)
+    const a = await runner.lookupAft('T-9', uid, new Date().toISOString())
+    const ms = Date.now() - t0
+    ok(a.kind === 'unknown' && /停止/.test(a.why) && ms < 3_000, `API 卡住時按停止 → ${(ms / 1000).toFixed(1)} 秒內脫離`, { a, ms })
+  }
 } finally { globalThis.fetch = realFetch }
 
 console.log(`\n${n - fail}/${n} 通過`)
