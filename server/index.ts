@@ -41,6 +41,7 @@ import { router as sheetsRouter } from './routes/sheets.js'
 import { router as attachmentsRouter } from './routes/attachments.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
+import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
 
 // Shared logger
 import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
@@ -79,6 +80,8 @@ try { const s = ensureLocalSeeds(); if (s.length) console.log(`[seeds] 補上機
 const app = express()
 // Trust reverse proxy (nginx) so express-rate-limit reads X-Forwarded-For correctly
 app.set('trust proxy', 1)
+// 記憶共享 relay（/kb-mcp/*）掛在最前面：不能經過 cors／json parser／存取 log——規格不准記 body、Authorization、原始 URL
+app.use(kbRelayHttp)
 const server = createServer(app)
 const port = Number(process.env.PORT ?? 3000)
 
@@ -94,6 +97,7 @@ const gracefulShutdown = (signal: string) => {
   // 1. Terminate all WebSocket clients
   console.log('[Shutdown] closing ws clients...')
   wss.clients.forEach(ws => ws.terminate())
+  closeKbRelay()
   wss.close()
 
   // 2. Stop cron job
@@ -379,7 +383,12 @@ app.use(
 
 // ─── WebSocket Server ─────────────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ server })
+// noServer：upgrade 自己分流。/kb-mcp/connect 要先驗 secret 才 upgrade（attach 到 server 的話會不驗就收下）
+const wss = new WebSocketServer({ noServer: true })
+server.on('upgrade', (req, socket, head) => {
+  if (handleKbRelayUpgrade(req, socket, head)) return
+  wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
+})
 
 // ws forwards HTTP server errors — must handle to prevent unhandled 'error' crash
 wss.on('error', () => { /* handled by server.on('error') above */ })

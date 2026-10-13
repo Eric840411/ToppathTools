@@ -99,6 +99,7 @@ The Express backend is split into route modules. All live under `server/`:
 | `routes/machine-test.ts` | `/api/machine-test/*`, `/api/image-check/*` |
 | `routes/autospin.ts` | `/api/autospin/*` |
 | `routes/gameshow.ts` | `/api/gs/*` |
+| `kb-relay.ts` | `/kb-mcp/*` 記憶共享 relay（不是 router：`kbRelayHttp` 掛 app 最前面、`handleKbRelayUpgrade` 接 upgrade；**不准記 body／Authorization／URL**） |
 
 When adding a new route:
 1. Put it in the appropriate route file
@@ -137,6 +138,7 @@ When adding a new route:
 | 28 | **Meegle 個人綁定＋批量開單**（Jira 退場；token 加密、CLI 沒帶 token 會沿用主機登入、防重複開單、人員對照表） | `docs/features/28-meegle.md` |
 | 29 | **Lark 通知**（通知出口 Discord／Lark／雙發、embed 轉卡片、只補送失敗那邊、只發不收） | `docs/features/29-lark-notify.md` |
 | 30 | **角色管理**（自建角色、依角色分配可見功能、一個帳號一個角色、管理員固定） | `docs/features/30-roles.md` |
+| 31 | **記憶共享 relay**（`/kb-mcp/*`，Spug 只轉接給 osm-qa-agent 本機 connector；不記錄內容、`KB_RELAY_SECRET`、nginx 設定） | `docs/features/31-kb-relay.md` |
 
 > **維護規則**：每次新增或修改功能，必須同步更新對應的 `docs/features/*.md`；新增功能要在上表加一列。
 > 記錄格式不變：功能說明 + 使用者可執行的操作清單。

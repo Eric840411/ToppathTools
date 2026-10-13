@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.48.0'
+export const APP_VERSION = '5.49.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.49.0', date: '2026-10-13', changes: ['feat(記憶共享 relay)：osm-qa-agent 請求、規格 CodeX 審過（memory-sharing-spug-relay.md §A）——toppath-server 新增 POST /kb-mcp/mcp 與 GET /kb-mcp/connect（WS），只把同事 AI 的請求轉給 osm-qa-agent 本機 connector，記憶不上 Spug、relay 不判斷 token。只轉 Authorization、帶 query 400、token 放 path 404、no-store、body 64KB、frame 512KB／8MB（接收層擋）、同時一條 connector、斷線在途立刻結束、25 秒 ping／60 秒逾時、在途 16、20 秒 504、每 IP 60/min；不記 body／Authorization／URL（掛在 app 最前面，不經 cors／存取 log）。index.ts 的 wss 改 noServer、upgrade 自己分流（/ws/agent 等照舊）。需要 Spug 環境變數 KB_RELAY_SECRET（沒設＝關閉）。scripts/kb-relay/relay.test.mjs 52 條，含真 connector 端對端；6 種突變各自會紅'] },
   { version: '5.48.0', date: '2026-10-12', changes: ['feat(Meegle 批量修改 人員下拉列空間人員)：使用者 Lark——② 固定值的人員下拉只有對照表那幾個人，改成跟開單一樣列這個空間掛過角色的人（＋對照表裡名單外的人，同一個 email 只出現一次）。選到還沒對照的 email 自動建立對照，對照中「下一步」鎖住；對不上的列出原因、那幾列照舊擋下。人員對照的選單也改用同一份名單。順手修「建立對照」沒帶 space 一律 400'] },
   { version: '5.47.3', date: '2026-10-09', changes: ['fix(Meegle 送出確認彈窗 鍵盤走不出去)：CodeX 指出——彈窗只有遮罩與 aria-modal，鍵盤 Tab 還是走得到背景的按鈕（例如確認框開著時改人員）。開著時把整個 App（#root）設成 inert，彈窗掛在 body 不受影響；關掉恢復。開單、評論、狀態、修改四個分頁共用這一個彈窗。meegle-comment-prod-confirm 補「Tab 15 次焦點都在彈窗裡」「關掉後背景恢復」，拿掉 inert 會紅'] },
   { version: '5.47.2', date: '2026-10-09', changes: ['fix(Meegle 開單 ② 手動驗證也鎖送出)：CodeX 複審 d712df8 [P2]——② 單筆驗證、全部確認沒算進「人員比對中」，按了驗證馬上切到 ③ 就能送出，verify 之後才寫進對照表、後端照樣帶入確認框說不帶的人。單筆驗證（含最後 loadPeople）、全部確認整段都算進鎖。meegle-people-auto 補「② 驗證晚 4 秒回 → 切 ③ 送出鍵鎖住、回來才解鎖」，拿掉會紅'] },
