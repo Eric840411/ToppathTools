@@ -1,4 +1,20 @@
 // 各步驟的純判定函式（2026-09-29 從 runner.ts 抽出來，好寫探針：scripts/verdicts-probe.ts）
+
+// ─── 錄音裝置診斷（1013 spec #11，CodeX：只是診斷，不影響錄音判定）────────────────────────
+// record-spin.ps1 錄的是「預設錄音裝置」。播放切到 CABLE Input 只解決一半：預設錄音不是 CABLE Output 的話，
+// 錄到的是別的來源（麥克風之類），整段 -70 dB 看起來就像機台沒聲音（0234：工具 -71.9 dB、AI 同台錄得到聲音）
+export type AudioEndpoint = { name: string | null; id: string | null; why: string | null }
+export type AudioRouting = { render: AudioEndpoint; capture: AudioEndpoint } | { err: string }
+export function audioRoutingNote(r: AudioRouting | undefined | null): string {
+  if (!r) return '錄音裝置：這次錄音沒有讀'
+  if ('err' in r) return `錄音裝置：讀不到（${r.err}）`
+  const nm = (e: AudioEndpoint) => e.name ?? `讀不到（${e.why ?? '?'}）`
+  const warns: string[] = []
+  if (r.render.name && !/CABLE Input/i.test(r.render.name)) warns.push('預設播放不是 CABLE Input，遊戲聲音可能沒進 VB-Cable')
+  if (r.capture.name && !/CABLE Output/i.test(r.capture.name)) warns.push('預設錄音不是 CABLE Output，錄到的可能不是遊戲聲音')
+  return `錄音裝置：播放 ${nm(r.render)}／錄音 ${nm(r.capture)}${warns.length ? `｜⚠️ ${warns.join('；')}` : ''}`
+}
+
 // 規則跟 CodeX 對過：
 //   - 每顆 SEND/ON 的 seq＋actionid 都對上才算點擊成功（只證明 server 收到）
 //   - play 鍵（isspin:1）等不到 moneyNtc end → 中止後面所有點擊、判失敗（不補點，避免重複扣款）

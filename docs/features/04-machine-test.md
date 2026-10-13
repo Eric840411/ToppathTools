@@ -767,3 +767,10 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 編輯頁另外用瀏覽器 `document.evaluate` 驗語法（server 沒有 XPath 引擎）；存檔現在會看回應，server 拒存會跳出原因（原本不看回應，400 也照樣關掉視窗）
 - ⚠️ 已經存在的壞 xpath 不會自動修，但下次編輯那個 profile 時會擋下來，要先改好才存得進去
 - 測試 `shared/ideck-xpath.test.ts` 13 條；真 worker 對 data.db 副本打過（壞的 400、好的存成 trim 後的值）
+
+### #11 錄音當下記下預設播放／錄音裝置（v5.50.2，只是診斷）
+- `record-spin.ps1` 用 MCI 錄的是 **Windows 預設錄音裝置**，不是固定錄 CABLE Output。播放切到 CABLE Input 只解決一半——預設錄音若是麥克風，整段 -70 dB 看起來就像機台沒聲音（0234：工具 -71.9 dB，AI 同台錄得到）
+- 新增 `server/machine-test/audio-defaults.ps1`（Core Audio `GetDefaultAudioEndpoint`，只讀）：跟錄音**同時**跑（不延後錄音開始），結果寫進音頻步驟訊息「錄音裝置：播放 X／錄音 Y」與 `extraData.audioRouting`；不是 CABLE Input／Output 時加 ⚠️。**不影響判定**（CodeX）
+- 讀不到就寫原因，不猜名字（原本的 `getDefaultAudioDevice` 讀不到會回一個寫死的「Realtek High Definition Audio」，那支只用在還原裝置，這次沒動）
+- ⚠️ 這支 .ps1 要**純 ASCII**：Windows PowerShell 5.1 把沒有 BOM 的 .ps1 當 cp950 讀，C# 區塊裡的中文註解會吃掉下一行，型別編譯失敗
+- 已加進 agent 白名單（`machine-test/audio-defaults.ps1`）；`verdicts-probe` 補 5 條（正確、錄音是麥克風、播放不對、讀不到、名稱讀不到）

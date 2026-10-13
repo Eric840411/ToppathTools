@@ -1,5 +1,5 @@
 // verdicts.ts 探針（2026-09-29）：npx tsx scripts/verdicts-probe.ts
-import { ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
+import { audioRoutingNote, ideckVerdict, streamRoles, runIdeckSequence, ideckBackPick, touchVisualVerdict, touchVisualPrecheck, runTouchVisualFlow, type TouchSample, type IdeckOutcome, type IdeckResult } from '../server/machine-test/verdicts.js'
 
 const O = (name: string | null, result: IdeckResult = 'ack'): IdeckOutcome => ({ label: name ?? 'x', text: '', name, result, note: '' })
 const bzzf = () => [O('BetMultiple1'), O('BetMultiple2'), O('BetMultiple10'), O('Bet18'), O('Bet38')]
@@ -7,6 +7,12 @@ const V = (p: Partial<Parameters<typeof ideckVerdict>[0]>) => ideckVerdict({ out
 const tag = (m: string) => m.match(/判定：(no response|flow fail)/)?.[1] ?? '-'
 
 const cases: Array<[string, string, string]> = [
+  // 1013 spec #11：錄音裝置診斷（只附訊息，不影響判定）
+  ['錄音裝置正確 → 沒有警告', /⚠️/.test(audioRoutingNote({ render: { name: 'CABLE Input (VB-Audio Virtual Cable)', id: 'a', why: null }, capture: { name: 'CABLE Output (VB-Audio Virtual Cable)', id: 'b', why: null } })) ? 'warn' : 'ok', 'ok'],
+  ['⚠️ 預設錄音是麥克風 → 寫出來', /預設錄音不是 CABLE Output/.test(audioRoutingNote({ render: { name: 'CABLE Input (VB-Audio Virtual Cable)', id: 'a', why: null }, capture: { name: 'Microphone (Realtek Audio)', id: 'b', why: null } })) ? 'flag' : '-', 'flag'],
+  ['預設播放不是 CABLE Input → 寫出來', /預設播放不是 CABLE Input/.test(audioRoutingNote({ render: { name: 'Speakers (Realtek Audio)', id: 'a', why: null }, capture: { name: 'CABLE Output (VB-Audio Virtual Cable)', id: 'b', why: null } })) ? 'flag' : '-', 'flag'],
+  ['讀不到 → 寫原因，不猜名字', audioRoutingNote({ err: '逾時 15 秒' }), '錄音裝置：讀不到（逾時 15 秒）'],
+  ['名稱讀不到 → 寫原因、不當成錯的裝置', audioRoutingNote({ render: { name: null, id: null, why: 'no default endpoint' }, capture: { name: 'CABLE Output', id: 'b', why: null } }), '錄音裝置：播放 讀不到（no default endpoint）／錄音 CABLE Output'],
   ['全部回應＋還原成功（盒子查不到）', V({}).status, 'pass'],
   ['開轉逾時中止', (() => { const r = V({ outcomes: [O('BetMultiple1'), O('Bet38', 'spinTimeout')], restore: null, aborted: true }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],
   ['有倍數鍵但找不到 BetMultiple1', (() => { const r = V({ outcomes: [O('BetMultiple2'), O('Bet38')], restore: null }); return `${r.status}/${tag(r.message)}` })(), 'fail/flow fail'],

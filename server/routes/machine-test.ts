@@ -66,6 +66,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/server-cfg-debug.ts': join(SERVER_ROOT, 'machine-test', 'server-cfg-debug.ts'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
+  // 1013（spec #11）：錄音當下讀預設播放／錄音裝置（只讀，診斷用）
+  'machine-test/audio-defaults.ps1': join(SERVER_ROOT, 'machine-test', 'audio-defaults.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
   'machine-test/set-audio-device.ps1': join(SERVER_ROOT, 'machine-test', 'set-audio-device.ps1'),
   'scripted-bet/runner.ts':        join(SERVER_ROOT, 'scripted-bet', 'runner.ts'),

@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -31,6 +31,8 @@ const { PNG } = pngjs
 const NIRCMD  = 'C:\\Users\\user\\AppData\\Local\\nircmd\\nircmd.exe'
 const MACHINE_TEST_ROOT = join(process.cwd(), 'server', 'machine-test')
 const RECORD_SCRIPT = join(MACHINE_TEST_ROOT, 'record-spin.ps1')
+// 1013（spec #11）：錄音當下的預設播放／錄音裝置。record-spin.ps1 錄的是「預設錄音裝置」，不是固定錄 CABLE Output
+const AUDIO_DEFAULTS_SCRIPT = join(MACHINE_TEST_ROOT, 'audio-defaults.ps1')
 const CABLE_DEVICE  = 'CABLE Input (VB-Audio Virtual Cable)'
 const CCTV_SAVE_DIR  = join(MACHINE_TEST_ROOT, 'cctv-saves')
 // 推流截圖：2026-09-21 加。原本推流只數「幾個 video 在播」，完全沒留畫面，
@@ -299,11 +301,24 @@ function recordVBCableSerial(durationMs: number, keepWav = false, savePath?: str
   return task
 }
 
+/** 錄音當下的預設裝置（診斷用，失敗不影響錄音與判定）。讀不到就回原因，不會退回猜一個名字 */
+async function readAudioRouting(): Promise<AudioRouting> {
+  if (!existsSync(AUDIO_DEFAULTS_SCRIPT)) return { err: '沒有 audio-defaults.ps1（agent 程式碼未更新）' }
+  try {
+    const out = await Promise.race([runPS(AUDIO_DEFAULTS_SCRIPT, []), new Promise<string>((_, rej) => setTimeout(() => rej(new Error('逾時 15 秒')), 15000))])
+    const j = JSON.parse(out.split(/\r?\n/).filter(Boolean).at(-1) ?? '') as { render?: AudioEndpoint; capture?: AudioEndpoint }
+    if (!j.render || !j.capture) return { err: '輸出格式不對' }
+    return { render: j.render, capture: j.capture }
+  } catch (e) { return { err: String(e instanceof Error ? e.message : e).slice(0, 120) } }
+}
+
 /** Record from CABLE Output for durationMs while CABLE Input is default output.
  *  Returns null if VB-Cable or nircmd is not available.
  *  Set keepWav=true to also return the base64-encoded WAV for AI analysis. */
-async function recordVBCable(durationMs: number, keepWav = false, savePath?: string): Promise<{ rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number; spectralCentroid: number; wavBase64?: string } | null> {
+async function recordVBCable(durationMs: number, keepWav = false, savePath?: string): Promise<{ rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number; spectralCentroid: number; wavBase64?: string; routing?: AudioRouting } | null> {
   if (!existsSync(NIRCMD)) return null
+  // 跟錄音同時跑（不延後錄音開始；Add-Type 編譯要 1～2 秒）
+  const routingP = readAudioRouting()
   if (!existsSync(RECORD_SCRIPT)) {
     console.error('[VBCable] record-spin.ps1 not found at:', RECORD_SCRIPT)
     return null
@@ -332,7 +347,8 @@ async function recordVBCable(durationMs: number, keepWav = false, savePath?: str
       } catch { /* non-fatal */ }
     }
     try { unlinkSync(outFile) } catch {}
-    return keepWav ? { ...analysis, wavBase64 } : analysis
+    const routing = await routingP
+    return keepWav ? { ...analysis, wavBase64, routing } : { ...analysis, routing }
   } catch (e) {
     console.error('[VBCable] recordVBCable error:', e)
     return null
@@ -2683,7 +2699,7 @@ async function sampleSpinAudio(page: Page, durationMs = 1500): Promise<{ peakDb:
   return { peakDb: bestPeak, method: bestMethod, detail: bestDetail }
 }
 
-type SpinAudioData = { peakDb: number; method: string; detail: string; rmsDb?: number; clipRatio?: number; crestFactor?: number; spectralCentroid?: number; baselineRmsDb?: number; wavBase64?: string }
+type SpinAudioData = { peakDb: number; method: string; detail: string; rmsDb?: number; clipRatio?: number; crestFactor?: number; spectralCentroid?: number; baselineRmsDb?: number; wavBase64?: string; routing?: AudioRouting }
 type SpinAudioRef = { data: SpinAudioData | null }
 
 /**
@@ -2789,7 +2805,7 @@ async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinS
             emit(`VB-Cable 音頻錄製（10 秒，第一次 Spin 前開始）...`)
             const rec = await recordVBCableSerial(10000, true)  // always keep WAV for disk save + optional AI
             if (rec) {
-              spinAudioRef.data = { peakDb: rec.peakDb, rmsDb: rec.rmsDb, clipRatio: rec.clipRatio, crestFactor: rec.crestFactor, spectralCentroid: rec.spectralCentroid, method: 'vbcable', detail: `${rec.samples} PCM 樣本（Spin 錄音）`, baselineRmsDb, wavBase64: rec.wavBase64 }
+              spinAudioRef.data = { peakDb: rec.peakDb, rmsDb: rec.rmsDb, clipRatio: rec.clipRatio, crestFactor: rec.crestFactor, spectralCentroid: rec.spectralCentroid, method: 'vbcable', detail: `${rec.samples} PCM 樣本（Spin 錄音）`, baselineRmsDb, wavBase64: rec.wavBase64, routing: rec.routing }
               return
             }
           }
@@ -3124,7 +3140,7 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
       emit(`VB-Cable 音頻錄製（5 秒，閒置補錄）...`)
       const freshRec = await recordVBCableSerial(5000, aiAudio, audioSavePath)
       if (freshRec) {
-        sa = { peakDb: freshRec.peakDb, rmsDb: freshRec.rmsDb, clipRatio: freshRec.clipRatio, crestFactor: freshRec.crestFactor, method: 'vbcable', detail: `${freshRec.samples} PCM 樣本（閒置補錄）`, wavBase64: freshRec.wavBase64 }
+        sa = { peakDb: freshRec.peakDb, rmsDb: freshRec.rmsDb, clipRatio: freshRec.clipRatio, crestFactor: freshRec.crestFactor, method: 'vbcable', detail: `${freshRec.samples} PCM 樣本（閒置補錄）`, wavBase64: freshRec.wavBase64, routing: freshRec.routing }
       }
     }
 
@@ -3216,7 +3232,10 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
         }
         const centroidStr = centroid > 0 ? `，重心 ${centroid.toFixed(0)} Hz` : ''
         // 0930 0255：VB-Cable 整段數位靜音但使用者在 H5 聽得到 → 當下 media 狀態（muted／音量／播放中）要留在結果裡，事後才查得出漏在哪
-        const summary = `VB-Cable 錄音：RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，峰值 ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-∞'} dB，Crest ${crestFactor.toFixed(1)} dB，Clip ${(clipRatio * 100).toFixed(2)}%${blStr}${centroidStr}｜${sa.detail}｜Media：${mediaCheck.summary}`
+        // 1013（spec #11）：錄音當下的預設裝置只附在訊息與 extraData，不影響判定（CodeX）
+        const routingNote = audioRoutingNote(sa.routing)
+        const rx = { extraData: { audioRouting: JSON.stringify(sa.routing ?? { err: '這次錄音沒有讀裝置' }) } }
+        const summary = `VB-Cable 錄音：RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，峰值 ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-∞'} dB，Crest ${crestFactor.toFixed(1)} dB，Clip ${(clipRatio * 100).toFixed(2)}%${blStr}${centroidStr}｜${sa.detail}｜Media：${mediaCheck.summary}｜${routingNote}`
 
         // AI audio analysis (if enabled and WAV was retained from spin recording)
         if (aiAudio && sa.wavBase64) {
@@ -3255,18 +3274,18 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
               if (!isTrueSilence) issues.length = 0
             }
             if (issues.length > 0) {
-              return { step: '音頻檢測', status: 'warn', message: `${summary}${aiSuffix}｜問題: ${issues.join('、')}`, durationMs: Date.now() - t0 }
+              return { step: '音頻檢測', status: 'warn', message: `${summary}${aiSuffix}｜問題: ${issues.join('、')}`, durationMs: Date.now() - t0, ...rx }
             }
-            return { step: '音頻檢測', status: 'pass', message: `${summary}${aiSuffix}`, durationMs: Date.now() - t0 }
+            return { step: '音頻檢測', status: 'pass', message: `${summary}${aiSuffix}`, durationMs: Date.now() - t0, ...rx }
           } catch (aiErr) {
             emit(`AI 音頻分析失敗（${aiErr}），使用 dB 判斷`)
           }
         }
 
         if (issues.length > 0) {
-          return { step: '音頻檢測', status: 'warn', message: `${summary}｜問題: ${issues.join('、')}`, durationMs: Date.now() - t0 }
+          return { step: '音頻檢測', status: 'warn', message: `${summary}｜問題: ${issues.join('、')}`, durationMs: Date.now() - t0, ...rx }
         }
-        return { step: '音頻檢測', status: 'pass', message: summary, durationMs: Date.now() - t0 }
+        return { step: '音頻檢測', status: 'pass', message: summary, durationMs: Date.now() - t0, ...rx }
       }
 
       // captureStream fallback
