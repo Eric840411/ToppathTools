@@ -14,7 +14,7 @@
  *
  * 跑法：node server/uat-runner/backend-ops.test.mjs
  */
-import { runBackendOps, unsupportedBackendOps, BACKEND_OP_ACTIONS, createBackendOpContext } from './backend-ops.js';
+import { runBackendOps, unsupportedBackendOps, BACKEND_OP_ACTIONS, createBackendOpContext, engineNotes } from './backend-ops.js';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -264,6 +264,10 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
   check('⑩ ⚠️ 引擎 note 一則一行，不是一字一行',
     engine.length > 0 && engine.every(l => [...l.slice(3)].length > 1), JSON.stringify(engine.slice(0, 5)));
 }
+
+// ⑩ 補（CodeX 8010cdc 建議）：上面只驗「每行超過一字」，整串沒拆也會過——這裡驗精確拆法
+check('⑩ 兩則 notes 的字串 → 拆成兩行', JSON.stringify(engineNotes('❌ a 點不到 | ⚠️ b 沒找到')) === JSON.stringify(['❌ a 點不到', '⚠️ b 沒找到']), JSON.stringify(engineNotes('❌ a 點不到 | ⚠️ b 沒找到')))
+check('⑩ 陣列照原樣、空字串／undefined → 沒有行', JSON.stringify(engineNotes(['x', 'y'])) === '["x","y"]' && engineNotes('').length === 0 && engineNotes(undefined).length === 0)
 
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
