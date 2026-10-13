@@ -1,5 +1,6 @@
 ﻿import express from 'express'
 import multer from 'multer'
+import { parseStepsInput, updateFrontendScript } from '../frontend-script-steps.js'
 import { randomUUID } from 'crypto'
 import { stripServerDerivedFields } from './frontend-step-sanitize.js'
 // 跟 agent-runner.ts 用同一份共用模組（見 net-capture.js 檔頭說明為什麼放 uat-runner/）
@@ -101,15 +102,6 @@ function numberValue(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-function jsonSteps(value: unknown): string {
-  if (typeof value === 'string') {
-    const parsed = JSON.parse(value)
-    if (!Array.isArray(parsed)) throw new Error('steps must be a JSON array')
-    return JSON.stringify(parsed)
-  }
-  if (Array.isArray(value)) return JSON.stringify(value)
-  return '[]'
-}
 
 function publicImagePath(filename: string) {
   return `/api/frontend-auto/images/${filename}`
@@ -252,6 +244,7 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
     const createdBy = text(body.createdBy, 'unknown')
     // 1007：身分只認登入帳號（created_by 是瀏覽器填的字串，留著當顯示用）
     const ownerEmail = getAuthAccount(req)?.email ?? ''
+    const steps = parseStepsInput(body.steps, 'empty')   // 型別不對 → 400（v5.49.3）
     const ts = now()
     const id = randomUUID()
     db.transaction(() => {
@@ -259,7 +252,7 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
         INSERT INTO frontend_auto_scripts
           (id, name, platform, steps, created_by, is_public, created_at, updated_at, lark_url, table_id, bindings, owner_email)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, platform, jsonSteps(body.steps), createdBy, 1, ts, ts,
+      `).run(id, name, platform, steps, createdBy, 1, ts, ts,
         text(body.larkUrl), text(body.tableId), JSON.stringify(parseBindings(body.bindings)), ownerEmail)
       if (ownerEmail) frontendMine.addNewScriptToMineTx(db, ownerEmail, id)
     })()
@@ -284,15 +277,13 @@ router.put('/api/frontend-auto/scripts/:id', (req, res) => {
     //    `larkUrl`/`bindings` 一起帶上，就會在使用者完全沒察覺的情況下把綁定洗掉——
     //    而那要等到跑完不回寫才會發現。要清空請明確傳空字串／空陣列。
     const binding = existingBinding(req.params.id)
-    db.prepare(`
-      UPDATE frontend_auto_scripts
-      SET name = ?, platform = ?, steps = ?, updated_at = ?, lark_url = ?, table_id = ?, bindings = ?
-      WHERE id = ?
-    `).run(name, platform, jsonSteps(body.steps), now(),
-      body.larkUrl === undefined ? binding.larkUrl : text(body.larkUrl),
-      body.tableId === undefined ? binding.tableId : text(body.tableId),
-      body.bindings === undefined ? binding.bindings : JSON.stringify(parseBindings(body.bindings)),
-      req.params.id)
+    // steps 同樣：沒帶＝保留（v5.49.3；原本會被清成 []），型別不對 → 400 整筆不更新。規則在 frontend-script-steps.ts
+    updateFrontendScript(db, req.params.id, {
+      name, platform, steps: body.steps, updatedAt: now(),
+      larkUrl: body.larkUrl === undefined ? binding.larkUrl : text(body.larkUrl),
+      tableId: body.tableId === undefined ? binding.tableId : text(body.tableId),
+      bindings: body.bindings === undefined ? binding.bindings : JSON.stringify(parseBindings(body.bindings)),
+    })
     const script = db.prepare('SELECT * FROM frontend_auto_scripts WHERE id = ?').get(req.params.id)
     res.json({ ok: true, script })
   } catch (error) {
