@@ -108,6 +108,8 @@ try {
   check('body 超過 64KB（chunked，沒有 Content-Length）→ 413', r.status === 413, r.status)
   r = await post('/kb-mcp/connect', { method: 'GET' })
   check('/kb-mcp/connect 不是 upgrade → 426', r.status === 426, r.status)
+  r = await post('/kb-mcp/connect?x=QUERYMARKER2', { method: 'GET' })
+  check('/kb-mcp/connect 帶 query、不是 upgrade → 400（query 優先）', r.status === 400, r.status)
   r = await post('/api/health', { method: 'GET' })
   check('其他路徑照常往下走', r.status === 299)
 

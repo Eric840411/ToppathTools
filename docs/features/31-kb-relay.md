@@ -20,7 +20,7 @@ relay **不判斷 token**、不存、不快取；token 的有效性與權限全�
 | 端點 | 行為 |
 |---|---|
 | `POST /kb-mcp/mcp` | 只收 POST（其他 405）、`Content-Type: application/json`（其他 415）、body ≤ 64KB UTF-8 bytes（413，含 chunked）。帶 query → 400；`/kb-mcp/mcp/<x>` 等其他路徑 → 404。只把 `Authorization` 轉給 connector。connector 不在線 → 503 `-32010 memory service offline`；在途已 16 筆 → 503 busy；20 秒沒回 → 504。回應的 status／Content-Type／body 原樣回，一律 `Cache-Control: no-store`。每 IP 60 req/min（429） |
-| `GET /kb-mcp/connect` | WebSocket upgrade，`Authorization: Bearer <KB_RELAY_SECRET>`（雜湊後 `timingSafeEqual`）。錯 → 401 不 upgrade；帶 query → 400；不是 upgrade → 426。同時只一條，新連線驗過就踢掉舊的（舊的在途 → 503）。每 25 秒 ping、60 秒沒 pong 就斷。connector 送來的 frame 上限 8MB（ws `maxPayload`，接收層含分片），超過 → 所有在途 502 並斷線；任何斷線 → 在途立刻 503 |
+| `GET /kb-mcp/connect` | WebSocket upgrade，`Authorization: Bearer <KB_RELAY_SECRET>`（雜湊後 `timingSafeEqual`）。錯 → 401 不 upgrade；帶 query → 400（有沒有 upgrade 都一樣，query 優先）；不是 upgrade → 426。同時只一條，新連線驗過就踢掉舊的（舊的在途 → 503）。每 25 秒 ping、60 秒沒 pong 就斷。connector 送來的 frame 上限 8MB（ws `maxPayload`，接收層含分片），超過 → 所有在途 502 並斷線；任何斷線 → 在途立刻 503 |
 
 訊息格式見規格 §A3。不認得的 id 直接丟；status 不是 200～599 的整數 → 502；Content-Type 格式不對 → 換成 application/json。
 
@@ -50,12 +50,16 @@ relay **不判斷 token**、不存、不快取；token 的有效性與權限全�
      proxy_read_timeout 90s;               # > 60 秒心跳逾時，不然 nginx 會先斷 WS
      proxy_send_timeout 90s;
      client_max_body_size 128k;
-     proxy_buffering off;
+     proxy_buffering off;                  # 回應不緩衝
+     proxy_request_buffering off;          # 請求也不緩衝（預設會，64KB body 可能寫進暫存檔＝留副本；CodeX 349d5e3 [P2]）
+     client_body_buffer_size 128k;         # 萬一被緩衝也只在記憶體，不落地
      proxy_cache off;
    }
    ```
    - IP 取 `X-Forwarded-For` 最右邊（`trust proxy 1`）。前面若還有一層 CDN／負載平衡，限流看到的會是那一層的 IP
 3. 只在 **toppath-server** 跑（不 proxy 到 worker）。限流與「同時一條連線」都存在 process 記憶體裡，toppath-server 不能開多個實例
+
+4. **部署後驗證請求不落地**：送一般與 chunked 的 POST 各一次，確認 nginx 的 `client_body_temp` 目錄沒有新檔、error log 沒有「a client request body is buffered to a temporary file」
 
 ## 操作清單
 
@@ -66,7 +70,7 @@ relay **不判斷 token**、不存、不快取；token 的有效性與權限全�
 
 ## 測試
 
-`npm run build:server && node scripts/kb-relay/relay.test.mjs`（52 條；心跳那條要等 60 秒，`SKIP_SLOW=1` 跳過）
+`npm run build:server && node scripts/kb-relay/relay.test.mjs`（53 條；心跳那條要等 60 秒，`SKIP_SLOW=1` 跳過）
 
 - 接線照 `index.ts`；後半段跑 osm-qa-agent **真的** `relay-connector.cjs`（假的本機 kb-mcp，不碰正式記憶與 tokens.json）。需要 `../osm-qa-agent`（或 `OSM_QA_AGENT_DIR`）
 - 突變驗過（2026-10-13）：close 不清 pending、secret 不驗、query 不擋、log 記 URL、拿掉 maxPayload、轉送所有 header——各自紅在對應那條

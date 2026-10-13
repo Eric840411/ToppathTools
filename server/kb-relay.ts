@@ -165,12 +165,13 @@ export async function kbRelayHttp(req: express.Request, res: express.Response, n
     relayLog({ route, ip, status, bytes, ms: Date.now() - t0 })
   }
   try {
+    // query 優先：/connect?x 不管有沒有 upgrade 都是 400（upgrade 那邊在 handleKbRelayUpgrade 也是 400）
+    if (route !== 'other' && url.includes('?')) { req.resume(); return send(400, rpcErr(-32600, 'query string not allowed')) }
     if (route !== 'mcp') {
       // /kb-mcp/connect 走 HTTP（沒有 upgrade）→ 426；其他（含 /kb-mcp/mcp/<x> 把 token 放 path）→ 404
       req.resume()
       return route === 'connect' ? send(426, rpcErr(-32600, 'upgrade required'), 'application/json', { Upgrade: 'websocket' }) : send(404, rpcErr(-32601, 'not found'))
     }
-    if (url.includes('?')) { req.resume(); return send(400, rpcErr(-32600, 'query string not allowed')) }
     if (req.method !== 'POST') { req.resume(); return send(405, rpcErr(-32600, 'method not allowed'), 'application/json', { Allow: 'POST' }) }
     const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
     if (ct !== 'application/json') { req.resume(); return send(415, rpcErr(-32600, 'content-type must be application/json')) }
