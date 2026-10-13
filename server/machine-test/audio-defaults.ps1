@@ -10,6 +10,8 @@
 #
 # NOTE: keep this file ASCII-only. Windows PowerShell 5.1 reads a BOM-less .ps1 as the ANSI code page (cp950 here);
 # a non-ASCII comment inside the C# block got mangled and swallowed the next line, so the type failed to compile.
+# -SimulateHr: test hook only (see probe). 0 = normal run.
+param([int]$SimulateHr = 0)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -TypeDefinition @'
@@ -44,13 +46,17 @@ public static class AudioDefaults {
   static void Check(int hr, string what) { if (hr != 0) throw new Exception(what + " HRESULT 0x" + hr.ToString("X8")); }
 
   // Returns "friendlyName<TAB>id", or "" when there is no default endpoint
-  public static string Get(int flow) {
-    IMMDeviceEnumerator e = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
-    IMMDevice d;
-    int hr = e.GetDefaultAudioEndpoint(flow, 0, out d);
-    // E_NOTFOUND (0x80070490): there is no default endpoint for this flow
-    if (hr == unchecked((int)0x80070490) || d == null) return "";
+  // simulateHr: test hook only (0 = real call). Lets the probe check that a non-E_NOTFOUND failure keeps its HRESULT.
+  public static string Get(int flow, int simulateHr) {
+    IMMDevice d = null;
+    int hr;
+    if (simulateHr != 0) { hr = simulateHr; }
+    else { IMMDeviceEnumerator e = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom(); hr = e.GetDefaultAudioEndpoint(flow, 0, out d); }
+    // Only E_NOTFOUND (0x80070490) means "there is no default endpoint". Any other failure also leaves d == null,
+    // so check hr BEFORE looking at d, otherwise e.g. E_OUTOFMEMORY would be reported as "no default endpoint".
+    if (hr == unchecked((int)0x80070490)) return "";
     Check(hr, "GetDefaultAudioEndpoint");
+    if (d == null) throw new Exception("GetDefaultAudioEndpoint returned S_OK but no device");
     string id;
     Check(d.GetId(out id), "GetId");
     IPropertyStore s;
@@ -68,7 +74,7 @@ public static class AudioDefaults {
 '@
 function Read-Default([int]$flow) {
   try {
-    $r = [AudioDefaults]::Get($flow)
+    $r = [AudioDefaults]::Get($flow, $SimulateHr)
     if (-not $r) { return @{ name = $null; id = $null; why = 'no default endpoint' } }
     $parts = $r -split "`t", 2
     $n = $null
