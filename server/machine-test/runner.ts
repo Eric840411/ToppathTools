@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -6253,6 +6253,10 @@ export class MachineTestRunner extends EventEmitter {
       await ctx.close().catch(() => { /* browser already closed by stop() */ })
     }
 
+    // 1013 spec #5（CodeX）：進場失敗 → 查這次進場的 AFT 轉入結果；連續 2 台失敗而且 state 相同 → 停批。
+    //   檢查在這裡做完，runWorker 才會看 haltReason、決定要不要派下一台（不能等 batch 事後查，那時下一台已經在進場了）
+    await this.afterEntryAft(machineCode, lobbyUrl, startedAt, stepResults, emit)
+
     const overall: StepStatus =
       stepResults.some(r => r.status === 'fail') ? 'fail'
       : stepResults.some(r => r.status === 'warn') ? 'warn'
@@ -6263,6 +6267,42 @@ export class MachineTestRunner extends EventEmitter {
   }
 
   /** One worker: keeps pulling from the shared queue until empty */
+  /** 1013 spec #5：上一台的 AFT 轉入失敗（連續 2 台同 state 才停批；成功／查不到會歸零） */
+  private lastAft: { code: string; state: string } | null = null
+  /** 盒子 log 裡這次進場的 aft_in_end：最多等 20 秒同步（每 5 秒查一次）；一直沒有就回 unknown，不當成成功也不當成失敗 */
+  private async lookupAft(machineCode: string, uid: string, startedAt: string): Promise<AftLookup> {
+    const gmid = this.debugGmid ? machineCode.replace(/^[^-]+/, this.debugGmid) : machineCode
+    const fromMs = Date.parse(startedAt) - 60_000, toMs = Date.now() + 6 * 60_000
+    const dates = [...new Set([fromMs, toMs].map(ms => new Date(ms + 8 * 3600_000).toISOString().slice(0, 10)))]
+    let lastErr = ''
+    for (let i = 0; i < 4 && !this.stopped; i++) {
+      for (const date of dates) {
+        try {
+          const res = await fetch(`${DAILY_ANALYSIS_BASE}?gmid=${encodeURIComponent(gmid)}&date=${encodeURIComponent(date)}`)
+          if (!res.ok) { lastErr = `HTTP ${res.status}`; continue }
+          const json = await res.json() as { data?: { timeline?: LogEntry[] } }
+          const hit = findAftInEnd(json.data?.timeline ?? [], { uid, fromMs, toMs, date })
+          if (hit) return hit
+        } catch (e) { lastErr = String(e).slice(0, 80) }
+      }
+      if (i < 3) await sleep(5000)
+    }
+    return { kind: 'unknown', why: lastErr ? `盒子 log 查詢失敗（${lastErr}）` : '盒子 log 20 秒內沒有這次進場的 aft_in_end' }
+  }
+
+  /** runMachine 最後呼叫（抽出來給 scripts/aft-breaker-probe.ts 測：真的 runWorker＋假的 runMachine＋假的盒子 log） */
+  private async afterEntryAft(machineCode: string, lobbyUrl: string, startedAt: string, stepResults: StepResult[], emit: (msg: string) => void): Promise<void> {
+    const entryStep = stepResults.find(r => r.step === '進入機台')
+    if (this.stopped || !entryNeedsAftLookup(entryStep)) { this.lastAft = null; return }
+    const uid = (() => { try { return new URL(lobbyUrl).searchParams.get('token')?.split('-').at(-1) ?? null } catch { return null } })()
+    const aft: AftLookup = uid ? await this.lookupAft(machineCode, uid, startedAt) : { kind: 'unknown', why: '大廳網址沒有 token，查不到帳號 uid' }
+    if (aft.kind === 'fail') entryStep!.message += `｜AFT error state=${aft.state}（盒子 log ${aft.time} aft_in_end 失敗）`
+    emit(aft.kind === 'fail' ? `進場失敗＝AFT 轉入失敗 state=${aft.state}（盒子 log ${aft.time}）` : aft.kind === 'ok' ? '進場失敗，但盒子 log 的 AFT 轉入是成功的' : `進場失敗，AFT 轉入結果無法確認（${aft.why}）`)
+    const b = aftBreaker(this.lastAft, machineCode, aft)
+    this.lastAft = b.next
+    if (b.halt && !this._haltReason) { this._haltReason = b.halt; emit(`🛑 ${b.halt}`) }
+  }
+
   private async runWorker(browser: Browser, queue: MachineQueue, lobbyUrl: string, workerId: number, steps: MachineTestSession['steps'], aiAudio = false): Promise<void> {
     this.log(`[Worker-${workerId}] 啟動（大廳：${lobbyUrl.slice(0, 60)}...）`)
     while (!this.stopped) {

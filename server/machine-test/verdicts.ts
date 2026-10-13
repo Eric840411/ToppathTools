@@ -1033,3 +1033,38 @@ export function touchChainVerdict(chains: Record<string, { state: BoxChainState;
   if (unk.length) return { status: 'skip', ok, total, detail, tag: `未驗：${unk.length} 格盒子 log 無法確認三層` }
   return { status: 'pass', ok, total, detail, tag: '' }
 }
+
+// ─── AFT 轉入失敗熔斷（1013 spec #5，CodeX 定案）─────────────────────────────────────────────
+// 10-13 晚上 0233～0245 共 12 台進場 AFT 轉入失敗（盒子 aft_in_end success:false state=87），之後全部卡成 Occupied——
+// 一路連打下去只會鎖住更多台。這比較可能是帳號或 AFT 系統端的問題，不是單台。
+// 規則：連續 2 台都在**本台這次進場**查到 AFT 轉入失敗、而且 state 相同（已知的 state）→ 停批。
+//   - 舊的失敗紀錄（這次進場窗口以外）不算；state 不明（'?'）不算；查不到／無法確認也不算，而且會把連續計數歸零
+//   - 檢查在 runner 派下一台**之前**完成（runWorker 每台跑完先看 haltReason）
+export type AftLookup = { kind: 'fail'; state: string; time: string } | { kind: 'ok' } | { kind: 'unknown'; why: string }
+export function aftBreaker(prev: { code: string; state: string } | null, code: string, cur: AftLookup): { next: { code: string; state: string } | null; halt: string | null } {
+  if (cur.kind !== 'fail' || !/^\d+$/.test(cur.state)) return { next: null, halt: null }
+  if (prev && prev.state === cur.state) return { next: { code, state: cur.state }, halt: `連續 2 台 AFT 轉入失敗、state 相同（${prev.code}、${code}：state=${cur.state}）——比較可能是帳號或 AFT 系統端的問題，繼續跑只會鎖住更多台；停批，請先查帳號與 AFT（被鎖的機台要到後台 EGM Status 釋放）` }
+  return { next: { code, state: cur.state }, halt: null }
+}
+/** 進場失敗的訊息要不要查 AFT：大廳找不到（沒進到 AFT）、AUDIT MODE（機台在維修選單）不查 */
+export function entryNeedsAftLookup(entry: { status: string; message: string } | undefined): boolean {
+  if (!entry || entry.status !== 'fail') return false
+  if (/大廳找不到|AUDIT MODE/.test(entry.message)) return false
+  return true
+}
+/**
+ * 盒子 log 裡這個帳號在窗口內的 aft_in_end（跟 batch 的 findAftFailure 同一套窗口：盒子時間是 UTC+8 的 HH:MM:SS、
+ * 時鐘比我們快約 2 分鐘 → 進場前 1 分～結束後 6 分）。有失敗回 fail；只有成功回 ok；一筆都沒有回 null（呼叫端決定要不要再等）
+ */
+export function findAftInEnd(timeline: BoxLogEntry[], p: { uid: string; fromMs: number; toMs: number; date: string }): AftLookup | null {
+  let sawOk = false
+  for (const e of timeline) {
+    if (e.type !== 'aft_in_end' || String((e as { userid?: unknown }).userid ?? '') !== p.uid) continue
+    const t = Date.parse(`${p.date}T${e.time}+08:00`)
+    if (!(t >= p.fromMs && t <= p.toMs)) continue
+    const d = boxData(e)
+    if (d.success === false) return { kind: 'fail', state: String(d.state ?? '?'), time: e.time }
+    if (d.success === true) sawOk = true
+  }
+  return sawOk ? { kind: 'ok' } : null
+}

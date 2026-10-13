@@ -769,7 +769,8 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 測試 `shared/ideck-xpath.test.ts` 13 條；真 worker 對 data.db 副本打過（壞的 400、好的存成 trim 後的值）
 
 ### #11 錄音當下記下預設播放／錄音裝置（v5.50.2，只是診斷）
-- `record-spin.ps1` 用 MCI 錄的是 **Windows 預設錄音裝置**，不是固定錄 CABLE Output。播放切到 CABLE Input 只解決一半——預設錄音若是麥克風，整段 -70 dB 看起來就像機台沒聲音（0234：工具 -71.9 dB，AI 同台錄得到）
+- `record-spin.ps1` 用 MCI 錄的是 **Windows 預設錄音裝置**，不是固定錄 CABLE Output。播放切到 CABLE Input 只解決一半——預設錄音若是麥克風，整段 -70 dB 看起來就像機台沒聲音
+- ⚠️ **這不是 0234 的原因**（osm-qa-agent 1013 查過）：那台 agent PC 啟用中的錄音裝置只有 CABLE Output 一個。0234 工具 -71.9 dB、AI 錄得到的真正原因還沒查到——記下裝置是為了其他 agent PC，不要拿這條去改規則
 - 新增 `server/machine-test/audio-defaults.ps1`（Core Audio `GetDefaultAudioEndpoint`，只讀）：跟錄音**同時**跑（不延後錄音開始），結果寫進音頻步驟訊息「錄音裝置：播放 X／錄音 Y」與 `extraData.audioRouting`；不是 CABLE Input／Output 時加 ⚠️。**不影響判定**（CodeX）
 - 讀不到就寫原因，不猜名字（原本的 `getDefaultAudioDevice` 讀不到會回一個寫死的「Realtek High Definition Audio」，那支只用在還原裝置，這次沒動）
 - ⚠️ 這支 .ps1 要**純 ASCII**：Windows PowerShell 5.1 把沒有 BOM 的 .ps1 當 cp950 讀，C# 區塊裡的中文註解會吃掉下一行，型別編譯失敗
@@ -787,3 +788,11 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - iDeck：**不靠「開局鍵」判**（isspin 不可靠：BZZF Credits 是 isspin:1 卻不開局；LIONLINK 知識檔與規格對哪些鍵會開局說法矛盾）。改看盒子三層：每一筆都確定「有送、沒回」才升 WARN「server 已回應；盒子已送出 N 筆，觀察窗口內未見機台回應」；有歧義／缺 log／usb＝0 只記未確認；既有 FAIL／SKIP 優先。驗的是通訊回應，**不代表驗過開局能力**
 - 一起改：iDeck 原本「server 全部回應但盒子 log 0 筆 → WARN」改成只記「盒子 log 0 筆，未確認機台端」（CodeX：不然會跟三層判定一起誤升）
 - 測試：`scripts/ui-checks/box-chain.test.ts` 31 條（真資料 8＋合成 23：跨 success 晚回、中間漏一筆、重疊漏一筆、逾時晚回、最後一筆等滿 10 秒、重複 success 不補缺、非測試 usb、iDeck 不蓋過 FAIL／SKIP）；5 種突變各自會紅。`scripts/touch-chain-probe.ts` 用真的 stepTouchscreen／stepIdeck＋假頁面＋假 daily-analysis 驗接線 6 條，換回舊的 matched.length 判定會紅
+
+### #5 AFT 轉入連續失敗熔斷（v5.52.0）
+- 10-13 晚上 0233～0245 共 12 台進場 AFT 轉入失敗（`aft_in_end success:false state=87`），之後全部卡成 Occupied——一路打下去只會鎖住更多台（那次是 AI driver，不是 runner；規格要求 runner 也要有）
+- **熔斷放在 runner，不放 batch**：batch 是把整串機台交給 runner 跑、只收結果，事後查盒子 log 時下一台已經在進場（進場本身就是 AFT 轉入）。runner 的 `runWorker` 每台跑完先看 `haltReason` 才派下一台，檢查在那之前做完（CodeX）
+- 進場失敗（大廳找不到、AUDIT MODE 除外）→ `afterEntryAft` 查這台盒子 log、這個帳號（大廳網址 token 的 uid）、**這次進場窗口**內的 `aft_in_end`（跟 batch 同一套窗口：進場前 1 分～結束後 6 分，盒子時鐘快約 2 分）；最多等 20 秒同步。查到失敗就在進場訊息附「AFT error state=N」（batch 看到就不重查）
+- `aftBreaker`：連續 2 台失敗、**已知且相同**的 state → 停批（訊息帶 🛑，batch 不自動續跑）。窗口外的舊紀錄不算；state 不明不算；查不到／AFT 成功／進場成功都把計數歸零
+- 多 worker 並行時「連續」是依完成順序算（單一大廳時就是機台順序）
+- 探針 `scripts/aft-breaker-probe.ts`：純函式 13 條＋**真的 runWorker**（假 runMachine、假 daily-analysis）5 條——連續 2 台 87 → 第 3 台不派、87→40→40 停在第 3 台、中間成功會歸零；拿掉停批那一行會紅 4 條

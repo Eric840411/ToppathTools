@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.51.1'
+export const APP_VERSION = '5.52.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.52.0', date: '2026-10-13', changes: ['feat(機台測試 AFT 轉入連續失敗熔斷)：osm-qa-agent spec #5、CodeX 定案——10-13 有 12 台進場 AFT 轉入失敗（state=87）後全卡成 Occupied。runner 在進場失敗後查這次進場窗口內、這個帳號的 aft_in_end（最多等 20 秒），進場訊息附 AFT error state=N；連續 2 台失敗而且 state 相同 → 停批，在派下一台之前（batch 只收結果、事後查來不及）。舊紀錄、state 不明不算，查不到／成功會歸零；batch 看到 runner 已查就不重查。aft-breaker-probe 18 條（含真的 runWorker），拿掉停批會紅。另：docs 更正 #11——0234 的 -72 dB 不是錄錯裝置（那台只有 CABLE Output 一個錄音裝置），原因未明。要更新 Local Agent 才生效'] },
   { version: '5.51.1', date: '2026-10-13', changes: ['fix(機台測試 盒子三層 逾時污染漏掉)：CodeX 審 c287073 [P2]——hw 一到就 pending.shift()，把某一筆 usb 的期限丟掉：A＝0、B＝9、hw＝11（可能是 A 晚回、B 其實沒回）時 B 的期限被丟掉，21 秒的 C 收到 hw 被判 ok（應該未驗，可能是 B 晚回）。改成 hw 只算進組、不拿掉任何一筆的期限；組全部回完才提早結束，沒回完的組等最晚的期限過了才結束並記下這個期限（之後 10 秒內開的新組有 hw 就未驗）。box-chain.test 補 CodeX 的重現情境與「每筆都有回仍全部 ok」對照（34 條），換回舊寫法會紅；真盒子 log 6 份結果不變'] },
   { version: '5.51.0', date: '2026-10-13', changes: ['feat(機台測試 盒子 log 三層判定)：osm-qa-agent spec #2、CodeX 定案——觸屏／iDeck 原本只看盒子「收到」，0237 停在 SELECT DENOM（盒子送了 usb、機台 hw_response 0）照樣 PASS 3/3、0245 盒子連 usb 都沒送也 PASS。改成每一格都要三層齊（success_json → usb_coordinate → hw_response）：有 usb 沒 hw → FAIL no response（機台不回應），沒有 usb → FAIL flow fail（盒子沒送到機台），log 沒涵蓋完或配對有歧義 → 未驗；「API 確認 X/Y」改算三層齊的格數，重複的 success 不能補別格的缺。hw 沒有序號而且會晚到下一筆之後，用重疊群組配對（不 FIFO 硬配），逾時晚回不補給下一筆。iDeck 不靠開局鍵（isspin 不可靠），盒子確定送了、一筆回應都沒有才升 WARN（server 已回應；盒子已送出 N 筆，觀察窗口內未見機台回應），既有 FAIL／SKIP 優先；原本「盒子 log 0 筆 → WARN」改成只記未確認。box-chain.test 31 條（真盒子 log 6 份＋合成情境），5 種突變各自會紅；touch-chain-probe 用真的 stepTouchscreen／stepIdeck 驗接線 6 條。英文報告補翻譯。要更新 Local Agent 才生效'] },
   { version: '5.50.4', date: '2026-10-13', changes: ['fix(機台測試 錄音裝置診斷 錯誤被吞掉)：CodeX 審 ffb98dc [P2]——`|| d == null` 在 Check(hr) 之前，呼叫失敗時 endpoint 一律是 NULL，E_OUTOFMEMORY 之類的錯誤都被寫成 no default endpoint。改成只有 E_NOTFOUND 回「沒有預設裝置」，其他先 Check(hr)、成功後才檢查 device。加 -SimulateHr 測試掛鉤，新增 scripts/audio-defaults-probe.mjs 3 條（正常、E_NOTFOUND、E_OUTOFMEMORY 保留方法名與 HRESULT），換回舊寫法會紅'] },

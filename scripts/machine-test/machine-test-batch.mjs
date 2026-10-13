@@ -1629,7 +1629,9 @@ async function main() {
     { const entry = result.steps?.find(s => s.step === '進入機台')
       // Occupied 也查（1003 0208/0209）：前一次進場（例如試跑）AFT 失敗 → 盒子掛著我們的帳號 → 這次看到 Occupied。往前查 60 分鐘
       const occ = /機台 Occupied/.test(entry?.message ?? '') && !/AUDIT MODE/.test(entry?.message ?? '')
-      if (entry?.status === 'fail' && (/enterGMNtc errcode=0/.test(entry.message ?? '') || occ)) chain = chain.then(async () => {
+      // 1013（spec #5）：runner 進場後已經查過 AFT（訊息帶 AFT error state=）→ 不重查、不重複附加
+      if (entry?.status === 'fail' && /AFT error state=/.test(entry.message ?? '')) log(`${code} 進場失敗＝${entry.message.match(/AFT error state=\S+/)?.[0]}（runner 已查盒子 log）`)
+      else if (entry?.status === 'fail' && (/enterGMNtc errcode=0/.test(entry.message ?? '') || occ)) chain = chain.then(async () => {
         const from = occ ? new Date(Date.parse(result.startedAt) - 60 * 60_000).toISOString() : result.startedAt
         const hit = await lookupAftFailure(code, curUid, from, result.finishedAt)
         if (!hit) { log(`${code} 進場失敗：盒子 log 沒查到 AFT 轉入失敗`); return }
