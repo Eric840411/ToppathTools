@@ -38,6 +38,14 @@ async function queryAll(fetchPage, pageSize) {
     const items = readPage(j)
     if (typeof items === 'string') return { err: items }
     all.push(...items)
+    // CodeX e37efbb [P2]：只看頁長不夠——回應有 total（1013 實測一定有）就要核對總數：
+    //   收齊 total 筆才算查完；這頁沒滿、卻還沒收齊 total → 回應不完整，回錯（unknown），不能判不存在
+    const total = Number(j?.data?.total)
+    if (Number.isFinite(total)) {
+      if (all.length >= total) return { items: all }
+      if (items.length < pageSize || items.length === 0) return { err: `回應不完整（total ${total}、只收到 ${all.length} 筆）` }
+      continue
+    }
     if (items.length < pageSize) return { items: all }
   }
   return { err: `超過 ${LL_MAX_PAGES} 頁還沒查完` }

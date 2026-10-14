@@ -104,5 +104,20 @@ for (const [label, bad] of [['沒有 data', { code: 20000 }], ['data.items 不�
   check('⑩ 真的空回應 → absent（確定不存在，不是無法確認）', st(r, '873-LIONLINK-0999')?.state === 'absent', JSON.stringify(st(r, '873-LIONLINK-0999')))
 }
 
+// ⑪ CodeX e37efbb [P2]：要核對 total，不能只看頁長
+{
+  const page = (items, total) => ({ code: 20000, data: { items, total } })
+  // total=2、只回 1 筆（頁沒滿）→ 不能判不存在
+  let r = await lookupLuckyLink(['873-LIONLINK-0231'], { fetchPage: async (b) => !b.machineNumber ? TIMEOUT : page([item('892-COINCOMBO-0231')], 2) })
+  check('⑪ ⚠️ total=2、只收到 1 筆 → unknown（回應不完整），不判 absent', st(r, '873-LIONLINK-0231')?.state === 'unknown' && /回應不完整（total 2、只收到 1 筆）/.test(st(r, '873-LIONLINK-0231').why), JSON.stringify(st(r, '873-LIONLINK-0231')))
+  // total=21：第 1 頁 20 筆、第 2 頁 1 筆（就是要找的）→ found
+  const db = [...Array.from({ length: LL_ONE_PAGE_SIZE }, (_, i) => item(`9${String(i).padStart(2, '0')}-X-10231`)), item('873-LIONLINK-0231')]
+  r = await lookupLuckyLink(['873-LIONLINK-0231'], { fetchPage: async (b) => !b.machineNumber ? TIMEOUT : page(db.slice((b.page - 1) * b.pageSize, b.page * b.pageSize), db.length) })
+  check('⑪ total=21 分兩頁 → 收齊才判、第 2 頁命中 found', st(r, '873-LIONLINK-0231')?.state === 'found')
+  // total 跟收到的一樣、沒有這台 → absent
+  r = await lookupLuckyLink(['873-LIONLINK-0231'], { fetchPage: async (b) => !b.machineNumber ? TIMEOUT : page([item('892-COINCOMBO-0231')], 1) })
+  check('⑪ total=1、收齊 1 筆、gmid 不同 → absent', st(r, '873-LIONLINK-0231')?.state === 'absent')
+}
+
 console.log(`\n${pass} pass / ${fail} fail`)
 process.exit(fail ? 1 : 0)

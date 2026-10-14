@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.57.1'
+export const APP_VERSION = '5.57.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.57.2', date: '2026-10-14', changes: ['fix(機台測試 測前 LuckyLink 判不存在)：CodeX 審 e37efbb [P2]——只看頁長、忽略 total：total=2 只回 1 筆會誤判不存在。改成回應有 total 就要收齊才算查完，這頁沒滿卻沒收齊 → 無法確認（回應不完整）。luckylink-lookup.test 27 條，換回舊寫法會紅'] },
   { version: '5.57.1', date: '2026-10-14', changes: ['fix(機台測試 #7 扣款守門)：CodeX 審 224801b 兩個 [P1]——① 盲推累積扣款會被派彩抵銷（餘額只在兩下之間讀，扣 18 派 9 時上限 252 按了 27 把、扣派相等按滿 96）→ 改看 moneyNtc 流水逐筆的實際扣款，讀不到流水就每一下照單把成本算；② 觸屏沒有逐下檢查扣款（第一格就扣款仍點完 3 格）→ 扣款併進每一下點擊前共用的停止檢查（觸屏、featureTaps、SPIN）。blind-burst-probe 29 條、open-round-runner-probe 補觸屏，拿掉修正會紅'] },
   { version: '5.57.0', date: '2026-10-14', changes: ['fix(Performance Meter 對帳 沒資料判通過)：osm-qa-agent 1014 回報、CodeX 定案——EGM Hourly Meter 沒資料時 Coin Out 被當成 0，Game Record 0 筆 → 「0 = 0 通過 — Coin Out 完全吻合」。改成回 status：API 回應無效 → apiError、hourly 0 個或只有 1 個 bucket → noData（daily fallback 只當參考，不判通過）、全部是 0 而且 Game Record 0 筆 → noActivity，都不是通過；畫面是灰色卡片＋原因、沒有意義的數字顯示「—」，歷史紀錄也依 status。Game Record 沒紀錄時後台回 data:{}（實測）算有效的 0 筆。meter-verdict.test 19 條；真 server 對 QAT 查不存在的機台 → noData。docs 補 UAT 設定值'] },
   { version: '5.56.1', date: '2026-10-13', changes: ['change(機台測試 大廳找不到的原因)：使用者 1013（Lark，osm-qa-agent-82 轉達）——「不要顯示中文」：原因那句（會進 Lark）改英文；F 欄只新增 test machine（後台 istest=1），「不是 Test 卻不在大廳」使用者說通常不會發生 → 不加 not offered，F 照舊 offline、原因只寫在訊息。lobby-missing.test 11 條（含每一種原因都沒有中文，塞回中文會紅）'] },
