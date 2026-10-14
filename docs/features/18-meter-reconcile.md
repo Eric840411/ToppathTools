@@ -51,3 +51,22 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 設定 OSM/GCP 後台連線 | Base URL / Origin / Channel ID / 登入帳密，分開設定兩組，可測試登入 |
 
 ---
+
+## 沒資料／沒活動不再判通過（v5.57.0，osm-qa-agent 1014 回報、CodeX 定案）
+- 原本 EGM Hourly Meter 沒資料時 `actualCoinOut = meter?.coinOut ?? 0`，Game Record 又是 0 筆 → 「0 = 0」被判「通過 — Coin Out 完全吻合」
+- 判定抽到 `server/meter-verdict.ts`（`meterVerdict`），回 `status`，`pass` 只有真的對上才是 true：
+  - `apiError`：任一支 API 回應無效（code 不是 20000、缺資料欄位）——不能被 `?? 0`／`num()` 轉成 0 當成沒資料或沒活動。⚠️ Game Record 沒有紀錄時後台回 `code 20000＋data:{}`（1014 QAT 實測），這是有效的 0 筆
+  - `noData`：視窗內 0 個 hourly bucket（就算 fallback 到 daily 或 Game Record 有筆數；**daily 只當參考、不判通過**），或只有 1 個 bucket（最後 − 第一必然 0，算不出差值）
+  - `noActivity`：≥ 2 個 bucket、Game Record 0 筆，而且 coinIn／coinOut／jackpotWins／gamesPlayed／Bet／Win／Attendant JP 全是 0
+  - 其他照舊 `pass`／`fail`
+- 畫面依 status 顯示：沒資料／沒活動／API 無效是**灰色卡片**＋原因；noData／apiError 的實際值與差值顯示「—」。歷史紀錄摘要也依 status（`meterHistoryLine`）
+- 各 API「有效」的判斷 `METER_VALID` route 與測試共用一份
+- Egm DayCount 對帳（兩邊都是 0 也算一致）可能有同樣的問題，**另案**（CodeX）
+- 測試：`scripts/ui-checks/meter-verdict.test.ts` 19 條；真 server 對 data.db 副本打 QAT：查不存在的機台 → noData（原本是「完全吻合」）
+
+## UAT 設定值（1014 osm-qa-agent 從 UAT CP 後台頁面的 config.js 讀到）
+工具沒有綁環境，換「後台設定」的值就能查 UAT：
+- Base URL：`https://uat-backendservertest.osmslot.org`（UAT CP 後台 `config.js` 的 `DOMAIN_URL.serverUrl`）
+- Origin：`https://uat-cp.osmslot.org`
+- Channel ID：`4186`
+（QAT 是 `https://backendservertest.osmslot.org`／`qat-cp`／873）

@@ -24,6 +24,9 @@ interface MeterResult {
   dayBoundary: 'gaming' | 'calendar'
   customStartTime: string | null
   pass: boolean
+  /** v5.57.0：沒資料／沒活動／API 無效都不是 pass（舊的歷史紀錄沒有這欄，退回看 pass） */
+  status?: 'pass' | 'fail' | 'noData' | 'noActivity' | 'apiError'
+  statusWhy?: string
   expectedCoinOut: number
   actualCoinOut: number
   delta: number
@@ -207,18 +210,28 @@ export function MeterReconcilePage() {
         </div>
       )}
 
-      {result && (
+      {result && (() => {
+        // v5.57.0：依 status 顯示——沒資料／沒活動／API 無效是灰色卡片，不是通過也不是失敗
+        const st = result.status ?? (result.pass ? 'pass' : 'fail')
+        const neutral = st === 'noData' || st === 'noActivity' || st === 'apiError'
+        const noNumbers = st === 'noData' || st === 'apiError'   // 實際值／差值沒有意義 → 顯示「—」
+        const tone = st === 'pass' ? { border: 'rgba(34,197,94,.35)', bg: 'rgba(34,197,94,.08)', fg: '#4ade80' }
+          : neutral ? { border: 'rgba(148,163,184,.4)', bg: 'rgba(148,163,184,.08)', fg: '#cbd5e1' }
+          : { border: 'rgba(239,68,68,.35)', bg: 'rgba(239,68,68,.08)', fg: '#f87171' }
+        const label = st === 'pass' ? '通過' : st === 'fail' ? '失敗' : st === 'noActivity' ? '沒有活動' : '無法對帳'
+        const why = result.statusWhy ?? (st === 'pass' ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差')
+        return (
         <>
           {/* Verdict */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 14, borderRadius: 12, padding: '16px 20px', marginBottom: 16,
-            border: `1px solid ${result.pass ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)'}`,
-            background: result.pass ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
+            border: `1px solid ${tone.border}`,
+            background: tone.bg,
           }}>
-            <div style={{ fontSize: 28 }}>{result.pass ? '通過' : '失敗'}</div>
+            <div style={{ fontSize: 28 }}>{label}</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: result.pass ? '#4ade80' : '#f87171' }}>
-                {result.pass ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差'}
+              <div style={{ fontSize: 15, fontWeight: 800, color: tone.fg }}>
+                {why}
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
                 {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）
@@ -228,7 +241,7 @@ export function MeterReconcilePage() {
               </div>
             </div>
             <div style={{ marginLeft: 'auto', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: result.pass ? '#4ade80' : '#f87171' }}>{fmt(result.delta)}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: tone.fg }}>{noNumbers ? '—' : fmt(result.delta)}</div>
               <div style={{ fontSize: 11, color: '#64748b' }}>實際 − 預期（差值）</div>
             </div>
           </div>
@@ -246,7 +259,7 @@ export function MeterReconcilePage() {
               <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b>
             )}
             　＝<b style={{ color: '#7dd3fc' }}>{fmt(result.expectedCoinOut)}</b>
-            　實際（EGM Meter Coin Out）＝<b style={{ color: result.pass ? '#4ade80' : '#f87171' }}>{fmt(result.actualCoinOut)}</b>
+            　實際（EGM Meter Coin Out）＝<b style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.actualCoinOut)}</b>
           </div>
 
           {/* Three source cards */}
@@ -329,7 +342,8 @@ export function MeterReconcilePage() {
             </div>
           </details>
         </>
-      )}
+        )
+      })()}
 
       {/* Backend config */}
       <details open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}

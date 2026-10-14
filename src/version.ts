@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.56.1'
+export const APP_VERSION = '5.57.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.57.0', date: '2026-10-14', changes: ['fix(Performance Meter 對帳 沒資料判通過)：osm-qa-agent 1014 回報、CodeX 定案——EGM Hourly Meter 沒資料時 Coin Out 被當成 0，Game Record 0 筆 → 「0 = 0 通過 — Coin Out 完全吻合」。改成回 status：API 回應無效 → apiError、hourly 0 個或只有 1 個 bucket → noData（daily fallback 只當參考，不判通過）、全部是 0 而且 Game Record 0 筆 → noActivity，都不是通過；畫面是灰色卡片＋原因、沒有意義的數字顯示「—」，歷史紀錄也依 status。Game Record 沒紀錄時後台回 data:{}（實測）算有效的 0 筆。meter-verdict.test 19 條；真 server 對 QAT 查不存在的機台 → noData。docs 補 UAT 設定值'] },
   { version: '5.56.1', date: '2026-10-13', changes: ['change(機台測試 大廳找不到的原因)：使用者 1013（Lark，osm-qa-agent-82 轉達）——「不要顯示中文」：原因那句（會進 Lark）改英文；F 欄只新增 test machine（後台 istest=1），「不是 Test 卻不在大廳」使用者說通常不會發生 → 不加 not offered，F 照舊 offline、原因只寫在訊息。lobby-missing.test 11 條（含每一種原因都沒有中文，塞回中文會紅）'] },
   { version: '5.56.0', date: '2026-10-13', changes: ['feat(機台測試 測前 LuckyLink 三態)：osm-qa-agent 回報、CodeX 定案——QAT LuckyLink 全表查詢一直逾時，原本讀取失敗跟清單沒有都報「Egm list 沒有這台」＋「預期有接」（假警報）。改成每台三態（找到／確定不存在／無法確認）：全表失敗逐台查（機台號是跨渠道子字串比對，只認完整 gmid）、翻頁查完才判不存在、每個請求看 code 20000 與 timeout；無法確認時不比對任何 LuckyLink 預期值、訊息與報告寫「無法確認（原因）」。luckylink-lookup.test 24 條（含真回應）、pretest-luckylink.test 11 條；實跑 QAT：全表逾時 → 逐台查 0231 有接、0998 確定不存在'] },
   { version: '5.55.0', date: '2026-10-13', changes: ['feat(機台測試 大廳找不到分原因)：osm-qa-agent spec #8、CodeX 有條件同意——0239 被後台設成 Test，結果只寫「大廳找不到」、F 欄 offline。改用測前已查的後台 EGM List（total＝items 才算完整；每筆有 istest／isShowClient／isUsed／machineStatus）分原因：istest=1 → 後台設成 Test（F test machine）；不是 Test、盒子在線 → 大廳未提供、疑似未開放並列出那幾個欄位（F not offered）；盒子離線 → offline；後台查不到 → 原因無法確認（F 照舊）。不用大廳 WS（binary、沒有總數，證明不了完整）。lobby-missing.test 10 條，用真的後台項目。英文報告補翻譯'] },

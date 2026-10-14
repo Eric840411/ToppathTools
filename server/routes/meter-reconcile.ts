@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
+import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID } from '../meter-verdict.js'
 
 export const router = Router()
 
@@ -373,6 +374,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const hourItems: Record<string, unknown>[] = hourData?.data?.items ?? []
     let meterRow: Record<string, unknown> | null = null
     let baselineRow: Record<string, unknown> | null = null
+    let hourBuckets = 0   // v5.57.0：視窗內的 hourly bucket 數（0＝沒資料、1＝算不出差值，都不能判通過）
+    const apiProblems = [apiProblem('EGM Hourly Meter', hourData, METER_VALID.hourly)].filter((x): x is string => !!x)
     const nextDate = nextDateStr(date)
     for (const row of hourItems) {
       const hourStr = (row.debug as { hourStr?: string } | undefined)?.hourStr ?? ''
@@ -386,10 +389,13 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
         ? (rowDate === date && rowHour >= dayStartHour) || (rowDate === nextDate && rowHour < dayStartHour)
         : rowDate === date
       if (!inWindow) continue
+      hourBuckets++
       if (!baselineRow) baselineRow = row // 保留整天範圍內第一個 bucket 當基準線
       meterRow = row // 保留最後一筆（整天範圍內最新的 bucket，才能跟 Game Record 的整天加總對齊）
     }
     // 找不到 hourly bucket 時 fallback 用當日 daily 總計（無基準線可減，直接用原始累計值）
+    // ⚠️ v5.57.0（CodeX）：daily 只留作參考，判定一律 noData（meterVerdict），不能因為 fallback 有數字就判通過
+    const usedDaily = !meterRow
     if (!meterRow) {
       const dailyParams = new URLSearchParams({
         page: '1', pageSize: '10',
@@ -448,6 +454,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     grParams.append('dateTime[]', windowStartIso)
     grParams.append('dateTime[]', windowEndIso)
     const grData = await meterPost(profile, cfg, '/egm/reports/gameRecordList', grParams)
+    { const pr = apiProblem('Game Record', grData, METER_VALID.gameRecord); if (pr) apiProblems.push(pr) }
     const grSum = grData?.data?.sumData ?? {}
     // betRewardCredits = 泥碼下注額（sumData.bet_nima，已用真實 API 回應核對過欄位名稱）
     const gameRecord = {
@@ -470,6 +477,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     jpParams.append('dateTime[]', windowStartIso)
     jpParams.append('dateTime[]', windowEndIso)
     const jpData = await meterPost(profile, cfg, '/abnormality/getHandPayRecord', jpParams)
+    { const pr = apiProblem('Jackpot Abnormality', jpData, METER_VALID.handPay); if (pr) apiProblems.push(pr) }
     type HandPayItem = { handpay?: number; payoutTime?: string; betTime?: string; username?: string }
     const jpItemsAll: HandPayItem[] = jpData?.data?.items ?? []
     const jpItems = jpItemsAll.filter(it => {
@@ -499,13 +507,15 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       : gameRecord.totalWin
     const actualCoinOut = meter?.coinOut ?? 0
     const delta = actualCoinOut - expectedCoinOut
-    const pass = Math.abs(delta) < 0.005 // 浮點誤差容忍
+    // v5.57.0：沒資料／只有 1 個 bucket／沒活動／API 無效都不算通過（原本 0 = 0 會判「完全吻合」）
+    const verdict = meterVerdict({ apiProblems, hourBuckets, usedDaily, meter, gameRecord, attendantPaidJp, delta })
+    const pass = verdict.pass
 
     const result = {
       ok: true,
       machineName, source: profile, date, dayBoundary: boundary,
       customStartTime: customStartMatch ? customStartMatch[0] : null,
-      pass, expectedCoinOut, actualCoinOut, delta,
+      pass, status: verdict.status, statusWhy: verdict.why, hourBuckets, usedDaily, expectedCoinOut, actualCoinOut, delta,
       attendantPaidJp,
       meter, gameRecord,
       jackpotAbnormality: { records: jpItems, sumHandpay: attendantPaidJp, count: jpItems.length },
@@ -515,7 +525,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     addHistory(
       'meter-reconcile',
       `${machineName}（${profile.toUpperCase()}）`,
-      `${date}（${customStartMatch ? `${customStartMatch[0]} 起算` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）— ${pass ? '✅ 一致' : `❌ 不一致（差值 ${delta.toFixed(2)}）`}`,
+      meterHistoryLine(`${date}（${customStartMatch ? `${customStartMatch[0]} 起算` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）`, verdict, delta),
       result,
     )
 
