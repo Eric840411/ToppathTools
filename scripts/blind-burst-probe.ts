@@ -1,11 +1,13 @@
 // runBlindBurst 探針（2026-09-30，CodeX 要求用模擬驗證停止條件，不在實機花到上限）：npx tsx scripts/blind-burst-probe.ts
 // 每個案例都用假時鐘＋假餘額，檢查：何時停（halt 原因）、總共真的送出幾下（sent）。
-import { runBlindBurst, blindBudget, extraSpinDecision, noteBlindDebit, type BlindBurstState } from '../server/machine-test/verdicts.js'
+import { runBlindBurst, blindBudget, extraSpinDecision, noteBlindDebit, blindDebitsSince, type BlindBurstState } from '../server/machine-test/verdicts.js'
 
 type Opt = {
   presses?: number; bal0?: number | null; balAfter?: (sent: number) => number | null
   stopAt?: number; deadlineAt?: number; handpayAt?: number; maxPresses?: number
   spinCost?: number; maxSpend?: number; burstMs?: number
+  /** CodeX 224801b：流水逐筆的累計扣款（第 n 下之後）；回 null＝讀不到流水 */
+  tx?: (sent: number) => number | null
 }
 async function sim(o: Opt) {
   let t = 0, sent = 0
@@ -18,6 +20,7 @@ async function sim(o: Opt) {
     deadlineExceeded: () => o.deadlineAt !== undefined && sent >= o.deadlineAt,
     bodyText: async () => (o.handpayAt !== undefined && sent >= o.handpayAt ? 'HAND PAY — call attendant' : 'PRESS PLAY TO SPIN'),
     readBalance: async () => bal(sent),
+    ...(o.tx ? { readDebited: async () => o.tx!(sent) } : {}),
     press: async () => { sent++ },
   })
   return { halt: r.halt ?? '-', sent, presses: state.presses }
@@ -66,6 +69,30 @@ cases.push(['extraSpinDecision：有給 state 用累積扣款（派彩不抵銷�
   return `${d.ok}/${d.reason?.includes('已扣 240') ?? false}`
 }, 'false/true'])
 cases.push(['extraSpinDecision：注額不明 → 不按', async () => { const d = extraSpinDecision({ stopped: false, presses: 0, maxPresses: 96, bodyText: '', bal: 1000, bal0: 1000, maxSpend: 0, spinCost: Number.POSITIVE_INFINITY }); return `${d.ok}/${d.reason?.includes('注額不明') ?? false}` }, 'false/true'])
+
+// ── CodeX 224801b [P1]：餘額取樣會被派彩抵銷 → 改看流水逐筆 ──
+// 每把扣 18、同一段裡派 9：讀到的餘額淨少 9／把；原本按到 27 把（實扣 486）
+cases.push(['⚠️ 每把扣 18、派 9（淨 -9）＋流水逐筆 → 實扣 252 就停（14 把，不是 27）', async () => {
+  const r = await sim({ ...lion, burstMs: 200_000, balAfter: n => 2_000_000 - n * 9, tx: n => n * 18 })
+  return `${has(r.halt, '剩餘額度不夠再付一把')}/${r.sent}`
+}, '剩餘額度不夠再付一把/14'])
+cases.push(['⚠️ 每把扣 18、派 18（淨 0）→ 14 把就停（原本按滿 96）', async () => {
+  const r = await sim({ ...lion, burstMs: 600_000, balAfter: () => 2_000_000, tx: n => n * 18 })
+  return `${has(r.halt, '剩餘額度不夠再付一把')}/${r.sent}`
+}, '剩餘額度不夠再付一把/14'])
+cases.push(['流水讀不到（null）→ 每一下照單把成本算（保守，14 把停）', async () => {
+  const r = await sim({ ...lion, burstMs: 600_000, balAfter: () => 2_000_000, tx: () => null })
+  return `${has(r.halt, '剩餘額度不夠再付一把')}/${r.sent}`
+}, '剩餘額度不夠再付一把/14'])
+cases.push(['對照：FG 免費局（流水扣款 0、餘額不變）→ 不被上限擋（照次數上限推）', async () => {
+  const r = await sim({ ...lion, burstMs: 60_000, balAfter: () => 2_000_000, tx: () => 0 })
+  return `${r.halt}/${r.sent}`
+}, '-/12'])
+// blindDebitsSince（純函式）
+const L = (seq: number, coin: number, reason: string) => ({ seq, coin, reason })
+cases.push(['blindDebitsSince：扣 18、派 9 的流水 → 逐筆加總扣款（不被派彩抵銷）', async () => String(blindDebitsSince([L(5, 1000, 'end'), L(6, 982, 'begin'), L(7, 991, 'end'), L(8, 973, 'begin'), L(9, 982, 'end')], 5)), '36'])
+cases.push(['blindDebitsSince：免費局（begin 不扣）→ 0', async () => String(blindDebitsSince([L(5, 1000, 'end'), L(6, 1000, 'begin'), L(7, 1200, 'end')], 5)), '0'])
+cases.push(['blindDebitsSince：起點那筆被擠出環形緩衝 → null（改保守）', async () => String(blindDebitsSince([L(9, 982, 'begin'), L(10, 990, 'end')], 5)), 'null'])
 
 for (const [name, fn, want] of cases) {
   const got = await fn()

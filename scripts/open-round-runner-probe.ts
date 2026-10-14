@@ -4,7 +4,7 @@
 import { makeOpenRoundHandler } from '../server/machine-test/runner.js'
 
 type Ev = { seq: number; coin: number; reason: string; ts: number }
-function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean }) {
+function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean }) {
   const log: Ev[] = o.noMoney ? [] : [{ seq: 1, coin: 2_000_000, reason: 'begin', ts: Date.now() - 40_000 }]
   let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0, takes = 0
   // guardedClick 先取座標再用真滑鼠點：記下最後一個取座標的元素，mouse.click 才知道點的是哪一顆
@@ -17,6 +17,8 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
     clicks++; if (kind === 'spin') spins++; else if (kind === 'take') takes++; else taps++
     // 1013 #7：按 SPIN 其實開了一局付費局 → 新的 begin、餘額比這局 begin 少
     if (kind === 'spin' && o.debitOnSpin && !ended()) log.push({ seq: log.length + 1, coin: 2_000_000 - 18 * spins, reason: 'begin', ts: Date.now() })
+    // CodeX 224801b [P1]：觸屏點一下就開了付費局
+    if (kind === 'tap' && o.debitOnTap && !ended()) log.push({ seq: log.length + 1, coin: 2_000_000 - 18 * taps, reason: 'begin', ts: Date.now() })
     if (o.endAfterClicks !== undefined && clicks >= o.endAfterClicks && !ended()) log.push({ seq: 2, coin: 2_100_000, reason: 'end', ts: Date.now() })
   }
   const evaluate = async (fn: unknown) => {
@@ -58,7 +60,7 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
   return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps, takes }) }
 }
 const quick = { pollMs: 5, quietMs: 0, maxMs: 300, maxActs: 20 }
-async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; clickTake?: boolean }) {
+async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; clickTake?: boolean }) {
   const stopFlag = { v: false }
   const f = fakePage({ ...o, stopFlag })
   const h = makeOpenRoundHandler({
@@ -119,6 +121,8 @@ for (const n of [1, 2, 3, 4, 5, 6]) {
   check('#7 同一局再問 → 直接回 debit（不重跑）', `${r.r2}/${r.secondMs < 100}`, 'debit/true') }
 { const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', endAfterClicks: 2 })
   check('#7 對照：沒有扣款 → 照舊按到 end', `${r.r1}/${r.spins}`, 'done/2') }
+{ const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], debitOnTap: true, timing: { maxActs: 20, maxMs: 2000 } })
+  check('⚠️ #7 觸屏第 1 格就扣款 → debit，只點了 1 格（每一格點之前都看扣款，CodeX 224801b [P1]）', `${r.r1}/${r.taps}`, 'debit/1') }
 
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)

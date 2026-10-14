@@ -324,7 +324,7 @@ export async function runTouchVisualFlow(d: {
 //   停止指令／整台時限到期／單台次數上限／畫面 Handpay／餘額讀不到／剩餘額度不夠再付一把。
 // 「剩餘額度不夠再付一把」是硬上限：要求 maxSpend − 已花 ≥ spinCost 才按，所以最後一把也不會超過 maxSpend。
 /** lastBal／lastPresses：上一次讀到的機台餘額與當時的累計次數（1007 合理性檢查用） */
-export type BlindBurstState = { presses: number; bal0: number | null | undefined; lastBal?: number; lastPresses?: number; debited?: number; lastSeenBal?: number; lastSeenPresses?: number }
+export type BlindBurstState = { presses: number; bal0: number | null | undefined; lastBal?: number; lastPresses?: number; debited?: number; lastSeenBal?: number; lastSeenPresses?: number; moneySeq0?: number }
 export async function runBlindBurst(d: {
   state: BlindBurstState
   maxPresses: number
@@ -338,6 +338,8 @@ export async function runBlindBurst(d: {
   deadlineExceeded: () => boolean
   bodyText: () => Promise<string>
   readBalance: () => Promise<number | null>
+  /** CodeX 224801b [P1]：開始盲推以來 moneyNtc 逐筆的實際扣款（派彩不抵銷）；null＝讀不到流水 → 每一下照單把成本算 */
+  readDebited?: () => Promise<number | null>
   press: () => Promise<void>
 }): Promise<{ halt: string | null; pressed: number }> {
   const s = d.state
@@ -362,7 +364,9 @@ export async function runBlindBurst(d: {
     }
     s.lastBal = bal; s.lastPresses = s.presses
     // 1013：累積扣款（派彩不抵銷），不是 bal0 − bal 的淨額
-    const spent = noteBlindDebit(s, bal, s.presses, d.spinCost)
+    const sampled = noteBlindDebit(s, bal, s.presses, d.spinCost)
+    const tx = d.readDebited ? await d.readDebited() : undefined
+    const spent = tx === undefined ? sampled : Math.max(sampled, tx ?? s.presses * d.spinCost)
     if (d.maxSpend - spent < d.spinCost) return { halt: `剩餘額度不夠再付一把（已扣 ${spent}，上限 ${d.maxSpend}，單把 ${d.spinCost}）`, pressed }
     await d.press()
     s.presses++; pressed++
@@ -463,20 +467,37 @@ export function noteBlindDebit(state: { debited?: number; lastSeenBal?: number; 
   if (presses !== undefined) state.lastSeenPresses = presses
   return state.debited ?? 0
 }
+/**
+ * CodeX 224801b [P1]：餘額只在兩下之間讀一次，扣 18、派 9 的話淨額只少 9 → 上限 252 按了 27 把（實扣 486）。
+ * 改看 **moneyNtc 流水逐筆**：每一局 begin 比上一筆少多少就是那一局實際扣的（派彩在 end，不會抵銷）。
+ * 從 seq0（開始盲推時的最後一筆）起算；seq0 那筆已經不在流水裡（環形緩衝 200 筆被擠掉）＝無法逐筆確認 → 回 null（呼叫端改保守：每一下照單把成本算）
+ */
+export function blindDebitsSince(log: Array<{ seq: number; coin: number; reason: string }>, seq0: number): number | null {
+  const s = [...log].sort((a, b) => a.seq - b.seq)
+  if (seq0 > 0 && !s.some(e => e.seq === seq0)) return null
+  const startCoin = seq0 > 0 ? s.find(e => e.seq === seq0)!.coin : null
+  // 開始盲推時流水是空的（seq0＝0）：沒有起點，第一筆如果就是 begin，那一局扣多少算不出來 → 無法逐筆確認
+  if (seq0 === 0 && s.length && s[0].reason === 'begin') return null
+  // seq0＝0 時第一筆（不是 begin）當起點；否則從 seq0 那筆的餘額起算
+  const r = roundDeductions(startCoin, seq0 > 0 ? s.filter(e => e.seq > seq0) : s)
+  return r.rounds.filter(x => x.kind === 'paid').reduce((a, x) => a + x.deduction, 0)
+}
 /** 1013：盲推單把成本＝實測注額（spinCost）、上限＝BLIND_SPEND_SPINS 倍；注額不明就不盲推（回 null） */
 export const BLIND_SPEND_SPINS = 14
 export function blindBudget(measuredBet: number | null | undefined): { spinCost: number; maxSpend: number } | null {
   if (typeof measuredBet !== 'number' || !Number.isFinite(measuredBet) || measuredBet <= 0) return null
   return { spinCost: measuredBet, maxSpend: measuredBet * BLIND_SPEND_SPINS }
 }
-export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPresses: number; bodyText: string; bal: number | null; bal0: number | null | undefined; maxSpend: number; spinCost: number; state?: { debited?: number; lastSeenBal?: number; lastSeenPresses?: number } }): { ok: boolean; reason?: string } {
+export function extraSpinDecision(s: { stopped: boolean; presses: number; maxPresses: number; bodyText: string; bal: number | null; bal0: number | null | undefined; maxSpend: number; spinCost: number; state?: { debited?: number; lastSeenBal?: number; lastSeenPresses?: number }; txDebited?: number | null }): { ok: boolean; reason?: string } {
   if (s.stopped) return { ok: false, reason: '收到停止指令' }
   if (s.presses >= s.maxPresses) return { ok: false, reason: `已達單台上限 ${s.maxPresses} 下` }
   if (/hand\s*-?\s*pay/i.test(s.bodyText)) return { ok: false, reason: '畫面出現 Handpay' }
   if (!Number.isFinite(s.spinCost) || s.spinCost <= 0) return { ok: false, reason: '注額不明（讀不到這台實際扣款），不盲推' }
   if (s.bal == null || s.bal0 == null) return { ok: false, reason: '讀不到前端餘額' }
   // 有給 state＝累積扣款（派彩不抵銷）；沒給才退回舊的淨額算法（舊呼叫端相容）
-  const spent = s.state ? noteBlindDebit(s.state, s.bal, s.presses, s.spinCost) : Math.max(0, s.bal0 - s.bal)
+  const sampled = s.state ? noteBlindDebit(s.state, s.bal, s.presses, s.spinCost) : Math.max(0, s.bal0 - s.bal)
+  // 有給 txDebited（流水逐筆）就用它跟取樣值取大的；流水讀不到（null）＝每一下照單把成本算（保守）
+  const spent = s.txDebited === undefined ? sampled : Math.max(sampled, s.txDebited ?? s.presses * s.spinCost)
   if (s.maxSpend - spent < s.spinCost) return { ok: false, reason: `剩餘額度不夠再付一把（已扣 ${spent}，上限 ${s.maxSpend}）` }
   return { ok: true }
 }

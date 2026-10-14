@@ -20,7 +20,7 @@ import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEve
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 import { matchPopup, isNeverClick, POPUP_SNAPSHOT_IN_PAGE, POPUP_BOX_SELECTORS, POPUP_PROBE_SELECTORS, POPUP_MIN_AREA, NEVER_BLOCK_IN_PAGE, NEVER_CLICK_SERIALIZED, ELEMENT_BOX_INFO_IN_PAGE } from '../uat-runner/popup-catalog.js'
 import { dismissLobbyPopups } from '../uat-runner/lobby-popup.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, roundDeductions, blindBudget, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, runTouchThenSpin, extraSpinDecision, runFeatureTaps, featureTapSummary, onFeatureSelectScreen, exitFeatureState, planExitAdvance, applyFeatureRound, inFeatureHold, REF_MATCH, superviseOpenRound, openRoundTrigger, stepGateBlock, decidePopup, popupStepBlock, ideckRoundState, ideckBeginWait, ideckQuietWaitMs, attributeBegin, ideckBackPick, isAudioTrueSilence, pickMinBetKeys, classifyBetKey, ideckFamilyOrder, lastBetFromMoneyLog, audioRetryPrecheck, audioRetrySummary, audioRoutingNote, roundDeductions, blindBudget, blindDebitsSince, aftBreaker, entryNeedsAftLookup, findAftInEnd, type AftLookup, boxChains, touchChainVerdict, successChains, ideckBoxChain, type AudioRouting, type AudioEndpoint, IDECK_CONSERVATIVE_BEGIN_MS, type IdeckTimingCfg, type PopupDecision, type PopupPhase, type FeatureTapPoint, type FeatureTapLog, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import { ideckButtonKey } from './ideck-button-key.js'
 import { installServerCfgDebug, describeServerCfgDebug } from './server-cfg-debug.js'
 import pngjs from 'pngjs'
@@ -1572,7 +1572,9 @@ export function makeOpenRoundHandler(o: {
     const stop = () => o.stopped() || handpay
     /** 每一下真的點之前 await：重讀流水＋停止狀態（沒有快取） */
     // 讀流水是非同步的：讀的期間可能收到停止 → 讀完再看一次停止（CodeX edd347b [P1]）
-    const mustStop = async () => stop() || await ended() || stop()
+    // CodeX 224801b [P1]：每一下點擊前也要看扣款（觸屏、featureTaps、SPIN 都走這裡）——原本觸屏第一格就扣款，仍點完 3 格才回 debit
+    let debitedNow: () => Promise<boolean> = async () => false
+    const mustStop = async () => stop() || await ended() || await debitedNow() || stop()
     const profile = o.getProfile()
     const action = profile?.bonusAction ?? 'spin'
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
@@ -1583,6 +1585,17 @@ export function makeOpenRoundHandler(o: {
     const guardOn = typeof beginCoin === 'number' && Number.isFinite(beginCoin)
     if (!guardOn) emit(`（這局 begin 沒有餘額，扣款守門不啟用）`)
     let debitNote = ''
+    let debitSeen = false
+    /** 局還開著、餘額比這局 begin 少＝按到付費局（一旦看到就一直是 true） */
+    const debitCheck = async (): Promise<boolean> => {
+      if (debitSeen) return true
+      const l = await readMoneyLog(page)
+      if (l.some(e => e.seq > beginSeq && e.reason === 'end')) return false   // 局已經結束：之後的扣款是別的事，不在這裡判
+      const low = l.find(e => e.seq > beginSeq && typeof e.coin === 'number' && e.coin < beginCoin!)
+      if (low) { debitNote = `餘額 ${beginCoin} → ${low.coin}（${low.reason}），局還沒結束`; debitSeen = true }
+      return !!low
+    }
+    if (guardOn) debitedNow = debitCheck
     // Take＝收分只在機種確定時才按（CodeX：須確認該機種確為收分）：profile clickTake 或 bonusAction=takewin
     const takeIsCollect = profile?.clickTake === true || action === 'takewin'
     try {
@@ -1628,13 +1641,7 @@ export function makeOpenRoundHandler(o: {
           if (r === 'clicked') { taps++; emit(`（疑似特殊遊戲：按 Take 收分）`) }
           return r === 'clicked'
         } : undefined,
-        debited: guardOn ? async () => {
-          const l = await readMoneyLog(page)
-          if (l.some(e => e.seq > beginSeq && e.reason === 'end')) return false   // 局已經結束：之後的扣款是別的事，不在這裡判
-          const low = l.find(e => e.seq > beginSeq && typeof e.coin === 'number' && e.coin < beginCoin!)
-          if (low) debitNote = `餘額 ${beginCoin} → ${low.coin}（${low.reason}），局還沒結束`
-          return !!low
-        } : undefined,
+        debited: guardOn ? debitCheck : undefined,
         // ⚠️ 不接卡住救援（bonusStallRescue）：它用 classifyBonusText 判斷要不要按 SPIN，普通局畫面也會被判成 spin，
         //    內層點擊也沒有逐下重讀 end。卡住就 stalled、交人工（CodeX 2d513b6 [P1]）
         now: Date.now, sleep: async ms => { await sleep(ms) },
@@ -6126,8 +6133,11 @@ export class MachineTestRunner extends EventEmitter {
                 // 整台總時限沿用 EXIT_MAX_MS（20 分）。扣款用機台內餘額（readMachineBalance：moneyNtc／Cash out credit，Spin 步驟同一個來源）；讀不到就停批（CodeX：無法確認就不按）。
                 // 流程在 verdicts.ts runBlindBurst（探針 scripts/blind-burst-probe.ts 模擬各停止條件）
                 emit(`不在影像辨識監控：連續推進 60 秒（每 5 秒一下）再試退出｜本台盲推累計 ${blind.presses}/${BLIND_MAX_PRESSES} 下`)
+                // CodeX 224801b [P1]：扣款逐筆看 moneyNtc（開始盲推時記下最後一筆 seq），派彩不抵銷
+                if (blind.moneySeq0 === undefined) { const l0 = await readMoneyLog(page); blind.moneySeq0 = l0.length ? Math.max(...l0.map(e => e.seq)) : 0 }
+                const readDebited = async () => { const l = await readMoneyLog(page); return l.length ? blindDebitsSince(l, blind.moneySeq0 ?? 0) : null }
                 const b = await runBlindBurst({
-                  state: blind, maxPresses: BLIND_MAX_PRESSES, maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST,
+                  state: blind, maxPresses: BLIND_MAX_PRESSES, maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST, readDebited,
                   burstMs: 60_000, intervalMs: 5000, now: Date.now, sleep: async ms => { await sleep(ms) },
                   isStopped: () => this.stopped,
                   deadlineExceeded: () => Date.now() - firstFailAt > EXIT_MAX_MS || acts >= EXIT_MAX_ACTS,
@@ -6143,7 +6153,7 @@ export class MachineTestRunner extends EventEmitter {
                         stopped: this.stopped, presses: blind.presses, maxPresses: BLIND_MAX_PRESSES,
                         bodyText: await page.evaluate(() => document.body?.innerText ?? '').catch(() => ''),
                         bal: await readMachineBalance(page), bal0: blind.bal0,
-                        maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST, state: blind,
+                        maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST, state: blind, txDebited: await readDebited(),
                       })
                       if (d.ok) { blind.presses++; acts++ }
                       return d

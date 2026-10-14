@@ -807,6 +807,10 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
   - 單把成本＝這台**實測注額**（moneyNtc 相鄰兩局 begin 的差，`lastBetFromMoneyLog`），上限＝14 倍（`BLIND_SPEND_SPINS`）。原本 10,000／100,000 是照 BZZF 的全域常數，LIONLINK 最小注 18 時等於沒上限。**注額不明就不盲推**
   - 已花＝**累積扣款**（`noteBlindDebit`：只加變少的部分），派彩不抵銷；餘額只在兩下之間讀一次，變多的區間裡按的每一下照單把成本算（保守：可能提早停，不會多花）
 - 測試：`open-round-runner-probe`（真 makeOpenRoundHandler＋假頁面）補 6 條、`open-round-probe` 補 3 條（扣款不叫救援）、`blind-burst-probe` 補 7 條；拿掉按後守門／Take 不檢查機種／debit 不黏住／改回淨額，各自會紅
+- **v5.57.1（CodeX 224801b 兩個 [P1]）**：
+  - 盲推累積扣款改看 **moneyNtc 流水逐筆**（`blindDebitsSince`：每局 begin 比上一筆少的部分，從開始盲推時的最後一筆 seq 起算）——餘額只在兩下之間讀一次，扣 18 派 9 時淨額只少 9，上限 252 按了 27 把；扣派相等更會按滿 96。流水讀不到、或起點那筆被擠出 200 筆環形緩衝 → 每一下照單把成本算（保守）。跟取樣值取大的；FG 免費局（begin 不扣）照樣能推
+  - 每一下點擊前（觸屏、featureTaps、SPIN 共用的 `mustStop`）都看扣款——原本觸屏第一格就扣款，仍點完 3 格才回 debit
+  - blind-burst-probe 29 條、open-round-runner-probe 補觸屏 1 條；拿掉逐筆會紅 3 條、觸屏舊版會紅
 
 ### #6 Spin 扣款起點改用進場餘額（v5.54.0，只記錄、不改判定）
 - 原本剛進機台還沒有 moneyNtc 時，Spin 只能寫「Spin 前尚無機台餘額，餘額變化未驗」（LIONLINK 每台都是）
@@ -836,3 +840,4 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - `judgeMachineInfo` 第 5 個參數 `llUnknown`：無法確認時不比對任何 LuckyLink 預期值（有、協議、版本），只留一條「LuckyLink 無法確認（原因），預期值沒有比對」；盒子檢查照常；登入失敗也算無法確認。`preTestLines`／報告寫「無法確認（原因）」，不寫「沒有這台」
 - 測試：`scripts/ui-checks/luckylink-lookup.test.mjs` 24 條（含真的回應 `fixtures/luckylink/egmlist-1013.json`：跨渠道同號、空結果）、`pretest-luckylink.test.mjs` 11 條（mock fetch 跑真的 preTestCheck／報告）；突變（不翻頁、用機台號比對、失敗當沒有、舊接線、舊報告）各自會紅
 - 實跑（1013 QAT，唯讀）：全表照樣逾時 → 逐台查：0231 有接 SAS 1.1.6、0998 確定不存在
+- **v5.57.2（CodeX e37efbb [P2]）**：只看頁長不夠——回應有 `total` 就要收齊 total 筆才算查完；這頁沒滿卻還沒收齊 → unknown（「回應不完整」），不判 absent。luckylink-lookup.test 27 條
