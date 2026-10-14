@@ -50,7 +50,8 @@ ok(JSON.stringify(missingMeterFields([{ '6': '100', '10': '50', '29': '0', '5': 
 ok(JSON.stringify(missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS).sort()) === '["Coin Out","Games Played","Jackpot Wins"]', '⚠️ bucket 缺 meter 數值 → 列出缺的欄位（原本被 num() 轉成 0、判通過）', missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS))
 ok(JSON.stringify(missingMeterFields([null, null], FIELDS)) === '[]', '沒有 bucket（null）→ 這裡不判，交給 noData')
 // CodeX 2e9b441 [P2]：Number(' ')／Number(false)／Number([]) 都是 0，不能算數字
-for (const bad of [' ', false, [], '', 'abc', null] as unknown[]) {
+// CodeX 9c08f26 [P2]：格式像數字但轉出 ±Infinity（含超長十進位字串）也不算
+for (const bad of [' ', false, [], '', 'abc', null, '1e309', '-1e309', '9'.repeat(400)] as unknown[]) {
   ok(!isNum(bad), `isNum(${JSON.stringify(bad)}) → false`)
   ok(apiProblem('Game Record', { code: 20000, data: { total: 1, sumData: { bet: '880.00', win: bad } } }, grValid) !== null, `⚠️ Game Record win=${JSON.stringify(bad)} → 無效（原本判通過）`)
   ok(missingMeterFields([{ '6': '1', '10': bad, '29': '0', '5': '1' }, { '6': '2', '10': '3', '29': '0', '5': '2' }], FIELDS).includes('Coin Out'), `⚠️ hourly Coin Out=${JSON.stringify(bad)} → 缺欄位`)
