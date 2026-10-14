@@ -50,6 +50,8 @@ export interface AutoStep {
    * ⚠️ 只有「場景讀得到、節點確定不存在」才跳過；場景讀不到、找到了卻點不到 → 照樣失敗（CodeX 方案 g）
    */
   skipIfMissing?: boolean
+  /** pc_pick_machine（1014）：free＝只挑空機（預設，跟 PC 進機台同一套空機規則）、online＝只排除離線 */
+  pickFrom?: 'free' | 'online'
   /**
    * `backend_snippet`：要跑哪一份後台設定片段。
    *

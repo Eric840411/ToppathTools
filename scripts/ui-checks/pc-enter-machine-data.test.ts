@@ -155,6 +155,62 @@ try {
     const e = await viaProbe('No Such Game', bad)
     ok(/無法確認清單已經載完/.test(e) && !/環境裡沒有/.test(e), `真 probe：總表回應 ${bad} → 「無法確認」，不能判「環境沒有」`, e)
   }
+
+  // ── 1014 pc_pick_machine（PC 使用者：T-A-002 不要固定機台；CodeX 定案）：挑一台存成變數，**不進場、不點任何東西** ──
+  const runPick = async (step: Record<string, unknown>, o: Opts = {}, listed?: string[], vars: Record<string, unknown> = {}) => {
+    const pinus = listed ? { drain: async () => {}, messages: () => [{ direction: 'response', route: 'hall.hallHandler.getAllGMListReq', gmids: listed, complete: true }] } : undefined
+    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+    await page.setContent(PAGE(o))
+    // 任何一下點擊都記下來（pick 一下都不能點）
+    await page.evaluate(() => { (window as unknown as { __anyClick: number }).__anyClick = 0; document.addEventListener('click', () => { (window as unknown as { __anyClick: number }).__anyClick++ }, true); document.addEventListener('mousedown', () => { (window as unknown as { __anyClick: number }).__anyClick++ }, true) })
+    const logs: string[] = []
+    let err = ''
+    const ctx = { page, pc: pcEngineCapabilities, pinus, log: async (m: string) => { logs.push(m) }, idx: '1', screenshotDir: '', startUrl: 'https://uat-h5.osmslot.org/', state: { vars } }
+    try { await runFrontendStep({ name: 'pick', action: 'pc_pick_machine', ...step }, ctx as never) }
+    catch (e) { err = e instanceof Error ? e.message : String(e) }
+    const clicks = await page.evaluate(() => (window as unknown as { __anyClick: number }).__anyClick)
+    const entered = await page.evaluate(() => (window as unknown as { __entered: string[] }).__entered)
+    await page.close()
+    return { err, logs, clicks, entered, vars, ctx }
+  }
+  let pk = await runPick({ value: 'Coin Combo', as: 'm' })
+  ok(pk.err === '' && JSON.stringify(pk.vars.m) === JSON.stringify({ gmid: '4186-COINCOMBO-0140', name: '0140', num: '0140', game: 'Coin Combo' }), 'pick「Coin Combo」只挑空機 → m＝{gmid, name, num, game}（0138 有人不挑）', pk)
+  ok(typeof (pk.vars.m as { num: unknown }).num === 'string' && (pk.vars.m as { num: string }).num === '0140', 'num 是字串、保留前導零（0140，不是 140）', pk.vars.m)
+  ok(pk.clicks === 0 && pk.entered.length === 0, '⚠️ 一下都不點、不進場', { clicks: pk.clicks, entered: pk.entered })
+  ok(pk.logs.some(l => /挑中 4186-COINCOMBO-0140/.test(l) && /不保證之後還在線/.test(l)), '日誌寫出挑中哪台，並註明只代表當下', pk.logs)
+  pk = await runPick({ value: '', as: 'm', pickFrom: 'online' })
+  ok(pk.err === '' && ['4186-COINCOMBO-0138', '4186-COINCOMBO-0140', '4186-DFDCGRAND-0144'].includes((pk.vars.m as { gmid: string }).gmid), 'pickFrom=online、留空 → 在線的都可以（有人／鎖定也算），離線的 1008 不挑', pk.vars.m)
+  for (let i = 0; i < 6; i++) { const x = await runPick({ value: '', as: 'm', pickFrom: 'online' }); ok((x.vars.m as { gmid?: string } | undefined)?.gmid !== '4186-BWJL-1008', `online 重複挑 ${i + 1}：不會挑到離線的 1008`, x.vars.m) }
+  // 舊變數失效：先放一個上一輪的 m，這次挑選失敗 → m 不能留著舊值
+  pk = await runPick({ value: 'Dancing Drums', as: 'm' }, {}, undefined, { m: { gmid: 'OLD-MACHINE-0001', name: 'old', num: '0001', game: 'old' } })
+  ok(/「Dancing Drums」同款 1 台都不符合（要空機；有人 0、鎖定 1/.test(pk.err) && /資源不足/.test(pk.err), '有同款但都不能挑（鎖定）→ 「資源不足」（不說環境沒有）', pk.err)
+  ok(!('m' in pk.vars), '⚠️ 挑選失敗 → 上一輪的 m 已經清掉（不會拿到舊結果）', pk.vars)
+  pk = await runPick({ value: 'Coin Combo', as: 'm' }, { throwOnData: true }, undefined, { m: { gmid: 'OLD' } })
+  ok(/讀不到大廳的機台資料/.test(pk.err) && !('m' in pk.vars) && pk.clicks === 0, '_data 讀取失敗 → 失敗、舊變數清掉、不點', pk)
+  // 同款 0 台：照總表證據規則（跟 pc_enter_machine 同一份）
+  pk = await runPick({ value: 'No Such Game', as: 'm' }, {}, ['4186-COINCOMBO-0138', '4186-COINCOMBO-0140', '4186-DFDCGRAND-0144', '4186-BWJL-1008'])
+  ok(/環境裡沒有「No Such Game」/.test(pk.err), '同款 0 台、總表證據完整 → 「環境沒有」（跟 pc_enter_machine 同一套）', pk.err)
+  pk = await runPick({ value: 'No Such Game', as: 'm' })
+  ok(/無法確認清單已經載完/.test(pk.err) && !/環境裡沒有/.test(pk.err), '同款 0 台、沒有總表證據 → 「無法確認」', pk.err)
+  // 參數驗證
+  for (const [label, step] of [['沒填 as', { value: '' }], ['as 數字開頭', { value: '', as: '1m' }], ['as 有空白', { value: '', as: 'm x' }], ['pickFrom 不合法', { value: '', as: 'm', pickFrom: 'idle' }]] as const) {
+    const x = await runPick(step as Record<string, unknown>)
+    ok(/要填變數名|pickFrom 只能是/.test(x.err) && x.clicks === 0, `${label} → 直接報錯、不讀不點`, x.err)
+  }
+  // assert_pc_node 展開 {{變數}}（1014 加進 VAR_VALUE_ACTIONS）
+  {
+    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+    await page.setContent(PAGE({}))
+    const logs: string[] = []
+    const ctx = { page, pc: pcEngineCapabilities, log: async (m: string) => { logs.push(m) }, idx: '2', screenshotDir: '', startUrl: 'https://uat-h5.osmslot.org/', state: { vars: { m: { gmid: '4186-COINCOMBO-0140', name: '0140', num: '0140', game: 'Coin Combo' } } } }
+    let err = ''
+    try { await runFrontendStep({ name: 'verify', action: 'assert_pc_node', value: '{{m.name}}' }, ctx as never) } catch (e) { err = e instanceof Error ? e.message : String(e) }
+    ok(err === '' && logs.some(l => /\{\{m\.name\}\} → 0140/.test(l)), 'assert_pc_node「{{m.name}}」→ 展開成 0140 再驗（日誌寫出展開結果）', { err, logs })
+    let err2 = ''
+    try { await runFrontendStep({ name: 'verify', action: 'assert_pc_node', value: '{{nope.name}}' }, { ...ctx, state: { vars: {} } } as never) } catch (e) { err2 = e instanceof Error ? e.message : String(e) }
+    ok(/引用的變數「nope\.name」不存在/.test(err2), 'assert_pc_node 引用不存在的變數 → 直接報錯（不會拿「{{nope.name}}」字面去找）', err2)
+    await page.close()
+  }
 } finally { await browser.close() }
 
 console.log(fail ? `\n❌ ${fail} 條失敗` : '\n✅ 全過')

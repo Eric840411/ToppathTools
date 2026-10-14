@@ -388,6 +388,24 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <span className="uat-hint">勾了：等 3 秒還是找不到這個節點 → 記成「跳過」，不算失敗（例如大廳廣告有時候不出現）。場景樹讀不到、或找到了卻點不到 → 照樣判失敗</span>
               </label>
             )}
+            {selected.action === 'pc_pick_machine' && (
+              <>
+                <label>遊戲名（可留空）
+                  <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="More Puff（同款裡挑）；留空或 * ＝整個大廳" />
+                </label>
+                <label>存成變數
+                  <input className="uat-field" value={selected.as ?? ''} onChange={event => updateSelected({ as: event.target.value })} placeholder="m" />
+                  <span className="uat-hint">挑中的機台存成 {'{{m.gmid}}'}、{'{{m.name}}'}（卡片名稱）、{'{{m.num}}'}（gmid 最後一段，保留前導零）、{'{{m.game}}'}。驗卡片建議用 {'{{m.name}}'}（只用尾碼搜尋不保證唯一）</span>
+                </label>
+                <label>挑哪種
+                  <select className="uat-field" value={selected.pickFrom ?? 'free'} onChange={event => updateSelected({ pickFrom: event.target.value as 'free' | 'online' })}>
+                    <option value="free">只挑空機（沒人、沒鎖定、沒離線）</option>
+                    <option value="online">在線就好（只排除離線）</option>
+                  </select>
+                  <span className="uat-hint">不進場、不點任何東西；只代表挑的當下，之後可能被別人坐走。挑了哪一台寫進日誌</span>
+                </label>
+              </>
+            )}
             {selected.action === 'pc_enter_machine' && (
               <label>機台
                 <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Coin Combo（同款隨機挑空的）、4186-COINCOMBO-0138（指定），或留空／*（任一台空機）" />

@@ -27,6 +27,7 @@ export const STEP_LIBRARY = [
   // ⚠️ PC（Cocos）專用：畫面是一張 canvas，沒有 DOM 可選，所以 H5 那套選擇器積木在 PC 上一律命中 0。
   //    這兩顆讀的是 Cocos 場景樹。
   { action: 'pc_enter_machine', label: 'PC 進機台', category: 'interaction', description: 'PC 版：等大廳清單載完、照卡片資料挑一台空機進入，並核對實際進到哪一台；留空或 * ＝隨機挑一台空機' },
+  { action: 'pc_pick_machine', label: 'PC 挑機台（不進場）', category: 'flow', description: 'PC 版：隨機挑一台機台存成變數（{{m.gmid}}／{{m.name}}／{{m.num}}／{{m.game}}），不進場、不點任何東西；後面用輸入文字搜尋、PC 驗節點確認卡片' },
   { action: 'pc_click_node', label: 'PC 點節點', category: 'interaction', description: 'PC 版：點場景樹裡的某個節點（填節點名如 btn-road，或畫面上的字如 Road）' },
   { action: 'assert_pc_node', label: 'PC 驗節點', category: 'assertion', description: 'PC 版：確認場景樹裡有這個節點且看得見（面板打開後用它驗）' },
   { action: 'assert_pc_scene', label: 'PC 驗場景', category: 'assertion', description: 'PC 版：確認目前在大廳或機台內；填機台名稱時會核對「實際進到哪一台」' },
@@ -107,6 +108,8 @@ const ENUMS: Record<string, readonly string[]> = {
   expectStatus: ['2xx', 'any', 'exact'],
   until: ['visible', 'hidden', 'text', 'node'],
   matchMode: ['contains', 'equals', 'regex', 'number'],
+  // 1014 pc_pick_machine：只挑空機／排除離線
+  pickFrom: ['free', 'online'],
 }
 function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof item === 'string') return { ...createStep('wait'), name: item, value: '1000' }

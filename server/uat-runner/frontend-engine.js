@@ -60,6 +60,8 @@ export const FRONTEND_ACTIONS = Object.freeze([
   'backend_snippet',
   // PC（Cocos）專用：畫面上沒有 DOM，只能讀場景樹。見上面那段 import 的說明
   'pc_enter_machine', 'assert_pc_scene', 'pc_click_node', 'assert_pc_node',
+  // 1014：隨機挑一台機台存成變數（不進場）
+  'pc_pick_machine',
   'scroll', 'pc_scroll', 'press_key', 'assert_ws_called',
   // 前置條件：不成立時判「受阻」，見下面那顆積木的說明
   'require_precondition',
@@ -336,7 +338,81 @@ export function compileFrontendSteps(steps) {
  * }} ctx
  */
 /** 1008 這幾顆的 value 可以寫 `{{變數}}`（PC 使用者：不固定入口或機台，先讀畫面再拿來用；CodeX 方案 e） */
-const VAR_VALUE_ACTIONS = new Set(['type', 'fill', 'pc_click_node']);
+// 1014：assert_pc_node 也展開（PC 使用者：pc_pick_machine 挑的機台拿來驗卡片 {{m.name}}；CodeX 同意）
+const VAR_VALUE_ACTIONS = new Set(['type', 'fill', 'pc_click_node', 'assert_pc_node']);
+
+/**
+ * PC 大廳：等機台卡片資料載完 → 依 want 挑候選（pc_enter_machine 與 pc_pick_machine 共用，規則只有這一份；1014 CodeX）。
+ * ⚠️ **只讀、等待、篩選**——不關彈窗、不開看門狗、不捲動、不點（那些留在進場流程裡；pick 不能間接操作畫面）。
+ * 候選 0 台時沿用總表證據規則：證明不了清單完整就說「無法確認」，不說「環境沒有」。
+ * @returns {{ cur: object, cands: object[], read: () => Promise<object>, candidatesOf: (r: object) => object[], breakdown: (list: object[]) => string, games: string[] }}
+ */
+async function loadPcMachineCandidates(ctx, pc, want, random) {
+  const { page, log } = ctx;
+  /**
+   * ① 清單載完：每張顯示中的卡片都有 _data，而且連續兩次（相隔 1 秒）的 gmid 集合一樣。
+   * ⚠️ 讀取失敗回 ok:false → 直接失敗，**不能當成 0 台**（CodeX：讀取失敗不能當沒有）。
+   * ⚠️ 不看 WS 的 getAllGMListReq：那條連線在頁面載入時就開了，積木執行時才掛監聽收不到；
+   *    _data 就是那則回應套用之後的結果，看它穩定下來等於看到回應套用完。
+   */
+  const read = async () => {
+    const r = await pc.machineCards(page);
+    if (!r.ok) throw new Error(`讀不到大廳的機台資料（${r.why}）——讀不到不等於沒有這台`);
+    return r;
+  };
+  const key = (r) => r.cards.map(c => c.gmid).sort().join(',');
+  let cur = await read();
+  const loadDeadline = Date.now() + 20000;
+  for (;;) {
+    await page.waitForTimeout(1000);
+    const next = await read();
+    const settled = next.items > 0 && next.withData === next.items && key(next) === key(cur);
+    cur = next;
+    if (settled) break;
+    if (Date.now() > loadDeadline) throw new Error(`大廳機台資料 20 秒沒穩定下來（卡片 ${cur.items} 張、有資料 ${cur.withData} 張）`);
+  }
+  const games = [...new Set(cur.cards.map(c => c.gameName || c.gameid))];
+  await log(`   📋 大廳清單載完：${cur.cards.length} 台、${games.length} 款`);
+
+  /** ② 候選：完整機台（gmid／卡片名稱／「遊戲名 卡片名稱」）優先；否則同款（遊戲名或 gameid） */
+  const w = want.toLowerCase();
+  const exactOf = (c) => [c.gmid, c.name, `${c.gameName} ${c.name}`].some(v => v.toLowerCase() === w);
+  const gameOf = (c) => c.gameName.toLowerCase() === w || c.gameid === w.replace(/\s+/g, '');
+  const candidatesOf = (r) => {
+    if (random) return r.cards;
+    const exact = r.cards.filter(exactOf);
+    return exact.length ? exact : r.cards.filter(gameOf);
+  };
+  let cands = candidatesOf(cur);
+  if (!cands.length) {
+    /**
+     * CodeX 審 6a534be [P2]：**穩定不等於完整**——兩次讀到同一份「部分清單」就判「沒有這款」會誤判。
+     * 要說「環境沒有」得先證明清單完整：大廳機台總表（getAllGMListReq）的回應裡每一台都已經套到卡片上。
+     * 回應由 host 一開頁就掛的 pinus 攔截器記下（ctx.pinus；積木執行時才掛監聽會收不到）。
+     * 證明不了 → 失敗但**不說「沒有」**，說「無法確認」。
+     */
+    let listed = null;
+    let proofWhy = '';
+    if (ctx.pinus) {
+      await ctx.pinus.drain().catch(() => {});
+      const resp = ctx.pinus.messages().filter(m => m.direction === 'response' && /getAllGMList/i.test(m.route) && Array.isArray(m.gmids)).pop();
+      // 只認 probe 明確標成完整的（CodeX 審 809fb13 [P2]）；沒標、標成不完整都當成沒有證明
+      if (resp && resp.complete === true) listed = resp.gmids;
+      else if (resp) proofWhy = `總表回應不完整（${resp.incompleteWhy || '沒有標成完整'}）`;
+    }
+    if (!listed) throw new Error(`大廳卡片裡沒有「${want}」（目前 ${cur.cards.length} 台），但${proofWhy || '拿不到大廳機台總表（getAllGMListReq）的回應'}，無法確認清單已經載完——不判「環境沒有」`);
+    const have = new Set(cur.cards.map(c => c.gmid));
+    const missing = listed.filter(g => !have.has(g));
+    if (missing.length) throw new Error(`大廳卡片裡沒有「${want}」，但總表有 ${missing.length} 台還沒套到卡片上（例如 ${missing.slice(0, 3).join('、')}）——清單還沒載完，不判「環境沒有」`);
+    throw new Error(`環境裡沒有「${want}」：大廳機台總表共 ${listed.length} 台、都已套到卡片（${games.slice(0, 12).join('、')}${games.length > 12 ? '…' : ''}），同款 0 台`);
+  }
+  const breakdown = (list) => {
+    const busy = list.filter(c => c.state !== 0).length, locked = list.filter(c => c.lockType !== 0).length;
+    const off = list.filter(c => c.offline).length, badge = list.filter(c => c.state === 0 && c.occupiedBadge).length;
+    return `有人 ${busy}、鎖定 ${locked}、離線 ${off}${badge ? `、有佔用徽章 ${badge}` : ''}`;
+  };
+  return { cur, cands, read, candidatesOf, breakdown, games };
+}
 
 export async function runFrontendStep(step, ctx) {
   const { idx, label, log, page } = ctx;
@@ -430,6 +506,42 @@ export async function runFrontendStep(step, ctx) {
     return { shots };
   }
 
+  if (step.action === 'pc_pick_machine') {
+    /**
+     * 1014 PC 使用者（claude-osm-2 轉達）：T-A-002 不要固定機台——固定的 144 離線就誤判 FAIL。
+     * 隨機挑一台但**不進場、不點任何東西**，結果存成變數給後面的 fill／assert_pc_node 用（CodeX 1014 定案）：
+     *   - 讀卡片、等載完、挑候選跟 pc_enter_machine 共用 loadPcMachineCandidates（規則只有一份；同款 0 台照樣要總表證據）
+     *   - 有同款、但沒有符合條件的 → 「資源不足」，跟「環境沒有」分開
+     *   - num 是 gmid 最後一段的**字串**（保留前導零，例 0239）；game＝gameName || gameid
+     *   - 同名變數在挑選前清掉：挑選失敗又繼續跑的話，後面拿到的不會是上一輪的結果
+     *   - 只代表挑的當下，不保證之後還在線
+     */
+    const as = String(step.as ?? '').trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(as)) throw new Error(`要填變數名（as）：英文字母、數字、底線，不能數字開頭（現在是「${as}」）`);
+    const pickFrom = step.pickFrom ?? 'free';
+    if (pickFrom !== 'free' && pickFrom !== 'online') throw new Error(`pickFrom 只能是 free（只挑空機）或 online（排除離線）（現在是「${pickFrom}」）`);
+    const vars = frontendVars(ctx);
+    delete vars[as];
+    const pc = await requirePc(ctx, 'PC 挑機台');
+    const want = (step.value ?? '').trim();
+    const random = want === '' || want === '*';
+    await log(`⏳ ${idx} ${label} → ${random ? '整個大廳' : want}（${pickFrom === 'free' ? '只挑空機' : '排除離線'}，不進場）`);
+    const diag = await pc.waitLobby(page, 30000, { requireLabels: false });
+    if (!diag.ready) throw new Error(`大廳沒就緒：${pc.describeLobby(diag)}`);
+    const { cands, breakdown } = await loadPcMachineCandidates(ctx, pc, want, random);
+    const okList = pickFrom === 'free' ? cands.filter(c => c.free) : cands.filter(c => !c.offline);
+    if (!okList.length) {
+      const scope = random ? '大廳全部' : `「${want}」同款`;
+      throw new Error(`${scope} ${cands.length} 台都不符合（${pickFrom === 'free' ? '要空機' : '要在線'}；${breakdown(cands)}）——資源不足，不是積木壞掉`);
+    }
+    const pick = okList[Math.floor(Math.random() * okList.length)];
+    const gmid = String(pick.gmid ?? '');
+    const picked = { gmid, name: String(pick.name ?? ''), num: gmid.split('-').pop() ?? '', game: String(pick.gameName || pick.gameid || '') };
+    vars[as] = picked;
+    await log(`✅ ${idx} ${label}：符合 ${okList.length} 台（${okList.slice(0, 8).map(c => c.gmid).join('、')}${okList.length > 8 ? '…' : ''}），挑中 ${gmid}（${picked.game} ${picked.name}）→ ${as}.gmid／${as}.name／${as}.num（${picked.num}）／${as}.game｜只代表現在的狀態，不保證之後還在線`);
+    return { shots };
+  }
+
   if (step.action === 'pc_enter_machine') {
     markWsBefore(ctx);
     const pc = await requirePc(ctx, 'PC 進機台');
@@ -452,68 +564,8 @@ export async function runFrontendStep(step, ctx) {
     // 整段期間盯著關彈窗（中獎彈窗會把點擊整個吃掉；見 pc-cocos.ts startPcPopupWatcher）
     const stopWatcher = pc.startPopupWatcher(page, { onClose: (n) => { void log(`   🧹 看門狗關掉 ${n} 個彈窗節點`); } });
     try {
-      /**
-       * ① 清單載完：每張顯示中的卡片都有 _data，而且連續兩次（相隔 1 秒）的 gmid 集合一樣。
-       * ⚠️ 讀取失敗回 ok:false → 直接失敗，**不能當成 0 台**（CodeX：讀取失敗不能當沒有）。
-       * ⚠️ 不看 WS 的 getAllGMListReq：那條連線在頁面載入時就開了，積木執行時才掛監聽收不到；
-       *    _data 就是那則回應套用之後的結果，看它穩定下來等於看到回應套用完。
-       */
-      const read = async () => {
-        const r = await pc.machineCards(page);
-        if (!r.ok) throw new Error(`讀不到大廳的機台資料（${r.why}）——讀不到不等於沒有這台`);
-        return r;
-      };
-      const key = (r) => r.cards.map(c => c.gmid).sort().join(',');
-      let cur = await read();
-      const loadDeadline = Date.now() + 20000;
-      for (;;) {
-        await page.waitForTimeout(1000);
-        const next = await read();
-        const settled = next.items > 0 && next.withData === next.items && key(next) === key(cur);
-        cur = next;
-        if (settled) break;
-        if (Date.now() > loadDeadline) throw new Error(`大廳機台資料 20 秒沒穩定下來（卡片 ${cur.items} 張、有資料 ${cur.withData} 張）`);
-      }
-      const games = [...new Set(cur.cards.map(c => c.gameName || c.gameid))];
-      await log(`   📋 大廳清單載完：${cur.cards.length} 台、${games.length} 款`);
-
-      /** ② 候選：完整機台（gmid／卡片名稱／「遊戲名 卡片名稱」）優先；否則同款（遊戲名或 gameid） */
-      const w = want.toLowerCase();
-      const exactOf = (c) => [c.gmid, c.name, `${c.gameName} ${c.name}`].some(v => v.toLowerCase() === w);
-      const gameOf = (c) => c.gameName.toLowerCase() === w || c.gameid === w.replace(/\s+/g, '');
-      const candidatesOf = (r) => {
-        if (random) return r.cards;
-        const exact = r.cards.filter(exactOf);
-        return exact.length ? exact : r.cards.filter(gameOf);
-      };
-      let cands = candidatesOf(cur);
-      if (!cands.length) {
-        /**
-         * CodeX 審 6a534be [P2]：**穩定不等於完整**——兩次讀到同一份「部分清單」就判「沒有這款」會誤判。
-         * 要說「環境沒有」得先證明清單完整：大廳機台總表（getAllGMListReq）的回應裡每一台都已經套到卡片上。
-         * 回應由 host 一開頁就掛的 pinus 攔截器記下（ctx.pinus；積木執行時才掛監聽會收不到）。
-         * 證明不了 → 失敗但**不說「沒有」**，說「無法確認」。
-         */
-        let listed = null;
-        let proofWhy = '';
-        if (ctx.pinus) {
-          await ctx.pinus.drain().catch(() => {});
-          const resp = ctx.pinus.messages().filter(m => m.direction === 'response' && /getAllGMList/i.test(m.route) && Array.isArray(m.gmids)).pop();
-          // 只認 probe 明確標成完整的（CodeX 審 809fb13 [P2]）；沒標、標成不完整都當成沒有證明
-          if (resp && resp.complete === true) listed = resp.gmids;
-          else if (resp) proofWhy = `總表回應不完整（${resp.incompleteWhy || '沒有標成完整'}）`;
-        }
-        if (!listed) throw new Error(`大廳卡片裡沒有「${want}」（目前 ${cur.cards.length} 台），但${proofWhy || '拿不到大廳機台總表（getAllGMListReq）的回應'}，無法確認清單已經載完——不判「環境沒有」`);
-        const have = new Set(cur.cards.map(c => c.gmid));
-        const missing = listed.filter(g => !have.has(g));
-        if (missing.length) throw new Error(`大廳卡片裡沒有「${want}」，但總表有 ${missing.length} 台還沒套到卡片上（例如 ${missing.slice(0, 3).join('、')}）——清單還沒載完，不判「環境沒有」`);
-        throw new Error(`環境裡沒有「${want}」：大廳機台總表共 ${listed.length} 台、都已套到卡片（${games.slice(0, 12).join('、')}${games.length > 12 ? '…' : ''}），同款 0 台`);
-      }
-      const breakdown = (list) => {
-        const busy = list.filter(c => c.state !== 0).length, locked = list.filter(c => c.lockType !== 0).length;
-        const off = list.filter(c => c.offline).length, badge = list.filter(c => c.state === 0 && c.occupiedBadge).length;
-        return `有人 ${busy}、鎖定 ${locked}、離線 ${off}${badge ? `、有佔用徽章 ${badge}` : ''}`;
-      };
+      // ①② 載完卡片＋挑候選（跟 pc_pick_machine 共用 loadPcMachineCandidates）
+      let { cur, cands, read, candidatesOf, breakdown } = await loadPcMachineCandidates(ctx, pc, want, random);
 
       /** ③ 空機：最多等 15 秒（有人剛離開的機台約 8 秒後才釋放），每 1.5 秒重讀 */
       const skip = new Set();

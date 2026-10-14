@@ -52,6 +52,8 @@ export const FRONTEND_BLOCK_DEFS = Object.freeze({
   // PC（Cocos）：進機台是操作，斷言場景／機台身分才是判定。
   // ⚠️ 兩顆分開就是為了這件事——`pcSeekMachine` 沒丟錯不等於「進對了機台」。
   pc_enter_machine: { category: 'nav' },
+  // 1014：挑機台存成變數＝準備動作（跟 PC 進機台一樣是 nav），不是檢查、不用綁 TC
+  pc_pick_machine: { category: 'nav' },
   assert_pc_scene: { category: 'assert' },
   pc_click_node: { category: 'nav' },
   scroll: { category: 'nav' },
