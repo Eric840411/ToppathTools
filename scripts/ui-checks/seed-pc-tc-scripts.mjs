@@ -71,7 +71,8 @@ const enter = (game, name) => step('pc_enter_machine', name, { value: game })
 const clickNode = (node, name) => step('pc_click_node', name, { value: node })
 /** 會動到餘額／佔機台的節點點擊——逐顆放行，理由見 H5 那支的 `tapDanger` */
 const clickNodeDanger = (node, name) => step('pc_click_node', name, { value: node, allowDangerous: true })
-const seeNode = (node, name, tcId) => step('assert_pc_node', name, { value: node, ...(tcId ? { tcId } : {}) })
+// 1014（CodeX P2 方案 C）：同名多顆預設報歧義；本來就要驗「至少一筆」的（資料列）帶 { allowMultiple: true }
+const seeNode = (node, name, tcId, extra = {}) => step('assert_pc_node', name, { value: node, ...(tcId ? { tcId } : {}), ...extra })
 /**
  * 驗 PC 畫面上的文字／數字——**讀 Cocos label，不是 OCR**。
  * ⚠️ 不要把「當下的餘額數字」寫死成期望值：下一輪它就變了，那是自己製造的假紅。
@@ -210,14 +211,14 @@ const SCRIPTS = [
       clickNode('btn_rank', '點側邊欄 Ranking List'),
       wait(5000, '等排行榜頁建出來'),
       seeNode('rank', '排行榜頁出現', TC.rankList?.recordId),
-      seeNode('item-jp', '排行榜有資料列', TC.rankList?.recordId),
+      seeNode('item-jp', '排行榜有資料列', TC.rankList?.recordId, { allowMultiple: true }),
       // 🚨 **一定要指定 `ScrollView-jp`。** 不指定的話它會去捲**被蓋在底下的大廳清單**，
       //    然後回報「捲到 50%」——畫面沒動、積木卻綠燈（實測 `item-jp` 位置 298 → 298）。
       //    指定之後才真的捲得到（298 → -176）。
       pcScroll('0.5', '把排行榜捲到一半', 'ScrollView-jp'),
       wait(3000, '等滑動加載'),
       // 捲完還有資料列＝清單有跟著載（空掉就是加載壞了）
-      seeNode('item-jp', '捲動後仍有資料列（滑動加載正常）', TC.rankList?.recordId),
+      seeNode('item-jp', '捲動後仍有資料列（滑動加載正常）', TC.rankList?.recordId, { allowMultiple: true }),
       // ⚠️ 「數據跟排序與後台對照一致」要人眼比對後台——這裡只留證據
       shot('排行榜捲動後（數據與排序請人眼對後台）', TC.rankList?.recordId),
     ],
@@ -254,7 +255,7 @@ const SCRIPTS = [
       clickNode('btn_jackpot', '點 Jackpot Video'),
       wait(6000, '等影片頁建出來'),
       seeNode('jpmoment', 'JP Video 頁出現', TC.jpVideo?.recordId),
-      seeNode('jpMomentItem', '影片項目有資料', TC.jpVideo?.recordId),
+      seeNode('jpMomentItem', '影片項目有資料', TC.jpVideo?.recordId, { allowMultiple: true }),
       shot('JP Video 頁（影片與資訊請人眼核對）', TC.jpVideo?.recordId),
     ],
   },

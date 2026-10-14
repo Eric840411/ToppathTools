@@ -35,7 +35,7 @@ import { runBackendOps } from './backend-ops.js';
 import { clickRecorded, countRecorded, describeLocateFailure, locateRecorded } from './recorded-selector.js';
 import { h5BackToLobby, h5InGame } from './h5-seat.js';
 import { guardDangerousStep } from './dangerous-actions.js';
-import { pcNodeAtPoint, pcNodeText, pcNodeVisibility } from './pc-node-hittest.js';
+import { pcNodeAtPoint, pcNodeLookup, pcNodeText } from './pc-node-hittest.js';
 import { evaluateExpr } from './expr.js';
 /**
  * PC（Cocos）版的能力**由 host 從 ctx 給**（`ctx.pc`），這支不自己 import。
@@ -805,13 +805,26 @@ export async function runFrontendStep(step, ctx) {
      * ⚠️ **要等。** 面板是動畫展開的，點完馬上驗會抓到「還沒建出來」。
      *    但條件一直不成立時照樣失敗——驗收腳本有故意指不存在的節點確認會紅。
      */
+    /**
+     * 1014 同名歧義（CodeX P2，方案 C）：存在與可視只用**同一次解析**（pcNodeLookup：路徑 → 名稱 → 標籤，交出命中那一層的全部候選）。
+     *   原本 pcFindNode／resolveAny 都取第一顆：{{m.name}} 撞到別張卡片的同名標籤，驗錯卡片照樣 PASS。
+     *   - 預設：命中多顆 → 報歧義（先判數量，再判可視），不默默取第一顆
+     *   - 勾「允許多筆」（allowMultiple）：至少一顆存在就算；再勾「必須在畫面內」：至少一顆通過可視判定（含遮罩、要停住）
+     *   - 名稱有命中就停在名稱層——名稱候選都不在畫面內，也不改找標籤
+     *   - 場景樹讀不到（null）跟「找不到」分開講
+     */
+    const allowMultiple = step.allowMultiple === true;
     const deadline = Date.now() + 15_000;
-    let node = await pc.findNode(page, want);
-    while (!node && Date.now() < deadline) {
+    let L = await pcNodeLookup(page, want);
+    while (!(L && L.count > 0) && Date.now() < deadline) {
       await page.waitForTimeout(1000);
-      node = await pc.findNode(page, want);
+      L = await pcNodeLookup(page, want);
     }
-    if (!node) throw new Error(`場景樹裡找不到「${want}」（等了 15 秒；名稱與標籤都比過了）`);
+    if (!L) throw new Error(`讀不到場景樹，無法確認「${want}」（等了 15 秒）`);
+    if (!L.count) throw new Error(`場景樹裡找不到「${want}」（等了 15 秒；名稱與標籤都比過了）`);
+    const levelText = (lv) => lv === 'name' ? '名稱' : lv === 'label' ? '標籤' : '路徑';
+    const ambiguous = (lk) => new Error(`「${want}」比${levelText(lk.level)}命中 ${lk.count} 顆，不知道要驗哪一顆——改寫成路徑（例：父節點>${want}[0]）；要驗「至少一筆」就勾「允許多筆」`);
+    if (L.count > 1 && !allowMultiple) throw ambiguous(L);
     if (step.inViewport === true) {
       /**
        * 1008「必須在畫面內」（claude-osm-2 PC T-A-002：點上排遊戲→跳到那一列、TOP→回到第一列；CodeX 定案）：
@@ -822,28 +835,46 @@ export async function runFrontendStep(step, ctx) {
        *   ⚠️ 只證明「中心點在可視範圍」，不代表整列完整顯示或沒被其他面板蓋住
        */
       // CodeX e0bb3f3 [P2]：跟上面「找到節點」共用同一個 15 秒期限（原本找到後又重給 15 秒，最慢 29 秒才失敗）
+      // 1014：每次取樣都重新解析（同一份 lookup），多筆時「至少一顆」在畫面內且跟上一次取樣同一顆位置不變才算
       const vDeadline = deadline;
-      let last = null, prev = null, stable = false;
+      let last = L, prev = null, hit = -1;
       for (;;) {
-        last = await pcNodeVisibility(page, want);
+        if (last && last.count > 1 && !allowMultiple) throw ambiguous(last);
+        const cands = last?.cands ?? [];
         // CodeX e0bb3f3 [P2]：用原始座標比（不能用取整的——599.6→599.8 都是 600，會被當成停住，下一刻 600.2 已經出遮罩）
-        if (last?.found && last.measurable && last.visible && prev?.visible && Math.abs(prev.rx - last.rx) < 0.01 && Math.abs(prev.ry - last.ry) < 0.01) { stable = true; break; }
+        hit = cands.findIndex((c, i) => {
+          const p = prev?.cands?.[i]?.seen, q = c.seen;
+          return q?.found && q.measurable && q.visible && p?.visible && Math.abs(p.rx - q.rx) < 0.01 && Math.abs(p.ry - q.ry) < 0.01;
+        });
+        if (hit >= 0) break;
         if (Date.now() >= vDeadline) break;
         prev = last;
         await page.waitForTimeout(400);
+        last = await pcNodeLookup(page, want);
       }
-      if (!stable) {
-        const why = !last ? '量測失敗（反查器不在）'
-          : !last.found ? '節點不見了'
-          : !last.measurable ? last.why
-          : !last.visible ? `${last.inWindow ? '' : '中心點在視窗外；'}${last.outside?.length ? `在遮罩外（${last.outside.join('、')}）` : ''}（@${last.cx},${last.cy}）`
+      if (hit < 0) {
+        const seenOf = (c) => c?.seen;
+        const one = (v) => !v ? '量測失敗' : !v.found ? '節點不見了'
+          : !v.measurable ? v.why
+          : !v.visible ? `${v.inWindow ? '' : '中心點在視窗外；'}${v.outside?.length ? `在遮罩外（${v.outside.join('、')}）` : ''}（@${v.cx},${v.cy}）`
           : '位置一直在變（捲動沒停）';
+        const why = !last ? '讀不到場景樹'
+          : !last.count ? '節點不見了'
+          : last.count === 1 ? one(seenOf(last.cands[0]))
+          : `命中 ${last.count} 顆，在畫面內又停住的 0 顆（第一顆：${one(seenOf(last.cands[0]))}）`;
         throw new Error(`「${want}」不在畫面內：${why}（要求必須在畫面內，等了 15 秒）`);
       }
-      await log(`✅ ${idx} ${label}（${node.name}${node.label ? ` 「${node.label}」` : ''} 在畫面內 @${last.cx},${last.cy}，遮罩 ${last.clips} 層）`);
+      const c = last.cands[hit];
+      const nVisible = last.cands.filter(x => x.seen?.visible).length;
+      await log(`✅ ${idx} ${label}（${c.name}${c.label ? ` 「${c.label}」` : ''} 在畫面內 @${c.seen.cx},${c.seen.cy}，遮罩 ${c.seen.clips} 層${last.count > 1 ? `；命中 ${last.count} 顆、在畫面內 ${nVisible} 顆（允許多筆）` : ''}）`);
       return { shots };
     }
-    await log(`✅ ${idx} ${label}（${node.name}${node.label ? ` 「${node.label}」` : ''} @${node.x},${node.y}${node.inViewport ? '' : '、⚠️ 在視窗外'}）`);
+    if (L.count > 1) {
+      await log(`✅ ${idx} ${label}（比${levelText(L.level)}命中 ${L.count} 顆、在視窗內 ${L.cands.filter(x => x.inWindow).length} 顆（允許多筆：只證明至少一顆存在））`);
+      return { shots };
+    }
+    const node = L.cands[0];
+    await log(`✅ ${idx} ${label}（${node.name}${node.label ? ` 「${node.label}」` : ''} @${node.x},${node.y}${node.inWindow ? '' : '、⚠️ 在視窗外'}）`);
     return { shots };
   }
 

@@ -382,6 +382,12 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <span className="uat-hint">勾了：節點中心要在視窗內、也在清單的可視區（遮罩）內，而且捲動停下來才算；不在就判失敗。不勾：只要節點存在就通過（在視窗外只記一筆提醒）。只看中心點，不保證整列完整顯示</span>
               </label>
             )}
+            {selected.action === 'assert_pc_node' && (
+              <label className="uat-check">
+                <input type="checkbox" checked={selected.allowMultiple === true} onChange={event => updateSelected({ allowMultiple: event.target.checked || undefined })} />允許多筆
+                <span className="uat-hint">不勾：名稱（或標籤）命中好幾顆就判失敗，因為不知道驗的是哪一顆——請改寫成路徑。勾了：只要至少一顆存在就通過（例如「排行榜有資料列」）；同時勾「必須在畫面內」＝至少一顆在畫面內</span>
+              </label>
+            )}
             {selected.action === 'pc_click_node' && (
               <label className="uat-check">
                 <input type="checkbox" checked={selected.skipIfMissing === true} onChange={event => updateSelected({ skipIfMissing: event.target.checked || undefined })} />找不到就跳過

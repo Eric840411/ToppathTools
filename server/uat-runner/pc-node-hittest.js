@@ -116,6 +116,17 @@ export const PC_HITTEST_SOURCE = [
   '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && nameOf(list[i].n) === want) hit = list[i].n;',
   '    for (let i = 0; i < list.length && !hit; i++) if (visible(list[i].n) && labelOf(list[i].n) === want) hit = list[i].n;',
   '    return hit; };',
+  /* 1014 同名歧義（CodeX P2）：跟 resolveAny 同一個順序（路徑 → 名稱 → 標籤），但把命中那一層的**全部候選**交出來，不默默取第一顆。
+     名稱有命中就停在名稱層——就算那些候選都不在畫面內，也不能改找標籤（CodeX）。路徑本來就要求唯一（不唯一＝解析不到） */
+  '  const lookupImpl = (id) => { const want = String(id || "").trim(); if (!want) return { level: "none", hits: [] };',
+  '    if (want.indexOf(">") >= 0) { const n = resolve(want); return { level: "path", hits: n ? [n] : [] }; }',
+  '    if (want.indexOf("[") >= 0) { const viaPath = resolve(want); if (viaPath) return { level: "path", hits: [viaPath] }; }',
+  '    const list = nodes(); const byName = []; const byLabel = [];',
+  '    for (let i = 0; i < list.length; i++) { const n = list[i].n; if (!visible(n)) continue;',
+  '      if (nameOf(n) === want) byName.push(n); else if (labelOf(n) === want) byLabel.push(n); }',
+  '    if (byName.length) return { level: "name", hits: byName };',
+  '    if (byLabel.length) return { level: "label", hits: byLabel };',
+  '    return { level: "none", hits: [] }; };',
   /* 遮罩：祖先上的 Mask 元件（用類別名認），以及 ScrollView 的可視區（content 的父節點）。
      要通過**所有**祖先遮罩、也要在視窗內；有遮罩卻量不到範圍 → measurable:false，不能退回只看視窗 */
   '  const classOf = (c) => { const cc = window.cc; try { if (cc && cc.js && cc.js.getClassName) { const k = cc.js.getClassName(c); if (k) return String(k); } } catch (e) {}',
@@ -199,6 +210,13 @@ export const PC_HITTEST_SOURCE = [
   '    seen: (id) => seenImpl(id),',
   /* 1008：識別字 -> 節點本身（關彈窗時要避開「目標所在的那一塊」，跟找節點用同一份解析） */
   '    node: (id) => resolveAny(id),',
+  /* 1014：找節點＋每顆候選在不在畫面內，同一次解析（assert_pc_node 的存在檢查與可視檢查不能各認一顆）。
+     cands 照場景樹走訪順序（同一個畫面兩次取樣順序相同，拿來比位置有沒有停住）；最多回 200 顆，count 是實際總數 */
+  '    lookup: (id) => { if (!nodes().length) return null; const L = lookupImpl(id); const cands = [];',
+  '      for (let i = 0; i < L.hits.length && i < 200; i++) { const n = L.hits[i]; const r = rectOf(n);',
+  '        cands.push({ name: nameOf(n), label: labelOf(n), x: r ? Math.round(r.cx) : null, y: r ? Math.round(r.cy) : null,',
+  '          inWindow: !!r && r.cx >= 0 && r.cx <= window.innerWidth && r.cy >= 0 && r.cy <= window.innerHeight, seen: seenNode(n) }); }',
+  '      return { level: L.level, count: L.hits.length, cands: cands }; },',
   '    find: (id) => { const n = resolve(id); if (!n) return null; const r = rectOf(n);',
   '      if (!r) return null;',
   '      return { name: nameOf(n), label: labelOf(n), x: Math.round(r.cx), y: Math.round(r.cy),',
@@ -269,4 +287,14 @@ export async function pcNodeVisibility(page, id) {
 export async function pcNodeText(page, id) {
   await installPcHitTest(page);
   return page.evaluate((want) => window.__uatPcHit?.text(want) ?? null, id).catch(() => null);
+}
+
+/**
+ * 1014 同名歧義（CodeX P2）：識別字 → { level: 'path'|'name'|'label'|'none', count, cands: [{ name, label, x, y, inWindow, seen }] }。
+ * 命中那一層的**全部**候選都交出來（各自帶 seenNode 的可視判定），呼叫端決定要報歧義還是接受「至少一顆」。
+ * 讀取失敗／場景是空的回 null（不能跟「找不到」混在一起）。
+ */
+export async function pcNodeLookup(page, id) {
+  await installPcHitTest(page);
+  return page.evaluate((want) => window.__uatPcHit?.lookup ? window.__uatPcHit.lookup(want) : null, id).catch(() => null);
 }

@@ -103,7 +103,7 @@ const STRING_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId
 const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs'] as const
 // 原本就會去頭尾空白、空的不存的欄位（行為不變）；其他字串欄位原樣保留——pattern／expect 的空白可能有意義
 const TRIM_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const
-const BOOLEAN_KEYS = ['overwrite', 'allowDangerous', 'collapsed'] as const
+const BOOLEAN_KEYS = ['overwrite', 'allowDangerous', 'collapsed', 'allowMultiple'] as const
 const ENUMS: Record<string, readonly string[]> = {
   expectStatus: ['2xx', 'any', 'exact'],
   until: ['visible', 'hidden', 'text', 'node'],

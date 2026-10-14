@@ -98,6 +98,60 @@ try {
   const rLate = await runAssert(page, 'lateNode', true)
   const took = Date.now() - t0
   ok(!rLate.ok && took < 17000, '節點晚出現 → 跟找節點共用 15 秒期限（不是重給 15 秒）', { ok: rLate.ok, took })
+
+  // ── 1014 同名歧義（CodeX P2 方案 C）：預設多筆報歧義；允許多筆＝至少一顆；走真的 resolver（pcNodeLookup）＋ assert_pc_node ──
+  const DUP = `<!doctype html><body style="margin:0"><canvas style="position:absolute;left:0;top:0;width:1366px;height:768px"></canvas><script>
+const mk = (name, wx, wy, label) => ({ name, activeInHierarchy: true, worldPosition: { x: wx, y: wy }, worldScale: { x: 1, y: 1 },
+  components: [{ width: 40, height: 40, anchorX: 0.5, anchorY: 0.5 }, ...(label ? [{ string: label }] : [])], children: [], parent: null })
+const add = (p, c) => { c.parent = p; p.children.push(c); return c }
+const scene = mk('scene', 683, 384); scene.components = []
+const C = add(scene, mk('Canvas', 683, 384)); C.components[0] = { width: 1366, height: 768, anchorX: .5, anchorY: .5 }
+add(C, mk('row', 300, 400)); add(C, mk('row', 600, 400))                        // 同名 2 顆、都在畫面內
+add(add(C, mk('uniqP', 900, 400)), mk('row', 900, 400))                         // 第 3 顆 row，路徑 uniqP>row 唯一
+add(C, mk('lbl1', 300, 300, 'Hello')); add(C, mk('lbl2', 600, 300, 'Hello'))    // 同標籤 2 顆
+add(C, mk('ghost', 300, 2000)); add(C, mk('ghost', 600, -500))                  // 同名 2 顆、都在視窗外
+add(C, mk('pair', 300, 2000)); add(C, mk('pair', 600, 200))                     // 第一顆在視窗外、第二顆在畫面內
+add(C, mk('Road', 300, 2000)); add(C, mk('Road', 600, 2000)); add(C, mk('tipX', 900, 200, 'Road'))  // 名稱 Road 都在視窗外；標籤 Road 在畫面內
+window.cc = { director: { getScene: () => scene }, view: { getVisibleSize: () => ({ width: 1366, height: 768 }) }, js: { getClassName: c => c.__cls || '' } }
+</script></body>`
+  const dupPage = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+  await dupPage.setContent(DUP)
+  const runA = async (pg: Page, value: string, extra: Record<string, unknown>) => {
+    const logs: string[] = []
+    try {
+      await runFrontendStep({ action: 'assert_pc_node', name: '驗節點', value, ...extra },
+        { idx: '1', label: '驗節點', log: async (l: string) => { logs.push(l) }, page: pg, pc, startUrl: 'http://x/', recordedLocator: () => null })
+      return { ok: true, logs, err: '' }
+    } catch (e) { return { ok: false, err: (e as Error).message, logs } }
+  }
+  let r = await runA(dupPage, 'row', {})
+  ok(!r.ok && /比名稱命中 3 顆/.test(r.err) && /允許多筆/.test(r.err), '⚠️ 缺省（沒勾允許多筆）同名 3 顆 → 報歧義（原本取第一顆照樣通過）', r)
+  r = await runA(dupPage, 'row', { inViewport: true })
+  ok(!r.ok && /命中 3 顆/.test(r.err) && !/不在畫面內/.test(r.err), '缺省＋必須在畫面內：先判數量（報歧義），不是去判可視', r)
+  r = await runA(dupPage, 'Hello', {})
+  ok(!r.ok && /比標籤命中 2 顆/.test(r.err), '同標籤 2 顆 → 報歧義', r)
+  r = await runA(dupPage, 'uniqP>row', {})
+  ok(r.ok, '指定唯一路徑 → 正常通過', r)
+  r = await runA(dupPage, 'uniqP>row', { inViewport: true })
+  ok(r.ok && r.logs.some(l => /在畫面內 @900/.test(l)), '指定唯一路徑＋必須在畫面內 → 通過，驗的就是那一顆（@900）', r)
+  r = await runA(dupPage, 'row', { allowMultiple: true })
+  ok(r.ok && r.logs.some(l => /命中 3 顆/.test(l) && /只證明至少一顆存在/.test(l)), '允許多筆、沒勾畫面內 → 通過，日誌寫總命中數', r)
+  r = await runA(dupPage, 'ghost', { allowMultiple: true, inViewport: true })
+  ok(!r.ok && /命中 2 顆，在畫面內又停住的 0 顆/.test(r.err), '允許多筆＋畫面內：全部不在畫面內 → 失敗', r)
+  r = await runA(dupPage, 'pair', { allowMultiple: true, inViewport: true })
+  ok(r.ok && r.logs.some(l => /命中 2 顆、在畫面內 1 顆/.test(l) && /@600,568/.test(l)), '允許多筆＋畫面內：只有第二顆在畫面內 → 通過，日誌寫命中數與可視數、認的是第二顆', r)
+  r = await runA(dupPage, 'pair', { inViewport: true })
+  ok(!r.ok && /命中 2 顆/.test(r.err), '同一組不勾允許多筆 → 照樣報歧義（不會因為剛好有一顆可視就挑它）', r)
+  r = await runA(dupPage, 'Road', { allowMultiple: true, inViewport: true })
+  ok(!r.ok && /命中 2 顆/.test(r.err), '名稱優先：名稱 Road 都在視窗外 → 失敗，不改找畫面內的標籤 Road', r)
+  r = await runA(dupPage, 'tipX', { inViewport: true })
+  ok(r.ok, '對照：標籤那顆本身可見（用名稱 tipX 找得到、在畫面內）', r)
+  // 零筆、讀取失敗：兩個各要等 15 秒，並行跑
+  const noCc = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+  await noCc.setContent('<!doctype html><body><canvas></canvas></body>')
+  const [rZero, rRead] = await Promise.all([runA(dupPage, 'nothingHere', { allowMultiple: true }), runA(noCc, 'row', { allowMultiple: true })])
+  ok(!rZero.ok && /場景樹裡找不到「nothingHere」/.test(rZero.err), '零筆（就算允許多筆）→ 找不到', rZero)
+  ok(!rRead.ok && /讀不到場景樹/.test(rRead.err) && !/找不到/.test(rRead.err), '場景樹讀不到 → 「讀不到」，不跟「找不到」混在一起', rRead)
 } finally { await browser.close() }
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
 process.exit(fail ? 1 : 0)
