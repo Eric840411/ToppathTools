@@ -4,7 +4,7 @@
 import { makeOpenRoundHandler } from '../server/machine-test/runner.js'
 
 type Ev = { seq: number; coin: number; reason: string; ts: number }
-function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean }) {
+function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; endDuringReadAt?: number }) {
   const log: Ev[] = o.noMoney ? [] : [{ seq: 1, coin: 2_000_000, reason: 'begin', ts: Date.now() - 40_000 }]
   let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0, takes = 0
   // guardedClick 先取座標再用真滑鼠點：記下最後一個取座標的元素，mouse.click 才知道點的是哪一顆
@@ -27,6 +27,9 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
       // 模擬：第 N 次讀流水的期間使用者按了停止（CodeX edd347b 補測）
       reads++
       if (o.stopDuringReadAfter !== undefined && o.stopFlag && reads >= o.stopDuringReadAfter) o.stopFlag.v = true   // 第 N 次讀的期間（含）
+      // CodeX ff2b7f6 [P1]：end 在第 N-1 次跟第 N 次讀流水之間到（第 N 次讀得到 end）。原本 ended() 讀第 N-1 次（沒 end）、
+      //   debitCheck 讀第 N 次（有 end）回 false → mustStop 放行，結束後多按一下
+      if (o.endDuringReadAt !== undefined && reads === o.endDuringReadAt) pushEnd()
       return log.map(e => ({ ...e }))
     }
     if (src.includes('__lastMachineCoin')) return null
@@ -60,7 +63,7 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
   return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps, takes }) }
 }
 const quick = { pollMs: 5, quietMs: 0, maxMs: 300, maxActs: 20 }
-async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; clickTake?: boolean }) {
+async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; clickTake?: boolean; endDuringReadAt?: number }) {
   const stopFlag = { v: false }
   const f = fakePage({ ...o, stopFlag })
   const h = makeOpenRoundHandler({
@@ -123,6 +126,16 @@ for (const n of [1, 2, 3, 4, 5, 6]) {
   check('#7 對照：沒有扣款 → 照舊按到 end', `${r.r1}/${r.spins}`, 'done/2') }
 { const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], debitOnTap: true, timing: { maxActs: 20, maxMs: 2000 } })
   check('⚠️ #7 觸屏第 1 格就扣款 → debit，只點了 1 格（每一格點之前都看扣款，CodeX 224801b [P1]）', `${r.r1}/${r.taps}`, 'debit/1') }
+
+// CodeX ff2b7f6 [P1]：end 在兩次讀流水之間到 → 結束後一下都不能再按（扣款守門開著時，原本 ended() 跟 debitCheck 各讀一次）
+for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+  const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', endDuringReadAt: n, timing: { maxActs: 20, maxMs: 2000 } })
+  check(`⚠️ SPIN：第 ${n} 次讀流水之後收到 end → end 之後 0 下`, `${r.clicksAfterEnd}`, '0')
+}
+for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], endDuringReadAt: n, timing: { maxActs: 20, maxMs: 2000 } })
+  check(`⚠️ 觸屏：第 ${n} 次讀流水之後收到 end → end 之後 0 下`, `${r.clicksAfterEnd}`, '0')
+}
 
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)

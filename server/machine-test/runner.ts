@@ -1573,8 +1573,17 @@ export function makeOpenRoundHandler(o: {
     /** 每一下真的點之前 await：重讀流水＋停止狀態（沒有快取） */
     // 讀流水是非同步的：讀的期間可能收到停止 → 讀完再看一次停止（CodeX edd347b [P1]）
     // CodeX 224801b [P1]：每一下點擊前也要看扣款（觸屏、featureTaps、SPIN 都走這裡）——原本觸屏第一格就扣款，仍點完 3 格才回 debit
-    let debitedNow: () => Promise<boolean> = async () => false
-    const mustStop = async () => stop() || await ended() || await debitedNow() || stop()
+    // CodeX ff2b7f6 [P1]：end 與扣款要用**同一份**流水判——原本 ended() 讀一次（還沒 end）、debitCheck 再讀一次（end 剛到）回 false，
+    //   兩次之間收到 end 的話 mustStop 就放行，結束後還多按一下（可能開付費局）。改成讀一次：有 end 或有扣款都擋
+    let debitIn: (l: MoneyEvent[]) => boolean = () => false
+    const mustStop = async () => {
+      if (stop()) return true
+      if (endedFlag) return true
+      const l = await readMoneyLog(page)
+      if (l.some(e => e.seq > beginSeq && e.reason === 'end')) { endedFlag = true; return true }
+      if (debitIn(l)) return true
+      return stop()
+    }
     const profile = o.getProfile()
     const action = profile?.bonusAction ?? 'spin'
     emit(`🎰 ${where}：疑似特殊遊戲（未監控，依 moneyNtc 判斷）——開局 ${(trg.ageMs / 1000).toFixed(0)} 秒還沒結束，依 ${action} 推進到收到 end 為止`)
@@ -1586,16 +1595,16 @@ export function makeOpenRoundHandler(o: {
     if (!guardOn) emit(`（這局 begin 沒有餘額，扣款守門不啟用）`)
     let debitNote = ''
     let debitSeen = false
-    /** 局還開著、餘額比這局 begin 少＝按到付費局（一旦看到就一直是 true） */
-    const debitCheck = async (): Promise<boolean> => {
+    /** 這份流水裡：局還開著、餘額比這局 begin 少＝按到付費局（一旦看到就一直是 true）。局已經 end 的話，之後的扣款是別的事，不在這裡判 */
+    const debitInLog = (l: MoneyEvent[]): boolean => {
       if (debitSeen) return true
-      const l = await readMoneyLog(page)
-      if (l.some(e => e.seq > beginSeq && e.reason === 'end')) return false   // 局已經結束：之後的扣款是別的事，不在這裡判
+      if (l.some(e => e.seq > beginSeq && e.reason === 'end')) return false
       const low = l.find(e => e.seq > beginSeq && typeof e.coin === 'number' && e.coin < beginCoin!)
       if (low) { debitNote = `餘額 ${beginCoin} → ${low.coin}（${low.reason}），局還沒結束`; debitSeen = true }
       return !!low
     }
-    if (guardOn) debitedNow = debitCheck
+    const debitCheck = async (): Promise<boolean> => debitInLog(await readMoneyLog(page))
+    if (guardOn) debitIn = debitInLog
     // Take＝收分只在機種確定時才按（CodeX：須確認該機種確為收分）：profile clickTake 或 bonusAction=takewin
     const takeIsCollect = profile?.clickTake === true || action === 'takewin'
     try {
