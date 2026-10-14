@@ -3,7 +3,7 @@
  *   npx tsx scripts/ui-checks/meter-verdict.test.ts
  * 原本：EGM Hourly Meter 沒資料 → actualCoinOut = meter?.coinOut ?? 0，Game Record 0 筆 → 「0 = 0 通過 — Coin Out 完全吻合」
  */
-import { meterVerdict, apiProblem, meterHistoryLine, METER_VALID, missingMeterFields, type MeterVerdictInput } from '../../server/meter-verdict.ts'
+import { meterVerdict, apiProblem, meterHistoryLine, METER_VALID, missingMeterFields, isNum, type MeterVerdictInput } from '../../server/meter-verdict.ts'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -49,6 +49,13 @@ const FIELDS = { '6': 'Coin In', '10': 'Coin Out', '29': 'Jackpot Wins', '5': 'G
 ok(JSON.stringify(missingMeterFields([{ '6': '100', '10': '50', '29': '0', '5': '3' }, { '6': '200', '10': '80', '29': '0', '5': '9' }], FIELDS)) === '[]', '兩個 bucket 數值齊 → 沒有缺')
 ok(JSON.stringify(missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS).sort()) === '["Coin Out","Games Played","Jackpot Wins"]', '⚠️ bucket 缺 meter 數值 → 列出缺的欄位（原本被 num() 轉成 0、判通過）', missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS))
 ok(JSON.stringify(missingMeterFields([null, null], FIELDS)) === '[]', '沒有 bucket（null）→ 這裡不判，交給 noData')
+// CodeX 2e9b441 [P2]：Number(' ')／Number(false)／Number([]) 都是 0，不能算數字
+for (const bad of [' ', false, [], '', 'abc', null] as unknown[]) {
+  ok(!isNum(bad), `isNum(${JSON.stringify(bad)}) → false`)
+  ok(apiProblem('Game Record', { code: 20000, data: { total: 1, sumData: { bet: '880.00', win: bad } } }, grValid) !== null, `⚠️ Game Record win=${JSON.stringify(bad)} → 無效（原本判通過）`)
+  ok(missingMeterFields([{ '6': '1', '10': bad, '29': '0', '5': '1' }, { '6': '2', '10': '3', '29': '0', '5': '2' }], FIELDS).includes('Coin Out'), `⚠️ hourly Coin Out=${JSON.stringify(bad)} → 缺欄位`)
+}
+for (const good of [0, 5, '880.00', ' 12 ', '0', '-3', '1e3'] as unknown[]) ok(isNum(good), `isNum(${JSON.stringify(good)}) → true`)
 v = V({ apiProblems: ['Game Record code=50000'], meter: zeroMeter, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 }, delta: 0 })
 ok(v.status === 'apiError' && !v.pass, '⚠️ API 失敗被轉成 0 → apiError（不是 noActivity／pass）', v)
 // 歷史紀錄

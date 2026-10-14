@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.57.5'
+export const APP_VERSION = '5.57.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.57.6', date: '2026-10-14', changes: ["fix(Performance Meter 對帳 數字驗證)：CodeX 審 2e9b441 [P2]——isNum 用 Number(v)，' '、false、[] 都會變成 0 照樣算數字（Game Record win 或 Hourly Coin Out 填空白仍判通過）。改成只收有限 number，或 trim 後是十進位數字的字串。meter-verdict.test 51 條，換回舊寫法會紅"] },
   { version: '5.57.5', date: '2026-10-14', changes: ['fix(機台測試 #7 點擊前的空窗)：CodeX 審 db02534 [P1]——mustStop 通過後 uiAct 還要等鎖、查元素、算頁面攔截數，end 在這段期間到的話照樣點下去（SPIN／觸屏各多 1 下）。uiAct 多一個選填的 mustStop：鎖裡所有前置查詢做完、真的點之前再查一次；SPIN／Take（guardedClick）與觸屏格（clickTouchCell）都傳進去。open-round-runner-probe 補「end 在前置查詢期間到」2 條，舊版會多點'] },
   { version: '5.57.4', date: '2026-10-14', changes: ['fix(Performance Meter 對帳 缺數值仍判通過)：CodeX 審 64cbfa8 [P2]——只驗外層結構，hourly bucket 缺 meter 數值、或 Game Record 有筆數卻缺 sumData.win，會被 num() 轉成 0 照樣判通過。必填數值要驗得出數字（字串數字可），缺了回 apiError；保留 data:{}（0 筆）特例。meter-verdict.test 26 條；真 server 對 QAT：不存在的機台 noData、Triple Treasure Pot 07-27（26 個 bucket）照樣 pass。順手更正 DFDC3 註解（整天重查是 7 筆、5,055）並記下 DFDC4 是測試手動改 handpay'] },
   { version: '5.57.3', date: '2026-10-14', changes: ['fix(機台測試 #7 局結束後多按一下)：CodeX 審 ff2b7f6 [P1]——每一下點擊前的停止檢查分兩次讀流水（先看 end、再看扣款），end 剛好在兩次之間到時，扣款檢查看到 end 回「不是扣款」就放行，結束後還多按一下（可能開付費局）。改成同一份流水同時判 end 與扣款，任一成立就擋。open-round-runner-probe 補「第 N 次讀流水時收到 end」22 條（SPIN 12、觸屏 10），舊版在第 9／10 次會多按'] },

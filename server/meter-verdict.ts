@@ -63,7 +63,8 @@ export const METER_VALID = {
 }
 
 /** CodeX 64cbfa8 [P2]：外層結構對了還不夠——必填數值缺了會被 num() 轉成 0、照樣判通過。數值要先驗得出來（字串數字也可以） */
-export const isNum = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
+// CodeX 2e9b441 [P2]：Number(' ')、Number(false)、Number([]) 都是 0 → 原本照樣算數字。只收有限 number，或 trim 後是十進位數字的字串
+export const isNum = (v: unknown): boolean => typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string' && /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(v.trim())
 /** hourly bucket（meterRow／baselineRow）缺哪些必填 meter 欄位；fields＝欄位名 → 顯示名 */
 export function missingMeterFields(rows: Array<Record<string, unknown> | null>, fields: Record<string, string>): string[] {
   const miss = new Set<string>()
