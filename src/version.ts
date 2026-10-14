@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.57.3'
+export const APP_VERSION = '5.57.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.57.4', date: '2026-10-14', changes: ['fix(Performance Meter 對帳 缺數值仍判通過)：CodeX 審 64cbfa8 [P2]——只驗外層結構，hourly bucket 缺 meter 數值、或 Game Record 有筆數卻缺 sumData.win，會被 num() 轉成 0 照樣判通過。必填數值要驗得出數字（字串數字可），缺了回 apiError；保留 data:{}（0 筆）特例。meter-verdict.test 26 條；真 server 對 QAT：不存在的機台 noData、Triple Treasure Pot 07-27（26 個 bucket）照樣 pass。順手更正 DFDC3 註解（整天重查是 7 筆、5,055）並記下 DFDC4 是測試手動改 handpay'] },
   { version: '5.57.3', date: '2026-10-14', changes: ['fix(機台測試 #7 局結束後多按一下)：CodeX 審 ff2b7f6 [P1]——每一下點擊前的停止檢查分兩次讀流水（先看 end、再看扣款），end 剛好在兩次之間到時，扣款檢查看到 end 回「不是扣款」就放行，結束後還多按一下（可能開付費局）。改成同一份流水同時判 end 與扣款，任一成立就擋。open-round-runner-probe 補「第 N 次讀流水時收到 end」22 條（SPIN 12、觸屏 10），舊版在第 9／10 次會多按'] },
   { version: '5.57.2', date: '2026-10-14', changes: ['fix(機台測試 測前 LuckyLink 判不存在)：CodeX 審 e37efbb [P2]——只看頁長、忽略 total：total=2 只回 1 筆會誤判不存在。改成回應有 total 就要收齊才算查完，這頁沒滿卻沒收齊 → 無法確認（回應不完整）。luckylink-lookup.test 27 條，換回舊寫法會紅'] },
   { version: '5.57.1', date: '2026-10-14', changes: ['fix(機台測試 #7 扣款守門)：CodeX 審 224801b 兩個 [P1]——① 盲推累積扣款會被派彩抵銷（餘額只在兩下之間讀，扣 18 派 9 時上限 252 按了 27 把、扣派相等按滿 96）→ 改看 moneyNtc 流水逐筆的實際扣款，讀不到流水就每一下照單把成本算；② 觸屏沒有逐下檢查扣款（第一格就扣款仍點完 3 格）→ 扣款併進每一下點擊前共用的停止檢查（觸屏、featureTaps、SPIN）。blind-burst-probe 29 條、open-round-runner-probe 補觸屏，拿掉修正會紅'] },

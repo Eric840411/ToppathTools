@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
-import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID } from '../meter-verdict.js'
+import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
 
 export const router = Router()
 
@@ -395,6 +395,9 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     }
     // 找不到 hourly bucket 時 fallback 用當日 daily 總計（無基準線可減，直接用原始累計值）
     // ⚠️ v5.57.0（CodeX）：daily 只留作參考，判定一律 noData（meterVerdict），不能因為 fallback 有數字就判通過
+    // CodeX 64cbfa8 [P2]：視窗內的 hourly bucket 缺必填 meter 數值 → API 無效（不能被 num() 轉成 0 判通過）
+    { const miss = missingMeterFields([baselineRow, meterRow], { [FIELD.coinIn]: 'Coin In', [FIELD.coinOut]: 'Coin Out', [FIELD.jackpotWins]: 'Jackpot Wins', [FIELD.gamesPlayed]: 'Games Played' })
+      if (miss.length) apiProblems.push(`EGM Hourly Meter 缺數值欄位（${miss.join('、')}）`) }
     const usedDaily = !meterRow
     if (!meterRow) {
       const dailyParams = new URLSearchParams({
@@ -502,6 +505,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     //    移項即得上面的公式，兩個真實案例都驗證通過：
     //      Triple Treasure Pot：4,870 + 75,685 − 75,685 = 4,870 = 實際 Coin Out ✓
     //      DFDC3：5,000 + 0 − 5,000 = 0 = 實際 Coin Out ✓
+    //   ⚠️ 1014 用整個 Gaming Day 重查 DFDC3 (88 Fortunes) 07-28：7 筆、總 Win 5,055（其中 handpay 那筆 win 5,000），跟上面的 5,000 不同——當時驗證多半用了別的時間窗，沒再追（使用者 1014：公式維持現狀）
+    //   1014 DFDC4（UAT）對不上是測試時手動加 handpay 改了數值、機台本身沒有對應紀錄（那筆 win＝2×19,002），不是公式問題；不符就判 fail、由人判斷
     const expectedCoinOut = profile === 'osm'
       ? gameRecord.totalWin + attendantPaidJp - (meter?.jackpotWins ?? 0)
       : gameRecord.totalWin

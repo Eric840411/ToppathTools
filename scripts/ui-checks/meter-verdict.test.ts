@@ -3,7 +3,7 @@
  *   npx tsx scripts/ui-checks/meter-verdict.test.ts
  * 原本：EGM Hourly Meter 沒資料 → actualCoinOut = meter?.coinOut ?? 0，Game Record 0 筆 → 「0 = 0 通過 — Coin Out 完全吻合」
  */
-import { meterVerdict, apiProblem, meterHistoryLine, METER_VALID, type MeterVerdictInput } from '../../server/meter-verdict.ts'
+import { meterVerdict, apiProblem, meterHistoryLine, METER_VALID, missingMeterFields, type MeterVerdictInput } from '../../server/meter-verdict.ts'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -40,6 +40,15 @@ ok(apiProblem('X', null, () => true) === 'X code=無', '回應是 null → code=
 const grValid = METER_VALID.gameRecord   // 跟 route 用同一份
 ok(apiProblem('Game Record', { code: 20000, data: {} }, grValid) === null, '實測：Game Record 沒紀錄回 data:{} → 有效（0 筆）')
 ok(apiProblem('Game Record', { code: 20000, data: { items: [], total: 3 } }, grValid) !== null, '有欄位卻缺 sumData → 無效')
+// CodeX 64cbfa8 [P2]：必填數值缺了不能被 num() 轉成 0 判通過
+ok(apiProblem('Game Record', { code: 20000, data: { total: 1, sumData: { bet: '880.00' } } }, grValid) !== null, '⚠️ Game Record 有 1 筆、sumData 缺 win → 無效（原本判通過）')
+ok(apiProblem('Game Record', { code: 20000, data: { total: 1, sumData: { bet: '880.00', win: '' } } }, grValid) !== null, 'sumData.win 是空字串 → 無效')
+ok(apiProblem('Game Record', { code: 20000, data: { total: 68, sumData: { bet: '50248.00', win: '63467.00' } } }, grValid) === null, 'DFDC4 實際的 sumData（字串數字）→ 有效')
+ok(apiProblem('Game Record', { code: 20000, data: { total: 0, sumData: {} } }, grValid) === null, 'total 0、sumData 空 → 有效（0 筆）')
+const FIELDS = { '6': 'Coin In', '10': 'Coin Out', '29': 'Jackpot Wins', '5': 'Games Played' }
+ok(JSON.stringify(missingMeterFields([{ '6': '100', '10': '50', '29': '0', '5': '3' }, { '6': '200', '10': '80', '29': '0', '5': '9' }], FIELDS)) === '[]', '兩個 bucket 數值齊 → 沒有缺')
+ok(JSON.stringify(missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS).sort()) === '["Coin Out","Games Played","Jackpot Wins"]', '⚠️ bucket 缺 meter 數值 → 列出缺的欄位（原本被 num() 轉成 0、判通過）', missingMeterFields([{ '6': '100' }, { '6': '200', '10': null }], FIELDS))
+ok(JSON.stringify(missingMeterFields([null, null], FIELDS)) === '[]', '沒有 bucket（null）→ 這裡不判，交給 noData')
 v = V({ apiProblems: ['Game Record code=50000'], meter: zeroMeter, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 }, delta: 0 })
 ok(v.status === 'apiError' && !v.pass, '⚠️ API 失敗被轉成 0 → apiError（不是 noActivity／pass）', v)
 // 歷史紀錄

@@ -57,6 +57,16 @@ export function meterHistoryLine(head: string, v: { status: MeterStatus; why: st
 export const METER_VALID = {
   hourly: (d: any) => Array.isArray(d.data.items),
   // 沒有紀錄時後台回 code 20000＋data:{}（1014 QAT 實測，查不存在的機台也一樣）＝0 筆，是有效回應；有欄位卻缺 sumData／total 才算無效
-  gameRecord: (d: any) => typeof d.data === 'object' && d.data !== null && (Object.keys(d.data).length === 0 || (typeof d.data.sumData === 'object' && d.data.sumData !== null && Number.isFinite(Number(d.data.total)))),
+  // 有紀錄時 sumData 的 bet／win 必須是數字（CodeX 64cbfa8 [P2]：有 1 筆卻缺 sumData.win 會被 num() 轉成 0、照樣判通過）
+  gameRecord: (d: any) => typeof d.data === 'object' && d.data !== null && (Object.keys(d.data).length === 0 || (typeof d.data.sumData === 'object' && d.data.sumData !== null && Number.isFinite(Number(d.data.total)) && (Number(d.data.total) === 0 || (isNum(d.data.sumData.bet) && isNum(d.data.sumData.win))))),
   handPay: (d: any) => Array.isArray(d.data.items),
+}
+
+/** CodeX 64cbfa8 [P2]：外層結構對了還不夠——必填數值缺了會被 num() 轉成 0、照樣判通過。數值要先驗得出來（字串數字也可以） */
+export const isNum = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
+/** hourly bucket（meterRow／baselineRow）缺哪些必填 meter 欄位；fields＝欄位名 → 顯示名 */
+export function missingMeterFields(rows: Array<Record<string, unknown> | null>, fields: Record<string, string>): string[] {
+  const miss = new Set<string>()
+  for (const r of rows) if (r) for (const [k, label] of Object.entries(fields)) if (!isNum(r[k])) miss.add(label)
+  return [...miss]
 }
