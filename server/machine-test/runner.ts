@@ -1228,7 +1228,11 @@ export type UiActResult = 'clicked' | 'blocked' | 'none'
  * - 在操作鎖裡執行（背景掃描不會同時點）；fn 拋錯若像逾時，錯誤訊息補上蓋住它的前三層元素
  * 回 'blocked' 時呼叫端**不得**當成功、也不得改用 force／座標再點一次。
  */
-export async function uiAct(page: Page, kind: PopupAct, label: string, el: ElementHandle | null, fn: () => Promise<unknown>): Promise<UiActResult> {
+/**
+ * mustStop（選填，CodeX db02534 [P1]）：在鎖裡、所有前置查詢（禁點、元素資訊、攔截計數）做完之後、**真的點下去之前**最後再查一次。
+ *   呼叫端在進 uiAct 前查過也不夠——等鎖與前置查詢的期間 end 可能已經到了，點下去就是結束後多按一下（可能開付費局）
+ */
+export async function uiAct(page: Page, kind: PopupAct, label: string, el: ElementHandle | null, fn: () => Promise<unknown>, mustStop?: () => Promise<boolean>): Promise<UiActResult> {
   const g = popupGuardOf(page)
   const run = async (): Promise<UiActResult> => {
     if (kind === 'game' && g?.blockReason()) { g.note(`⛔ 擋下「${label}」：${g.blockReason()}`); return 'blocked' }
@@ -1243,6 +1247,7 @@ export async function uiAct(page: Page, kind: PopupAct, label: string, el: Eleme
     // 第二層（頁面內 capture 攔截）：fn 前後比對該 frame 的 __mtBlockedClicks，有增加＝事件被頁面內攔下，不算點到
     const blockedCount = async () => el ? el.evaluate(() => ((window as unknown as { __mtBlockedClicks?: unknown[] }).__mtBlockedClicks ?? []).length).catch(() => 0) : 0
     const before = await blockedCount()
+    if (mustStop && await mustStop()) return 'blocked'
     try {
       await fn()
       if ((await blockedCount()) > before) { g?.note(`⛔ 擋下「${label}」：頁面內攔截（禁點）`); return 'blocked' }
@@ -1387,7 +1392,7 @@ async function clickTouchCell(page: Page, pt: string, mustStop?: () => Promise<b
       if (!els.length) continue
       // 1007 CodeX 4c320d4 [P1]：查元素是非同步的，查的期間可能收到 end——找到之後、真的點之前再重查
       if (mustStop && await mustStop()) return false
-      return (await uiAct(page, 'game', `觸屏 ${pt}`, els[0], () => els[0].evaluate((e: Element) => (e as HTMLElement).click()))) === 'clicked'
+      return (await uiAct(page, 'game', `觸屏 ${pt}`, els[0], () => els[0].evaluate((e: Element) => (e as HTMLElement).click()), mustStop)) === 'clicked'
     } catch { /* frame detached */ }
   }
   return false
@@ -1529,7 +1534,8 @@ async function guardedClick(page: Page, selectors: string[], mustStop: () => Pro
       if (!box || box.width < 1 || box.height < 1) continue
       if (await mustStop()) return 'stopped'
       try {
-        const r = await uiAct(page, 'game', sel, el, () => page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2))
+        // mustStop 也傳進 uiAct：鎖裡前置查詢做完、真的點之前再查一次（CodeX db02534 [P1]）
+        const r = await uiAct(page, 'game', sel, el, () => page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2), mustStop)
         return r === 'blocked' ? 'stopped' : 'clicked'
       } catch { return 'none' }
     }

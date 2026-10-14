@@ -4,7 +4,7 @@
 import { makeOpenRoundHandler } from '../server/machine-test/runner.js'
 
 type Ev = { seq: number; coin: number; reason: string; ts: number }
-function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; endDuringReadAt?: number }) {
+function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; stopFlag?: { v: boolean }; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; endDuringReadAt?: number; endDuringPreClick?: boolean }) {
   const log: Ev[] = o.noMoney ? [] : [{ seq: 1, coin: 2_000_000, reason: 'begin', ts: Date.now() - 40_000 }]
   let clicks = 0, clicksAfterEnd = 0, spins = 0, taps = 0, reads = 0, clicksAfterStop = 0, takes = 0
   // guardedClick 先取座標再用真滑鼠點：記下最後一個取座標的元素，mouse.click 才知道點的是哪一顆
@@ -41,7 +41,11 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
     isVisible: async () => true,
     click: async () => { onClick(kind) },
     // 1007 uiAct 會先用 evaluate 查禁點／頁面內攔截計數：只有真正的 click() 才算點
-    evaluate: async (fn: unknown) => { if (String(fn).includes('.click()')) onClick(kind); return undefined },
+    evaluate: async (fn: unknown) => {
+      // CodeX db02534 [P1]：end 在 uiAct 鎖裡的前置查詢（攔截計數 __mtBlockedClicks）期間到
+      if (String(fn).includes('__mtBlockedClicks')) { if (o.endDuringPreClick) pushEnd(); return 0 }
+      if (String(fn).includes('.click()')) onClick(kind); return undefined
+    },
     // 模擬：取座標的期間 end 推來了（CodeX 4c320d4 補測）
     boundingBox: async () => { lastBoxKind = kind; if (o.endDuringBox) pushEnd(); return { x: 0, y: 0, width: 10, height: 10 } },
   })
@@ -63,7 +67,7 @@ function fakePage(o: { body: string; endAfterClicks?: number; noMoney?: boolean;
   return { page: page as never, stats: () => ({ clicks, clicksAfterEnd, clicksAfterStop, spins, taps, takes }) }
 }
 const quick = { pollMs: 5, quietMs: 0, maxMs: 300, maxActs: 20 }
-async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; clickTake?: boolean; endDuringReadAt?: number }) {
+async function run(o: { body: string; endAfterClicks?: number; noMoney?: boolean; endDuringBox?: boolean; endDuringLookup?: boolean; stopDuringReadAfter?: number; action?: string; touchPoints?: string[]; timing?: Partial<typeof quick>; take?: boolean; debitOnSpin?: boolean; debitOnTap?: boolean; clickTake?: boolean; endDuringReadAt?: number; endDuringPreClick?: boolean }) {
   const stopFlag = { v: false }
   const f = fakePage({ ...o, stopFlag })
   const h = makeOpenRoundHandler({
@@ -136,6 +140,12 @@ for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
   const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], endDuringReadAt: n, timing: { maxActs: 20, maxMs: 2000 } })
   check(`⚠️ 觸屏：第 ${n} 次讀流水之後收到 end → end 之後 0 下`, `${r.clicksAfterEnd}`, '0')
 }
+
+// CodeX db02534 [P1]：mustStop 過了之後，uiAct 還要等鎖、查元素、算攔截數——end 在這段期間到也不能點
+{ const r = await run({ body: 'FREE GAMES  3 SPINS REMAINING  PRESS SPIN TO CONTINUE', endDuringPreClick: true, timing: { maxActs: 20, maxMs: 2000 } })
+  check('⚠️ SPIN：end 在 uiAct 前置查詢期間到 → 不點（end 之後 0 下）', `${r.clicksAfterEnd}/${r.spins}`, '0/0') }
+{ const r = await run({ body: 'PICK A COIN', action: 'touchscreen', touchPoints: ['1,1', '2,1', '3,1'], endDuringPreClick: true, timing: { maxActs: 20, maxMs: 2000 } })
+  check('⚠️ 觸屏：end 在 uiAct 前置查詢期間到 → 不點（end 之後 0 下）', `${r.clicksAfterEnd}/${r.taps}`, '0/0') }
 
 console.log(fail ? `❌ ${fail} 項失敗` : '✅ 全部通過')
 process.exit(fail ? 1 : 0)
