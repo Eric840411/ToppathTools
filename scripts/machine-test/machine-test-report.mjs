@@ -106,7 +106,8 @@ export async function buildReport(s) {
     const special = (m.result?.steps ?? []).filter(x => x.step === '特殊遊戲等待').map(x => `<li>${B(x.message)}</li>`).join('')
     const detail = Object.entries(sm).filter(([, x]) => ['fail', 'warn', 'check', 'na'].includes(classify(x)))
       .map(([n, x]) => `<li><span class="sn">${SN(n)}</span> ${chip(classify(x))} ${L(esc(String(x.message).slice(0, 180)), esc(toEn(x.message).slice(0, 220)))}</li>`).join('')
-    const wb = m.writeback ? Object.entries(m.writeback).map(([k, v]) => `${k}:${v === 'ok' ? '✓' : v === 'n/a' ? '—' : '✗'}`).join(' ') : L('未回寫', 'Not written back')
+    // wb 是 HTML：有回寫那支在這裡就 esc；沒回寫那支是 L() 的雙語 span，下面不能再 esc 一次（不然頁面顯示字面的 <span data-l>，osm-qa-agent ③ 1015 回報）
+    const wb = m.writeback ? esc(Object.entries(m.writeback).map(([k, v]) => `${k}:${v === 'ok' ? '✓' : v === 'n/a' ? '—' : '✗'}`).join(' ')) : L('未回寫', 'Not written back')
     return `
 <article class="machine" id="m${esc(m.code)}">
   <header><h3>${esc(m.code.split('-').slice(0, -1).join('-'))}-<b>${esc(m.code.split('-').pop())}</b></h3><span class="row">${L(`Lark 第 ${m.row} 列`, `Lark row ${m.row}`)}</span></header>
@@ -119,7 +120,7 @@ export async function buildReport(s) {
   ${(m.touchScreens ?? []).length ? `<p class="row">${L('觸屏畫面判定（開出來的是不是預期畫面：影子模式，待人工確認）', 'Touchscreen result screens (is the opened screen the expected one: shadow mode, needs manual check)')}</p><div class="shots">${m.touchScreens.map(t => { const im = thumb(t.path); const cap = { '0-base': L('點之前', 'Before tap'), '1-opened': L('點下去（應為預期畫面）', 'After tap (should be expected screen)'), '2-closed': L('再點一次（應關回來）', 'Tap again (should close)') }[t.tag] ?? esc(t.tag); return `<figure>${im ? `<img src="${im}" alt="${esc(m.code)} touchscreen ${esc(t.tag)}" loading="lazy">` : `<div class="noimg">${L('沒有截圖', 'No screenshot')}</div>`}<figcaption>${cap}</figcaption></figure>` }).join('')}</div>` : ''}
   ${(m.ideckScreens ?? []).length ? `<p class="row">${ideckCropCfg(m.code) ? L('iDeck 每顆點完的畫面：紅框＝機台底部 CREDIT／WIN／BET 列放大、黃框＝下半畫面＋iDeck 按鈕（看 CREDIT × 面額 ≈ 機台餘額，確認面額有切到）', 'After each iDeck button: red = machine CREDIT/WIN/BET bar (zoomed), yellow = lower screen + iDeck buttons (check CREDIT × denomination ≈ balance)') : L('iDeck 每顆點完的畫面（影子模式，看下螢幕 BET 值）', 'Screen after each iDeck button (shadow mode, check BET on bottom screen)')}</p><div class="shots">${m.ideckScreens.map(t => ideckFigure(m.code, t)).join('')}</div>` : ''}
   <ul class="steps">${STEPS.map(n => `<li><span class="sn">${SN(n)}</span>${sm[n] ? chip(classify(sm[n])) : '<span class="chip na">—</span>'}</li>`).join('')}</ul>
-  <dl><div><dt>${L('Spin 餘額變化', 'Spin balance Δ')}</dt><dd class="num">${esc(spin)}</dd></div><div><dt>${L('Spin 錄音', 'Spin audio')}</dt><dd class="num">${esc(audio)}</dd></div><div><dt>${L('觸屏點位', 'Touch points')}</dt><dd class="num">${esc(touch)}</dd></div><div><dt>${L('Lark 回寫', 'Lark write-back')}</dt><dd class="num">${esc(wb)}</dd></div></dl>
+  <dl><div><dt>${L('Spin 餘額變化', 'Spin balance Δ')}</dt><dd class="num">${esc(spin)}</dd></div><div><dt>${L('Spin 錄音', 'Spin audio')}</dt><dd class="num">${esc(audio)}</dd></div><div><dt>${L('觸屏點位', 'Touch points')}</dt><dd class="num">${esc(touch)}</dd></div><div><dt>${L('Lark 回寫', 'Lark write-back')}</dt><dd class="num">${wb}</dd></div></dl>
   ${special ? `<div class="special"><b>${L('特殊遊戲（FG／JP）', 'Feature games (FG/JP)')}</b><ul>${special}</ul></div>` : ''}
   ${detail ? `<ul class="detail">${detail}</ul>` : ''}` : ''}
 </article>`
