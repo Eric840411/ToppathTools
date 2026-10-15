@@ -27,7 +27,7 @@ import { getAuthAccount } from '../auth-session.js'
 import { frontendMine, canDeleteFrontendScript } from '../uat-script-mine.js'
 import { z } from 'zod'
 import { getBackendSnippet } from '../uat-backend-snippets.js'
-import { compileFrontendSteps, runFrontendStep } from '../uat-runner/frontend-engine.js'
+import { compileFrontendSteps, isNoRetryError, runFrontendStep } from '../uat-runner/frontend-engine.js'
 // H5 跑完要退出機台、把位子放掉（agent 端跑的是同一支）
 import { h5BackToLobby, h5InGame } from '../uat-runner/h5-seat.js'
 // PC（Cocos）積木要的那包能力。⚠️ 只有一份，agent 端注入的是同一個物件
@@ -2247,7 +2247,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         } catch (err) {
           const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
           const retryLimit = Math.min(10, Math.max(0, Number(step.retryCount) || 1))
-          if (step.failureMode === 'retry' && stepAttempt < retryLimit && !msg.includes('closed') && !msg.includes('Target crashed')) {
+          if (step.failureMode === 'retry' && stepAttempt < retryLimit && !isNoRetryError(err) && !msg.includes('closed') && !msg.includes('Target crashed')) {
             stepAttempt++
             await log(`↻ ${idx} ${label}：第 ${stepAttempt}/${retryLimit} 次重試`)
             continue

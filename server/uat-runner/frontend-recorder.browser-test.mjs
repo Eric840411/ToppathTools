@@ -257,6 +257,62 @@ try {
   check('⑤ ⚠️ 隔一段時間真的再按一次**要錄到**（舊的伺服器模式會安靜丟掉）',
     steps.length === before + 2, `總共 ${steps.length - before} 筆`);
 
+  // ── ⑤b 1015 長按／拖動：同一個手勢只錄一顆，看「過程最大位移」不看起終點 ──────────
+  {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const box = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('button')].find(b => b.textContent.includes('開始遊戲')).getBoundingClientRect())`));
+    const bx = Math.round(box.left + box.width / 2), by = Math.round(box.top + box.height / 2);
+    const mouse = (type, x, y, extra = {}) => send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, ...extra });
+    await sleep(300);
+
+    // 長按：按住 1 秒不動
+    let n0 = steps.length;
+    await mouse('mousePressed', bx, by); await sleep(1000); await mouse('mouseReleased', bx, by); await sleep(400);
+    let got = steps.slice(n0);
+    check('⑤b 按住 1 秒 → 錄成一顆 long_press（不會再多一顆 click）', got.length === 1 && got[0].action === 'long_press', JSON.stringify(got));
+    check('⑤b 長按帶選擇器與實際按住毫秒', got[0]?.selector === 'text=開始遊戲' && got[0]?.holdMs >= 950 && got[0]?.holdMs < 1500, JSON.stringify(got[0]));
+
+    // 拖動：按下 → 移 60px → 放開
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by);
+    for (let i = 1; i <= 6; i++) { await mouse('mouseMoved', bx + i * 10, by); await sleep(20); }
+    await mouse('mouseReleased', bx + 60, by); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 拖 60px → 錄成一顆 drag（不會再多一顆 click）', got.length === 1 && got[0].action === 'drag', JSON.stringify(got));
+    check('⑤b 拖動錄起點、終點座標', got[0]?.fromX === bx && got[0]?.fromY === by && got[0]?.toX === bx + 60 && got[0]?.toY === by && !('holdMs' in got[0]), JSON.stringify(got[0]));
+
+    // 拖出去再拖回來：起終點一樣，但過程動過 → 還是 drag，不能錄成 click
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by);
+    await mouse('mouseMoved', bx + 40, by); await sleep(30); await mouse('mouseMoved', bx, by); await sleep(30);
+    await mouse('mouseReleased', bx, by); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 拖出去再拖回原點 → drag（看最大位移）', got.length === 1 && got[0].action === 'drag', JSON.stringify(got));
+
+    // 長按後拖動：先按住 900ms 才開始移 → drag 帶 holdMs
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by); await sleep(900);
+    for (let i = 1; i <= 4; i++) { await mouse('mouseMoved', bx + i * 15, by); await sleep(20); }
+    await mouse('mouseReleased', bx + 60, by); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 長按後拖動 → drag 另記 holdMs（durationMs 只算移動）', got.length === 1 && got[0].action === 'drag' && got[0].holdMs >= 850 && got[0].durationMs < 600, JSON.stringify(got[0]));
+
+    // 抖動 3px 還是長按／點擊，不是拖動
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by); await mouse('mouseMoved', bx + 3, by + 2); await sleep(100); await mouse('mouseReleased', bx + 3, by + 2); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 抖 3px 的短按 → 照舊錄 click', got.length === 1 && got[0].action === 'click', JSON.stringify(got));
+
+    // canvas 上長按 → 座標
+    const rc = JSON.parse(await evaluate(`JSON.stringify(document.getElementById('game').getBoundingClientRect())`));
+    const gx = Math.round(rc.left + 50), gy = Math.round(rc.top + 40);
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', gx, gy); await sleep(900); await mouse('mouseReleased', gx, gy); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b canvas 上長按 → long_press 座標（不是 click_viewport）', got.length === 1 && got[0].action === 'long_press' && got[0].x === gx && got[0].y === gy && !got[0].selector, JSON.stringify(got));
+    await sleep(300);
+  }
+
   // ── ⑥ 載入後才建的 shadow root（SPA 常態）靠頁面端追蹤 ────────────────────
   // host 端只在載入完成查一次，查不到「之後才建的」；這一段正是它涵蓋不到的範圍。
   await evaluate(`(() => { ${MAKE_SHADOW} })()`);

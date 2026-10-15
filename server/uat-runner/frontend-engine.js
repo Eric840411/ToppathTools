@@ -75,6 +75,8 @@ export const FRONTEND_ACTIONS = Object.freeze([
   'popup_watch',
   // 前後台比對：表格（後台片段讀回來的）要有一列符合；影片要真的在播
   'assert_row_match', 'assert_video_playing',
+  // 1015 長按／拖動（滑鼠或觸控，依頁面裝置設定）
+  'long_press', 'drag',
 ]);
 
 /**
@@ -306,6 +308,171 @@ async function requirePc(ctx, blockName) {
   }
   if (typeof pc.installEvalShim === 'function') await pc.installEvalShim(ctx.page);
   return pc;
+}
+
+/**
+ * 1015 長按／拖動（osm-qa-agent 轉 H5 使用者需求；CodeX 1008 定長按、1015 定拖動）。
+ *
+ * 🚨 **按下去之後不重試。** 手勢做到一半失敗時，畫面可能已經被改了（長按已經叫出 AutoSpin 選單、
+ *    寶箱已經被拖開），再來一次等於做兩次。而且**在送出 down 之前就標記**——送出成功、回應失敗的話，
+ *    畫面一樣已經動了（CodeX 1015）。host 的三個重試迴圈都看 `isNoRetryError`。
+ * ⚠️ 觸控 vs 滑鼠看**這個頁面的裝置設定**（navigator.maxTouchPoints），不看 viewport 寬度：
+ *    H5 派工的 context 是 isMobile＋hasTouch，光送 mouse.down／up 觸發不了 touch 長按。
+ * ⚠️ 座標一律是 viewport CSS px（跟 click_viewport 一樣）。
+ */
+export const GESTURE_LIMITS = Object.freeze({
+  holdMs: { min: 0, max: 10000 },
+  durationMs: { min: 0, max: 10000 },
+  moveSteps: { min: 1, max: 60 },
+});
+export const LONG_PRESS_DEFAULT_HOLD_MS = 1500;
+const DRAG_DEFAULT_DURATION_MS = 500;
+const DRAG_DEFAULT_MOVE_STEPS = 10;
+
+const NO_RETRY = Symbol.for('toppath.noRetry');
+/** 這個錯誤發生在動作已經（可能）送出之後——host 不可以重試 */
+export function isNoRetryError(err) {
+  return !!(err && typeof err === 'object' && err[NO_RETRY]);
+}
+function markNoRetry(err) {
+  const e = err instanceof Error ? err : new Error(String(err));
+  e[NO_RETRY] = true;
+  return e;
+}
+
+/** 數字欄位：沒填用預設；填了但不是數字或超出範圍 → 失敗（不默默夾到範圍內，免得跑的跟寫的不一樣） */
+export function gestureNumber(step, key, fallback) {
+  const raw = step[key];
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const n = Number(raw);
+  const lim = GESTURE_LIMITS[key];
+  if (!Number.isFinite(n) || (lim && (n < lim.min || n > lim.max))) {
+    throw new Error(`「${key}」要是 ${lim ? `${lim.min}～${lim.max} 的` : ''}數字，現在是「${raw}」`);
+  }
+  return Math.round(n);
+}
+
+async function usesTouch(page) {
+  return await page.evaluate(() => (navigator.maxTouchPoints || 0) > 0).catch(() => false);
+}
+
+/**
+ * 一端（起點／終點）：selector 或座標**二選一**。
+ * @returns {{ selector?: string, x?: number, y?: number }}
+ */
+export function gestureEnd(step, prefix) {
+  const selKey = prefix ? `${prefix}Selector` : 'selector';
+  const xKey = prefix ? `${prefix}X` : 'x';
+  const yKey = prefix ? `${prefix}Y` : 'y';
+  const sel = String(step[selKey] ?? '').trim();
+  const hasXY = step[xKey] !== undefined && step[xKey] !== null && step[xKey] !== '' && step[yKey] !== undefined && step[yKey] !== null && step[yKey] !== '';
+  const where = prefix === 'from' ? '起點' : prefix === 'to' ? '終點' : '目標';
+  if (!!sel === hasXY) throw new Error(`${where}要擇一填：選擇器（${selKey}）或座標（${xKey}／${yKey}）`);
+  if (sel) return { selector: sel };
+  const x = Number(step[xKey]); const y = Number(step[yKey]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${where}座標要是數字`);
+  return { x, y };
+}
+
+/** selector 那一端：捲進畫面 → 取中心點；座標那一端原樣 */
+async function locateEnd(ctx, end, scroll) {
+  if (!end.selector) return { x: end.x, y: end.y };
+  const loc = await ctx.recordedLocator(end.selector);
+  if (scroll) await loc.scrollIntoViewIfNeeded({ timeout: 10000 });
+  const box = await loc.boundingBox();
+  if (!box || box.width <= 0 || box.height <= 0) throw new Error(`「${end.selector}」看不見（沒有大小）`);
+  return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2), loc };
+}
+
+/** 點真的在視窗內，而且（selector 那端）最上層命中的就是那個元素——被蓋住就在按下去之前失敗 */
+async function checkEnd(ctx, end, pt, where) {
+  const vp = ctx.page.viewportSize() ?? await ctx.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  if (pt.x < 0 || pt.y < 0 || pt.x >= vp.width || pt.y >= vp.height) {
+    throw new Error(`${where} (${pt.x}, ${pt.y}) 不在畫面內（視窗 ${vp.width}×${vp.height}）`);
+  }
+  if (!pt.loc) return;
+  const hit = await pt.loc.evaluate((el, p) => {
+    let top = document.elementFromPoint(p.x, p.y);
+    // 穿過 shadow DOM 往下找最上層的元素
+    while (top && top.shadowRoot) { const inner = top.shadowRoot.elementFromPoint(p.x, p.y); if (!inner || inner === top) break; top = inner; }
+    if (!top) return { ok: false, top: '（沒有元素）' };
+    const ok = el === top || el.contains(top) || (top.getRootNode && top.getRootNode().host && el.contains(top.getRootNode().host));
+    return { ok, top: top.tagName.toLowerCase() + (top.className && typeof top.className === 'string' ? '.' + top.className.trim().split(/\s+/).join('.') : '') };
+  }, { x: pt.x, y: pt.y });
+  if (!hit.ok) throw new Error(`${where}「${end.selector}」被蓋住了：(${pt.x}, ${pt.y}) 最上層是 ${hit.top}`);
+}
+
+/** 兩端都算好：先捲起點、再看終點；終點要捲的話捲完重算起點，兩端都要同時在畫面內 */
+async function locateGesture(ctx, from, to) {
+  let a = await locateEnd(ctx, from, true);
+  if (!to) { await checkEnd(ctx, from, a, '目標'); return { a }; }
+  let b = await locateEnd(ctx, to, false);
+  const vp = ctx.page.viewportSize() ?? await ctx.page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const inside = p => p.x >= 0 && p.y >= 0 && p.x < vp.width && p.y < vp.height;
+  if (to.selector && !inside(b)) {
+    b = await locateEnd(ctx, to, true);
+    a = await locateEnd(ctx, from, false);
+    if (!inside(a)) throw new Error('起點和終點沒辦法同時在畫面內');
+  }
+  await checkEnd(ctx, from, a, '起點');
+  await checkEnd(ctx, to, b, '終點');
+  return { a, b };
+}
+
+/**
+ * 真的做手勢：按下 → 按住 holdMs →（有終點才）分 moveSteps 段移過去、共 durationMs → 放開。
+ * - 觸控走 CDP Input.dispatchTouchEvent；正常結束 touchEnd、失敗或中止 touchCancel，兩者 touchPoints 都是空的
+ * - 滑鼠：放開放在 finally，失敗時也要放開（不然頁面會一直以為按著）
+ * - 清理失敗不能蓋掉原本的錯誤
+ */
+async function performGesture(ctx, { a, b, holdMs, durationMs, moveSteps }) {
+  const { page } = ctx;
+  const touch = await usesTouch(page);
+  const wait = ms => (ms > 0 ? page.waitForTimeout(ms) : Promise.resolve());
+  const moves = b ? Array.from({ length: moveSteps }, (_, i) => ({
+    x: a.x + ((b.x - a.x) * (i + 1)) / moveSteps,
+    y: a.y + ((b.y - a.y) * (i + 1)) / moveSteps,
+  })) : [];
+  const per = b ? durationMs / moveSteps : 0;
+  let committed = false;
+  let released = false;
+  let cdp = null;
+  try {
+    if (touch) {
+      cdp = await page.context().newCDPSession(page);
+      committed = true;   // 送出之前就標記（CodeX）：送出成功、回應失敗也不能重來
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a.x, y: a.y }] });
+      await wait(holdMs);
+      for (const p of moves) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p.x, y: p.y }] });
+        await wait(per);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      released = true;
+    } else {
+      await page.mouse.move(a.x, a.y);
+      committed = true;
+      await page.mouse.down();
+      await wait(holdMs);
+      for (const p of moves) {
+        await page.mouse.move(p.x, p.y);
+        await wait(per);
+      }
+      await page.mouse.up();
+      released = true;
+    }
+    return { touch };
+  } catch (err) {
+    throw committed ? markNoRetry(err) : err;
+  } finally {
+    if (committed && !released) {
+      try {
+        if (touch && cdp) await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+        else if (!touch) await page.mouse.up();
+      } catch { /* 清理失敗不蓋掉原本的錯誤 */ }
+    }
+    if (cdp) await cdp.detach().catch(() => {});
+  }
 }
 
 export function compileFrontendSteps(steps) {
@@ -1168,6 +1335,38 @@ export async function runFrontendStep(step, ctx) {
     }
     if (!satisfied) throw new Error(`${PRECONDITION_PREFIX}${reason}（找不到 ${domSel || nodeName}）`);
     await log(`✅ ${idx} ${label}（前置條件成立）`);
+    return { shots };
+  }
+
+  if (step.action === 'long_press' || step.action === 'drag') {
+    /**
+     * 長按（long_press）：目標＝selector 或 x／y，按住 holdMs（預設 1500）。T-076「長按 SPIN 叫出 AutoSpin 次數」靠它。
+     * 拖動（drag）：起點 fromSelector 或 fromX／fromY → 終點 toSelector 或 toX／toY；
+     *   holdMs＝按下後先按住多久才開始移（長按後拖動用，預設 0）、durationMs＝移動時間、moveSteps＝分幾段移。
+     * 規則與為什麼見上面 performGesture 那段。
+     */
+    const isDrag = step.action === 'drag';
+    const from = gestureEnd(step, isDrag ? 'from' : '');
+    const to = isDrag ? gestureEnd(step, 'to') : null;
+    const holdMs = gestureNumber(step, 'holdMs', isDrag ? 0 : LONG_PRESS_DEFAULT_HOLD_MS);
+    const durationMs = isDrag ? gestureNumber(step, 'durationMs', DRAG_DEFAULT_DURATION_MS) : 0;
+    const moveSteps = isDrag ? gestureNumber(step, 'moveSteps', DRAG_DEFAULT_MOVE_STEPS) : 0;
+    // 🚨 守衛在按下去之前（跟 click 一樣）。座標那端先反查成節點再判斷
+    if (from.selector) {
+      guardDangerousStep({ step, what: { selector: from.selector, text: step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
+    } else {
+      const under = await pcNodeAtPoint(page, from.x, from.y).catch(() => null);
+      guardDangerousStep({ step, what: { node: under?.id ?? under?.name ?? '', text: under?.label || step.name }, startUrl: ctx.startUrl, currentUrl: ctx.page.url() });
+    }
+    await log(`⏳ ${idx} ${label}`);
+    const { a, b } = await locateGesture(ctx, from, to);
+    markWsBefore(ctx);
+    const { touch } = await performGesture(ctx, { a, b, holdMs, durationMs, moveSteps });
+    await page.waitForTimeout(300);
+    const how = isDrag
+      ? `(${a.x}, ${a.y}) → (${b.x}, ${b.y})，${holdMs ? `先按住 ${holdMs}ms、` : ''}移動 ${durationMs}ms／${moveSteps} 段`
+      : `(${a.x}, ${a.y}) 按住 ${holdMs}ms`;
+    await log(`✅ ${idx} ${label}（${touch ? '觸控' : '滑鼠'}：${how}）`);
     return { shots };
   }
 

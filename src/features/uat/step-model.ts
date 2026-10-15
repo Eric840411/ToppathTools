@@ -7,6 +7,8 @@ export const STEP_LIBRARY = [
   { action: 'click_xy', label: '點擊 Canvas', category: 'interaction', description: '點擊 Canvas 內座標' },
   { action: 'type', label: '輸入文字', category: 'interaction', description: '在欄位輸入內容' },
   { action: 'wait', label: '等待', category: 'browser', description: '等待指定毫秒' },
+  { action: 'long_press', label: '長按', category: 'interaction', description: '按住一個元素或座標一段時間（預設 1500ms），例：長按 SPIN 叫出自動轉次數。手機版用觸控' },
+  { action: 'drag', label: '拖動', category: 'interaction', description: '從起點拖到終點（元素或座標），可設先按住、移動時間與段數，例：寶箱滑動、列表滑動。手機版用觸控' },
   { action: 'press_key', label: '按鍵盤', category: 'interaction', description: '按一個鍵（Space／Enter／ArrowDown…）。PC 機台內的 SPIN 就是靠空白鍵或 Enter' },
   { action: 'scroll', label: '捲動畫面', category: 'interaction', description: '捲動頁面或指定容器：填 top／bottom／px 數字；填了 Selector 且不填數值＝把那個元素捲進畫面' },
   { action: 'pc_scroll', label: 'PC 捲動清單', category: 'interaction', description: 'PC 版：把大廳的機台清單捲到 top／bottom／0~1 的比例位置' },
@@ -85,6 +87,7 @@ export function createStep(action = 'goto'): AutoStep {
   }
   if (action === 'group') step.children = []
   if (action === 'assert_api_called') { step.expectStatus = '2xx'; step.minCount = 1 }
+  if (action === 'long_press') step.holdMs = 1500
   return step
 }
 
@@ -99,10 +102,12 @@ export function createStep(action = 'goto'): AutoStep {
  *    白名單＝每加一個欄位就要記得改兩處，漏了沒有任何錯誤；改成「預設保留、已知的才驗」。
  *    守門：scripts/ui-checks/step-model-roundtrip.test.ts（每種 action、每個欄位都要原封不動地存回來）
  */
-const STRING_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason'] as const
-const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs'] as const
+const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason'] as const
+const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs', 'fromX', 'fromY', 'toX', 'toY', 'holdMs', 'durationMs', 'moveSteps'] as const
+/** 1015 長按／拖動：範圍跟引擎 GESTURE_LIMITS 一致；超出範圍丟掉那一欄（執行時用預設），不默默夾到範圍內 */
+const NUMBER_RANGES: Record<string, readonly [number, number]> = { holdMs: [0, 10000], durationMs: [0, 10000], moveSteps: [1, 60] }
 // 原本就會去頭尾空白、空的不存的欄位（行為不變）；其他字串欄位原樣保留——pattern／expect 的空白可能有意義
-const TRIM_KEYS = ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const
+const TRIM_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const
 const BOOLEAN_KEYS = ['overwrite', 'allowDangerous', 'collapsed', 'allowMultiple'] as const
 const ENUMS: Record<string, readonly string[]> = {
   expectStatus: ['2xx', 'any', 'exact'],
@@ -125,6 +130,7 @@ function normalizeOne(item: unknown, index: number): AutoStep {
   // 已知欄位型別不對 → 丟掉那一欄（有預設值的退回預設）
   for (const k of STRING_KEYS) if (k in step && typeof step[k] !== 'string') delete step[k]
   for (const k of NUMBER_KEYS) if (k in step && (typeof step[k] !== 'number' || !Number.isFinite(step[k] as number))) delete step[k]
+  for (const [k, [lo, hi]] of Object.entries(NUMBER_RANGES)) if (typeof step[k] === 'number' && ((step[k] as number) < lo || (step[k] as number) > hi)) delete step[k]
   for (const k of BOOLEAN_KEYS) if (k in step && typeof step[k] !== 'boolean') delete step[k]
   for (const [k, ok] of Object.entries(ENUMS)) if (k in step && !ok.includes(step[k] as string)) { if (k in base) step[k] = (base as unknown as Record<string, unknown>)[k]; else delete step[k] }
   if (!['inherit', 'continue', 'stop', 'retry'].includes(step.failureMode as string)) step.failureMode = 'inherit'

@@ -234,7 +234,7 @@ ${dangerousRulesSource()}
     // 尚未同步或暫停中一律不送。host 端**也**會擋一次——兩道都要有：
     // 這一道擋得住「頁面知道自己暫停」，host 那道擋得住「頁面還沒收到狀態」。
     if (!synced || paused) return;
-    const key = step.action + '|' + (step.selector || '') + '|' + (step.x ?? '') + ',' + (step.y ?? '') + '|' + (step.value ?? '');
+    const key = step.action + '|' + (step.selector || '') + '|' + (step.x ?? '') + ',' + (step.y ?? '') + '|' + (step.value ?? '') + '|' + (step.fromX ?? '') + ',' + (step.fromY ?? '') + '>' + (step.toX ?? '') + ',' + (step.toY ?? '');
     const now = Date.now();
     if (now - (recent.get(key) || 0) < 200) return;
     recent.set(key, now);
@@ -792,8 +792,80 @@ ${dangerousRulesSource()}
     document.addEventListener(type, dangerGuard, true);
   }
 
+  /**
+   * 1015 長按／拖動（CodeX 1008 定長按、1015 定拖動）。一次按下到放開＝一個手勢，**只錄一顆**：
+   *   - 過程中**最大位移**超過 5px → drag（看最大位移不是看起點到終點——拖出去再拖回來不能錄成 click）
+   *   - 沒超過、按住 ≥ 800ms → long_press（保留實際按住的毫秒）
+   *   - 其他 → 照舊交給下面的 click 錄
+   * ⚠️ 錄成長按／拖動之後，瀏覽器緊接著還會發一個 click，要吞掉——不然同一個手勢會錄兩顆。
+   * ⚠️ pointercancel＝瀏覽器把手勢拿去捲動了（手機上滑原生列表），不錄 drag，讓下面的 scroll 錄。
+   * ⚠️ 拖動錄座標（viewport CSS px），不錄選擇器：終點常常是「放在哪個位置」，不是某個元素；要改用選擇器在編輯器換。
+   * ⚠️ 危險按鈕的 pointerdown 會被 dangerGuard 用 stopImmediatePropagation 擋掉，這裡就收不到——跟 click 一致。
+   */
+  const GESTURE_MOVE_PX = 5;
+  const LONG_PRESS_MS = 800;
+  let gesture = null;
+  let suppressClickUntil = 0;
+  document.addEventListener('pointerdown', (event) => {
+    gesture = null;
+    if (window.__toppathCropping || checkMode || !event.isPrimary) return;
+    const el = event.target;
+    if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;
+    const x = Math.round(event.clientX); const y = Math.round(event.clientY);
+    gesture = { id: event.pointerId, el: el, src: eventSource(event), x: x, y: y, lastX: x, lastY: y, t: Date.now(), max: 0, moveAt: 0 };
+  }, true);
+  document.addEventListener('pointermove', (event) => {
+    const g = gesture;
+    if (!g || event.pointerId !== g.id) return;
+    const x = Math.round(event.clientX); const y = Math.round(event.clientY);
+    const d = Math.hypot(x - g.x, y - g.y);
+    if (d > g.max) g.max = d;
+    if (!g.moveAt && d > GESTURE_MOVE_PX) g.moveAt = Date.now();
+    g.lastX = x; g.lastY = y;
+  }, true);
+  document.addEventListener('pointercancel', (event) => {
+    if (gesture && event.pointerId === gesture.id) gesture = null;
+  }, true);
+  document.addEventListener('pointerup', (event) => {
+    const g = gesture;
+    gesture = null;
+    if (!g || event.pointerId !== g.id) return;
+    const now = Date.now();
+    const upX = Math.round(event.clientX); const upY = Math.round(event.clientY);
+    if (g.max > GESTURE_MOVE_PX) {
+      const step = {
+        name: '拖動 (' + g.x + ', ' + g.y + ') → (' + upX + ', ' + upY + ')',
+        action: 'drag', fromX: g.x, fromY: g.y, toX: upX, toY: upY,
+        durationMs: Math.max(0, now - (g.moveAt || g.t)),
+      };
+      // 按住一陣子才開始移＝長按後拖動，要另記 holdMs（durationMs 只算移動時間）
+      const hold = (g.moveAt || now) - g.t;
+      if (hold >= LONG_PRESS_MS) step.holdMs = hold;
+      suppressClickUntil = now + 500;
+      send(step);
+      return;
+    }
+    const held = now - g.t;
+    if (held < LONG_PRESS_MS) return;
+    suppressClickUntil = now + 500;
+    const canvas = canvasOf(g.el);
+    const d = canvas ? null : describeStep(g.el, g.src);
+    if (d && d.selector) {
+      const step = { name: '長按 ' + d.selector, action: 'long_press' };
+      for (const k in d) step[k] = d[k];
+      step.holdMs = held;
+      if (dangerArmed.key === d.selector && Date.now() < dangerArmed.until) step.allowDangerous = true;
+      send(step);
+      return;
+    }
+    // canvas（或 DOM 給不出選擇器）→ 錄座標
+    send({ name: '長按畫面 (' + g.x + ', ' + g.y + ')', action: 'long_press', x: g.x, y: g.y, holdMs: held });
+  }, true);
+
   document.addEventListener('click', (event) => {
     if (window.__toppathCropping) return;
+    // 剛錄成長按／拖動的那個手勢，瀏覽器跟著發的 click 不要再錄一次
+    if (Date.now() < suppressClickUntil) { suppressClickUntil = 0; return; }
     const el = event.target;
     if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;
     const canvas = canvasOf(el);

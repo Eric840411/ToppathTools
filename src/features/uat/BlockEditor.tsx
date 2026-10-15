@@ -241,7 +241,7 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <label>至少幾筆<input className="uat-field" type="number" min="1" value={selected.minCount ?? 1} onChange={event => updateSelected({ minCount: Number(event.target.value) })} /></label>
               </>
             )}
-            {['click', 'click_viewport', 'click_xy', 'pc_click_node'].includes(selected.action) && (
+            {['click', 'click_viewport', 'click_xy', 'pc_click_node', 'long_press', 'drag'].includes(selected.action) && (
               <label className="uat-checkline">
                 <input type="checkbox" checked={selected.allowDangerous === true} onChange={event => updateSelected({ allowDangerous: event.target.checked })} />
                 允許這個危險操作（預約／帶入額度／充值…）
@@ -345,6 +345,39 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 </label>
               </>
             )}
+            {(selected.action === 'long_press' || selected.action === 'drag') && (() => {
+              // 1015 長按／拖動：每一端 selector 或座標二選一（兩個都填或都沒填，執行時會擋）。數字欄清空＝不填，不是 0
+              const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
+              const end = (title: string, selKey: 'selector' | 'fromSelector' | 'toSelector', xKey: 'x' | 'fromX' | 'toX', yKey: 'y' | 'fromY' | 'toY') => (
+                <>
+                  <label>{title} Selector
+                    <input className="uat-field uat-code-field" value={selected[selKey] ?? ''} onChange={event => updateSelected({ [selKey]: event.target.value })} placeholder=".btn-spin（或改填下面的座標）" />
+                  </label>
+                  <div className="uat-field-row">
+                    <label>{title} X<input className="uat-field" type="number" value={selected[xKey] ?? ''} onChange={event => updateSelected({ [xKey]: num(event.target.value) })} /></label>
+                    <label>{title} Y<input className="uat-field" type="number" value={selected[yKey] ?? ''} onChange={event => updateSelected({ [yKey]: num(event.target.value) })} /></label>
+                  </div>
+                </>
+              )
+              return selected.action === 'long_press' ? (
+                <>
+                  {end('目標', 'selector', 'x', 'y')}
+                  <label>按住毫秒<input className="uat-field" type="number" min="0" max="10000" value={selected.holdMs ?? ''} onChange={event => updateSelected({ holdMs: num(event.target.value) })} placeholder="1500" /></label>
+                  <span className="uat-hint">Selector 和座標擇一填（座標＝畫面 CSS px，跟「點擊畫面」一樣）。手機版用觸控、桌面用滑鼠。按下去之後失敗不會重試，避免長按兩次</span>
+                </>
+              ) : (
+                <>
+                  {end('起點', 'fromSelector', 'fromX', 'fromY')}
+                  {end('終點', 'toSelector', 'toX', 'toY')}
+                  <div className="uat-field-row">
+                    <label>先按住毫秒<input className="uat-field" type="number" min="0" max="10000" value={selected.holdMs ?? ''} onChange={event => updateSelected({ holdMs: num(event.target.value) })} placeholder="0" /></label>
+                    <label>移動毫秒<input className="uat-field" type="number" min="0" max="10000" value={selected.durationMs ?? ''} onChange={event => updateSelected({ durationMs: num(event.target.value) })} placeholder="500" /></label>
+                    <label>分幾段<input className="uat-field" type="number" min="1" max="60" value={selected.moveSteps ?? ''} onChange={event => updateSelected({ moveSteps: num(event.target.value) })} placeholder="10" /></label>
+                  </div>
+                  <span className="uat-hint">起點、終點各自 Selector 和座標擇一填。「先按住」＝長按後才拖（例：拖動前要先長按選取）。直線移過去，按下去之後失敗不會重試</span>
+                </>
+              )
+            })()}
             {selected.action === 'press_key' && (
               <label>按鍵
                 <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Space / Enter / ArrowDown" />

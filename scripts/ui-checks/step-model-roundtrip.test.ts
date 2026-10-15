@@ -27,6 +27,8 @@ const FULL: Omit<AutoStep, 'id' | 'name' | 'action' | 'children' | 'collapsed'> 
   tolerancePct: 1, absoluteTolerance: 0.5, until: 'text', timeoutMs: 15000, nodeName: 'lbl-coin', matchMode: 'number',
   allowDangerous: true, reason: '要先開活動（找營運）', selectorStrategy: 'testid', selectorCheck: 'ok', selectorCheckReason: 'shadow',
   key: 'Space', futureField: { a: [1, 2] },
+  // 1015 長按／拖動
+  fromSelector: '.chest', toSelector: '.slot', fromX: 10, fromY: 20, toX: 30, toY: 40, holdMs: 800, durationMs: 600, moveSteps: 12,
 }
 for (const def of STEP_LIBRARY) {
   const isContainer = def.action === 'group' || def.action === 'repeat'
@@ -46,6 +48,15 @@ for (const def of STEP_LIBRARY) {
 // 型別檢查仍然有效：已知欄位型別不對就丟掉，failureMode 不認得就退回 inherit
 const bad = parseSteps(JSON.stringify([{ id: 'x', name: 'n', action: 'goto', settleMs: '0', from: 5, failureMode: 'weird', until: 'later', overwrite: 'yes' }]))[0] as unknown as Record<string, unknown>
 ok(!('settleMs' in bad) && !('from' in bad) && !('until' in bad) && !('overwrite' in bad) && bad.failureMode === 'inherit', '型別不對的已知欄位 → 丟掉', bad)
+// 1015 長按／拖動的範圍：超出就丟掉那一欄（不默默夾到範圍內）；邊界值留著
+const g = parseSteps(JSON.stringify([
+  { id: 'g1', name: 'n', action: 'drag', holdMs: -1, durationMs: 10001, moveSteps: 0 },
+  { id: 'g2', name: 'n', action: 'drag', holdMs: 0, durationMs: 10000, moveSteps: 60, fromX: '5' },
+  { id: 'g3', name: 'n', action: 'long_press', selector: '.spin' },
+])) as unknown as Record<string, unknown>[]
+ok(!('holdMs' in g[0]) && !('durationMs' in g[0]) && !('moveSteps' in g[0]), '手勢欄位超出範圍 → 丟掉', g[0])
+ok(g[1].holdMs === 0 && g[1].durationMs === 10000 && g[1].moveSteps === 60 && !('fromX' in g[1]), '手勢欄位邊界值保留、座標型別不對丟掉', g[1])
+ok(g[2].holdMs === 1500, '長按沒填按住毫秒 → 預設 1500', g[2])
 // 原本的整理行為不變：字串去頭尾空白、空的不存、collapsed 不存
 const tidy = JSON.parse(serializeSteps([{ id: 'y', name: ' n ', action: 'click', selector: '  #a  ', value: '   ', collapsed: true, failureMode: 'inherit' }]))[0]
 ok(tidy.selector === '#a' && !('value' in tidy) && !('collapsed' in tidy) && !('failureMode' in tidy) && tidy.name === 'n', '整理：去空白、空值不存、collapsed 不存', tidy)

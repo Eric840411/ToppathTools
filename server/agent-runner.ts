@@ -31,7 +31,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-captu
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
-import { compileFrontendSteps, runFrontendStep } from './uat-runner/frontend-engine.js'
+import { compileFrontendSteps, isNoRetryError, runFrontendStep } from './uat-runner/frontend-engine.js'
 // 綁了 TC 的腳本：聚合判定走**跟伺服器端同一支**（`multi-tc.js`）。
 // ⚠️ 回寫不在這裡——Lark 憑證不下放到 agent，結果送回 server 由它寫。
 import { runMultiTcSteps } from './uat-runner/multi-tc.js'
@@ -1881,7 +1881,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
         const retryLimit = Math.min(10, Math.max(0, Number(step.retryCount) || 1))
-        if (step.failureMode === 'retry' && stepAttempt < retryLimit && !errMsg.includes('closed') && !errMsg.includes('Target crashed')) {
+        if (step.failureMode === 'retry' && stepAttempt < retryLimit && !isNoRetryError(err) && !errMsg.includes('closed') && !errMsg.includes('Target crashed')) {
           stepAttempt++
           await log(`↻ ${idx} ${label}：第 ${stepAttempt}/${retryLimit} 次重試`)
           continue

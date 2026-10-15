@@ -21,7 +21,7 @@
  * 兩邊都做的話同一顆積木會被跑兩次（而且日誌上看起來只跑了一次）。
  * 外層只負責「還要不要繼續跑下一顆」。
  */
-import { PRECONDITION_PREFIX, runFrontendStep } from './frontend-engine.js';
+import { PRECONDITION_PREFIX, isNoRetryError, runFrontendStep } from './frontend-engine.js';
 
 /**
  * H5／PC 積木的分類表。**欄位名跟 Backend 的 `BLOCK_DEFS` 一致**，聚合器才認得。
@@ -77,6 +77,9 @@ export const FRONTEND_BLOCK_DEFS = Object.freeze({
   assert_row_match: { category: 'assert' },
   // 影片真的在播：檢查
   assert_video_playing: { category: 'assert' },
+  // 1015 長按／拖動：操作
+  long_press: { category: 'nav' },
+  drag: { category: 'nav' },
 });
 
 /**
@@ -168,7 +171,8 @@ async function runOneFrontendStep(steps, ctx, options) {
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).split('\n')[0];
         // ⚠️ 瀏覽器被關掉不該重試——重試只會得到同一個錯誤，而且把中止拖慢好幾倍。
-        const fatal = /closed|Target crashed|Stopped by user/.test(message);
+        // 長按／拖動按下去之後失敗也不能重試（畫面可能已經動了）——isNoRetryError
+        const fatal = /closed|Target crashed|Stopped by user/.test(message) || isNoRetryError(error);
         if (attempt < retryLimit && !fatal) {
           attempt++;
           notes.push(`↻ 第 ${attempt}/${retryLimit} 次重試：${message}`);

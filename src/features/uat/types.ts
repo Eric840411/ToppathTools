@@ -43,6 +43,18 @@ export interface AutoStep {
    * （跟 Backend 同一條規則。）
    */
   tcId?: string
+  /** 1015 drag：起點／終點（selector 或座標擇一，座標＝viewport CSS px） */
+  fromSelector?: string
+  toSelector?: string
+  fromX?: number
+  fromY?: number
+  toX?: number
+  toY?: number
+  /** 1015 long_press：按住毫秒（預設 1500）；drag：按下後先按住多久才開始移（預設 0） */
+  holdMs?: number
+  /** 1015 drag：移動時間（預設 500）與分幾段（預設 10，1～60） */
+  durationMs?: number
+  moveSteps?: number
   /** assert_pc_node：必須在畫面內（視窗＋所有祖先遮罩、位置穩定）；沒勾＝只要存在 */
   inViewport?: boolean
   /** assert_pc_node（1014，CodeX P2 方案 C）：同名／同標籤命中多顆時，預設報歧義；勾了＝至少一顆存在（配「必須在畫面內」＝至少一顆在畫面內） */
