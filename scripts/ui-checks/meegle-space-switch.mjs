@@ -5,7 +5,7 @@
  *   3 正式送出前跳確認（空間、操作、Sheet、筆數）；按取消一筆都不送；確認才送
  *   4 送出中不能切空間
  *   5 每頁各自記住：沒選過的分頁拿最後一次選的當初始值；在評論切回測試，不會改到開單的正式
- *   6 這份 Sheet 已在另一個空間送過 → 提示、送出鈕不能按
+ *   6 同一列同名已在另一個空間開過 → 只有那一列標出來、不能送；同一份 Sheet 的其他列照常送（v5.60.0 起逐列）
  *   7 沒手動切過的分頁，第一次進來就固定初始值：在別頁選正式再回來，這頁不會跟著變（CodeX review 025fe7c）
  *   8 單列補寫回／重試進行中也不能切空間（CodeX review 025fe7c）
  * 兩種主題各截一張圖。走區網 IP。
@@ -38,10 +38,10 @@ for (const mode of ['classic', 'xianxia']) {
     localStorage.setItem('meegle-tools-tab', 'create')
     localStorage.setItem('toppath-theme-mode', m)
   }, mode)
-  const metaSpaces = [], rowSpaces = [], otherSpaceFor = { value: null }
+  const metaSpaces = [], rowSpaces = [], otherSpaceFor = { value: [] }
   await ctx.route('**/api/meegle/batch/meta*', r => { metaSpaces.push(new URL(r.request().url()).searchParams.get('space')); return r.fulfill({ json: { ok: true, requirements: [{ id: '900001', name: '假需求' }], states: [], statesError: null } }) })
   await ctx.route('**/api/meegle/batch/people', r => r.fulfill({ json: { ok: true, people: [] } }))
-  await ctx.route('**/api/meegle/batch/previous', r => r.fulfill({ json: { ok: true, rows: [], otherSpace: otherSpaceFor.value } }))
+  await ctx.route('**/api/meegle/batch/previous', r => r.fulfill({ json: { ok: true, rows: [], otherSpaceRows: otherSpaceFor.value } }))
   await ctx.route('**/api/meegle/comment/meta', r => r.fulfill({ json: { ok: true, detailBase: '', bound: true } }))
   await ctx.route('**/api/lark/sheets/records', r => r.fulfill({ json: { ok: true, records: [{ _rowIndex: 2, 摘要: '假單一' }, { _rowIndex: 3, 摘要: '假單二' }] } }))
   let n = 0
@@ -122,18 +122,22 @@ for (const mode of ['classic', 'xianxia']) {
   await page.waitForTimeout(300)
   check('評論切回測試，不會改到開單的正式', await radio('正式').getAttribute('aria-checked') === 'true')
 
-  // 另一個空間送過
-  otherSpaceFor.value = 'test'
-  await loadAndGo().catch(() => {})
+  // 另一個空間開過：第 2 列（假單一）同名在測試開過；第 3 列沒有
+  otherSpaceFor.value = [{ rowKey: '2', sheetName: '假單一', space: 'test', createPhase: 'created' }]
   await page.getByRole('button', { name: /^1 讀取與預設|讀取與預設/ }).first().click().catch(() => {})
   await page.locator('.mb-input').first().fill('https://example.larksuite.com/sheets/FAKE2?sheet=x')
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()
   await page.waitForTimeout(400)
-  check('另一個空間送過 → 顯示提示', await page.getByText('這份 Sheet 已經在「測試」空間送過').count() === 1)
+  check('不再整份 Sheet 擋（沒有整頁紅字）', await page.getByText('這份 Sheet 已經在').count() === 0)
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByRole('button', { name: /批量設定/ }).click()
+  await page.locator('select:has(option[value="900001"])').first().selectOption('900001')
+  await page.getByRole('button', { name: '套用到已勾選的列' }).click()
+  await page.waitForTimeout(300)
+  check('同列同名在另一個空間開過 → 那一列標出來', await page.getByText('已在「測試」空間開過').count() === 1)
   await page.screenshot({ path: path.join(root, `meegle-space-conflict-${mode}.png`) })
-  await page.getByRole('button', { name: '下一步' }).click().catch(() => {})
   const send = page.getByRole('button', { name: /^送出 \d+ 列$/ })
-  check('另一個空間送過 → 送出鈕不能按', (await send.count()) > 0 && await send.first().isDisabled())
+  check('只送沒衝突的那一列（送出 1 列、可以按）', (await send.count()) > 0 && (await send.first().innerText()).includes('送出 1 列') && !(await send.first().isDisabled()), await send.first().innerText().catch(() => ''))
   await ctx.close()
 }
 await browser.close()

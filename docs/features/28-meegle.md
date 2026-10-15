@@ -442,13 +442,13 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 | 切換＝重來 | 切空間會清掉這一頁讀到的需求、人員、狀態選擇與預覽，要重新讀 Sheet（晚回來的舊空間請求不會蓋到新畫面） |
 | 送到正式前確認 | 正式空間按送出（含「重送這一列」）會跳確認：空間、操作、Sheet、筆數。按取消一筆都不送；測試空間不跳 |
 | 送出中不能切 | 一批送到一半時切換鈕反灰 |
-| 切錯空間會被擋 | 這份 Sheet 已在另一個空間送過 → 讀 Sheet 就顯示紅字、送出鈕不能按（伺服器也會擋） |
+| 切錯空間會被擋 | **v5.60.0 起逐列**：開單時同一列、同一個名稱已在另一個空間開過 → 那一列標「已在『測試』空間開過」、不能勾（伺服器也會擋）；同一份 Sheet 的其他列照常送。評論／狀態／修改不看 Sheet，改核對單子實際所屬的空間（`checkItemSpace`） |
 | 補回填 | 正式空間的列多一個「正式」標籤（補寫回只寫 Sheet，不碰 Meegle） |
 
 ### 規則
 - **空間跟著紀錄走**：四張紀錄表（`meegle_batch_rows`／`meegle_comment_rows`／`meegle_status_rows`／`meegle_edit_rows`）都加 `space` 欄，舊資料一律 `test`
 - **新請求一定要帶 `space`**（`test`／`prod`），缺了或亂帶 → 400，不默默當成測試。**重試、補推、查詢結果、繼續送出、補回填一律用紀錄上的 space**，不讀畫面目前的切換值
-- **一個批次只屬於一個空間**（`space-mismatch`）；**同一份 Sheet 已在另一個空間送過 → 擋下**（`space-conflict`）。只靠「Sheet＋列＋空間」去重的話，誤切空間後會在另一邊再開一次（CodeX）
+- **一個批次只屬於一個空間**（`space-mismatch`）；開單時**同一列＋同一個 Sheet 名稱已在另一個空間開過 → 擋下**（`space-conflict`，v5.60.0 前是整份 Sheet，見下方 v5.60.0）。只靠「Sheet＋列＋空間」去重的話，誤切空間後會在另一邊再開一次（CodeX）
 - 「結果待確認」查單時排除的已用單號只看同一個空間（`takenWorkItemIds`）
 - 快取依空間分開：人員名單（空間＋操作者）、修改分頁的欄位選項與角色 id（token＋空間）、單子網址前綴（project key）
 - 空間的 project key 只在後端：測試 `6abb348976c120f4f43c746a`、正式 `6ac081a48614642b450645c5`（env `MEEGLE_PROJECT_KEY`／`MEEGLE_PROD_PROJECT_KEY` 可覆寫）。任務項類型、欄位、角色 key 兩邊實測相同
@@ -469,6 +469,16 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 角色看 `getAuthAccount(req).role`（每次查 DB，降權立刻生效），原本的 owner／工具權限照舊
 - `checkItemSpace` 與 Sheet 跨空間防重照留（避免偽填 prod 繞過）
 - 測試：單元（canUseSpace、補回填不列不准移、舊資料仍是 test）；真伺服器（非管理員三頁 previous＋開單 previous 帶 test → 403、prod 正常、管理員正常；歷史過濾；自己的測試舊紀錄直呼補寫回 → 403）；`node scripts/ui-checks/meegle-space-admin-only.mjs`；突變（規則永遠放行、前端不判斷 isAdmin）都會紅
+
+### v5.60.0 空間綁定改成逐列（使用者 2026-10-15；CodeX 同意＋補充）
+> 使用者：「我可能會一直用同一份 sheet 去改裡面開單內容，內容會變，但表單不變」。原本整份 Sheet 綁一個空間，測試空間送過一次就永遠不能送正式。
+- **開單**（`rowSpaceConflict`）：只擋「同一份 Sheet＋同一列＋同一個 Sheet 名稱（`sheet_name || name`）」在另一個空間**開成功**的。換過名稱的列兩個空間都能送
+- **開單中／待確認**：同一列不分空間、**不比名稱**都擋（`busy`）——結果未明時改名或切空間再開，可能開出兩張（CodeX）
+- 「已開過」（`already-created`）只看同一個空間；同名在另一個空間開過是 `space-conflict`，不會把另一邊的單號當成這邊的
+- **評論／狀態／修改**：拿掉 Sheet 層級的綁定，只留批次綁定；動的是既有單，`checkItemSpace` 核對單子所屬空間。CodeX：若仍看整份 Sheet，測試開 A、正式開 B 之後兩邊都會被擋死
+- 移除整份 Sheet 的紅字（`OtherSpaceNotice`、`otherSpaceOf`、v5.10.1 的四表合看 `SHEET_TABLES`）；開單預覽改用 `/api/meegle/batch/previous` 回的 `otherSpaceRows` 逐列標示，判斷跟 `claimRow` 同一把鍵
+- **限制**：名稱不是內容指紋——同一列只改描述、名稱沒改，仍算同一筆（擋）；改名或搬列會被當成新的一筆
+- 測試：`npx tsx server/meegle-space.test.ts`（測試開 A → 正式開 B → 正式評論／修改 B、測試改 A 狀態；同列同名跨空間；未明後改名重送兩邊都 busy；舊資料用 name）；拿掉 `rowSpaceConflict` 會紅 6 條。走查 `node scripts/ui-checks/meegle-space-switch.mjs`
 
 ### ⚠️ Meegle 不驗 project key（2026-10-05 實測）
 拿**正式**的 project key 去 `workitem get` **測試空間**的單 #15194995，照樣回 200、內容完整，只有 `owned_project.key` 看得出它其實在測試。

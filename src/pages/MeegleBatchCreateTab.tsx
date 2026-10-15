@@ -10,9 +10,9 @@ import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css' // .mc-loadbar：網址列＋讀取鈕同一行，跟其他分頁一樣（使用者 10/05）
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
-import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import { useProdConfirm } from '../components/MeegleSpace'
 import { MeeglePeoplePicker as PeoplePicker } from '../components/MeeglePeoplePicker'
-import type { MeegleSpace } from '../../shared/meegle-space'
+import { meegleSpaceLabel, type MeegleSpace } from '../../shared/meegle-space'
 
 /**
  * Meegle 批量開單（Jira 頁的「Meegle 開單」分頁）。版面由 CodeX 設計：01 預覽表／02 人員對照／03 送出結果。
@@ -31,6 +31,7 @@ type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: st
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
 /** sheetName：開單時 Sheet 上的名稱（認列用；name 是送出的任務名稱，可能被 AI／手改過） */
 type Previous = RowResult & { name: string; sheetName?: string; owner: string }
+type OtherSpaceRow = { rowKey: string; sheetName: string; space: MeegleSpace; createPhase: string }
 /** name：逐列任務名稱（AI 產生或手改；空＝用 Sheet 摘要／標題）；nameByAi＝目前這個名稱是 AI 產生的（顯示 AI 標記用） */
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>>; taskType?: string; fields?: Record<string, string>; name?: string; nameByAi?: boolean }
 /** 後端猜人結果（只是建議；寫入一律走 verify）。bulkOk＝完整名字＋名單唯一＋租戶名錄也唯一，才能進「全部確認」 */
@@ -84,7 +85,8 @@ function resultLabel(r: RowResult): { text: string; tone: 'ok' | 'warn' | 'pendi
 export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialSheetUrl, onSheetLoaded }: { space: MeegleSpace; onBusyChange?: (busy: boolean) => void; onGoBind?: () => void; initialSheetUrl: string; onSheetLoaded?: (url: string) => void }) {
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
   // 這份 Sheet 已經在另一個空間開過（伺服器回的）；有的話整頁不能送
-  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
+  /** 這份 Sheet 在另一個空間的紀錄（v5.60.0 逐列判斷：同列同名開過、或開單中／待確認 → 這一列不能送） */
+  const [otherSpaceRows, setOtherSpaceRows] = useState<OtherSpaceRow[]>([])
   const [confirmProd, prodModal] = useProdConfirm(space)
   const [records, setRecords] = useState<SheetRecord[] | null>(null)
   const [loadedUrl, setLoadedUrl] = useState('')
@@ -205,8 +207,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     setSheetLoading(true); setSheetError('')
     try {
       const j = await api<{ records: SheetRecord[] }>('/api/lark/sheets/records', { sheetUrl: url.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/batch/previous', { sheetUrl: url.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
-      setRecords(j.records); setLoadedUrl(url.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
+      const prev = await api<{ rows: Previous[]; otherSpaceRows?: OtherSpaceRow[] }>('/api/meegle/batch/previous', { sheetUrl: url.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpaceRows: [] as OtherSpaceRow[] }))
+      setRecords(j.records); setLoadedUrl(url.trim()); setPrevious(prev.rows); setOtherSpaceRows(prev.otherSpaceRows ?? [])
       onSheetLoaded?.(url.trim())
       // 每次讀 Sheet 都換新批次——批次綁定來源 Sheet，伺服器也會擋「換 Sheet 沿用舊批次」（CodeX review 999f895 [P1]）
       setBatchId('')
@@ -255,20 +257,22 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
     const cur = results[rec._rowIndex]
     const isPending = (p: { createPhase: string }) => p.createPhase === 'creating' || p.createPhase === 'unknown'
     const pendingPrev = cur ? isPending(cur) : all.some(isPending)
+    // 另一個空間：同列同名已開過（切錯空間會再開一次）、或同列還在開單中／待確認 → 擋，跟伺服器 claimRow 同一套判斷
+    const otherHit = otherSpaceRows.find(o => o.rowKey === String(rec._rowIndex) && (isPending(o) || (o.createPhase === 'created' && o.sheetName === plan.sheetName))) ?? null
     const jiraKey = String(rec['Jira issue key'] ?? '').trim()
-    return { rec, plan, extras, prev, pendingPrev, jiraKey, source: ov.requirementId ? '覆寫' : String(rec['關聯需求'] ?? '').trim() ? 'Sheet' : '預設' }
-  }), [records, overrides, defaults, personMap, prevByRow, results, meta])
+    return { rec, plan, extras, prev, pendingPrev, otherHit, jiraKey, source: ov.requirementId ? '覆寫' : String(rec['關聯需求'] ?? '').trim() ? 'Sheet' : '預設' }
+  }), [records, overrides, defaults, personMap, prevByRow, otherSpaceRows, results, meta])
 
   useEffect(() => {
     if (!needsPreselect || !records || !meta) return
     // 預選：沒開過 Meegle、也還沒在 Jira 開過單的列。不看「被擋下」——剛讀完還沒選整批預設需求時每列都會被擋，
     // 看的話選完預設也不會有任何列被勾。被擋下的列就算勾著也不會送（送出只取可送出的）。
-    setSelected(new Set(rows.filter(r => r.plan.name && !r.prev.length && !r.pendingPrev && !r.jiraKey).map(r => r.rec._rowIndex)))
+    setSelected(new Set(rows.filter(r => r.plan.name && !r.prev.length && !r.pendingPrev && !r.otherHit && !r.jiraKey).map(r => r.rec._rowIndex)))
     setNeedsPreselect(false)
   }, [needsPreselect, records, meta, rows])
 
   const visible = rows.filter(r => {
-    if (filter === 'ok' && (r.plan.blocks.length || r.prev.length || r.pendingPrev)) return false
+    if (filter === 'ok' && (r.plan.blocks.length || r.prev.length || r.pendingPrev || r.otherHit)) return false
     if (filter === 'blocked' && !r.plan.blocks.length) return false
     if (filter === 'prev' && !r.prev.length) return false
     const q = query.trim().toLowerCase()
@@ -277,15 +281,15 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   })
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const pageRows = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const okCount = rows.filter(r => !r.plan.blocks.length && !r.prev.length && !r.pendingPrev).length
+  const okCount = rows.filter(r => !r.plan.blocks.length && !r.prev.length && !r.pendingPrev && !r.otherHit).length
   const blockedCount = rows.filter(r => r.plan.blocks.length).length
   const prevCount = rows.filter(r => r.prev.length).length
   // 已在 Meegle 開過（同列同名）的不送，伺服器也會擋並回傳原本那張
   // 被擋下的列也能勾（批量填寫要能補它們的設定），但送出只取通過檢查的；已開過／待確認的不能勾
-  const isSelectable = (r: typeof rows[number]) => !r.pendingPrev && r.prev.length === 0
+  const isSelectable = (r: typeof rows[number]) => !r.pendingPrev && !r.otherHit && r.prev.length === 0
   // Meegle 建立必填讀不到、或有工具不認得的必填 → 整批都不能送（CodeX 1006）
   const createBlock = meta?.createMetaError ? `讀不到 Meegle 的建立必填欄位：${meta.createMetaError}` : meta?.unknownRequired.length ? `Meegle 有工具還不支援的必填欄位：${meta.unknownRequired.join('、')}——請通知工具維護者` : ''
-  const sendable = createBlock ? [] : rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.prev.length)
+  const sendable = createBlock ? [] : rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.otherHit && !r.prev.length)
 
   // ── 人員對照 ──
   const aliasRows = useMemo(() => {
@@ -501,7 +505,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
 
   async function submit(confirmed = false, onRechecked?: () => void) {
     const list = sendable
-    if (!list.length || otherSpace || submittingRef.current) return
+    if (!list.length || submittingRef.current) return
     // 正式空間：每批送出前確認一次（CodeX）
     if (!confirmed && !(await confirmProd({ op: 'Meegle 開單', sheet: loadedUrl, count: list.length }))) return
     submittingRef.current = true
@@ -546,7 +550,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
 
   async function resendFailed(rowIndex: number) {
     const r = rows.find(x => x.rec._rowIndex === rowIndex)
-    if (!r || r.plan.blocks.length || otherSpace) return
+    if (!r || r.plan.blocks.length || r.otherHit) return
     if (!(await confirmProd({ op: 'Meegle 開單（重送這一列）', sheet: loadedUrl, count: 1 }))) return
     setRowBusy(b => ({ ...b, [rowIndex]: true }))
     try {
@@ -608,7 +612,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
   const sendCountRef = useRef(0)
   sendCountRef.current = sendable.length
   async function submitAndShow() {
-    if (otherSpace || resolvingRef.current) return
+    if (resolvingRef.current) return
     // 確認期間人員結果變了（verify 晚回、名單重整）→ 用新的結果再確認一次，確認的內容要跟實際送出的一致（CodeX）
     for (let round = 0; ; round++) {
       const shown = JSON.stringify(peopleWarnRef.current ?? null)
@@ -685,7 +689,6 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
               </button>
             </div>
             {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
-            <OtherSpaceNotice other={otherSpace} space={space} />
             {records && <div className="mb-muted mb-loaded">已讀取 {rows.length} 列{unmappedAliases.length ? `・${unmappedAliases.length} 個名字未對照` : '・人員都已對照'}</div>}
             {!meta && <div className="mb-muted">正在讀取 Meegle 需求清單…</div>}
             {meta && (
@@ -1016,7 +1019,8 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
                           )) : <span className="mb-muted">—</span>}
                         </td>
                         <td className="mb-check">
-                          {r.plan.blocks.length > 0 ? r.plan.blocks.map((b, i) => <div key={i} className="mb-status mb-status--bad"><i>!</i>被擋：{b}</div>)
+                          {r.otherHit ? <div className="mb-status mb-status--bad" title="同一列、同一個名稱在另一個空間開過（或還在開單中）。要開新的一筆請先改 Sheet 上的名稱"><i>!</i>{r.otherHit.createPhase !== 'created' ? `「${meegleSpaceLabel(r.otherHit.space)}」空間開單中` : `已在「${meegleSpaceLabel(r.otherHit.space)}」空間開過`}</div>
+                            : r.plan.blocks.length > 0 ? r.plan.blocks.map((b, i) => <div key={i} className="mb-status mb-status--bad"><i>!</i>被擋：{b}</div>)
                             : r.pendingPrev ? <div className="mb-status mb-status--pending"><i>…</i>上次送出待確認</div>
                             : r.prev.length ? r.prev.map(p => <div key={p.workItemId} className="mb-status mb-status--info"><i>i</i>已在 Meegle 開過 {p.url ? <a href={p.url} target="_blank" rel="noreferrer">#{p.workItemId}</a> : `#${p.workItemId}`}</div>)
                             : r.plan.warnings.length ? <div className="mb-status mb-status--warn" title={r.plan.warnings.join(String.fromCharCode(10))}><i>!</i>{[...new Set(MEEGLE_ROLE_DEFS.flatMap(d => r.plan.roles[d.key].unmapped))].join('、')} 對不上，不帶</div>
@@ -1042,7 +1046,7 @@ export function MeegleBatchCreateTab({ space, onBusyChange, onGoBind, initialShe
             <footer className="mb-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(unmappedAliases.length || aliasRows.length ? 2 : 1)}>上一步</button>
               <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b>{resolving > 0 && <span className="mb-c-wait">・人員比對中，完成後才能送出</span>}</div>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length || !!otherSpace || resolving > 0} onClick={() => void submitAndShow()}>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length || resolving > 0} onClick={() => void submitAndShow()}>
                 {running ? `送出中 ${progress.done}/${progress.total}` : `送出 ${sendable.length} 列`}
               </button>
             </footer>

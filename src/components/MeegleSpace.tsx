@@ -7,7 +7,7 @@ import './MeegleSpace.css'
  * Meegle 雙空間的前端零件（v5.10.0，規則 CodeX 拍板 2026-10-05）：
  * - MeegleSpaceBar：每個分頁上方的「測試／正式」切換。送出中不能切
  * - useProdConfirm：送到正式之前跳一次確認（列出空間、操作、Sheet、筆數）；測試不跳、單純切換也不跳
- * - OtherSpaceNotice：這份 Sheet 已經在另一個空間送過 → 讀 Sheet 時就提示（送出時伺服器也會擋）
+ * - （v5.60.0 移除整份 Sheet 的 OtherSpaceNotice：空間綁定改成開單逐列判斷，標在開單預覽那一列上）
  */
 
 export function MeegleSpaceBar({ space, onChange, disabled }: { space: MeegleSpace; onChange: (s: MeegleSpace) => void; disabled?: boolean }) {
@@ -24,15 +24,6 @@ export function MeegleSpaceBar({ space, onChange, disabled }: { space: MeegleSpa
       <span className="msp-bar-hint">
         {disabled ? '送出中，不能切換空間' : space === 'prod' ? '目前會開到正式空間，送出前會再確認一次' : '切換空間會清掉這一頁讀到的內容，要重新讀取 Sheet'}
       </span>
-    </div>
-  )
-}
-
-export function OtherSpaceNotice({ other, space }: { other: MeegleSpace | null | undefined; space: MeegleSpace }) {
-  if (!other) return null
-  return (
-    <div className="mb-alert mb-alert--bad" role="alert">
-      這份 Sheet 已經在「{meegleSpaceLabel(other)}」空間送過，不能再送到「{meegleSpaceLabel(space)}」。同一份 Sheet 只能用一個空間，請確認是不是切錯了。
     </div>
   )
 }

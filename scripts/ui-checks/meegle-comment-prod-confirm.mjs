@@ -29,7 +29,7 @@ await page.route('**/api/meegle/comment/identities', async route => {
   await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, self: true, selfEmail: 'eric.wu@toppath.tw', results: names.map(n => ({ name: n, status: 'ok', email: 'eric.wu@toppath.tw', label: n })) }) })
 })
 // 這份測試 Sheet 送過測試空間 → 正式空間會被擋；這裡只驗彈窗，所以假裝沒送過
-await page.route('**/api/meegle/comment/previous', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, rows: [], otherSpace: null }) }))
+await page.route('**/api/meegle/comment/previous', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, rows: [] }) }))
 // 🚨 送出一律擋掉——這支在正式空間，絕對不能真的送
 let posted = 0
 await page.route('**/api/meegle/comment/row', route => { posted++; return route.abort() })

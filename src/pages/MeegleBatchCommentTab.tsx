@@ -7,7 +7,7 @@ import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
-import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import { useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -97,7 +97,6 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   // ① 讀取與選列
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
   // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
-  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
   const [confirmProd, prodModal] = useProdConfirm(space)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
@@ -186,8 +185,8 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
     setLoading(true); setLoadError('')
     try {
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/comment/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
-      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
+      const prev = await api<{ rows: Previous[] }>('/api/meegle/comment/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[] }))
+      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
       onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
@@ -377,7 +376,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
   useEffect(() => { onBusyChange?.(running || anyRowBusy) }, [running, anyRowBusy, onBusyChange])
 
   async function submit() {
-    if (aiPendingOf(itemsRef.current) || !sendable.length || otherSpace) return
+    if (aiPendingOf(itemsRef.current) || !sendable.length) return
     // 1008：格式不完整的列在送出前列出來（不擋，只確認）。
     // 正式空間本來就有確認彈窗——**併進那一個**，不要連跳兩個（使用者：兩個彈窗會衝突）；測試空間才單獨跳格式提醒
     const incomplete = sendable.map(it => ({ summary: it.summary || `#${it.workItemId}`, missing: validateCommentSections(it.commentText) })).filter(r => r.missing.length)
@@ -458,7 +457,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
 
   async function resend(r: Result) {
     const it = items.find(x => x.workItemId === r.workItemId)
-    if (!it || otherSpace) return
+    if (!it) return
     if (!(await confirmProd({ op: 'Meegle 評論（重送這一列）', sheet: loadedUrl, count: 1 }))) return
     setBatchId(r.batchId)
     setRowBusy(b => ({ ...b, [`${r.workItemId}:resend`]: true }))
@@ -538,7 +537,6 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
             {metaError && (isBindCode(metaError.code)
               ? <MeegleBindGuide code={metaError.code} onGoBind={onGoBind} onRecheck={() => void recheck()} checking={checking} />
               : <div className="mb-alert mb-alert--bad">{metaError.message} <button type="button" className="mb-btn mb-btn--small" disabled={checking} onClick={() => void recheck()}>{checking ? '重試中…' : '重試'}</button></div>)}
-            <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。只有 Jira 單號的列不送；處理階段已有值、或之前評論過的列預設不勾（勾了＝再送一輪）。</p>
             {records && (
               <>
@@ -745,7 +743,7 @@ export function MeegleBatchCommentTab({ space, onBusyChange, onGoBind, initialSh
             <footer className="mb-foot mc-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
               <span className="mb-foot-sum">可送出 <b>{sendable.length}</b> / {items.length} 列{aiPending > 0 && <span className="mc-ai-wait">｜AI 尚有 <b>{aiPending}</b> 列待完成（含排隊），全部結束才能送出</span>}</span>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace || aiPending > 0} onClick={() => void submit()}>前往送出</button>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || aiPending > 0} onClick={() => void submit()}>前往送出</button>
             </footer>
           </div>
         )}

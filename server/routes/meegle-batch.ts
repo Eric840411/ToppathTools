@@ -28,9 +28,9 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
   adoptTarget, claimRow, expireStaleCreating, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
-  listPersonMap, listRowsFromSheet, needsStatePush, rowSheetName, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
+  listPersonMap, listRowsFromSheet, listRowsFromSheetOtherSpace, needsStatePush, rowSheetName, resolveUnknown, takenWorkItemIds, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
-import { otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { denyTestSpace } from '../meegle-space-access.js'
 import {
   confirmRequirement, createTask, detailUrlFor, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates, loadCreateMeta,
@@ -159,8 +159,8 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   if (denyTestSpace(req, res, space)) return
   const key = sheetSourceKey(sheetUrl)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
-  // otherSpace：這份 Sheet 已在另一個空間開過 → 畫面一讀就提示（送出也會被 claimRow 擋）
-  res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, sheetName: rowSheetName(r), owner: r.owner_email, createdAt: r.created_at })) })
+  // otherSpaceRows：同一份 Sheet 在另一個空間的紀錄 → 畫面逐列標出「同列同名在另一邊開過／開單中」（送出也會被 claimRow 擋；v5.60.0 起逐列，不再整份擋）
+  res.json({ ok: true, otherSpaceRows: listRowsFromSheetOtherSpace(db, key, space).map(r => ({ rowKey: r.row_key, sheetName: rowSheetName(r), space: rowSpace(r.space), createPhase: r.create_phase })), rows: listRowsFromSheet(db, key, space).map(r => ({ ...publicRow(r), name: r.name, sheetName: rowSheetName(r), owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // ── 人員名單（② 下拉選人、猜人用）──

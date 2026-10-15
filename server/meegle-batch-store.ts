@@ -12,7 +12,7 @@
  */
 import type Database from 'better-sqlite3'
 import { isRestorablePrevious, normAlias } from '../shared/meegle-batch-rules.js'
-import { addSpaceColumn, spaceGuard, type MeegleSpace, type SpaceGuard } from './meegle-space.js'
+import { addSpaceColumn, rowSpaceConflict, spaceGuard, type MeegleSpace, type SpaceGuard } from './meegle-space.js'
 
 type DB = Database.Database
 
@@ -97,6 +97,15 @@ export function initMeegleBatchSchema(db: DB) {
  * 前端用來：已開過的標「已開過」、**開單中／待確認的把原批次接回來**（重整頁面後 batchId 會換新，CodeX [P1]），
  * 才能對它按「查詢結果」，而不是被當成沒送過重新勾選。
  */
+/**
+ * 這份 Sheet 在**另一個空間**的紀錄（failed 除外）。開單預覽逐列標「另一個空間開過」用——
+ * v5.60.0 起空間綁定是逐列的，不再整份 Sheet 一個提示（前端用同一把鍵：列號＋Sheet 名稱）
+ */
+export function listRowsFromSheetOtherSpace(db: DB, sheetUrl: string, space: MeegleSpace): BatchRow[] {
+  if (!sheetUrl) return []
+  return db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND space != ? AND create_phase != 'failed' ORDER BY created_at`).all(sheetUrl, space) as BatchRow[]
+}
+
 export function listRowsFromSheet(db: DB, sheetUrl: string, space: MeegleSpace): BatchRow[] {
   if (!sheetUrl) return []
   return db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND space = ? AND create_phase != 'failed' ORDER BY created_at`).all(sheetUrl, space) as BatchRow[]
@@ -120,7 +129,7 @@ export type ClaimResult =
   | { kind: 'busy'; row: BatchRow }           // 另一個請求正在開，或結果待確認
   | { kind: 'not-owner'; row: BatchRow }
   | { kind: 'source-mismatch' }               // 這個批次是別份 Sheet 的
-  | SpaceGuard                                 // 批次是別的空間的／這份 Sheet 已在別的空間開過
+  | SpaceGuard                                 // 批次是別的空間的／同一列同名已在別的空間開過
 
 /**
  * 認領一列準備開單。單一 SQL 交易內完成「讀現況＋寫 creating」，兩個請求同時進來只有一個拿得到。
@@ -143,16 +152,19 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
     const sheetUrl = input.sheetUrl ?? ''
     const other = db.prepare('SELECT sheet_url FROM meegle_batch_rows WHERE batch_id = ? AND sheet_url != ? LIMIT 1').get(input.batchId, sheetUrl)
     if (other) return { kind: 'source-mismatch' }
-    const sg = spaceGuard(db, 'meegle_batch_rows', input.batchId, sheetUrl, input.space)
+    const sg = spaceGuard(db, 'meegle_batch_rows', input.batchId, input.space)
     if (sg) return sg
     if (sheetUrl) {
+      // 開單中／待確認：不分空間、不比名稱都擋（結果未明時改名或切空間再開，可能開出兩張；CodeX 2026-10-15）
       const pending = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
         AND create_phase IN ('creating', 'unknown') LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId) as BatchRow | undefined
       if (pending) return { kind: 'busy', row: pending }
+      const rc = rowSpaceConflict(db, sheetUrl, input.rowKey, sheetName || input.name, input.space)
+      if (rc) return rc
       // 別的批次已經從同一列、同一個名稱開成功 → 不再開（雙分頁：B 在 A 送出前就讀了 Sheet，預覽看不到「已開過」）
       // 比的是 **Sheet 上的名稱**，不是送出的任務名稱——AI／手改過名稱的話兩次送的名稱會不同，比 name 就擋不住（v5.26.0）
-      const done = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
-        AND create_phase = 'created' AND (CASE WHEN sheet_name != '' THEN sheet_name ELSE name END) = ? ORDER BY created_at LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId, sheetName || input.name) as BatchRow | undefined
+      const done = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ? AND space = ?
+        AND create_phase = 'created' AND (CASE WHEN sheet_name != '' THEN sheet_name ELSE name END) = ? ORDER BY created_at LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId, input.space, sheetName || input.name) as BatchRow | undefined
       if (done) return { kind: 'already-created', row: done }
     }
     const existing = getBatchRow(db, input.batchId, input.rowKey)

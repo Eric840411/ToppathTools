@@ -10,7 +10,7 @@ import './MeegleBatchCreateTab.css'
 import './MeegleBatchCommentTab.css'
 import './MeegleBatchStatusTab.css'
 import { MeegleBindGuide, isBindCode } from '../components/MeegleBindGuide'
-import { OtherSpaceNotice, useProdConfirm } from '../components/MeegleSpace'
+import { useProdConfirm } from '../components/MeegleSpace'
 import type { MeegleSpace } from '../../shared/meegle-space'
 
 /**
@@ -68,7 +68,6 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
   // ① 讀取與選列
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl)
   // 這份 Sheet 已經在另一個空間送過（伺服器回的）；有的話整頁不能送
-  const [otherSpace, setOtherSpace] = useState<MeegleSpace | null>(null)
   const [confirmProd, prodModal] = useProdConfirm(space)
   const [loadedUrl, setLoadedUrl] = useState('')
   const [records, setRecords] = useState<Rec[] | null>(null)
@@ -138,8 +137,8 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
     setLoading(true); setLoadError('')
     try {
       const j = await api<{ records: Rec[]; headers?: string[] }>('/api/lark/sheets/records', { sheetUrl: sheetUrl.trim(), includeCreated: true })
-      const prev = await api<{ rows: Previous[]; otherSpace?: MeegleSpace | null }>('/api/meegle/status/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[], otherSpace: null }))
-      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows); setOtherSpace(prev.otherSpace ?? null)
+      const prev = await api<{ rows: Previous[] }>('/api/meegle/status/previous', { sheetUrl: sheetUrl.trim(), space }).catch(() => ({ rows: [] as Previous[] }))
+      setRecords(j.records); setLoadedUrl(sheetUrl.trim()); setPrevious(prev.rows)
       onSheetLoaded?.(sheetUrl.trim())
       const hs = (j.headers?.length ? j.headers : Object.keys(j.records[0] ?? {})).filter(h => h && h !== '_rowIndex' && !h.endsWith('__url'))
       setHeaders(hs)
@@ -249,7 +248,7 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
 
   async function submit() {
     const list = sendable
-    if (!list.length || otherSpace) return
+    if (!list.length) return
     // 正式空間：每批送出前確認一次（CodeX）
     if (!(await confirmProd({ op: 'Meegle 更新狀態', sheet: loadedUrl, count: list.length }))) return
     const id = batchId || newStepId()
@@ -346,7 +345,6 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
               </button>
             </div>
             {loadError && <div className="mb-alert mb-alert--bad">{loadError}</div>}
-            <OtherSpaceNotice other={otherSpace} space={space} />
             <p className="mb-hint">用開單時回填的「{MEEGLE_ID_COLUMN}」欄認單。處理階段已是「{STATUS_STAGE_DONE}」的列預設不勾。</p>
             {records && (
               <>
@@ -516,7 +514,7 @@ export function MeegleBatchStatusTab({ space, onBusyChange, onGoBind, initialShe
             <footer className="mb-foot ms-foot">
               <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(2)}>上一步</button>
               <span className="mb-foot-sum">已選 <b className="ms-n-sel">{checked.size}</b> ／ 可送 <b className="ms-n-ok">{sendable.length}</b> ／ 受阻 <b className="ms-n-bad">{blockedCount}</b></span>
-              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running || !!otherSpace} onClick={() => void submit()}>前往送出</button>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--big" disabled={!sendable.length || running} onClick={() => void submit()}>前往送出</button>
             </footer>
           </div>
         )}

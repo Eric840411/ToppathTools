@@ -3,8 +3,8 @@
  *
  * - **空間跟著紀錄走**：新請求一定要帶 space（缺少或不認得 → 400，不默默當成測試）；
  *   重試、補推、查詢結果、補回填一律用紀錄上的 space，不讀畫面目前的切換值
- * - **一個批次只屬於一個空間**；**同一份 Sheet 已在另一個空間送過 → 擋下**（只靠「Sheet＋列＋空間」去重的話，
- *   誤切空間後會在另一邊再開一次）
+ * - **一個批次只屬於一個空間**；開單時**同一列、同一個名稱已在另一個空間開過 → 擋下**（只靠「Sheet＋列＋空間」去重的話，
+ *   誤切空間後會在另一邊再開一次）。v5.60.0 前是整份 Sheet 綁一個空間，見 spaceGuard
  * - **⚠️ Meegle 不驗 project key**：拿正式的 key 去 get 測試空間的單照樣回 200（2026-10-05 實測 #15194995），
  *   寫入大概也一樣。所以評論／狀態／修改動到既有單之前，要用 checkItemSpace 核對單子真正所屬的空間（owned_project）
  */
@@ -59,48 +59,36 @@ export function addSpaceColumn(db: DB, table: string) {
 export type SpaceGuard = { kind: 'space-mismatch' } | { kind: 'space-conflict'; other: MeegleSpace }
 
 /**
- * 四種操作的紀錄表與各自存「來源 Sheet」的欄位（值都是 sheetSourceKey）。
- * **Sheet 的空間綁定看四張表合起來**——只看自己那張的話，同一份 Sheet 在測試評論過、正式開單照樣放行（CodeX review 025fe7c [P1]，記憶體 DB 重現）
+ * 認領前的批次檢查：這個批次已經有別的空間的列 → space-mismatch（一個批次只屬於一個空間）。
+ * 要在認領的同一個 IMMEDIATE transaction 裡呼叫。table 是程式內固定字串，不是使用者輸入。
+ *
+ * v5.60.0 起**不再把整份 Sheet 綁在一個空間**（使用者 2026-10-15：同一份 Sheet 會一直換內容重開，
+ * 測試送過一次就永遠不能送正式。CodeX 同意）：
+ * - 開單：只擋「同一列＋同一個 Sheet 名稱」在另一個空間開過的（rowSpaceConflict）
+ * - 評論／狀態／修改：動的是既有單，靠 checkItemSpace 核對單子真正所屬的空間；
+ *   若仍看整份 Sheet，同一份 Sheet 測試開 A、正式開 B 之後兩邊都會被擋死（CodeX 2026-10-15）
  */
-const SHEET_TABLES: ReadonlyArray<readonly [string, string]> = [
-  ['meegle_batch_rows', 'sheet_url'],
-  ['meegle_comment_rows', 'source_key'],
-  ['meegle_status_rows', 'source_key'],
-  ['meegle_edit_rows', 'source_key'],
-]
-function sheetSpaceElsewhere(db: DB, sourceKey: string, space: MeegleSpace): MeegleSpace | null {
-  if (!sourceKey) return null
-  for (const [t, col] of SHEET_TABLES) {
-    // 表還沒建（測試只初始化其中幾張、或那個工具從沒用過）就跳過
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)) continue
-    const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map(c => c.name)
-    if (!cols.includes('space')) continue
-    const r = db.prepare(`SELECT space FROM ${t} WHERE ${col} = ? AND space != ? LIMIT 1`).get(sourceKey, space) as { space: string } | undefined
-    if (r) return rowSpace(r.space)
-  }
+export function spaceGuard(db: DB, table: string, batchId: string, space: MeegleSpace): SpaceGuard | null {
+  if (db.prepare(`SELECT 1 FROM ${table} WHERE batch_id = ? AND space != ? LIMIT 1`).get(batchId, space)) return { kind: 'space-mismatch' }
   return null
 }
 
 /**
- * 認領前的空間檢查（要在認領的同一個 IMMEDIATE transaction 裡呼叫——四張表在同一個 DB，拿了寫鎖之後讀到的就是準的）：
- * - 這個批次已經有別的空間的列 → space-mismatch（一個批次只屬於一個空間）
- * - 這份 Sheet 在**任何一種操作**已經用別的空間送過 → space-conflict（同一份 Sheet 不會兩邊都用，送過就代表切錯了）
- * table 是程式內固定字串，不是使用者輸入。
+ * 開單：同一份 Sheet、同一列、同一個 Sheet 名稱，已經在另一個空間開成功 → space-conflict（切錯空間會在另一邊再開一次）。
+ * 名稱比 sheet_name，舊資料空字串退回 name（跟 claimRow 的「已開過」同一把鍵）。
+ * 限制：名稱不是內容指紋——只改描述會被當成同一筆；改名或搬列會被當成新的一筆。
+ * 開單中／待確認不在這裡判：claimRow 的 busy 本來就跨空間、不比名稱擋著。
  */
-export function spaceGuard(db: DB, table: string, batchId: string, sourceKey: string, space: MeegleSpace): SpaceGuard | null {
-  if (db.prepare(`SELECT 1 FROM ${table} WHERE batch_id = ? AND space != ? LIMIT 1`).get(batchId, space)) return { kind: 'space-mismatch' }
-  const other = sheetSpaceElsewhere(db, sourceKey, space)
-  return other ? { kind: 'space-conflict', other } : null
-}
-
-/** 這份 Sheet 在別的空間送過嗎（四種操作合起來看；「之前送過的列」用，讀 Sheet 時就提示，不用等到送出才被擋） */
-export function otherSpaceOf(db: DB, sourceKey: string, space: MeegleSpace): MeegleSpace | null {
-  return sheetSpaceElsewhere(db, sourceKey, space)
+export function rowSpaceConflict(db: DB, sheetUrl: string, rowKey: string, sheetName: string, space: MeegleSpace): SpaceGuard | null {
+  if (!sheetUrl || !sheetName) return null
+  const r = db.prepare(`SELECT space FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND space != ? AND create_phase = 'created'
+    AND (CASE WHEN sheet_name != '' THEN sheet_name ELSE name END) = ? LIMIT 1`).get(sheetUrl, rowKey, space, sheetName) as { space: string } | undefined
+  return r ? { kind: 'space-conflict', other: rowSpace(r.space) } : null
 }
 
 export const spaceGuardMessage = (g: SpaceGuard, space: MeegleSpace) => g.kind === 'space-mismatch'
   ? '這個批次是另一個空間的，請重新讀取 Sheet 後再送'
-  : `這份 Sheet 已經在「${meegleSpaceLabel(g.other)}」空間送過，不能再送到「${meegleSpaceLabel(space)}」。同一份 Sheet 只能用一個空間，請確認是不是切錯了`
+  : `這一列（同一個名稱）已經在「${meegleSpaceLabel(g.other)}」空間開過，不能再開到「${meegleSpaceLabel(space)}」。如果是要開新的一筆，請先改 Sheet 上的名稱`
 
 /**
  * 核對一張既有的單真的在這個空間（Meegle 不驗 project key，見檔頭）。

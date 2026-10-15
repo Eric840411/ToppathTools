@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.59.0'
+export const APP_VERSION = '5.60.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.60.0', date: '2026-10-15', changes: ["change(Meegle 空間綁定改成逐列)：使用者 1015——同一份 Sheet 會一直換內容重開，原本測試空間送過一次整份 Sheet 就永遠不能送正式。CodeX 同意＋補充：開單只擋「同一列＋同一個 Sheet 名稱」在另一個空間開過的（換名稱兩邊都能送）；開單中／待確認照舊不分空間、不比名稱都擋；評論／狀態／修改拿掉 Sheet 綁定，改靠 checkItemSpace 核對單子所屬空間（不然測試開 A、正式開 B 後兩邊都卡死）。整份 Sheet 的紅字拿掉，開單預覽逐列標「已在『測試』空間開過」。meegle-space.test 50 條（含 CodeX 要的三個情境），拿掉逐列檢查會紅 6 條"] },
   { version: '5.59.0', date: '2026-10-14', changes: ["feat(UAT 前台 PC 驗節點 同名歧義)：CodeX P2——原本名稱／標籤取第一個命中，驗錯卡片照樣 PASS。改成存在與可視同一次解析；預設命中多顆就報歧義（改寫路徑），新增「允許多筆」勾選＝至少一顆存在（配必須在畫面內＝至少一顆在畫面內）；名稱優先不退標籤；讀不到場景樹與找不到分開。種子腳本的 item-jp、jpMomentItem 已帶允許多筆；已入庫腳本不自動改"] },
   { version: '5.58.0', date: '2026-10-14', changes: ["feat(UAT 前台 PC 挑機台)：新積木 pc_pick_machine——隨機挑一台機台存成變數（{{m.gmid}}／{{m.name}}／{{m.num}}／{{m.game}}），不進場、不點任何東西；挑空機或排除離線，有同款但都不能挑報「資源不足」。讀卡片規則跟 PC 進機台共用一份。assert_pc_node 也能展開 {{變數}}（claude-osm-2 T-A-002、CodeX 定案）"] },
   { version: '5.57.7', date: '2026-10-14', changes: ["fix(Performance Meter 對帳 數字驗證)：CodeX 審 9c08f26 [P2]——'1e309' 符合數字格式但轉出來是 Infinity，route 的 num() 又把它歸零，Game Record win／hourly 會誤判通過。字串也要轉得出有限值。meter-verdict.test 補 '1e309'、'-1e309'、400 位數字，換回舊寫法會紅"] },

@@ -17,7 +17,7 @@ import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import { defaultRunner, resolveDetailUrlBase, resolveRoleIds, type CallOutcome } from '../meegle-workitem.js'
-import { checkItemSpace, otherSpaceOf, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
+import { checkItemSpace, rowSpace, spaceEnv, spaceGuardMessage, spaceSchema, type MeegleSpace } from '../meegle-space.js'
 import { denyTestSpace } from '../meegle-space-access.js'
 import { listEditOptions, readEditCurrent, roleOperate, updateFields, uploadDescriptionImage } from '../meegle-edit-ops.js'
 import { textFingerprint } from '../meegle-comment-ops.js'
@@ -146,7 +146,7 @@ router.post('/api/meegle/edit/previous', (req, res, next) => {
     if (denyTestSpace(req, res, space)) return
     expireStaleEditSteps(db, STALE_MS)
     const key = sheetSourceKey(sheetUrl)
-    res.json({ ok: true, otherSpace: otherSpaceOf(db, key, space), rows: listPreviousEditForSource(db, key, space).map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), steps: publicSteps(r.steps) })) })
+    res.json({ ok: true, rows: listPreviousEditForSource(db, key, space).map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, mine: r.owner_email === account.email.toLowerCase(), steps: publicSteps(r.steps) })) })
   } catch (e) { next(e) }
 })
 

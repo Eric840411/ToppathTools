@@ -46,7 +46,7 @@ for (const mode of ['classic', 'xianxia']) {
     await new Promise(res => { releaseVerify = res })
     return r.fulfill({ json: { ok: true } })
   })
-  await ctx.route('**/api/meegle/edit/previous', r => r.fulfill({ json: { ok: true, rows: [], otherSpace: null } }))
+  await ctx.route('**/api/meegle/edit/previous', r => r.fulfill({ json: { ok: true, rows: [] } }))
   await ctx.route('**/api/lark/sheets/records', r => r.fulfill({ json: { ok: true, headers: ['Meegle 單號', '摘要', '受托人'], records: [{ _rowIndex: 2, 'Meegle 單號': '#15190441', '摘要': 'x', '受托人': 'Nobody' }] } }))
   const page = await ctx.newPage()
   await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
