@@ -104,8 +104,8 @@ export function createStep(action = 'goto'): AutoStep {
  */
 const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason'] as const
 const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs', 'fromX', 'fromY', 'toX', 'toY', 'holdMs', 'durationMs', 'moveSteps'] as const
-/** 1015 長按／拖動：範圍跟引擎 GESTURE_LIMITS 一致；超出範圍丟掉那一欄（執行時用預設），不默默夾到範圍內 */
-const NUMBER_RANGES: Record<string, readonly [number, number]> = { holdMs: [0, 10000], durationMs: [0, 10000], moveSteps: [1, 60] }
+// ⚠️ 1015 長按／拖動的範圍（holdMs／durationMs 0～10000、moveSteps 1～60）**不在這裡驗**：超出範圍的值要原樣留著，
+//    讓執行器報錯。在這裡刪掉的話 holdMs:20000 讀進來就變成預設 1500，靜默改掉使用者寫的值（CodeX review 011f6fe [P2]）
 // 原本就會去頭尾空白、空的不存的欄位（行為不變）；其他字串欄位原樣保留——pattern／expect 的空白可能有意義
 const TRIM_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const
 const BOOLEAN_KEYS = ['overwrite', 'allowDangerous', 'collapsed', 'allowMultiple'] as const
@@ -130,7 +130,6 @@ function normalizeOne(item: unknown, index: number): AutoStep {
   // 已知欄位型別不對 → 丟掉那一欄（有預設值的退回預設）
   for (const k of STRING_KEYS) if (k in step && typeof step[k] !== 'string') delete step[k]
   for (const k of NUMBER_KEYS) if (k in step && (typeof step[k] !== 'number' || !Number.isFinite(step[k] as number))) delete step[k]
-  for (const [k, [lo, hi]] of Object.entries(NUMBER_RANGES)) if (typeof step[k] === 'number' && ((step[k] as number) < lo || (step[k] as number) > hi)) delete step[k]
   for (const k of BOOLEAN_KEYS) if (k in step && typeof step[k] !== 'boolean') delete step[k]
   for (const [k, ok] of Object.entries(ENUMS)) if (k in step && !ok.includes(step[k] as string)) { if (k in base) step[k] = (base as unknown as Record<string, unknown>)[k]; else delete step[k] }
   if (!['inherit', 'continue', 'stop', 'retry'].includes(step.failureMode as string)) step.failureMode = 'inherit'

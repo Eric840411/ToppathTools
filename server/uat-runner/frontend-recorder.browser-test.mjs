@@ -279,7 +279,52 @@ try {
     await mouse('mouseReleased', bx + 60, by); await sleep(400);
     got = steps.slice(n0);
     check('⑤b 拖 60px → 錄成一顆 drag（不會再多一顆 click）', got.length === 1 && got[0].action === 'drag', JSON.stringify(got));
-    check('⑤b 拖動錄起點、終點座標', got[0]?.fromX === bx && got[0]?.fromY === by && got[0]?.toX === bx + 60 && got[0]?.toY === by && !('holdMs' in got[0]), JSON.stringify(got[0]));
+    check('⑤b 拖動錄起點、終點座標', got[0]?.fromX === bx && got[0]?.fromY === by && got[0]?.toX === bx + 60 && got[0]?.toY === by && got[0]?.holdMs < 200, JSON.stringify(got[0]));
+
+    // 按住 400ms（不到長按門檻）再拖：drag 照樣要記實際等待，不能重播成立即拖（CodeX review 011f6fe [P2]）
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by); await sleep(400);
+    for (let i = 1; i <= 4; i++) { await mouse('mouseMoved', bx + i * 15, by); await sleep(20); }
+    await mouse('mouseReleased', bx + 60, by); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 按 400ms 再拖 → drag 記 holdMs ≈ 400（800ms 只拿來分長按）', got.length === 1 && got[0].action === 'drag' && got[0].holdMs >= 350 && got[0].holdMs < 800, JSON.stringify(got[0]));
+
+    // 拖完立刻點另一顆：不能被當成上一個手勢的 click 吞掉（CodeX review 011f6fe [P2]）
+    const gb = JSON.parse(await evaluate(`JSON.stringify(document.querySelector('[aria-label="設定"]').getBoundingClientRect())`));
+    const gx2 = Math.round(gb.left + gb.width / 2), gy2 = Math.round(gb.top + gb.height / 2);
+    await sleep(300); n0 = steps.length;
+    // 用沒有 click 的拖動（終點在 canvas 外的空白處、不同元素）＋ 立刻在 100ms 內點設定
+    await mouse('mousePressed', bx, by);
+    for (let i = 1; i <= 3; i++) { await mouse('mouseMoved', bx + i * 20, by); await sleep(10); }
+    await mouse('mouseReleased', bx + 60, by);
+    await sleep(50);
+    await mouse('mousePressed', gx2, gy2); await mouse('mouseReleased', gx2, gy2); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 拖完 50ms 內點另一顆 → 兩顆都錄到（drag＋click 設定）', got.length === 2 && got[0].action === 'drag' && got[1].action === 'click' && got[1].selector === '[aria-label="設定"]', JSON.stringify(got));
+
+    // 🚨 手勢本身**沒有產生 click**，接著馬上點另一顆：舊寫法（500ms 內無條件吞下一個 click）會把這顆吞掉
+    //    （CodeX review 011f6fe [P2]）。滑鼠的手勢一定會跟著 click（落在共同祖先）、觸控長按在模擬下也會補 click，
+    //    都測不出這個情境；觸控**拖動**不會有 click。canvas 設 touch-action:none，瀏覽器才不會把它拿去捲動（pointercancel）
+    await evaluate(`document.getElementById('game').style.touchAction = 'none'`);
+    const tc = JSON.parse(await evaluate(`JSON.stringify(document.getElementById('game').getBoundingClientRect())`));
+    const tx = Math.round(tc.left + 30), ty = Math.round(tc.top + 30);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+    await sleep(200); n0 = steps.length;
+    await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: tx, y: ty }] });
+    for (let i = 1; i <= 4; i++) { await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: tx + i * 20, y: ty }] }); await sleep(20); }
+    await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(60);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await mouse('mousePressed', gx2, gy2); await mouse('mouseReleased', gx2, gy2); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 觸控拖動（沒有 click）後馬上點另一顆 → 兩顆都錄到', got.length === 2 && got[0].action === 'drag' && got[1].action === 'click' && got[1].selector === '[aria-label="設定"]', JSON.stringify(got));
+
+    // 鍵盤（沒有 pointerdown 的 click）在長按後馬上觸發：不能被誤吞
+    await sleep(300); n0 = steps.length;
+    await mouse('mousePressed', bx, by); await sleep(900); await mouse('mouseReleased', bx, by); await sleep(30);
+    await evaluate(`document.querySelector('[aria-label="設定"]').click()`); await sleep(400);
+    got = steps.slice(n0);
+    check('⑤b 長按後立刻有別的 click（不同位置）→ 照樣錄到', got.length === 2 && got[0].action === 'long_press' && got[1].action === 'click', JSON.stringify(got));
 
     // 拖出去再拖回來：起終點一樣，但過程動過 → 還是 drag，不能錄成 click
     await sleep(300); n0 = steps.length;

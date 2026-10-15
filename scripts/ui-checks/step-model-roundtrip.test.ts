@@ -14,6 +14,7 @@
 import { deepStrictEqual } from 'node:assert'
 import { STEP_LIBRARY, parseSteps, serializeSteps, compileExecutableSteps } from '../../src/features/uat/step-model.ts'
 import type { AutoStep } from '../../src/features/uat/types.ts'
+import { runFrontendStep } from '../../server/uat-runner/frontend-engine.js'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; if (!c) console.log(`❌ ${label}${got !== undefined ? `：${JSON.stringify(got).slice(0, 400)}` : ''}`) }
@@ -48,13 +49,13 @@ for (const def of STEP_LIBRARY) {
 // 型別檢查仍然有效：已知欄位型別不對就丟掉，failureMode 不認得就退回 inherit
 const bad = parseSteps(JSON.stringify([{ id: 'x', name: 'n', action: 'goto', settleMs: '0', from: 5, failureMode: 'weird', until: 'later', overwrite: 'yes' }]))[0] as unknown as Record<string, unknown>
 ok(!('settleMs' in bad) && !('from' in bad) && !('until' in bad) && !('overwrite' in bad) && bad.failureMode === 'inherit', '型別不對的已知欄位 → 丟掉', bad)
-// 1015 長按／拖動的範圍：超出就丟掉那一欄（不默默夾到範圍內）；邊界值留著
+// 1015 長按／拖動的範圍：超出範圍原樣保留（執行器會擋）；邊界值留著；型別不對照舊丟掉
 const g = parseSteps(JSON.stringify([
   { id: 'g1', name: 'n', action: 'drag', holdMs: -1, durationMs: 10001, moveSteps: 0 },
   { id: 'g2', name: 'n', action: 'drag', holdMs: 0, durationMs: 10000, moveSteps: 60, fromX: '5' },
   { id: 'g3', name: 'n', action: 'long_press', selector: '.spin' },
 ])) as unknown as Record<string, unknown>[]
-ok(!('holdMs' in g[0]) && !('durationMs' in g[0]) && !('moveSteps' in g[0]), '手勢欄位超出範圍 → 丟掉', g[0])
+ok(g[0].holdMs === -1 && g[0].durationMs === 10001 && g[0].moveSteps === 0, '手勢欄位超出範圍 → 原樣保留（交給執行器報錯，不在載入時換成預設）', g[0])
 ok(g[1].holdMs === 0 && g[1].durationMs === 10000 && g[1].moveSteps === 60 && !('fromX' in g[1]), '手勢欄位邊界值保留、座標型別不對丟掉', g[1])
 ok(g[2].holdMs === 1500, '長按沒填按住毫秒 → 預設 1500', g[2])
 // 原本的整理行為不變：字串去頭尾空白、空的不存、collapsed 不存
@@ -63,6 +64,16 @@ ok(tidy.selector === '#a' && !('value' in tidy) && !('collapsed' in tidy) && !('
 // fill → type、title → name（舊格式）
 const legacy = parseSteps(JSON.stringify([{ action: 'fill', title: '舊標題', value: 'x' }]))[0]
 ok(legacy.action === 'type' && legacy.name === '舊標題', '舊格式 fill／title 照舊轉換', legacy)
+
+// 編輯器載入 → 送去執行：超範圍的 holdMs 不能在載入時被換成預設 1500，執行器要真的擋下來（CodeX review 011f6fe [P2]）
+// 欄位驗證在碰頁面之前，所以給一個空的 page 就夠（真的碰到頁面會丟別的錯，這條就會紅）
+for (const bad of [{ action: 'long_press', selector: '#spin', holdMs: 20000 }, { action: 'drag', fromX: 1, fromY: 1, toX: 9, toY: 9, moveSteps: 0 }]) {
+  const [loaded] = compileExecutableSteps(parseSteps(JSON.stringify([{ id: 'l1', name: 'n', ...bad }]))) as unknown as Record<string, unknown>[]
+  let msg = ''
+  try { await runFrontendStep(loaded, { idx: '', label: '', log: () => {}, page: {}, startUrl: 'http://qat/' }) } catch (e) { msg = e instanceof Error ? e.message : String(e) }
+  const key = 'holdMs' in bad ? 'holdMs' : 'moveSteps'
+  ok(loaded[key] === (bad as Record<string, unknown>)[key] && msg.includes(key), `${bad.action}：載入→執行，${key} 超範圍照樣擋（沒被載入改掉）`, { loaded: loaded[key], msg })
+}
 
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
 process.exit(fail ? 1 : 0)

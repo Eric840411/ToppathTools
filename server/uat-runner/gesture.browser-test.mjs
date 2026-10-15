@@ -7,6 +7,7 @@
  * CodeX 1015 要求至少驗：寶箱（拖到目標）、原生列表滑動、長按後拖動、中途失敗不重送。
  *
  * 跑法：node server/uat-runner/gesture.browser-test.mjs
+ * （「編輯器載入→執行」那條在 scripts/ui-checks/step-model-roundtrip.test.ts：這裡不能 import src 的 .ts，build:server 會擋）
  */
 import { chromium } from 'playwright';
 import { isNoRetryError, runFrontendStep } from './frontend-engine.js';

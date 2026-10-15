@@ -798,6 +798,8 @@ ${dangerousRulesSource()}
    *   - 沒超過、按住 ≥ 800ms → long_press（保留實際按住的毫秒）
    *   - 其他 → 照舊交給下面的 click 錄
    * ⚠️ 錄成長按／拖動之後，瀏覽器緊接著還會發一個 click，要吞掉——不然同一個手勢會錄兩顆。
+   *    只吞**同一個手勢**的 click：下一次 pointerdown 一來就解除（手勢沒產生 click 時，接著點別的按鈕不能漏錄；CodeX review 011f6fe [P2]）。
+   * ⚠️ 800ms 只用來分 long_press／click；drag 一律記實際按住才開始移的毫秒（按 700ms 再拖不能重播成立即拖，同上 [P2]）。
    * ⚠️ pointercancel＝瀏覽器把手勢拿去捲動了（手機上滑原生列表），不錄 drag，讓下面的 scroll 錄。
    * ⚠️ 拖動錄座標（viewport CSS px），不錄選擇器：終點常常是「放在哪個位置」，不是某個元素；要改用選擇器在編輯器換。
    * ⚠️ 危險按鈕的 pointerdown 會被 dangerGuard 用 stopImmediatePropagation 擋掉，這裡就收不到——跟 click 一致。
@@ -806,8 +808,10 @@ ${dangerousRulesSource()}
   const LONG_PRESS_MS = 800;
   let gesture = null;
   let suppressClickUntil = 0;
+  let suppressAt = null;   /* 被吞的 click 要落在那個手勢放開的位置（鍵盤 Enter 之類沒有 pointerdown 的 click 不能被誤吞） */
   document.addEventListener('pointerdown', (event) => {
     gesture = null;
+    suppressClickUntil = 0;   /* 新的手勢開始了：上一個手勢的 click 沒來就不會來了 */
     if (window.__toppathCropping || checkMode || !event.isPrimary) return;
     const el = event.target;
     if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;
@@ -838,16 +842,15 @@ ${dangerousRulesSource()}
         action: 'drag', fromX: g.x, fromY: g.y, toX: upX, toY: upY,
         durationMs: Math.max(0, now - (g.moveAt || g.t)),
       };
-      // 按住一陣子才開始移＝長按後拖動，要另記 holdMs（durationMs 只算移動時間）
-      const hold = (g.moveAt || now) - g.t;
-      if (hold >= LONG_PRESS_MS) step.holdMs = hold;
-      suppressClickUntil = now + 500;
+      // 按下到開始移動之間的等待一律記下來（durationMs 只算移動時間）
+      step.holdMs = Math.max(0, (g.moveAt || now) - g.t);
+      suppressClickUntil = now + 500; suppressAt = { x: upX, y: upY };
       send(step);
       return;
     }
     const held = now - g.t;
     if (held < LONG_PRESS_MS) return;
-    suppressClickUntil = now + 500;
+    suppressClickUntil = now + 500; suppressAt = { x: upX, y: upY };
     const canvas = canvasOf(g.el);
     const d = canvas ? null : describeStep(g.el, g.src);
     if (d && d.selector) {
@@ -865,7 +868,7 @@ ${dangerousRulesSource()}
   document.addEventListener('click', (event) => {
     if (window.__toppathCropping) return;
     // 剛錄成長按／拖動的那個手勢，瀏覽器跟著發的 click 不要再錄一次
-    if (Date.now() < suppressClickUntil) { suppressClickUntil = 0; return; }
+    if (Date.now() < suppressClickUntil && suppressAt && Math.abs(event.clientX - suppressAt.x) <= 2 && Math.abs(event.clientY - suppressAt.y) <= 2) { suppressClickUntil = 0; return; }
     const el = event.target;
     if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;
     const canvas = canvasOf(el);
