@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.62.0'
+export const APP_VERSION = '5.62.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.62.1', date: '2026-10-16', changes: ["fix(機台測試 測試前準備 混批提醒)：CodeX 審 1e24233 [P2]——免除 model 混批提醒時用 distinct 判斷，distinct 已排除缺失／空白，[wlzbhelix9, wlzbhelix10, null] 仍被免除。改成逐台看原始 rows，沒回報 model 就不算全部在清單內。逐台比對本來就會報缺失，影響只在提醒。pretest-model-list 補 null／空白案例（15 條），換回舊寫法會紅"] },
   { version: '5.62.0', date: '2026-10-16', changes: ["feat(機台測試 測試前準備 machine_model 多值)：使用者 1016 選 A（osm-qa-agent 轉）、CodeX 同意——WLZBHELIX 會拆成多種 MachineModel、同批混著（例 wlzbhelix9／wlzbhelix10）。--machine-model 用半形或全形逗號分隔，每台 model 完整等於清單其中一個（不分大小寫）就相符；有填但盒子沒回報照樣不符；只有分隔符解析不出值 → 設定錯誤、不默默跳過；清單內的混批不再提醒 model 不一致。只驗在清單內，不驗逐台配對。pretest-model-list.test 14 條"] },
   { version: '5.61.2', date: '2026-10-15', changes: ["fix(機台測試報告 Lark 回寫欄)：osm-qa-agent ③ 回報——沒有 writeback 時「未回寫」是 L() 產生的雙語 span，渲染時又 esc 一次，頁面顯示字面的 <span data-l=\"zh\">。改成有回寫那支先 esc、渲染不再 esc。一般批次都有 writeback 所以沒遇過（AI agent 轉換器之前沒填）。用沒有／有 writeback（含 < 的欄名）各一台的報告驗證，舊寫法會紅"] },
   { version: '5.61.1', date: '2026-10-15', changes: ["fix(UAT 前台 長按／拖動)：CodeX 審 011f6fe 三個 [P2]——① 編輯器載入時把超範圍的 holdMs 等刪掉，holdMs:20000 讀進來變成預設 1500、繞過執行器的擋 → 載入原樣保留、交給執行器報錯（step-model 補載入→執行測試）；② 錄製器只在按住 ≥ 800ms 才記 drag 的 holdMs，按 700ms 再拖會重播成立即拖 → drag 一律記實際等待，800ms 只用來分長按；③ 長按／拖動後 500ms 內無條件吞下一個 click，手勢沒產生 click 時接著點別的按鈕會漏錄 → 只吞落在放開位置的 click、下一次 pointerdown 就解除（觸控拖動後立刻點另一顆的回歸，換回舊寫法會紅）。編輯器走查（兩種主題存檔重載）通過；兩段欄位說明字級 16px → 11px"] },

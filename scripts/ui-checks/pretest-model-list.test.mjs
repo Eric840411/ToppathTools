@@ -26,6 +26,7 @@ check('只有分隔符 → 每台都列出設定錯誤', (() => { const i = mode
 const rows = ms => ms.map(m => ({ row: { model: m, boxVer: '1.18.15', llProtocol: null, llVer: null } }))
 const warns = (ms, machineModel) => preTestBatchWarn(rows(ms), { machineModel }).filter(w => /Machine model/.test(w))
 check('混批但都在清單內 → 不提醒 model 不一致', warns(['wlzbhelix9', 'wlzbhelix10', 'WLZBHELIX9'], 'wlzbhelix9,wlzbhelix10').length === 0)
+check('混批、有一台沒回報 model（null／空白）→ 照樣提醒（不能被 distinct 濾掉）', warns(['wlzbhelix9', 'wlzbhelix10', null], 'wlzbhelix9,wlzbhelix10').length === 1 && warns(['wlzbhelix9', 'wlzbhelix10', '  '], 'wlzbhelix9,wlzbhelix10').length === 1)
 check('混批、有一台在清單外 → 照樣提醒', warns(['wlzbhelix9', 'wlzbhelix11'], 'wlzbhelix9,wlzbhelix10').length === 1)
 check('沒給預期值的混批 → 照樣提醒（原本行為）', warns(['wlzbhelix9', 'wlzbhelix10'], '').length === 1)
 check('其他欄位不一致照舊提醒', preTestBatchWarn([{ row: { model: 'a', boxVer: '1' } }, { row: { model: 'a', boxVer: '2' } }], { machineModel: 'a' }).some(w => /盒子版號/.test(w)))

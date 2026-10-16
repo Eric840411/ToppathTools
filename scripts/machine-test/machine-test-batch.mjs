@@ -1232,7 +1232,8 @@ export async function preTestCheck(codes, expect = {}) {
 export function preTestBatchWarn(rows, expect = {}) {
   const distinct = k => [...new Set(rows.map(r => r.row[k]).filter(v => v != null && String(v).trim() !== ''))]   // 離線的台版號是空字串，不算「不一致」
   const allowed = parseModelList(expect.machineModel).list.map(m => m.toLowerCase())
-  const modelsAllowed = allowed.length > 0 && distinct('model').every(m => allowed.includes(String(m).trim().toLowerCase()))
+  // ⚠️ 逐台看原始 rows，不能用 distinct（它排除了缺失／空白）：有一台沒回報 model 就不算「全部在清單內」（CodeX review 1e24233 [P2]）
+  const modelsAllowed = allowed.length > 0 && rows.every(r => r.row.model != null && allowed.includes(String(r.row.model).trim().toLowerCase()))
   return [['boxVer', '盒子版號'], ['model', 'Machine model'], ['llProtocol', 'LuckyLink 協議'], ['llVer', 'LuckyLink 版本']]
     .filter(([k]) => distinct(k).length > 1 && !(k === 'model' && modelsAllowed)).map(([k, n]) => `同一批${n}不一致：${distinct(k).join('／')}`)
 }
