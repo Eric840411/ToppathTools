@@ -851,4 +851,4 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 同批 model 不一致的提醒：明確給了清單、而且這批全部在清單內就不提醒（預期中的混批）；其他欄位照舊（`preTestBatchWarn`）
   - v5.62.1（CodeX review 1e24233 [P2]）：「全部在清單內」逐台看原始 rows——有一台沒回報 model（null／空白）就照樣提醒；原本用 distinct 判斷，缺失值被濾掉而誤免除
 - ⚠️ 界線（CodeX）：只驗「每台都在清單內」，**不驗逐台配對**（2209 設成 wlzbhelix10 也會過），也不保證清單裡每種都出現
-- 測試：`node scripts/ui-checks/pretest-model-list.test.mjs`（14 條）；比對換回整串相等紅 1 條、拿掉混批免除紅 1 條
+- 測試：`node scripts/ui-checks/pretest-model-list.test.mjs`（15 條）；比對換回整串相等紅 1 條、拿掉混批免除紅 1 條
