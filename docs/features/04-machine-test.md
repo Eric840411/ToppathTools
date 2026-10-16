@@ -841,3 +841,13 @@ gap 自動往下試、截圖前改用畫面穩定偵測、batch 收集樣本並�
 - 測試：`scripts/ui-checks/luckylink-lookup.test.mjs` 24 條（含真的回應 `fixtures/luckylink/egmlist-1013.json`：跨渠道同號、空結果）、`pretest-luckylink.test.mjs` 11 條（mock fetch 跑真的 preTestCheck／報告）；突變（不翻頁、用機台號比對、失敗當沒有、舊接線、舊報告）各自會紅
 - 實跑（1013 QAT，唯讀）：全表照樣逾時 → 逐台查：0231 有接 SAS 1.1.6、0998 確定不存在
 - **v5.57.2（CodeX e37efbb [P2]）**：只看頁長不夠——回應有 `total` 就要收齊 total 筆才算查完；這頁沒滿卻還沒收齊 → unknown（「回應不完整」），不判 absent。luckylink-lookup.test 27 條
+
+## 測試前準備：machine_model 可以填多個（v5.62.0，2026-10-16 使用者選 A、CodeX 同意）
+> WLZBHELIX 會拆成很多種 MachineModel，同一批可能混著，例如 Pu4GB7：2209／2211＝wlzbhelix9、2210／2212＝wlzbhelix10。`/machine-test` 表單的說明由 osm-qa-agent 改成「可填多個，用逗號分隔」。
+
+- `--machine-model` 用半形或全形逗號分隔，去掉頭尾空白與空的項目（`parseModelList`，machine-test-batch.mjs）
+- 每台盒子回報的 model 只要**完整等於**清單其中一個（不分大小寫）就相符；不符的訊息寫「預期 a、b 其中之一」；有填預期但盒子沒回報 model 照樣算不符
+- 空白＝沒填，只列出不比對；**有分隔符卻解析不出值**（例如 `,，`）→ 每台都列「設定錯誤，沒有比對」，不默默跳過
+- 同批 model 不一致的提醒：明確給了清單、而且這批全部在清單內就不提醒（預期中的混批）；其他欄位照舊（`preTestBatchWarn`）
+- ⚠️ 界線（CodeX）：只驗「每台都在清單內」，**不驗逐台配對**（2209 設成 wlzbhelix10 也會過），也不保證清單裡每種都出現
+- 測試：`node scripts/ui-checks/pretest-model-list.test.mjs`（14 條）；比對換回整串相等紅 1 條、拿掉混批免除紅 1 條

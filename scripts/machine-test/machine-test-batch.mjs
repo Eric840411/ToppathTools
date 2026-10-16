@@ -1169,6 +1169,17 @@ async function fetchLuckyLinkInfo(codes) {
   const fetchPage = async (body) => (await fetch(`${B}/slot/egmList?token=${lj.data.token}&clientversion=1.0.6.6`, { method: 'POST', headers: h, body: JSON.stringify(body), signal: AbortSignal.timeout(LL_TIMEOUT_MS) })).json()
   return lookupLuckyLink(codes, { fetchPage })
 }
+/**
+ * machine_model 預期值可以填多個（1016 使用者選 A、CodeX 同意）：WLZBHELIX 會拆成很多 MachineModel，同一批可能 wlzbhelix9／wlzbhelix10 混著。
+ * 半形或全形逗號分隔、trim、去掉空的。空白＝沒填（不比對）；**有分隔符卻解析不出任何值**（例如 ",，"）→ error，不能默默跳過比對。
+ * ⚠️ 只驗「每台都在清單內」，不驗逐台配對、也不保證清單裡每種都出現（CodeX：接受這個界線）
+ */
+export function parseModelList(text) {
+  const raw = String(text ?? '')
+  if (!raw.trim()) return { list: [], error: null }
+  const list = raw.split(/[,，]/).map(x => x.trim()).filter(Boolean)
+  return list.length ? { list, error: null } : { list: [], error: `Machine model 預期值「${raw}」解析不出任何值（設定錯誤），沒有比對` }
+}
 // 純函式（探針測）：一台的資訊 → 列＋與預期值的差異
 // llUnknown（v5.56.0）：LuckyLink 讀取失敗的原因。有值＝無法確認：不說「清單沒有」，也不比對任何 LuckyLink 預期值（不算通過，原因列進 issues）
 export function judgeMachineInfo(code, box, ll, expect = {}, llUnknown = null) {
@@ -1187,7 +1198,11 @@ export function judgeMachineInfo(code, box, ll, expect = {}, llUnknown = null) {
   if (!box) issues.push('後台 EGM List 查不到這台')
   else if (box.onlineState !== 'online') issues.push(`盒子 ${box.onlineState ?? '狀態不明'}`)
   if (expect.machineVer && !eq(row.boxVer, expect.machineVer)) issues.push(`盒子版號 ${row.boxVer ?? '查不到'}，預期 ${expect.machineVer}`)
-  if (expect.machineModel && !eq(row.model, expect.machineModel)) issues.push(`Machine model ${row.model ?? '查不到'}，預期 ${expect.machineModel}`)
+  const models = parseModelList(expect.machineModel)
+  if (models.error) issues.push(models.error)
+  else if (models.list.length && !models.list.some(m => eq(row.model, m))) {
+    issues.push(`Machine model ${row.model ?? '查不到'}，預期 ${models.list.length > 1 ? `${models.list.join('、')} 其中之一` : models.list[0]}`)
+  }
   const llExpected = expect.luckylink || expect.llProtocol || expect.llVer
   if (llUnknown) { if (llExpected) issues.push(`LuckyLink 無法確認（${llUnknown}），預期值沒有比對`); return { row, issues } }
   if (expect.luckylink === 'yes' && !linked) issues.push(ll ? `LuckyLink 沒接上（${proto || '沒有協議'}、${ll.isactive ? '已授權' : '未授權'}${row.llGroup ? '' : '、沒有群組'}），預期有接` : 'LuckyLink Egm list 沒有這台，預期有接')
@@ -1208,11 +1223,18 @@ export async function preTestCheck(codes, expect = {}) {
     r.row.boxListComplete = boxes[c.split('-')[0]]?.complete === true   // 1013 spec #8：這台的渠道清單是否完整
     return r
   })
-  // 同一批不一致也提醒（沒給預期值時特別有用）
+  return { rows, errs, batchWarn: preTestBatchWarn(rows, expect), expect }
+}
+/**
+ * 同一批不一致也提醒（沒給預期值時特別有用）。
+ * 1016：machine_model 明確給了清單、而且這批的 model 全部在清單內 → 不提醒 model 不一致（那是預期中的混批，CodeX）；其他欄位照舊
+ */
+export function preTestBatchWarn(rows, expect = {}) {
   const distinct = k => [...new Set(rows.map(r => r.row[k]).filter(v => v != null && String(v).trim() !== ''))]   // 離線的台版號是空字串，不算「不一致」
-  const batchWarn = [['boxVer', '盒子版號'], ['model', 'Machine model'], ['llProtocol', 'LuckyLink 協議'], ['llVer', 'LuckyLink 版本']]
-    .filter(([k]) => distinct(k).length > 1).map(([k, n]) => `同一批${n}不一致：${distinct(k).join('／')}`)
-  return { rows, errs, batchWarn, expect }
+  const allowed = parseModelList(expect.machineModel).list.map(m => m.toLowerCase())
+  const modelsAllowed = allowed.length > 0 && distinct('model').every(m => allowed.includes(String(m).trim().toLowerCase()))
+  return [['boxVer', '盒子版號'], ['model', 'Machine model'], ['llProtocol', 'LuckyLink 協議'], ['llVer', 'LuckyLink 版本']]
+    .filter(([k]) => distinct(k).length > 1 && !(k === 'model' && modelsAllowed)).map(([k, n]) => `同一批${n}不一致：${distinct(k).join('／')}`)
 }
 // ── 大廳找不到機台：分原因（1013 spec #8，CodeX：完整清單缺席只能說「未提供，疑似未開放」；Test 要後台證據；沒查到盒子狀態不等於 offline）──
 // 依據是測前查的後台 EGM List（不是大廳 WS：那份是 binary、沒有總數，證明不了完整）。回傳附在進場訊息後面的一句，F 欄由 shortLine 依開頭判
