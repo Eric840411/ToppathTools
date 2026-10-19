@@ -125,6 +125,11 @@ const runRead = async (step: Record<string, unknown>, page: unknown, state: { va
     try { await runFrontendStep({ id: 'a2', name: 'n', action: 'scroll', selector: '.sec', ...(align ? { align } : {}) }, { idx: '', label: '', log: () => {}, page: fakePage, startUrl: 'http://qat/' }) } catch (e) { err = e instanceof Error ? e.message : String(e) }
     ok(err === '' && eq(calls, [{ block: want }]), `scroll align=${align ?? '(預設)'} → scrollIntoView block:${want}`, { err, calls })
   }
+  // 捲動量填 '0' 不是留空：走相對捲動，不能誤走「捲進畫面」（CodeX 審 5ce8df3 要的邊界）
+  calls.length = 0
+  let err0 = ''
+  try { await runFrontendStep({ id: 'a3', name: 'n', action: 'scroll', selector: '.sec', value: '0', align: 'start' }, { idx: '', label: '', log: () => {}, page: fakePage, startUrl: 'http://qat/' }) } catch (e) { err0 = e instanceof Error ? e.message : String(e) }
+  ok(err0 === '' && calls.length === 0, "scroll 捲動量 '0' → 相對捲動，不呼叫 scrollIntoView", { err0, calls })
 }
 
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
