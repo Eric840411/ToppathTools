@@ -102,7 +102,7 @@ export function createStep(action = 'goto'): AutoStep {
  *    白名單＝每加一個欄位就要記得改兩處，漏了沒有任何錯誤；改成「預設保留、已知的才驗」。
  *    守門：scripts/ui-checks/step-model-roundtrip.test.ts（每種 action、每個欄位都要原封不動地存回來）
  */
-const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason'] as const
+const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason', 'readMode'] as const
 const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs', 'fromX', 'fromY', 'toX', 'toY', 'holdMs', 'durationMs', 'moveSteps'] as const
 // ⚠️ 1015 長按／拖動的範圍（holdMs／durationMs 0～10000、moveSteps 1～60）**不在這裡驗**：超出範圍的值要原樣留著，
 //    讓執行器報錯。在這裡刪掉的話 holdMs:20000 讀進來就變成預設 1500，靜默改掉使用者寫的值（CodeX review 011f6fe [P2]）
@@ -115,8 +115,8 @@ const ENUMS: Record<string, readonly string[]> = {
   matchMode: ['contains', 'equals', 'regex', 'number'],
   // 1014 pc_pick_machine：只挑空機／排除離線
   pickFrom: ['free', 'online'],
-  // 1019 read_value：讀文字（預設）／數符合的元素個數
-  readMode: ['text', 'count'],
+  // ⚠️ 1019 read_value 的 readMode **不放這裡**：不認得的值在這裡會被刪掉，'Count' 載入後就退回讀文字，
+  //    繞過執行器「打錯直接擋」（CodeX review 7d71596 [P2]）。改放 STRING_KEYS：只擋型別，值交給執行器判
 }
 function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof item === 'string') return { ...createStep('wait'), name: item, value: '1000' }

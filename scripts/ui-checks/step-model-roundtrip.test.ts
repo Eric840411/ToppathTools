@@ -77,9 +77,12 @@ for (const bad of [{ action: 'long_press', selector: '#spin', holdMs: 20000 }, {
   ok(loaded[key] === (bad as Record<string, unknown>)[key] && msg.includes(key), `${bad.action}：載入→執行，${key} 超範圍照樣擋（沒被載入改掉）`, { loaded: loaded[key], msg })
 }
 
-// 1019 read_value 數個數：0 個是合法值、存成字串可以進算式；不認得的 readMode 載入時丟掉、執行器直接擋
+// 1019 read_value 數個數：0 個是合法值、存成字串可以進算式；不認得的 readMode 載入時**原樣保留**、交給執行器擋
+//    （CodeX review 7d71596 [P2]：原本載入時刪掉，'Count' 就退回讀文字、繞過執行器的擋）
 const rm = parseSteps(JSON.stringify([{ id: 'r1', name: 'n', action: 'read_value', selector: '.a', as: 'x', readMode: 'Count' }]))[0] as unknown as Record<string, unknown>
-ok(!('readMode' in rm), 'readMode 不認得的值 → 載入時丟掉', rm)
+ok(rm.readMode === 'Count', 'readMode 不認得的值 → 載入時原樣保留', rm)
+const rmBadType = parseSteps(JSON.stringify([{ id: 'r2', name: 'n', action: 'read_value', selector: '.a', as: 'x', readMode: 1 }]))[0] as unknown as Record<string, unknown>
+ok(!('readMode' in rmBadType), 'readMode 型別不對 → 丟掉', rmBadType)
 const countPage = (counts: Record<string, number>) => ({ locator: (sel: string) => ({ count: async () => counts[sel] ?? 0 }) })
 const runRead = async (step: Record<string, unknown>, page: unknown, state: { vars?: Record<string, unknown> } = {}) => {
   let msg = ''
@@ -97,6 +100,10 @@ const runRead = async (step: Record<string, unknown>, page: unknown, state: { va
   ok(bad2.msg.includes('只取一段'), '數個數：搭配只取一段 → 擋', bad2.msg)
   const bad3 = await runRead({ selector: '.a', as: 'x', readMode: 'Count' }, countPage({ '.a': 2 }))
   ok(bad3.msg.includes('readMode'), '執行器：readMode 打錯 → 擋，不當成讀文字', bad3.msg)
+  // 編輯器載入 → 送去執行 → 執行器擋（換回「載入時刪掉」的寫法，這條會因為退回讀文字而紅）
+  const [loadedRm] = compileExecutableSteps(parseSteps(JSON.stringify([{ id: 'r3', name: 'n', action: 'read_value', selector: '.a', as: 'x', readMode: 'Count' }]))) as unknown as Record<string, unknown>[]
+  const bad4 = await runRead(loadedRm, countPage({ '.a': 2 }))
+  ok(bad4.msg.includes('readMode'), 'readMode 打錯：載入→執行，照樣被執行器擋', bad4.msg)
   const dup = await runRead({ selector: '.a', as: 'x', readMode: 'count' }, countPage({ '.a': 2 }), { vars: { x: '1' } })
   ok(dup.msg.includes('重複'), '數個數：同名變數沒勾覆寫 → 擋（沿用讀文字的規則）', dup.msg)
 }

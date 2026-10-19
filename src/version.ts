@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.63.0'
+export const APP_VERSION = '5.63.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.63.1', date: '2026-10-19', changes: ["fix(UAT 前台 讀成變數 readMode 載入)：CodeX 審 7d71596 [P2]——step-model 把不認得的 readMode 當列舉刪掉，'Count' 載入後退回讀文字、繞過執行器的擋。改成只驗型別（字串）原樣保留、交給執行器報錯；roundtrip 補載入保留＋載入→執行被擋（111 條），換回舊寫法會紅 2 條"] },
   { version: '5.63.0', date: '2026-10-19', changes: ["feat(UAT 前台 讀成變數 數個數)：H5 使用者經 osm-qa-agent 提出（AI T-044 最愛：原本要先手動取消最愛才能跑）——read_value 新增 readMode:'count'，數符合 DOM 選擇器的元素個數存成變數（0 也合法、不失敗），搭配「比對兩個值」驗 after = 1 - before，不管原本是不是最愛都能跑同一支。只收 DOM 選擇器、不能配「只取一段」；readMode 打錯直接擋，不默默當成讀文字；編輯器切到數個數會一起清掉隱藏的節點名／擷取規則。step-model-roundtrip 補 7 條（109 條）；UAT H5 用真引擎兩種起始狀態各跑 47/47；要更新 Local Agent 才生效"] },
   { version: '5.62.1', date: '2026-10-16', changes: ["fix(機台測試 測試前準備 混批提醒)：CodeX 審 1e24233 [P2]——免除 model 混批提醒時用 distinct 判斷，distinct 已排除缺失／空白，[wlzbhelix9, wlzbhelix10, null] 仍被免除。改成逐台看原始 rows，沒回報 model 就不算全部在清單內。逐台比對本來就會報缺失，影響只在提醒。pretest-model-list 補 null／空白案例（15 條），換回舊寫法會紅"] },
   { version: '5.62.0', date: '2026-10-16', changes: ["feat(機台測試 測試前準備 machine_model 多值)：使用者 1016 選 A（osm-qa-agent 轉）、CodeX 同意——WLZBHELIX 會拆成多種 MachineModel、同批混著（例 wlzbhelix9／wlzbhelix10）。--machine-model 用半形或全形逗號分隔，每台 model 完整等於清單其中一個（不分大小寫）就相符；有填但盒子沒回報照樣不符；只有分隔符解析不出值 → 設定錯誤、不默默跳過；清單內的混批不再提醒 model 不一致。只驗在清單內，不驗逐台配對。pretest-model-list.test 14 條"] },
