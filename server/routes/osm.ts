@@ -7,7 +7,8 @@ import { collectEgmPages } from '../osm-egm-pages.js'
 import { Router } from 'express'
 import cron from 'node-cron'
 import { z } from 'zod'
-import vm from 'vm'
+import { parseServerCfgSource } from '../../shared/server-cfg-parse.js'
+import { safeFetch, assertSafeUrl } from '../lib/safe-fetch.js'
 import { chromium } from 'playwright'
 import { fetchAllGMList } from '../lib/pinus-client.js'
 import { refreshWatchIndex, watchState, watchAgeMs, lookupWatchEntry } from '../lib/osm-watch.js'
@@ -835,8 +836,15 @@ router.post('/api/osm/alert', async (_req, res, next) => {
 })
 
 // GET /api/osm/alert/config
+// webhook URL 本身就是憑證：只回遮罩後的樣子（資安審查 2026-10-19）
+const LARK_WEBHOOK_HOSTS = ['open.larksuite.com', 'open.feishu.cn']
+function publicAlertConfig() {
+  const { webhookUrl, ...rest } = getAlertConfig()
+  return { ...rest, hasWebhook: !!webhookUrl, webhookUrlMasked: webhookUrl ? `${webhookUrl.slice(0, webhookUrl.lastIndexOf('/') + 5)}…` : '' }
+}
+
 router.get('/api/osm/alert/config', (_req, res) => {
-  res.json({ ok: true, config: getAlertConfig() })
+  res.json({ ok: true, config: publicAlertConfig() })
 })
 
 // POST /api/osm/alert/config
@@ -844,9 +852,17 @@ router.post('/api/osm/alert/config', (req, res) => {
   const body = z.object({ enabled: z.boolean().optional(), schedule: z.string().optional(), webhookUrl: z.string().optional() }).parse(req.body)
   if (body.enabled !== undefined) setAlertConfigKey('enabled', String(body.enabled))
   if (body.schedule !== undefined) setAlertConfigKey('schedule', body.schedule)
-  if (body.webhookUrl !== undefined) setAlertConfigKey('webhook_url', body.webhookUrl)
+  // 留空＝沿用原本的（畫面上只看得到遮罩，不會把舊值帶回來）；有填只收 Lark 官方的 webhook 網址，擋 SSRF
+  if (body.webhookUrl) {
+    let u: URL | null = null
+    try { u = new URL(body.webhookUrl.trim()) } catch { /* invalid */ }
+    if (!u || u.protocol !== 'https:' || !LARK_WEBHOOK_HOSTS.includes(u.hostname)) {
+      return res.status(400).json({ ok: false, message: 'Webhook 只接受 Lark／飛書的 https 網址' })
+    }
+    setAlertConfigKey('webhook_url', u.toString())
+  }
   restartCron()
-  res.json({ ok: true, config: getAlertConfig() })
+  res.json({ ok: true, config: publicAlertConfig() })
 })
 
 // ─── Config Compare ───────────────────────────────────────────────────────────
@@ -893,7 +909,7 @@ function deepDiff(template: unknown, live: unknown, path = ''): DiffItem[] {
 
 async function fetchServerCfg(url: string): Promise<Record<string, unknown>> {
   // Step 1: follow HTTP redirect, read HTML page
-  const pageResp = await fetch(url, { redirect: 'follow' })
+  const pageResp = await safeFetch(url)
   let finalUrl = new URL(pageResp.url)
   let htmlText = await pageResp.text()
 
@@ -908,7 +924,7 @@ async function fetchServerCfg(url: string): Promise<Record<string, unknown>> {
       if (redirectTarget.hostname !== finalUrl.hostname) {
         // Re-fetch from the JS redirect target's origin (strip token/params for safety)
         const cleanOrigin = `${redirectTarget.protocol}//${redirectTarget.host}`
-        const targetResp = await fetch(cleanOrigin, { redirect: 'follow' }).catch(() => null)
+        const targetResp = await safeFetch(cleanOrigin).catch(() => null)
         if (targetResp?.ok) {
           const targetHtml = await targetResp.text()
           if (targetHtml.length > htmlText.length || targetHtml.includes('serverCfg')) {
@@ -945,7 +961,8 @@ async function fetchServerCfg(url: string): Promise<Record<string, unknown>> {
   let jsText: string | null = null
   let fetchedUrl = ''
   for (const cfgUrl of [...new Set(candidates)]) {
-    const cfgResp = await fetch(cfgUrl)
+    const cfgResp = await safeFetch(cfgUrl).catch(() => null)
+    if (!cfgResp) continue
     if (!cfgResp.ok) continue
     const ct = cfgResp.headers.get('content-type') ?? ''
     if (ct.includes('text/html')) continue   // SPA fallback, skip
@@ -954,17 +971,15 @@ async function fetchServerCfg(url: string): Promise<Record<string, unknown>> {
   }
   if (!jsText) throw new Error(`無法找到 serverCfg.js（嘗試路徑：${[...new Set(candidates)].join(', ')}）`)
 
-  // Step 3: execute in sandbox
-  const ctx = vm.createContext({ window: {} as Record<string, unknown> })
+  // Step 3: 只解析不執行（原本 vm.runInContext 不是沙箱，網址又是請求帶進來的＝遠端執行指令）
+  let cfg: Record<string, unknown>
   try {
-    vm.runInContext(jsText, ctx)
+    cfg = parseServerCfgSource(jsText)
   } catch (e) {
     const preview = jsText.substring(0, 120).replace(/\n/g, '\\n')
-    throw new Error(`執行 serverCfg.js 失敗（來源：${fetchedUrl}）：${String(e)}\n前 120 字元：${preview}`)
+    throw new Error(`解析 serverCfg.js 失敗（來源：${fetchedUrl}）：${(e as Error).message}\n前 120 字元：${preview}`)
   }
-  const cfg = (ctx as { window: Record<string, unknown> }).window._ServerCfg
-  if (!cfg || typeof cfg !== 'object') throw new Error(`serverCfg.js 中找不到 window._ServerCfg（來源：${fetchedUrl}）`)
-  return cfg as Record<string, unknown>
+  return cfg
 }
 
 // GET /api/osm/config-templates
@@ -1064,6 +1079,10 @@ router.post('/api/osm/frontend-machines', heavyLimiter, async (req, res) => {
       ? `${scheme}://${connectorInfo.host}${connectorInfo.port ? `:${connectorInfo.port}` : ''}`
       : undefined
 
+    // gate／connector 位址來自抓回來的 serverCfg（等於使用者可控），連線前一樣檢查不是內部位址
+    for (const wsUrl of [gateUrl, connectorUrl]) {
+      if (wsUrl) await assertSafeUrl(wsUrl.replace(/^ws(s?):/i, 'http$1:'))
+    }
     const counts = await fetchAllGMList({ gateUrl, connectorUrl, token })
     const total = Object.values(counts).reduce((s, c) => s + c, 0)
     res.json({ ok: true, counts, total })

@@ -107,8 +107,12 @@ function publicImagePath(filename: string) {
   return `/api/frontend-auto/images/${filename}`
 }
 
+const UPLOAD_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif']
+
 function saveUpload(file: Express.Multer.File) {
-  const ext = extname(file.originalname || '').toLowerCase() || '.png'
+  // 副檔名決定 express.static 回的 Content-Type：放行 .html／.svg 就等於讓人在本站放網頁（存放型 XSS）
+  const raw = extname(file.originalname || '').toLowerCase()
+  const ext = UPLOAD_IMAGE_EXTS.includes(raw) ? raw : '.png'
   const filename = `${Date.now()}-${randomUUID()}${ext}`
   writeFileSync(join(imageDir, filename), file.buffer)
   return { filename, imagePath: publicImagePath(filename) }
@@ -140,7 +144,7 @@ function canMutateScript(req: express.Request, script: ScriptRow | undefined, ac
   return script.created_by === actor
 }
 
-router.use('/api/frontend-auto/images', express.static(imageDir))
+router.use('/api/frontend-auto/images', express.static(imageDir, { setHeaders: res => res.setHeader('X-Content-Type-Options', 'nosniff') }))
 
 /**
  * H5／PC 腳本的 Lark TC 綁定。

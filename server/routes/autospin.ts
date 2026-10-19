@@ -27,6 +27,7 @@ import {
 } from '../heavy-task-guard.js'
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
 import { randomUUID } from 'crypto'
+import { safeChildPath, IMAGE_EXTS } from '../lib/safe-path.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
@@ -344,23 +345,27 @@ router.post('/api/autospin/templates', upload.single('file'), (req, res) => {
   if (!PROJECT_DIR) return res.status(500).json({ ok: false, message: 'AUTOSPIN_PROJECT 未設定' })
   if (!req.file) return res.status(400).json({ ok: false, message: '未收到檔案' })
   const dir = join(PROJECT_DIR, 'templates')
+  const dest = safeChildPath(dir, req.file.originalname, IMAGE_EXTS)
+  if (!dest) return res.status(400).json({ ok: false, message: '檔名不合法（只收 png／jpg／webp／bmp，不能含路徑）' })
   mkdirSync(dir, { recursive: true })
-  const dest = join(dir, req.file.originalname)
   writeFileSync(dest, req.file.buffer)
   res.json({ ok: true, filename: req.file.originalname })
 })
 
 // GET /api/autospin/template-img/:filename — serve template image
 router.get('/api/autospin/template-img/:filename', (req, res) => {
-  const p = join(PROJECT_DIR, 'templates', req.params.filename)
+  const p = safeChildPath(join(PROJECT_DIR, 'templates'), req.params.filename, IMAGE_EXTS)
+  if (!p) return res.status(400).send('Bad filename')
   if (!existsSync(p)) return res.status(404).send('Not found')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
   res.sendFile(p)
 })
 
 // DELETE /api/autospin/templates/:filename
 router.delete('/api/autospin/templates/:filename', (req, res) => {
   if (!PROJECT_DIR) return res.status(500).json({ ok: false, message: 'AUTOSPIN_PROJECT 未設定' })
-  const dest = join(PROJECT_DIR, 'templates', req.params.filename)
+  const dest = safeChildPath(join(PROJECT_DIR, 'templates'), req.params.filename, IMAGE_EXTS)
+  if (!dest) return res.status(400).json({ ok: false, message: '檔名不合法' })
   if (existsSync(dest)) unlinkSync(dest)
   res.json({ ok: true })
 })
@@ -370,8 +375,9 @@ router.get('/api/autospin/captures/:filename', (req, res) => {
   if (!PROJECT_DIR) return res.status(500).json({ ok: false, message: 'AUTOSPIN_PROJECT 未設定' })
   const dirs = ['stream_captures', 'screenshots']
   for (const d of dirs) {
-    const p = join(PROJECT_DIR, d, req.params.filename)
-    if (existsSync(p)) return res.sendFile(p)
+    const p = safeChildPath(join(PROJECT_DIR, d), req.params.filename, IMAGE_EXTS)
+    if (!p) return res.status(400).send('Bad filename')
+    if (existsSync(p)) { res.setHeader('X-Content-Type-Options', 'nosniff'); return res.sendFile(p) }
   }
   res.status(404).send('Not found')
 })
@@ -2787,7 +2793,9 @@ router.get('/api/autospin/reconcile/config', (_req, res) => {
   const rows = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
   const cfg: Record<string, string> = {}
   for (const r of rows) cfg[r.key] = r.value
-  res.json({ ok: true, config: cfg })
+  // 後台 token／密碼只進不出（資安審查 2026-10-19：原本整張表原樣回傳），同 meter-reconcile/config
+  const { token, login_password, ...rest } = cfg
+  res.json({ ok: true, config: { ...rest, hasToken: !!token, hasPassword: !!login_password } })
 })
 
 // PUT /api/autospin/reconcile/config

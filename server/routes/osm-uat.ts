@@ -293,7 +293,7 @@ function uatCredEnv(req: Request): Record<string, string> {
 
 /** 從 cred env 取出密碼，給 log redaction 當比對用；只留在記憶體 */
 function secretsFromCredEnv(env: Record<string, string>): string[] {
-  return [env.UAT_CP_PASSWORD, env.UAT_NCH_PASSWORD].filter((v): v is string => !!v && v.length > 0)
+  return [env.UAT_CP_PASSWORD, env.UAT_NCH_PASSWORD, env.LARK_TENANT_TOKEN].filter((v): v is string => !!v && v.length > 0)
 }
 
 // ─── 後台測試帳密（依登入帳號各存一份）─────────────────────────────────
@@ -1537,7 +1537,7 @@ router.put('/api/osm-uat/tc-steps/:recordId', writeLimiter, (req, res) => {
   res.json({ ok: true, steps: parsed.data.steps })
 })
 
-router.post('/api/osm-uat/run', (req, res) => {
+router.post('/api/osm-uat/run', async (req, res) => {
   // 用 isSessionAlive 而不是只看 session.status——前端可能從 log 判斷完成、
   // 但子程序還沒完全結束；反過來 agent 斷線時也不該把人鎖住
   if (isSessionAlive()) {
@@ -1618,13 +1618,24 @@ router.post('/api/osm-uat/run', (req, res) => {
     }
   }
 
+  // Lark 回寫用的短效 tenant token（約 2 小時）。腳本原本寫死 App Secret 自己換 token，
+  // 而腳本會被送到每台 agent 電腦、也在公開的 repo 裡（資安審查 2026-10-19）——改由伺服器換好帶過去。
+  // 在佔重任務鎖之前拿，失敗不用回收任何狀態。
+  let larkTenantToken: string
+  try {
+    larkTenantToken = await getLarkToken()
+  } catch (e) {
+    res.status(502).json({ ok: false, error: `取得 Lark token 失敗，無法回寫結果：${(e as Error).message}` })
+    return
+  }
+
   const heavyTask = tryStartHeavyTask(req, 'osm-uat', 'OSM UAT 自動化測試')
   if (heavyTask.ok === false) {
     res.status(429).json(heavyTaskConflict(heavyTask.task))
     return
   }
 
-  const credEnv = uatCredEnv(req)
+  const credEnv = { ...uatCredEnv(req), LARK_TENANT_TOKEN: larkTenantToken }
   // 站台（CP／NP）。runner 讀 UAT_BACKEND_SITE 決定網址與要用哪一組帳密，
   // 沒帶就是 CP——跟這個參數出現以前的行為一樣。
   const site = UAT_BACKEND_SITES[pickSite((req.body as { site?: string })?.site)]

@@ -1,7 +1,7 @@
 # Sensitive data
 .env
 server/accounts.json
-server/gemini-keys.json
+server/gemini-keys.json*
 server/data.db
 server/data.db-shm
 server/data.db-wal

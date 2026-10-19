@@ -2556,7 +2556,7 @@ function connect() {
 
       backendUatSessionId = sessionId
       // 密碼只留在記憶體給 redaction 用，不寫檔、不印 console
-      backendUatSecrets = [credEnv?.UAT_CP_PASSWORD, credEnv?.UAT_NCH_PASSWORD]
+      backendUatSecrets = [credEnv?.UAT_CP_PASSWORD, credEnv?.UAT_NCH_PASSWORD, credEnv?.LARK_TENANT_TOKEN]
         .filter((v): v is string => typeof v === 'string' && v.length > 0)
 
       const sendLog = (line: string, stream: 'stdout' | 'stderr') => {

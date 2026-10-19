@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { parseServerCfgSource } from '../../shared/server-cfg-parse'
 
 interface ConfigTemplate {
   id: string
@@ -93,13 +94,10 @@ export function OsmConfigComparePage() {
     // Accept both JSON and JS (window._ServerCfg = {...}) formats
     let templateStr = newTemplate.trim()
     if (templateStr.includes('_ServerCfg')) {
-      const match = templateStr.match(/window\._ServerCfg\s*=\s*([\s\S]+?);?\s*$/)
-      if (!match) { setAddError('無法解析 JavaScript 格式，請確認內容完整'); return }
+      // 只解析不執行（原本 new Function 會執行貼上的內容）
       try {
-        // eslint-disable-next-line no-new-func
-        const obj = new Function(`return ${match[1]}`)()
-        templateStr = JSON.stringify(obj)
-      } catch { setAddError('JavaScript 物件解析失敗，請確認格式正確'); return }
+        templateStr = JSON.stringify(parseServerCfgSource(templateStr))
+      } catch (e) { setAddError(`JavaScript 物件解析失敗：${(e as Error).message}`); return }
     } else {
       try { JSON.parse(templateStr) } catch { setAddError('模板不是有效的 JSON'); return }
     }

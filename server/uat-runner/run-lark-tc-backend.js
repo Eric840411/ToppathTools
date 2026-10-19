@@ -20,8 +20,10 @@ import { createRecordedLocators, locateRecorded, ambiguityMessage, isAmbiguityEr
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
-const APP_ID         = 'cli_a80489fc6d389028';
-const APP_SECRET     = 'HFXG1sWdNDiX0Aa4MngsTgzFxUKAci8I';
+// ⚠️ 不再寫死 App Secret（資安審查 2026-10-19：這支腳本會被送到每台 agent，也在公開 repo 裡）。
+//    伺服器派工時帶 LARK_TENANT_TOKEN（短效，約 2 小時）；自己單獨跑時用環境變數 LARK_APP_ID／LARK_APP_SECRET。
+const APP_ID         = process.env.LARK_APP_ID || '';
+const APP_SECRET     = process.env.LARK_APP_SECRET || '';
 const APP_TOKEN      = process.env.LARK_APP_TOKEN || 'RjiabXR3Ra2pm4shI05lD4azgjg';
 const TABLE_ID       = process.env.LARK_TABLE_ID  || 'tbllkNHrRF5ii6Qc';
 const LARK_BASE      = 'https://open.larksuite.com/open-apis';
@@ -289,12 +291,15 @@ let _bonusTimerState = null; // { startTime, pageUrl, newVals, fieldLabels }
 
 // ─── Lark API helpers ────────────────────────────────────────────────
 async function getLarkToken() {
+  if (process.env.LARK_TENANT_TOKEN) return process.env.LARK_TENANT_TOKEN;
+  if (!APP_ID || !APP_SECRET) throw new Error('沒有 Lark 憑證：請由伺服器派工（會帶 LARK_TENANT_TOKEN），或設定環境變數 LARK_APP_ID／LARK_APP_SECRET');
   const res = await fetch(LARK_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app_id: APP_ID, app_secret: APP_SECRET }),
   });
   const d = await res.json();
+  if (!d.tenant_access_token) throw new Error(`取得 Lark token 失敗（code ${d.code}）`);
   return d.tenant_access_token;
 }
 

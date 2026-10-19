@@ -968,6 +968,7 @@ export function OsmPage() {
   const [alertEnabled, setAlertEnabled] = useState(false)
   const [alertSchedule, setAlertSchedule] = useState('0 9 * * *')
   const [alertWebhookUrl, setAlertWebhookUrl] = useState('')
+  const [alertWebhookMasked, setAlertWebhookMasked] = useState('')
   const [alertConfigSaving, setAlertConfigSaving] = useState(false)
 
   // ImageRecon section
@@ -1256,11 +1257,11 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
   useEffect(() => {
     fetch('/api/osm/alert/config')
       .then(r => r.json())
-      .then((d: { ok: boolean; config?: { enabled?: boolean; schedule?: string; webhookUrl?: string } }) => {
+      .then((d: { ok: boolean; config?: { enabled?: boolean; schedule?: string; webhookUrlMasked?: string } }) => {
         if (d.ok && d.config) {
           setAlertEnabled(!!d.config.enabled)
           if (d.config.schedule) setAlertSchedule(d.config.schedule)
-          if (d.config.webhookUrl) setAlertWebhookUrl(d.config.webhookUrl)
+          setAlertWebhookMasked(d.config.webhookUrlMasked ?? '')
         }
       })
       .catch(() => {})
@@ -1307,8 +1308,10 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: alertEnabled, schedule: alertSchedule, webhookUrl: alertWebhookUrl }),
       })
-      const data = await resp.json() as { ok: boolean; message?: string }
+      const data = await resp.json() as { ok: boolean; message?: string; config?: { webhookUrlMasked?: string } }
       if (!data.ok) throw new Error(data.message ?? '儲存失敗')
+      setAlertWebhookMasked(data.config?.webhookUrlMasked ?? '')
+      setAlertWebhookUrl('')
       setAlertMsg({ ok: true, msg: '告警設定已儲存' })
     } catch (err) {
       setAlertMsg({ ok: false, msg: err instanceof Error ? err.message : String(err) })
@@ -1403,7 +1406,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
               <input
                 className="osm-lark-url-input"
                 type="text"
-                placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/..."
+                placeholder={alertWebhookMasked ? `已設定 ${alertWebhookMasked}（留空沿用，要換才填）` : 'https://open.larksuite.com/open-apis/bot/v2/hook/...'}
                 value={alertWebhookUrl}
                 onChange={e => setAlertWebhookUrl(e.target.value)}
               />

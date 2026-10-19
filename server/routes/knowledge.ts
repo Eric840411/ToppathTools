@@ -9,6 +9,7 @@ import mammoth from 'mammoth'
 import { z } from 'zod'
 import { db, getLarkToken } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
+import { safeFetch } from '../lib/safe-fetch.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
@@ -80,7 +81,7 @@ async function fetchGoogleDocContent(url: string): Promise<string> {
 }
 
 async function fetchPdfContent(url: string): Promise<string> {
-  const resp = await fetch(url)
+  const resp = await safeFetch(url) // 擋 SSRF（資安審查 2026-10-19）
   if (!resp.ok) throw new Error(`下載 PDF 失敗 (HTTP ${resp.status})`)
   const buffer = Buffer.from(await resp.arrayBuffer())
   const parsed = await pdfParse(buffer)

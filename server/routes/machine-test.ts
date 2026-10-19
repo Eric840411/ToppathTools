@@ -43,6 +43,8 @@ import { bindHeavyTaskOwner, finishHeavyTask, heavyTaskConflict, tryStartHeavyTa
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 import { disconnectAgentsByToken as disconnectAgentsByTokenIn } from '../agent-token-disconnect.js'
 import { ideckXpathProblems } from '../../shared/ideck-xpath.js'
+import { safeChildPath } from '../lib/safe-path.js'
+import { assertSafeUrl, isObviouslyInternalHost } from '../lib/safe-fetch.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -553,11 +555,27 @@ router.post('/api/image-check/start', async (req, res, next) => {
       deletedImages: z.array(z.string()),
     }).parse(req.body)
 
+    // SSRF：這個 headless 瀏覽器在伺服器上跑、畫面還能截圖／點擊回傳，等於讓人用伺服器的網路逛
+    // （file:///、127.0.0.1:3010、雲端 metadata）。起點完整檢查，之後每個請求擋掉字面上的內部位址。
+    try { await assertSafeUrl(url) } catch (e) {
+      return res.status(400).json({ ok: false, message: (e as Error).message })
+    }
+
     if (browserLimiter.queued() >= 8) {
       return res.status(429).json({ ok: false, message: `browser queue is full: ${browserLimiter.queued()}` })
     }
     const browser = await browserLimiter.schedule(() => chromium.launch({ headless: true }))
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+    await page.route('**/*', route => {
+      let u: URL | null = null
+      try { u = new URL(route.request().url()) } catch { /* invalid */ }
+      if (!u) return route.abort()
+      if (u.protocol === 'data:' || u.protocol === 'blob:') return route.continue()
+      if ((u.protocol !== 'http:' && u.protocol !== 'https:' && u.protocol !== 'ws:' && u.protocol !== 'wss:') || isObviouslyInternalHost(u.hostname)) {
+        return route.abort('blockedbyclient')
+      }
+      return route.continue()
+    })
     const loadedImageUrls: string[] = []
 
     page.on('request', r => {
@@ -749,7 +767,9 @@ router.post('/api/machine-test/cctv-refs/:machineType', upload.single('image'), 
   if (!req.file) { res.status(400).json({ ok: false, error: 'missing image file' }); return }
   try {
     mkdirSync(CCTV_REFS_DIR, { recursive: true })
-    writeFileSync(join(CCTV_REFS_DIR, `${machineType}.png`), req.file.buffer)
+    const dest = safeChildPath(CCTV_REFS_DIR, `${machineType}.png`)
+    if (!dest) { res.status(400).json({ ok: false, error: 'invalid machineType' }); return }
+    writeFileSync(dest, req.file.buffer)
     res.json({ ok: true, machineType })
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err) })
@@ -759,7 +779,8 @@ router.post('/api/machine-test/cctv-refs/:machineType', upload.single('image'), 
 // GET /api/machine-test/cctv-refs/:machineType/image  ??serve reference image
 router.get('/api/machine-test/cctv-refs/:machineType/image', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
-  const filePath = join(CCTV_REFS_DIR, `${machineType}.png`)
+  const filePath = safeChildPath(CCTV_REFS_DIR, `${machineType}.png`)
+  if (!filePath) { res.status(400).json({ ok: false, error: 'invalid machineType' }); return }
   if (!existsSync(filePath)) { res.status(404).end(); return }
   res.setHeader('Content-Type', 'image/png')
   res.setHeader('Cache-Control', 'no-cache')
@@ -769,7 +790,8 @@ router.get('/api/machine-test/cctv-refs/:machineType/image', (req, res) => {
 // DELETE /api/machine-test/cctv-refs/:machineType  ??delete reference image
 router.delete('/api/machine-test/cctv-refs/:machineType', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
-  const filePath = join(CCTV_REFS_DIR, `${machineType}.png`)
+  const filePath = safeChildPath(CCTV_REFS_DIR, `${machineType}.png`)
+  if (!filePath) { res.status(400).json({ ok: false, error: 'invalid machineType' }); return }
   if (existsSync(filePath)) unlinkSync(filePath)
   res.json({ ok: true })
 })
@@ -794,7 +816,9 @@ router.post('/api/machine-test/audio-refs/:machineType', upload.single('audio'),
   if (!req.file) { res.status(400).json({ ok: false, error: 'missing audio file' }); return }
   try {
     mkdirSync(AUDIO_REFS_DIR, { recursive: true })
-    writeFileSync(join(AUDIO_REFS_DIR, `${machineType}.wav`), req.file.buffer)
+    const dest = safeChildPath(AUDIO_REFS_DIR, `${machineType}.wav`)
+    if (!dest) { res.status(400).json({ ok: false, error: 'invalid machineType' }); return }
+    writeFileSync(dest, req.file.buffer)
     res.json({ ok: true, machineType })
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err) })
@@ -804,7 +828,8 @@ router.post('/api/machine-test/audio-refs/:machineType', upload.single('audio'),
 // DELETE /api/machine-test/audio-refs/:machineType  ??delete reference WAV
 router.delete('/api/machine-test/audio-refs/:machineType', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
-  const filePath = join(AUDIO_REFS_DIR, `${machineType}.wav`)
+  const filePath = safeChildPath(AUDIO_REFS_DIR, `${machineType}.wav`)
+  if (!filePath) { res.status(400).json({ ok: false, error: 'invalid machineType' }); return }
   if (existsSync(filePath)) unlinkSync(filePath)
   res.json({ ok: true })
 })
