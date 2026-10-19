@@ -23,6 +23,7 @@ import {
   toJiraDateTime,
   heavyLimiter,
   writeLimiter,
+  loginLimiter,
   getLarkToken,
   parseLarkSheetUrl,
   accountHasPermission,
@@ -34,6 +35,9 @@ import { callLLM } from './gemini.js'
 import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
 import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
+import { pinLockRemaining, recordPinFailure, recordPinSuccess, safeEqualString, verifyPin } from '../pin-hash.js'
+
+const ADMIN_PIN_LOCK_KEY = '__admin_pin__'
 import { adminTargetError, deleteAccountGuarded, roleDisplay, roleNameMap, updateAccountGuarded } from '../role-store.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
@@ -69,13 +73,17 @@ router.get(['/api/accounts', '/api/jira/accounts'], (_req, res) => {
 })
 
 // POST /api/jira/accounts/:email/verify-pin
-router.post(['/api/accounts/:email/verify-pin', '/api/jira/accounts/:email/verify-pin'], (req, res) => {
+// ⚠️ 這支可以拿來猜 PIN：跟登入共用 IP 限速＋同一帳號連錯鎖定（資安審查 2026-10-19）
+router.post(['/api/accounts/:email/verify-pin', '/api/jira/accounts/:email/verify-pin'], loginLimiter, (req, res) => {
   const email = decodeURIComponent(String(req.params.email))
   const { pin } = z.object({ pin: z.string() }).parse(req.body)
   const account = readAccounts().find(a => a.email === email)
   if (!account) return res.status(404).json({ ok: false, message: '帳號不存在' })
   if (!account.pin_hash) return res.json({ ok: true })
-  if (account.pin_hash !== pinHash(pin)) return res.status(403).json({ ok: false, message: 'PIN 錯誤' })
+  const locked = pinLockRemaining(email)
+  if (locked) return res.status(429).json({ ok: false, message: `PIN 錯誤次數過多，請 ${locked} 秒後再試` })
+  if (!verifyPin(account.pin_hash, pin)) { recordPinFailure(email); return res.status(403).json({ ok: false, message: 'PIN 錯誤' }) }
+  recordPinSuccess(email)
   res.json({ ok: true })
 })
 
@@ -85,11 +93,21 @@ router.post(['/api/accounts/:email/set-pin', '/api/jira/accounts/:email/set-pin'
   const { oldPin, newPin } = z.object({ oldPin: z.string().optional(), newPin: z.string().optional() }).parse(req.body)
   const account = readAccounts().find(a => a.email === email)
   if (!account) return res.status(404).json({ ok: false, message: '帳號不存在' })
-  if (account.pin_hash) {
+  // 資安審查 2026-10-19：原本沒設 PIN 的帳號任何人都能替它設 PIN（＝搶走帳號），也能把 PIN 清掉。
+  // 改成只有本人（已登入）或管理員能改；本人改要驗舊 PIN；不能清成空的（清掉就登不進來）
+  const caller = getAuthAccount(req)
+  const isAdmin = caller?.role === 'admin'
+  const isSelf = !!caller && caller.email.toLowerCase() === email.toLowerCase()
+  if (!isAdmin && !isSelf) return res.status(403).json({ ok: false, message: '只有本人或管理員可以修改 PIN' })
+  if (!newPin?.trim()) return res.status(400).json({ ok: false, message: '請輸入新 PIN' })
+  if (account.pin_hash && !isAdmin) {
+    const locked = pinLockRemaining(email)
+    if (locked) return res.status(429).json({ ok: false, message: `PIN 錯誤次數過多，請 ${locked} 秒後再試` })
     if (!oldPin) return res.status(403).json({ ok: false, message: '請輸入舊 PIN' })
-    if (account.pin_hash !== pinHash(oldPin)) return res.status(403).json({ ok: false, message: '舊 PIN 錯誤' })
+    if (!verifyPin(account.pin_hash, oldPin)) { recordPinFailure(email); return res.status(403).json({ ok: false, message: '舊 PIN 錯誤' }) }
+    recordPinSuccess(email)
   }
-  const newHash = newPin && newPin.trim() ? pinHash(newPin.trim()) : null
+  const newHash = pinHash(newPin.trim())
   db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(newHash, email)
   res.json({ ok: true, hasPIN: !!newHash })
 })
@@ -129,7 +147,7 @@ router.delete(['/api/accounts/:email', '/api/jira/accounts/:email'], (req, res) 
   if (!caller || caller.role !== 'admin') return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  if (pin && provided !== pin) {
+  if (pin && !safeEqualString(provided, pin)) {
     log('warn', getClientIP(req), getUser(req), '帳號刪除失敗', 'PIN 錯誤')
     return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
   }
@@ -147,7 +165,7 @@ router.patch(['/api/accounts/:email/role', '/api/jira/accounts/:email/role'], (r
   if (!caller || caller.role !== 'admin') return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  if (pin && provided !== pin) {
+  if (pin && !safeEqualString(provided, pin)) {
     return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
   }
   const email = decodeURIComponent(String(req.params.email))
@@ -160,16 +178,20 @@ router.patch(['/api/accounts/:email/role', '/api/jira/accounts/:email/role'], (r
 })
 
 // POST /api/admin/verify
-router.post('/api/admin/verify', (req, res) => {
+router.post('/api/admin/verify', loginLimiter, (req, res) => {
   const pin = process.env.ADMIN_PIN ?? ''
   if (!pin) {
     return res.json({ ok: false, message: '未設定管理員 PIN' })
   }
   const body = z.object({ pin: z.string() }).parse(req.body)
-  if (body.pin === pin) {
+  const locked = pinLockRemaining(ADMIN_PIN_LOCK_KEY)
+  if (locked) return res.status(429).json({ ok: false, message: `PIN 錯誤次數過多，請 ${locked} 秒後再試` })
+  if (safeEqualString(body.pin, pin)) {
+    recordPinSuccess(ADMIN_PIN_LOCK_KEY)
     log('auth', getClientIP(req), getUser(req), '管理員登入成功')
     res.json({ ok: true })
   } else {
+    recordPinFailure(ADMIN_PIN_LOCK_KEY)
     log('warn', getClientIP(req), getUser(req), '管理員登入失敗', 'PIN 錯誤')
     res.status(403).json({ ok: false, message: 'PIN 錯誤，請再試一次' })
   }

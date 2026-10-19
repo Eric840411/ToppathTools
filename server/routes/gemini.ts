@@ -17,6 +17,9 @@ import {
 } from '../shared.js'
 import { getRequestContext } from '../request-context.js'
 import { getAuthAccount } from '../auth-session.js'
+import { encryptSecret, decryptSecret } from '../secret-crypto.js'
+
+const maskKey = (k: string) => k.slice(0, 7) + '****' + k.slice(-4)
 
 // ─── Per-key Bottleneck limiters ──────────────────────────────────────────────
 // Each Gemini API key gets its own rate limiter so concurrent requests that
@@ -165,8 +168,9 @@ function finishAiTask(id: string, error?: string) {
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
+// key 欄位加密存放（secret-crypto），讀出來一律解密——呼叫端拿到的永遠是明文
 export const readGeminiKeys = (): GeminiKey[] =>
-  db.prepare('SELECT label, key FROM gemini_keys').all() as GeminiKey[]
+  (db.prepare('SELECT label, key FROM gemini_keys').all() as GeminiKey[]).map(k => ({ ...k, key: decryptSecret(k.key) }))
 
 export const readGeminiPrompts = (): GeminiPrompt[] =>
   db.prepare('SELECT id, name, template, category FROM gemini_prompts').all() as GeminiPrompt[]
@@ -184,7 +188,7 @@ interface UserAiKey { user_email: string; provider: string; api_key: string; lab
 export function getUserAiKey(userEmail: string, provider: string): string | null {
   const row = db.prepare('SELECT api_key FROM user_ai_keys WHERE user_email = ? AND provider = ?')
     .get(userEmail, provider) as { api_key: string } | undefined
-  return row?.api_key ?? null
+  return row?.api_key ? decryptSecret(row.api_key) : null
 }
 
 export function setUserAiKey(userEmail: string, provider: string, apiKey: string, label: string) {
@@ -192,7 +196,7 @@ export function setUserAiKey(userEmail: string, provider: string, apiKey: string
     INSERT INTO user_ai_keys (user_email, provider, api_key, label, created_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(user_email, provider) DO UPDATE SET api_key = excluded.api_key, label = excluded.label, created_at = excluded.created_at
-  `).run(userEmail, provider, apiKey, label, Date.now())
+  `).run(userEmail, provider, encryptSecret(apiKey), label, Date.now())
 }
 
 export function deleteUserAiKey(userEmail: string, provider: string) {
@@ -254,7 +258,7 @@ export function resolveOpenAIKey(req?: import('express').Request): string {
     if (personalKey) return personalKey
   }
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openai_api_key') as { value: string } | undefined
-  return row?.value ?? process.env.OPENAI_API_KEY ?? ''
+  return (row?.value ? decryptSecret(row.value) : undefined) ?? process.env.OPENAI_API_KEY ?? ''
 }
 
 // ─── Key usage tracking ───────────────────────────────────────────────────────
@@ -859,7 +863,7 @@ router.post('/api/gemini/keys', writeLimiter, (req, res) => {
   const body = z.object({ label: z.string().min(1), key: z.string().min(10) }).parse(req.body)
   const exists = readGeminiKeys().find(k => k.label === body.label)
   if (exists) return res.status(400).json({ ok: false, message: '此名稱已存在' })
-  db.prepare('INSERT INTO gemini_keys (label, key) VALUES (?, ?)').run(body.label, body.key)
+  db.prepare('INSERT INTO gemini_keys (label, key) VALUES (?, ?)').run(body.label, encryptSecret(body.key))
   res.json({ ok: true })
 })
 
@@ -879,7 +883,7 @@ router.get('/api/openai/key', (_req, res) => {
 // POST /api/openai/key
 router.post('/api/openai/key', writeLimiter, (req, res) => {
   const { key } = z.object({ key: z.string().min(10) }).parse(req.body)
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('openai_api_key', key)
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('openai_api_key', encryptSecret(key))
   res.json({ ok: true })
 })
 
@@ -1002,7 +1006,7 @@ router.get('/api/user-ai-keys', (req, res) => {
   const keys = rows.map(r => ({
     provider: r.provider,
     label: r.label,
-    keyMasked: r.api_key.slice(0, 7) + '****' + r.api_key.slice(-4),
+    keyMasked: maskKey(decryptSecret(r.api_key)),
   }))
   res.json({ ok: true, keys })
 })

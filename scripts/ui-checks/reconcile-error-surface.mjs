@@ -12,13 +12,14 @@
  *
  * 跑法：node scripts/ui-checks/reconcile-error-surface.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const db = new Database(path.join(root, 'server/data.db'));
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const sess = mintDevSession(db);
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 const HEAD = { 'Content-Type': 'application/json', Cookie: `toppath_auth=${sess.sid}`, 'x-user-label': 'Eric Wu' };

@@ -4,6 +4,7 @@
  * 跑法：node scripts/ui-checks/meegle-manual-shots.mjs [create|comment|status|edit|backfill ...]
  * 圖存到 docs/manual-meegle/
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import fs from 'fs'
@@ -15,7 +16,7 @@ fs.mkdirSync(OUT, { recursive: true })
 const only = process.argv.slice(2)
 const want = k => !only.length || only.includes(k)
 const db = new Database('server/data.db', { readonly: true })
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 })

@@ -4,6 +4,7 @@
  * 真 Sheet、真讀 Meegle 現況、手動上傳打真的 attachment-upload；只有 attachment-prefetch 用假的（控制 0 個／失敗／延遲）。不會送出任何東西。
  * 跑法：node scripts/ui-checks/meegle-comment-reload.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
@@ -11,7 +12,7 @@ const HOST = '192.168.3.41'
 const SHEET = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const UPLOAD = 'autospin-cards.png'   // 手動新增用的真檔案（走真的 attachment-upload）
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }

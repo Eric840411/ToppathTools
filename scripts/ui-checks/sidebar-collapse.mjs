@@ -4,6 +4,7 @@
  *
  * 跑法：node scripts/ui-checks/sidebar-collapse.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
@@ -12,7 +13,7 @@ import path from 'path'
 const HOST = '192.168.3.41'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'), { readonly: true })
-const sess = db.prepare("SELECT sid FROM auth_sessions WHERE expires_at > ? AND email = 'eric.wu@toppath.tw' ORDER BY created_at DESC LIMIT 1").get(Date.now())
+const sess = mintDevSession(db, 'eric.wu@toppath.tw')
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 let fail = 0

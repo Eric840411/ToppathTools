@@ -13,6 +13,7 @@
  *
  * ⚠️ 執行解析度建議 **1280x800**（PC 畫布 1280x720）。視窗太窄時卡片會落在畫布外點不到。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 
 const DRY = process.argv.includes('--dry')
@@ -23,7 +24,7 @@ const TABLE_ID = 'tblnIiFRlZk46OKo'
 const GAME = process.env.GAME ?? 'Phoenix'
 
 const db = new Database('server/data.db')
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const sess = mintDevSession(db)
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 const HEADERS = { 'content-type': 'application/json', cookie: `toppath_auth=${sess.sid}` }
 

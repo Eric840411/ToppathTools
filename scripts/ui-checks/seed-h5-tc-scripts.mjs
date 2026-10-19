@@ -18,6 +18,7 @@
  * ⚠️ 第一顆一定是 `goto` 且 **value 留空**：執行時會用 RUN SETTINGS 的目標網址，
  *    這樣同一份腳本可以換不同帳號跑（寫死網址等於把某支帳號焊進腳本裡）。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 
 const DRY = process.argv.includes('--dry')
@@ -27,7 +28,7 @@ const TABLE_ID = 'tblaS8n0Fup00p6l'
 const CREATED_BY = 'claude'
 
 const db = new Database('server/data.db')
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const sess = mintDevSession(db)
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 const HEADERS = { 'content-type': 'application/json', cookie: `toppath_auth=${sess.sid}` }
 

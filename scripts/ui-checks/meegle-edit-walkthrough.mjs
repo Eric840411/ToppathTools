@@ -5,13 +5,14 @@
  *       單列把 RD 改成「這列不改這欄」→ 那一列變可送出；送出內容帶後端給的 planHash／baseline、且不含 RD。
  * 跑法：node scripts/ui-checks/meegle-edit-walkthrough.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const SHEET = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }

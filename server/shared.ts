@@ -18,6 +18,8 @@ import { z } from 'zod'
 import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from './request-context.js'
 import { upsertAccountIn } from './account-store.js'
 import { initIdeckTimingTable } from './machine-test/ideck-timing-store.js'
+import { encryptSecret, decryptSecret } from './secret-crypto.js'
+import { hashPin } from './pin-hash.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -2006,13 +2008,14 @@ Spec 與 JIRA 同時存在 → 同時使用兩者
 const IDENTITY_SIGNATURE_TTL_MS = 60_000
 
 function internalIdentitySecret(): string {
+  // 加密存放（資安審查 2026-10-19：拿到 DB 就能偽造 server→worker 的身分簽章）
   const row = db.prepare("SELECT value FROM settings WHERE key = 'internal_identity_secret'").get() as { value?: string } | undefined
-  if (row?.value) return row.value
+  if (row?.value) return decryptSecret(row.value)
   const secret = randomBytes(32).toString('base64url')
   // 兩支 process 可能同時啟動：用 INSERT OR IGNORE 再讀一次，以先寫進去的那份為準
-  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('internal_identity_secret', ?)").run(secret)
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('internal_identity_secret', ?)").run(encryptSecret(secret))
   const after = db.prepare("SELECT value FROM settings WHERE key = 'internal_identity_secret'").get() as { value?: string } | undefined
-  return after?.value ?? secret
+  return after?.value ? decryptSecret(after.value) : secret
 }
 
 /**
@@ -2346,10 +2349,13 @@ export interface JiraAccount {
   status?: 'active' | 'disabled'
 }
 
-export const pinHash = (pin: string) => createHash('sha256').update(pin).digest('hex')
+// 寫入用：scrypt 加鹽（pin-hash.ts）。驗證一律走 verifyPin，不要再用 === 比雜湊
+export const pinHash = hashPin
 
+// token（舊 Jira API token）加密存放，讀出來解密（資安審查 2026-10-19）
 export const readAccounts = (): JiraAccount[] =>
-  db.prepare('SELECT email, token, label, role, pin_hash, status FROM jira_accounts').all() as JiraAccount[]
+  (db.prepare('SELECT email, token, label, role, pin_hash, status FROM jira_accounts').all() as JiraAccount[])
+    .map(a => ({ ...a, token: decryptSecret(a.token) }))
 
 // 寫法與「不能用 INSERT OR REPLACE（會清掉 PIN）」的原因在 account-store.ts
 export const upsertAccount = (a: JiraAccount) => upsertAccountIn(db, a)
@@ -2769,7 +2775,7 @@ export function getUatBackendCredentials(email: string) {
   const out: Partial<Record<UatBackendProfile, { username: string; password: string }>> = {}
   for (const r of rows) {
     if ((UAT_BACKEND_PROFILES as string[]).includes(r.profile) && r.username && r.password) {
-      out[r.profile as UatBackendProfile] = { username: r.username, password: r.password }
+      out[r.profile as UatBackendProfile] = { username: r.username, password: decryptSecret(r.password) }
     }
   }
   return out
@@ -2781,7 +2787,8 @@ export function saveUatBackendCredential(email: string, profile: UatBackendProfi
   const existing = db.prepare(
     'SELECT password FROM uat_backend_credentials WHERE email = ? AND profile = ?',
   ).get(key, profile) as { password: string } | undefined
-  const finalPassword = password || existing?.password || ''
+  // 密碼加密存放（資安審查 2026-10-19）；沿用舊密碼時 existing 已是密文，encryptSecret 不會重複加密
+  const finalPassword = encryptSecret(password || existing?.password || '')
   db.prepare(`
     INSERT INTO uat_backend_credentials (email, profile, username, password, updated_at)
     VALUES (?, ?, ?, ?, ?)
@@ -2806,7 +2813,8 @@ export function authEmailFromRequest(req: express.Request): string | null {
   if (!hit) return null
   const sid = decodeURIComponent(hit.slice(prefix.length))
   if (!sid) return null
-  const row = db.prepare('SELECT email, expires_at FROM auth_sessions WHERE sid = ?').get(sid) as
+  // DB 存的是 sid 的 sha256（auth-session.ts hashSid；這裡不 import 它是為了避免循環相依）
+  const row = db.prepare('SELECT email, expires_at FROM auth_sessions WHERE sid = ?').get(createHash('sha256').update(sid).digest('hex')) as
     { email: string; expires_at: number } | undefined
   if (!row || row.expires_at <= Date.now()) return null
   return row.email

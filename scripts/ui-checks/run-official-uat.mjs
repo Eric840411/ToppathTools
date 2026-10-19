@@ -9,6 +9,7 @@
  * ⚠️ `agentId: 'server'` 是明確指定「跑在伺服器本機」。不指定的話會自動挑 agent，
  *    挑不到才退回本機——同一顆按鈕可能跑在不同機器上，log 看起來一模一樣。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -21,7 +22,7 @@ const BASE = 'http://localhost:3000'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const sess = mintDevSession(db)
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 const HEADERS = { 'content-type': 'application/json', cookie: `toppath_auth=${sess.sid}` }
 

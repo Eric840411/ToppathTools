@@ -2,13 +2,14 @@
  * Meegle 補回填「Sheet 上被清掉的回填」（v5.26.0）。掃描打真的（唯讀，讀使用者那份 Sheet）；補回用假的（不寫真 Sheet）。
  * 兩種主題各截一張。跑法：node scripts/ui-checks/meegle-backfill-cleared.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const SHEET = 'https://toppath.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const db = new Database('server/data.db', { readonly: true })
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }
 const browser = await chromium.launch()

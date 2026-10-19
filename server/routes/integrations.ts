@@ -3,6 +3,7 @@
  * All /api/integrations/*, /api/google/*, /api/sheets/* routes.
  */
 import { Router } from 'express'
+import { safeEqualString } from '../pin-hash.js'
 import mammoth from 'mammoth'
 import pdfParse from 'pdf-parse'
 import * as XLSX from 'xlsx'
@@ -2958,7 +2959,7 @@ router.put('/api/url-pool/:account/url', (req, res) => {
   const authAccount = getAuthAccount(req)
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  const isAdmin = authAccount?.role === 'admin' || (pin && provided === pin)
+  const isAdmin = authAccount?.role === 'admin' || (pin && safeEqualString(provided, pin))
   if (!isAdmin) return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const { account } = req.params
   const { url } = req.body as { url?: string }

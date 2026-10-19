@@ -28,6 +28,7 @@ import {
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
 import { randomUUID } from 'crypto'
 import { safeChildPath, IMAGE_EXTS } from '../lib/safe-path.js'
+import { encryptSecret, decryptSecret, isSecretConfigKey } from '../secret-crypto.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
@@ -227,8 +228,10 @@ function broadcastLog(sessionId: string, line: string) {
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
+// larkWebhook 加密存放（webhook URL 本身就是憑證），讀出來解密給帳號本人
 const readConfigs = (userLabel: string): AutospinConfig[] =>
-  db.prepare('SELECT * FROM autospin_configs WHERE userLabel = ? ORDER BY machineType').all(userLabel) as AutospinConfig[]
+  (db.prepare('SELECT * FROM autospin_configs WHERE userLabel = ? ORDER BY machineType').all(userLabel) as AutospinConfig[])
+    .map(c => ({ ...c, larkWebhook: decryptSecret((c as { larkWebhook?: string }).larkWebhook) ?? '' }))
 
 // ─── Machine Config Routes ────────────────────────────────────────────────────
 
@@ -276,7 +279,7 @@ router.post('/api/autospin/configs', (req, res) => {
     body.enabled ? 1 : 0, body.enableRecording ? 1 : 0, body.enableTemplateDetection ? 1 : 0,
     body.notes,
     body.spinInterval, body.randomExitEnabled ? 1 : 0, body.randomExitChance,
-    body.randomExitMinSpins, body.betRandomEnabled ? 1 : 0, body.lowBalanceThreshold, body.larkWebhook,
+    body.randomExitMinSpins, body.betRandomEnabled ? 1 : 0, body.lowBalanceThreshold, encryptSecret(body.larkWebhook),
     body.machineNo, body.logApiEnv,
   )
   res.json({ ok: true })
@@ -2792,7 +2795,7 @@ router.delete('/api/autospin/history', (req, res) => {
 router.get('/api/autospin/reconcile/config', (_req, res) => {
   const rows = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
   const cfg: Record<string, string> = {}
-  for (const r of rows) cfg[r.key] = r.value
+  for (const r of rows) cfg[r.key] = r.value // 只拿來判斷有沒有值，token／密碼不解密也不回傳
   // 後台 token／密碼只進不出（資安審查 2026-10-19：原本整張表原樣回傳），同 meter-reconcile/config
   const { token, login_password, ...rest } = cfg
   res.json({ ok: true, config: { ...rest, hasToken: !!token, hasPassword: !!login_password } })
@@ -2814,7 +2817,7 @@ router.put('/api/autospin/reconcile/config', (req, res) => {
     auto_login: z.boolean().default(true),
   }).parse(req.body)
   const upsert = db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)')
-  for (const [k, v] of Object.entries(body)) upsert.run(k, String(v))
+  for (const [k, v] of Object.entries(body)) upsert.run(k, isSecretConfigKey(k) ? encryptSecret(String(v)) : String(v))
   res.json({ ok: true })
 })
 
@@ -2854,14 +2857,14 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   for (const r of shared) {
     if (!r.key.startsWith(prefix)) continue
     const bare = r.key.slice(prefix.length)
-    cfg[KEY_MAP[bare] ?? bare] = r.value
+    cfg[KEY_MAP[bare] ?? bare] = isSecretConfigKey(bare) ? decryptSecret(r.value) : r.value
   }
   // origin 有了就順便補 referer——後台會檢查，少了會被擋，
   // 而共用設定裡沒有這個欄位（Meter 那支是自己組的）
   if (cfg.origin && !cfg.referer) cfg.referer = cfg.origin.replace(/\/?$/, '/')
 
   const own = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
-  for (const r of own) if (r.value) cfg[r.key] = r.value
+  for (const r of own) if (r.value) cfg[r.key] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value
 
   return cfg
 }
@@ -2893,7 +2896,7 @@ async function reconcileLogin(cfg: Record<string, string>): Promise<string | nul
     if (d.code === 20000 && d.data?.token) {
       const token = d.data.token
       const llt = d.data.lastLoginTime ?? ''
-      db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('token', token)
+      db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('token', encryptSecret(token))
       db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('lastlogintime', llt)
       return token
     }
@@ -3856,7 +3859,8 @@ router.get('/api/autospin/jp-groups', (_req, res) => {
     groups: rows.map(r => {
       let game_codes: string[] = []
       try { game_codes = JSON.parse(r.game_codes || '[]') } catch { /* bad data */ }
-      return { ...r, game_codes, enabled: r.enabled === 1 }
+      // 登入密碼只進不出（資安審查 2026-10-19），編輯時留空＝沿用
+      return { ...r, login_pass: '', hasPassword: !!r.login_pass, game_codes, enabled: r.enabled === 1 }
     }),
   })
 })
@@ -3869,7 +3873,7 @@ router.post('/api/autospin/jp-groups', (req, res) => {
   try {
     const row = db.prepare(
       'INSERT INTO jp_groups (code,display_name,environment,luckylink_url,luckylink_group_name,login_user,login_pass,game_codes,enabled) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(d.code, d.display_name, d.environment, d.luckylink_url, d.luckylink_group_name, d.login_user, d.login_pass, JSON.stringify(d.game_codes), d.enabled ? 1 : 0) as { lastInsertRowid: number }
+    ).run(d.code, d.display_name, d.environment, d.luckylink_url, d.luckylink_group_name, d.login_user, encryptSecret(d.login_pass), JSON.stringify(d.game_codes), d.enabled ? 1 : 0) as { lastInsertRowid: number }
     return res.json({ ok: true, id: row.lastInsertRowid })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -3892,7 +3896,7 @@ router.put('/api/autospin/jp-groups/:id', (req, res) => {
   if (d.luckylink_url !== undefined) { sets.push('luckylink_url=?'); vals.push(d.luckylink_url) }
   if (d.luckylink_group_name !== undefined) { sets.push('luckylink_group_name=?'); vals.push(d.luckylink_group_name) }
   if (d.login_user !== undefined) { sets.push('login_user=?'); vals.push(d.login_user) }
-  if (d.login_pass !== undefined) { sets.push('login_pass=?'); vals.push(d.login_pass) }
+  if (d.login_pass) { sets.push('login_pass=?'); vals.push(encryptSecret(d.login_pass)) }
   if (d.game_codes !== undefined) { sets.push('game_codes=?'); vals.push(JSON.stringify(d.game_codes)) }
   if (d.enabled !== undefined) { sets.push('enabled=?'); vals.push(d.enabled ? 1 : 0) }
   if (!sets.length) return res.status(400).json({ ok: false, message: '無更新欄位' })

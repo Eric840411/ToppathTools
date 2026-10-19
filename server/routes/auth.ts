@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { getClientIP, log, loginLimiter, pinHash, readAccounts } from '../shared.js'
+import { getClientIP, log, loginLimiter, readAccounts } from '../shared.js'
+import { pinLockRemaining, recordPinFailure, recordPinSuccess, verifyPin } from '../pin-hash.js'
 import { createAuthSession, getAuthAccount, publicAccount, pruneOtherAuthSessions, revokeAuthSession } from '../auth-session.js'
 import {
   getActiveHeavyTasks, getHeavyTaskForRequest, getRecentHeavyTasksForRequest,
@@ -26,14 +27,23 @@ router.post('/api/auth/login', loginLimiter, (req, res) => {
   if (!account) return res.status(404).json({ ok: false, message: '帳號不存在' })
   if (account.status === 'disabled') return res.status(403).json({ ok: false, message: '帳號已停用' })
 
-  if (account.pin_hash) {
-    if (!pin?.trim()) return res.status(403).json({ ok: false, message: '請輸入 PIN' })
-    if (account.pin_hash !== pinHash(pin.trim())) {
-      return res.status(403).json({ ok: false, message: 'PIN 錯誤' })
-    }
+  // 資安審查 2026-10-19：沒設 PIN 的帳號原本只要 email 就能登入，而帳號清單不用登入就看得到。
+  // 改成一律要 PIN；還沒設的請管理員在權限管理頁設定，或在伺服器上跑 scripts/set-account-pin.mjs
+  if (!account.pin_hash) {
+    log('warn', getClientIP(req), email, '登入被擋', '帳號尚未設定 PIN')
+    return res.status(403).json({ ok: false, code: 'PIN_NOT_SET', message: '這個帳號還沒設定 PIN，請管理員在「權限管理」幫你設定後再登入' })
   }
+  const locked = pinLockRemaining(email)
+  if (locked) return res.status(429).json({ ok: false, message: `PIN 錯誤次數過多，請 ${locked} 秒後再試` })
+  if (!pin?.trim()) return res.status(403).json({ ok: false, message: '請輸入 PIN' })
+  if (!verifyPin(account.pin_hash, pin.trim())) {
+    recordPinFailure(email)
+    log('warn', getClientIP(req), email, '登入失敗', 'PIN 錯誤')
+    return res.status(403).json({ ok: false, message: 'PIN 錯誤' })
+  }
+  recordPinSuccess(email)
 
-  createAuthSession(email, res)
+  createAuthSession(email, res, req)
   res.json({ ok: true, account: publicAccount(email) })
 })
 

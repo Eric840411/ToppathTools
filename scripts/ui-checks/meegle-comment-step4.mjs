@@ -3,6 +3,7 @@
  * 驗：三種結果（全部完成／評論待確認／只剩回填失敗）各自的狀態與按鈕；候選評論→「就是這則」會打 resolve；補寫回會打 writeback。
  * 跑法：node scripts/ui-checks/meegle-comment-step4.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import path from 'path'
@@ -12,7 +13,7 @@ const HOST = '192.168.3.41'
 const SHEET = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }

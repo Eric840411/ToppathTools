@@ -10,12 +10,13 @@
  *   7 伺服器回的不是 JSON（代理錯誤頁）→ 畫面要顯示錯誤，不能什麼都沒發生（v5.10.2，使用者在 Lark 裡按建立角色沒反應）
  * 跑法：node scripts/ui-checks/role-manager-walkthrough.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 const origRole = db.prepare("SELECT role FROM jira_accounts WHERE email='asd'").get().role
 const NAME = '走查角色'
 let fail = 0

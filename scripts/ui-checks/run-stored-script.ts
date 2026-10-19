@@ -5,6 +5,7 @@
  *    驗腳本能不能跑，不應該在人家的 TC 表上留下紀錄。所以這裡自己兜 host，
  *    跑的是同一支 `runFrontendStep` ＋ 同一份 steps（從 API 讀回來的）。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import path from 'path'
@@ -23,7 +24,7 @@ const PLATFORM = process.env.PLATFORM ?? 'h5'
 const START = process.env.H5_URL ?? ''
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const sess = mintDevSession(db)
 const scripts = await fetch(`http://localhost:3000/api/frontend-auto/scripts?platform=${PLATFORM}`, { headers: { cookie: `toppath_auth=${sess.sid}` } })
   .then(r => r.json()).then(r => r.scripts ?? [])
 const row = scripts.find(s => s.name === NAME)

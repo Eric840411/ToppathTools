@@ -14,16 +14,19 @@
  */
 import 'dotenv/config';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const db = new Database(path.join(root, 'server/data.db'));
+// token／密碼加密存放（v5.66.0），金鑰在 .env
+(await import('dotenv')).default.config({ path: path.join(root, '.env'), quiet: true });
+const { decryptSecret, isSecretConfigKey } = await import(pathToFileURL(path.join(root, 'server/secret-crypto.ts')).href);
 const day = process.argv[2] || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 
 const cfg = {};
 for (const r of db.prepare("SELECT key, value FROM meter_reconcile_config WHERE key LIKE 'osm_%'").all()) {
-  cfg[r.key.slice(4)] = r.value;
+  cfg[r.key.slice(4)] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value;
 }
 if (!cfg.token) { console.log('共用設定沒有 osm_token，先去 Performance Meter 對帳頁測一次連線'); process.exit(1) }
 

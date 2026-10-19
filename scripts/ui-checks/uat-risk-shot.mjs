@@ -1,7 +1,8 @@
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
 const db = new Database('../../server/data.db');
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const sess = mintDevSession(db);
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1700, height: 1000 } });
 await ctx.addCookies([{ name: 'toppath_auth', value: sess.sid, domain: 'localhost', path: '/' }]);

@@ -2,12 +2,13 @@
  * 移除 Jira（v4.281～v5.0.0）上線驗證：打真的伺服器，不經過畫面。
  * 會建一個暫時帳號（verify-jira-removal@toppath.tw）驗完就刪。跑法：node scripts/ui-checks/jira-removal-live-check.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 import { readFileSync } from 'fs'
 
 const H = 'http://192.168.3.41:3000'
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 const ck = { Cookie: `toppath_auth=${sid}` }
 const json = { 'Content-Type': 'application/json' }
 let fail = 0

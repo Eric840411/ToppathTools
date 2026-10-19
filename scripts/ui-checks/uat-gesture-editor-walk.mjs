@@ -3,6 +3,7 @@
  * 新增 → 填欄位 → 清空一個 X → 儲存 → 重新載入 → 重開腳本讀回 inspector → 對照 API 存的 JSON → 兩種主題截圖 → 刪除腳本。
  * 跑法（repo 根目錄；server 3000 和 worker 3010 都要開——/api/frontend-auto/* 轉給 worker，沒開存檔會靜默失敗）：node scripts/ui-checks/uat-gesture-editor-walk.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
@@ -14,7 +15,7 @@ const NAME = 'ZZ gesture walk 1015'
 const SUF = process.env.SUF || ''
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'), { readonly: true })
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const sess = mintDevSession(db)
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 let fail = 0

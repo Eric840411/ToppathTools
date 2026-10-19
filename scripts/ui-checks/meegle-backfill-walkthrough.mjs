@@ -2,12 +2,13 @@
  * Meegle 補回填分頁（v4.280.0）。待補清單與補寫回應用假的（本機目前沒有待補的列）；先用真的打一次確認空清單也正常。
  * 兩種主題各截一張。跑法：node scripts/ui-checks/meegle-backfill-walkthrough.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email = 'eric.wu@toppath.tw' AND expires_at > ? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }
 const browser = await chromium.launch()

@@ -7,12 +7,13 @@
  *
  * 跑法：cd scripts/ui-checks && node page-width-sweep.mjs [標記]
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
 
 const tag = process.argv[2] ?? 'run';
 const db = new Database('../../server/data.db');
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const sess = mintDevSession(db);
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 const browser = await chromium.launch();

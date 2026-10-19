@@ -5,6 +5,7 @@
  * 跑法：node scripts/ui-checks/lark-notify-live-check.mjs
  * ⚠️ 不印 Secret；最後會檢查 Secret 沒出現在任何 API 回應、設定表明文、server log 裡。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
@@ -15,7 +16,7 @@ const CHAT = 'oc_8f0b93e81709a99ec176fb8784dd7c7f'
 const env = Object.fromEntries(readFileSync(join(homedir(), '.claude/channels/lark/.env'), 'utf8').split(/\r?\n/).filter(l => l.includes('=')).map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).trim()]))
 const APP_ID = env.LARK_APP_ID, SECRET = env.LARK_APP_SECRET
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 const ck = { Cookie: `toppath_auth=${sid}` }
 let fail = 0
 const seen = []

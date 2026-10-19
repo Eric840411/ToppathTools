@@ -9,6 +9,7 @@
  * 跑法：node scripts/ui-checks/url-pool-device-ui.mjs [port]
  *       預設打 3000（PM2 跑的那份）；驗證未部署的改動時傳 vite 的 port。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
@@ -17,7 +18,7 @@ import path from 'path';
 const PORT = process.argv[2] || '3000';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const db = new Database(path.join(root, 'server/data.db'));
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const sess = mintDevSession(db);
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 let pass = 0, fail = 0;

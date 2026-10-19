@@ -29,7 +29,7 @@ import type { Router } from 'express'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { db, writeLimiter } from './shared.js'
-import { getAuthAccount } from './auth-session.js'
+import { getAuthAccount, hasLiveSession, mintInternalSession, revokeSessionByRaw } from './auth-session.js'
 
 db.exec(`CREATE TABLE IF NOT EXISTS uat_schedules (
   id TEXT PRIMARY KEY,
@@ -96,11 +96,8 @@ function weekdaysOf(row: ScheduleRow): number[] {
  * 找這個帳號還沒過期的 session。
  * ⚠️ 找不到**不是**沉默跳過——呼叫端會把原因寫進 last_status。
  */
-function liveSessionFor(owner: string): string | null {
-  const row = db.prepare(
-    'SELECT sid FROM auth_sessions WHERE email = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1',
-  ).get(owner, Date.now()) as { sid?: string } | undefined
-  return row?.sid ?? null
+function liveSessionFor(owner: string): boolean {
+  return hasLiveSession(owner)
 }
 
 const BASE = () => `http://127.0.0.1:${process.env.PORT ?? '3000'}`
@@ -134,8 +131,9 @@ async function runSchedule(row: ScheduleRow): Promise<string> {
     const label = `${index + 1}/${ids.length}`
     // 每支腳本前重新挑一次 session：v5.2.1 起登出／「清掉其他登入」會真的刪掉 session，
     // 跑到一半借用的那個被刪掉時，改用這個人還活著的另一個，不讓後面幾支全部失敗（CodeX review）
-    const sid = liveSessionFor(row.owner)
-    if (!sid) { results.push(`${label} 沒跑（${noSession}）`); continue }
+    if (!liveSessionFor(row.owner)) { results.push(`${label} 沒跑（${noSession}）`); continue }
+    // DB 只存 sid 雜湊，讀不到原值了：現發一張短效 session 代跑，跑完收回（資安審查 2026-10-19）
+    const sid = mintInternalSession(row.owner, 35 * 60 * 1000)
     const cookie = `toppath_auth=${sid}`
     try {
       const response = await fetch(`${BASE()}/api/osm-uat/run`, {
@@ -154,6 +152,8 @@ async function runSchedule(row: ScheduleRow): Promise<string> {
       results.push(finished ? `${label} 已跑完` : `${label} 逾時（超過 30 分鐘仍在執行）`)
     } catch (error) {
       results.push(`${label} 啟動失敗（${error instanceof Error ? error.message : String(error)}）`)
+    } finally {
+      revokeSessionByRaw(sid)
     }
   }
   return results.join('；')

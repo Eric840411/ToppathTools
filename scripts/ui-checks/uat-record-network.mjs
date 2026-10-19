@@ -11,12 +11,13 @@
  */
 // 驗證錄製期間的網路回報：從 agent 的 WS 訊息 → server 收集 → /record/status 回傳。
 // 用假的 agent 連線送事件，不需要真的開瀏覽器。
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 
 const db = new Database('../../server/data.db');
-const sid = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())?.sid;
+const sid = mintDevSession(db)?.sid;
 if (!sid) { console.log('沒有有效登入 session'); process.exit(1) }
 
 // 發一張測試 token 給假 agent 用（測完刪掉）

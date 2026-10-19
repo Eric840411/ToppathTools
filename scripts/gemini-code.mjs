@@ -13,12 +13,16 @@
  */
 
 import Database from 'better-sqlite3'
+import dotenv from 'dotenv'
 import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DB_PATH = join(__dirname, '../server/data.db')
+// DB 裡的 key 是加密存放（v5.66.0 資安改版），解密金鑰在專案根目錄 .env
+dotenv.config({ path: join(__dirname, '../.env'), quiet: true })
+const { decryptSecret } = await import('../server/secret-crypto.ts')
 const MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
 
 // ── Get prompt from args or stdin ──────────────────────────────────────────
@@ -37,7 +41,7 @@ function loadKeys() {
   try {
     const db = new Database(DB_PATH, { readonly: true })
     const rows = db.prepare('SELECT key FROM gemini_keys').all()
-    keys.push(...rows.map(r => r.key).filter(Boolean))
+    keys.push(...rows.map(r => decryptSecret(r.key)).filter(Boolean))
     db.close()
   } catch { /* DB not accessible */ }
   const envKey = process.env.GEMINI_API_KEY ?? ''

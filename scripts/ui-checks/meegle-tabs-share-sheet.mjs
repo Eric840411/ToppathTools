@@ -2,6 +2,7 @@
  * Meegle 批量工具：在一個分頁讀過的 Sheet 網址，切到其他分頁會自動帶入（v5.0.0 搬出 Jira 時弄丟，v5.7.1 補回）。
  * Sheet 讀取假掉。走區網 IP。跑法：node scripts/ui-checks/meegle-tabs-share-sheet.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
@@ -10,7 +11,7 @@ import path from 'path'
 const HOST = process.env.UI_HOST || '192.168.3.36'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'), { readonly: true })
-const sess = db.prepare("SELECT sid FROM auth_sessions WHERE expires_at > ? AND email = 'eric.wu@toppath.tw' ORDER BY created_at DESC LIMIT 1").get(Date.now())
+const sess = mintDevSession(db, 'eric.wu@toppath.tw')
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }
 const URL = 'https://example.larksuite.com/sheets/SHARED123?sheet=abc'

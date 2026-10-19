@@ -19,6 +19,7 @@
  * 跑法：node scripts/ui-checks/uat-backend-snippets.mjs
  * ⚠️ 需要先 `npm run build`。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -55,7 +56,7 @@ for (const email of [ALICE, BOB]) {
     .run(email, '', email.split('@')[0], 'user', 'active');
   const sid = `snippet-test-${email.split('@')[0]}-${Date.now()}`;
   db.prepare('INSERT INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .run(sid, email, Date.now(), Date.now() + 10 * 60_000);
+    .run(devSidHash(sid), email, Date.now(), Date.now() + 10 * 60_000);
   sids[email] = sid;
 }
 

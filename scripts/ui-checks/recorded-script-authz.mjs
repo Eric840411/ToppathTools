@@ -8,6 +8,7 @@
  *
  * ⚠️ 會在 DB 建測試帳號、測試 session 與一份測試腳本，跑完全部刪掉。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
 
@@ -34,7 +35,7 @@ const mkAccount = (email, role) => {
     .run(email, '', email.split('@')[0], role, 'active')
   const sid = randomUUID()
   db.prepare('INSERT INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .run(sid, email, Date.now(), Date.now() + 60 * 60 * 1000)
+    .run(devSidHash(sid), email, Date.now(), Date.now() + 60 * 60 * 1000)
   sids[email] = sid
   return sid
 }

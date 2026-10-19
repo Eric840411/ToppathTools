@@ -2,6 +2,7 @@
 import multer from 'multer'
 import { parseStepsInput, updateFrontendScript } from '../frontend-script-steps.js'
 import { randomUUID } from 'crypto'
+import { safeEqualString } from '../pin-hash.js'
 import { stripServerDerivedFields } from './frontend-step-sanitize.js'
 // 跟 agent-runner.ts 用同一份共用模組（見 net-capture.js 檔頭說明為什麼放 uat-runner/）
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
@@ -134,7 +135,7 @@ function canMutateScript(req: express.Request, script: ScriptRow | undefined, ac
   if (!script) return false
   const adminPin = process.env.ADMIN_PIN
   const headerPin = req.header('x-admin-pin')
-  if (!!adminPin && headerPin === adminPin) return true
+  if (!!adminPin && !!headerPin && safeEqualString(headerPin, adminPin)) return true
   // 1007 CodeX 補審：有 owner_email 的（新腳本）只認登入帳號或管理員，不再信瀏覽器傳的 created_by。
   // 舊腳本沒有登入帳號可比，維持原本的字串比對（不然所有人都改不了自己的舊腳本）——這是已知限制
   if (script.owner_email) {

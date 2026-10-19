@@ -44,6 +44,8 @@ import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } fr
 import { disconnectAgentsByToken as disconnectAgentsByTokenIn } from '../agent-token-disconnect.js'
 import { ideckXpathProblems } from '../../shared/ideck-xpath.js'
 import { safeChildPath } from '../lib/safe-path.js'
+import { safeEqualString } from '../pin-hash.js'
+import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 import { assertSafeUrl, isObviouslyInternalHost } from '../lib/safe-fetch.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -1093,7 +1095,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     // PIN guard
     const pin = process.env.ADMIN_PIN ?? ''
     const provided = String(req.headers['x-admin-pin'] ?? '')
-    if (pin && provided !== pin) {
+    if (pin && !safeEqualString(provided, pin)) {
       return res.status(403).json({ ok: false, message: '??????PIN ????' })
     }
     const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
@@ -1964,13 +1966,13 @@ router.post('/api/local-agent/agent/:agentId/update-sources', (req, res) => {
 // GET /api/settings/tunnel-url ??get current tunnel webhook URL
 router.get('/api/settings/tunnel-url', (_req, res) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('tunnel_webhook_url') as { value: string } | undefined
-  res.json({ ok: true, url: row?.value ?? null })
+  res.json({ ok: true, url: row?.value ? decryptSecret(row.value) : null })
 })
 
 // POST /api/settings/tunnel-url ??save current tunnel webhook URL
 router.post('/api/settings/tunnel-url', (req, res) => {
   const { url } = req.body as { url?: string }
   if (!url || typeof url !== 'string') return res.status(400).json({ ok: false, error: 'url required' })
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('tunnel_webhook_url', url)
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('tunnel_webhook_url', encryptSecret(url))
   res.json({ ok: true })
 })

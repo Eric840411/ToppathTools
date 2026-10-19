@@ -347,15 +347,15 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
   // ── JP Groups tab ──────────────────────────────────────────────────────────
   const JP_ENV_PRESETS: Record<string, { luckylink_url: string; login_user: string; login_pass: string }> = {
-    QAT:  { luckylink_url: 'https://luckylink-backendserver.osmslot.org',      login_user: 'admin',    login_pass: '123456' },
-    UAT:  { luckylink_url: 'https://luckylink-uat-backendserver.osmslot.org',    login_user: 'admin',    login_pass: '123456' },
-    PROD: { luckylink_url: 'https://luckylink-prod-backendserver.cliveslot.com', login_user: 'qa-eric', login_pass: 'qa-eric' },
+    QAT:  { luckylink_url: 'https://luckylink-backendserver.osmslot.org',      login_user: 'admin',    login_pass: '' },
+    UAT:  { luckylink_url: 'https://luckylink-uat-backendserver.osmslot.org',    login_user: 'admin',    login_pass: '' },
+    PROD: { luckylink_url: 'https://luckylink-prod-backendserver.cliveslot.com', login_user: '', login_pass: '' },
   }
 
   interface JpGroup { id: number; code: string; display_name: string; environment: string; luckylink_url: string; luckylink_group_name: string; login_user: string; login_pass: string; game_codes: string[]; enabled: boolean }
   const [jpGroups, setJpGroups] = useState<JpGroup[]>([])
   const [jpGroupMsg, setJpGroupMsg] = useState('')
-  const [jpGroupForm, setJpGroupForm] = useState({ code: '', display_name: '', environment: 'QAT', luckylink_url: 'https://luckylink-backendserver.osmslot.org', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true })
+  const [jpGroupForm, setJpGroupForm] = useState({ code: '', display_name: '', environment: 'QAT', luckylink_url: 'https://luckylink-backendserver.osmslot.org', luckylink_group_name: '', login_user: 'admin', login_pass: '', game_codes: '', enabled: true })
   const [jpGroupEditing, setJpGroupEditing] = useState<number | null>(null)
   const [jpGroupShowForm, setJpGroupShowForm] = useState(false)
 
@@ -375,7 +375,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
       const method = jpGroupEditing !== null ? 'PUT' : 'POST'
       const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const d = await r.json() as { ok: boolean; message?: string }
-      if (d.ok) { setJpGroupShowForm(false); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true }); fetchJpGroups() }
+      if (d.ok) { setJpGroupShowForm(false); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '', game_codes: '', enabled: true }); fetchJpGroups() }
       else setJpGroupMsg(d.message ?? '儲存失敗')
     } catch (e) { setJpGroupMsg('網路錯誤：' + String(e)) }
   }
@@ -1105,7 +1105,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
               <div style={{ fontWeight: 700, fontSize: 15 }}>JP Group 設定</div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>管理 LuckyLink JP 群組設定，供 AutoSpin 壓測使用</div>
             </div>
-            <button className="submit-btn submit-btn--sm" onClick={() => { setJpGroupShowForm(true); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true }) }}>+ 新增</button>
+            <button className="submit-btn submit-btn--sm" onClick={() => { setJpGroupShowForm(true); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '', game_codes: '', enabled: true }) }}>+ 新增</button>
           </div>
 
           {jpGroupMsg && <div style={{ color: '#ef4444', fontSize: 13 }}>{jpGroupMsg}</div>}
@@ -1127,7 +1127,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     <td style={{ fontSize: 12, color: '#94a3b8' }}>{g.game_codes.join(', ') || '—'}</td>
                     <td>{g.enabled ? <span style={{ color: '#22c55e' }}>啟用</span> : <span style={{ color: '#94a3b8' }}>停用</span>}</td>
                     <td>
-                      <button className="settings-btn" style={{ marginRight: 6 }} onClick={() => { setJpGroupEditing(g.id); setJpGroupForm({ code: g.code, display_name: g.display_name, environment: g.environment, luckylink_url: g.luckylink_url, luckylink_group_name: g.luckylink_group_name, login_user: g.login_user ?? 'admin', login_pass: g.login_pass ?? '123456', game_codes: g.game_codes.join(', '), enabled: g.enabled }); setJpGroupShowForm(true) }}>編輯</button>
+                      <button className="settings-btn" style={{ marginRight: 6 }} onClick={() => { setJpGroupEditing(g.id); setJpGroupForm({ code: g.code, display_name: g.display_name, environment: g.environment, luckylink_url: g.luckylink_url, luckylink_group_name: g.luckylink_group_name, login_user: g.login_user ?? 'admin', login_pass: '', game_codes: g.game_codes.join(', '), enabled: g.enabled }); setJpGroupShowForm(true) }}>編輯</button>
                       <button className="settings-btn" style={{ color: '#ef4444' }} onClick={() => handleDeleteJpGroup(g.id, g.code)}>刪除</button>
                     </td>
                   </tr>
@@ -1146,7 +1146,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                   { label: 'LuckyLink URL *', key: 'luckylink_url', placeholder: 'https://luckylink-backendtest.osmslot.org' },
                   { label: 'LuckyLink Group 名稱 *', key: 'luckylink_group_name', placeholder: '後台 JP Group 名稱' },
                   { label: '登入帳號', key: 'login_user', placeholder: 'admin' },
-                  { label: '登入密碼', key: 'login_pass', placeholder: '123456', isPassword: true },
+                  { label: '登入密碼', key: 'login_pass', placeholder: jpGroupEditing !== null ? '留空＝沿用原密碼' : '', isPassword: true },
                   { label: 'Game Codes（逗號分隔）', key: 'game_codes', placeholder: '例：873-DFDC-0001, 873-DFDC-0003' },
                 ].map(({ label, key, placeholder, disabled, isPassword }) => (
                   <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

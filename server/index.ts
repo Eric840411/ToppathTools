@@ -47,6 +47,8 @@ import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
 import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
 import { BACKUP_KEY, runDiscordRetireMigration } from './discord-retire-migration.js'
 import { ensureLocalSeeds } from './agent-seeds.js'
+import { migrateSecretsAtRest } from './secret-migration.js'
+import { upgradeLegacyPinHashes } from './pin-hash.js'
 
 dotenv.config()
 
@@ -70,6 +72,30 @@ try {
 } catch (e) {
   console.error('[migration] Discord 退場搬遷失敗，設定未變動，server 不啟動：', e)
   process.exit(1)
+}
+
+// ─── 機密欄位加密（資安審查 2026-10-19；冪等，見 secret-migration.ts）────────────────────
+// 失敗不擋開機：讀取對明文／密文都相容，沒加密成功只是維持改版前的狀態。部署後看這行確認有生效
+try {
+  const r = migrateSecretsAtRest(db)
+  if (r.status === 'missing') {
+    console.warn('[security] ⚠️ 沒有設定 SECRETS_KEY／MEEGLE_TOKEN_KEY：資料庫裡的 API key／密碼仍是明文存放')
+  } else {
+    const done = Object.entries(r.encrypted).map(([k, n]) => `${k}×${n}`).join('、')
+    console.log(`[security] 機密欄位加密 OK（金鑰：${r.status}）${done ? `，本次加密 ${done}` : '，沒有待加密的明文'}`)
+  }
+} catch (e) {
+  console.error('[security] 機密欄位加密失敗（資料未變動，讀取不受影響）：', e)
+}
+
+// PIN 舊雜湊（不加鹽 sha256）原地包成 scrypt；列出還沒設 PIN 的帳號（v5.66.0 起這些帳號登不進來）
+try {
+  const n = upgradeLegacyPinHashes(db)
+  if (n) console.log(`[security] PIN 雜湊升級 scrypt：${n} 筆`)
+  const noPin = db.prepare(`SELECT email FROM jira_accounts WHERE (pin_hash IS NULL OR pin_hash = '') AND COALESCE(status, 'active') <> 'disabled'`).all() as { email: string }[]
+  if (noPin.length) console.warn(`[security] ⚠️ ${noPin.length} 個帳號沒有 PIN、目前無法登入，請管理員設定：${noPin.map(r => r.email).join(', ')}`)
+} catch (e) {
+  console.error('[security] PIN 雜湊升級失敗：', e)
 }
 
 // 機台測試種子檔：本機模式也會跑 runner，缺檔才補（已有的不動，見 agent-seeds.ts）

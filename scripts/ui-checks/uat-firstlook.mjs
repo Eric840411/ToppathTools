@@ -6,11 +6,12 @@
  *
  * 跑法：cd scripts/ui-checks && node uat-firstlook.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright';
 import Database from 'better-sqlite3';
 
 const db = new Database('../../server/data.db');
-const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const sess = mintDevSession(db);
 if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
 
 const browser = await chromium.launch();

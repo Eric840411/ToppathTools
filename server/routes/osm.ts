@@ -9,6 +9,8 @@ import cron from 'node-cron'
 import { z } from 'zod'
 import { parseServerCfgSource } from '../../shared/server-cfg-parse.js'
 import { safeFetch, assertSafeUrl } from '../lib/safe-fetch.js'
+import { encryptSecret, decryptSecret } from '../secret-crypto.js'
+import { safeEqualString } from '../pin-hash.js'
 import { chromium } from 'playwright'
 import { fetchAllGMList } from '../lib/pinus-client.js'
 import { refreshWatchIndex, watchState, watchAgeMs, lookupWatchEntry } from '../lib/osm-watch.js'
@@ -43,14 +45,12 @@ export const TOPPATH_VERSION_COMPONENTS = [
 
 // ─── Alert Config Helpers ─────────────────────────────────────────────────────
 
-// Seed dedicated version-alert webhook on first run
+// Seed version-alert webhook on first run — 從環境變數讀，不寫死在原始碼（資安審查 2026-10-19：原本寫死、repo 公開）
 {
   const existing = db.prepare('SELECT value FROM alert_config WHERE key = ?').get('webhook_url') as { value: string } | undefined
-  if (!existing) {
-    db.prepare('INSERT OR REPLACE INTO alert_config (key, value) VALUES (?, ?)').run(
-      'webhook_url',
-      'https://open.larksuite.com/open-apis/bot/v2/hook/51b91ea7-6378-499f-b9dc-2f48606b0826',
-    )
+  const seed = process.env.LARK_VERSION_ALERT_WEBHOOK_URL
+  if (!existing && seed) {
+    db.prepare('INSERT OR REPLACE INTO alert_config (key, value) VALUES (?, ?)').run('webhook_url', encryptSecret(seed))
   }
 }
 
@@ -61,12 +61,13 @@ export const getAlertConfig = () => {
   return {
     enabled: cfg['enabled'] === 'true',
     schedule: cfg['schedule'] ?? '0 9 * * *',
-    webhookUrl: cfg['webhook_url'] ?? '',
+    webhookUrl: decryptSecret(cfg['webhook_url']) ?? '',
   }
 }
 
 export const setAlertConfigKey = (key: string, value: string) => {
-  db.prepare('INSERT OR REPLACE INTO alert_config (key, value) VALUES (?, ?)').run(key, value)
+  // webhook_url 加密存放（資安審查 2026-10-19）
+  db.prepare('INSERT OR REPLACE INTO alert_config (key, value) VALUES (?, ?)').run(key, key === 'webhook_url' ? encryptSecret(value) : value)
 }
 
 // ─── OSM Channel types and helpers ───────────────────────────────────────────
@@ -1559,7 +1560,7 @@ router.get('/api/osm/jackpot/level-map', (_req, res) => {
 router.post('/api/osm/jackpot/level-map', (req, res) => {
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  if (pin && provided !== pin) return res.status(403).json({ ok: false, message: '需要管理員 PIN' })
+  if (pin && !safeEqualString(provided, pin)) return res.status(403).json({ ok: false, message: '需要管理員 PIN' })
 
   const { map } = req.body as { map?: Record<string, { top: string | null; second: string | null }> }
   if (!map || typeof map !== 'object') return res.status(400).json({ ok: false, message: 'map required' })
@@ -1733,7 +1734,7 @@ router.get('/api/osm/jackpot/settings', (req, res) => {
 router.post('/api/osm/jackpot/settings', (req, res) => {
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  if (pin && provided !== pin) return res.status(403).json({ ok: false, message: '需要管理員 PIN' })
+  if (pin && !safeEqualString(provided, pin)) return res.status(403).json({ ok: false, message: '需要管理員 PIN' })
 
   const { settings } = req.body as {
     settings: { gameid: string; level: string; min_val: number; max_val: number; enabled: boolean }[]

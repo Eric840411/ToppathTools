@@ -4,12 +4,13 @@
  * 依序驗：沒登入／沒權限／給權限／停權。驗完刪帳號與 session。跑法：node scripts/ui-checks/weekly-gate-live-check.mjs
  * ⚠️ 打 batch-submit 時 body 故意不合格式——關卡失效的話會回 400（格式錯），不會真的寫進 Lark。
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 import { randomBytes } from 'crypto'
 
 const H = 'http://192.168.3.41:3000'
 const db = new Database('server/data.db')
-const { sid: adminSid } = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const { sid: adminSid } = mintDevSession(db, 'eric.wu@toppath.tw')
 const T = 'verify-weekly-gate@toppath.tw'
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }
@@ -22,7 +23,7 @@ const ENDPOINTS = [['POST', '/api/weekly-report/batch-submit', { bad: 1 }], ['GE
 const sid = randomBytes(24).toString('hex')
 try {
   await req('POST', '/api/accounts', { email: T, label: '驗證用-請忽略', role: 'qa', pin: '9999' })
-  db.prepare('INSERT INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)').run(sid, T, Date.now(), Date.now() + 3600_000)
+  db.prepare('INSERT INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)').run(devSidHash(sid), T, Date.now(), Date.now() + 3600_000)
 
   console.log('== 沒登入')
   for (const [m, p, b] of ENDPOINTS) { const r = await req(m, p, b); check(`${m} ${p} → 401`, r.status === 401, String(r.status)) }

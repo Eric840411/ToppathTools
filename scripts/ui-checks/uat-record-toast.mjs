@@ -1,4 +1,5 @@
 /** 驗證沒有 Local Agent 時，錄製錯誤顯示為 viewport 內的浮動提示。 */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
@@ -6,7 +7,7 @@ import path from 'path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const db = new Database(path.join(root, 'server/data.db'))
-const session = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now())
+const session = mintDevSession(db)
 if (!session) throw new Error('沒有有效登入 session')
 
 const browser = await chromium.launch()

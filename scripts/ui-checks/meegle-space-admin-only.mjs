@@ -6,12 +6,13 @@
  *   3 停留在頁面上時被降權（/api/auth/me 回非管理員）→ 視窗回到前景後：切換消失、改用 prod 重讀、補回填清單重掛（CodeX review 1288024 [P2]）
  * 跑法：node scripts/ui-checks/meegle-space-admin-only.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const db = new Database('server/data.db')
-const admin = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const admin = mintDevSession(db, 'eric.wu@toppath.tw')
 const other = db.prepare("SELECT s.sid, s.email FROM auth_sessions s JOIN jira_accounts a ON a.email = s.email WHERE a.role NOT LIKE '%admin%' AND s.expires_at>? ORDER BY s.created_at DESC").get(Date.now())
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }

@@ -8,12 +8,13 @@
  * 做法：在本機 DB 對一份既有腳本塞一個假鎖，結束一定刪掉。
  * 跑法：node scripts/ui-checks/uat-script-force-unlock.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import { chromium } from 'playwright'
 import Database from 'better-sqlite3'
 
 const HOST = '192.168.3.41'
 const db = new Database('server/data.db')
-const admin = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const admin = mintDevSession(db, 'eric.wu@toppath.tw')
 const other = db.prepare("SELECT s.sid FROM auth_sessions s JOIN jira_accounts a ON a.email = s.email WHERE a.role NOT LIKE '%admin%' AND s.expires_at>? ORDER BY s.created_at DESC").get(Date.now())
 const row = db.prepare('SELECT id, document FROM uat_recorded_scripts WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1').get()
 if (!admin || !row) { console.log('缺少管理員 session 或腳本'); process.exit(1) }

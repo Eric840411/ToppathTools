@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
+import { encryptSecret, decryptSecret, isSecretConfigKey } from '../secret-crypto.js'
 import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
 
 export const router = Router()
@@ -36,12 +37,16 @@ const FIELD = { gamesPlayed: '5', coinIn: '6', coinOut: '10', jackpotWins: '29' 
 export function loadMeterConfig(profile: Profile): Record<string, string> {
   const rows = db.prepare('SELECT key, value FROM meter_reconcile_config WHERE key LIKE ?').all(`${profile}_%`) as { key: string; value: string }[]
   const cfg: Record<string, string> = {}
-  for (const r of rows) cfg[r.key.slice(profile.length + 1)] = r.value
+  for (const r of rows) {
+    const k = r.key.slice(profile.length + 1)
+    cfg[k] = isSecretConfigKey(k) ? decryptSecret(r.value) : r.value
+  }
   return cfg
 }
 
 function saveMeterConfigValue(profile: Profile, key: string, value: string) {
-  db.prepare('INSERT OR REPLACE INTO meter_reconcile_config (key, value) VALUES (?, ?)').run(`${profile}_${key}`, value)
+  // token／password 加密存放（資安審查 2026-10-19）
+  db.prepare('INSERT OR REPLACE INTO meter_reconcile_config (key, value) VALUES (?, ?)').run(`${profile}_${key}`, isSecretConfigKey(key) ? encryptSecret(value) : value)
 }
 
 function meterHeaders(cfg: Record<string, string>) {

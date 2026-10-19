@@ -14,12 +14,13 @@
  * 重試只會：讀一次單子（唯讀）→ 寫假 Sheet（必定失敗）。不會改到 Meegle。結束一定刪掉。
  * 跑法：node scripts/ui-checks/backfill-dismiss-race.mjs
  */
+import { mintDevSession } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 
 const HOST = 'http://192.168.3.41:3000'
 const db = new Database('server/data.db')
 const ADMIN = 'eric.wu@toppath.tw'
-const { sid } = db.prepare('SELECT sid FROM auth_sessions WHERE email = ? AND expires_at > ? ORDER BY created_at DESC').get(ADMIN, Date.now())
+const { sid } = mintDevSession(db, ADMIN)
 const WID = '15194995'   // 測試空間的單（只會被讀）
 const cookie = { cookie: `toppath_auth=${sid}` }
 const post = (path, body, signal) => fetch(HOST + path, { method: 'POST', headers: { 'content-type': 'application/json', ...cookie }, body: JSON.stringify(body), signal })

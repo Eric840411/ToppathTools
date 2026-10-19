@@ -18,12 +18,16 @@
  */
 
 import Database from 'better-sqlite3'
+import dotenv from 'dotenv'
 import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DB_PATH = join(__dirname, '../server/data.db')
+// DB 裡的 key 是加密存放（v5.66.0 資安改版），解密金鑰在專案根目錄 .env
+dotenv.config({ path: join(__dirname, '../.env'), quiet: true })
+const { decryptSecret } = await import('../server/secret-crypto.ts')
 
 // ── Parse args ─────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
@@ -49,7 +53,7 @@ function loadKey() {
     const db = new Database(DB_PATH, { readonly: true })
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openai_api_key')
     db.close()
-    if (row?.value) return row.value
+    if (row?.value) return decryptSecret(row.value)
   } catch { /* DB not accessible */ }
   return process.env.OPENAI_API_KEY ?? ''
 }

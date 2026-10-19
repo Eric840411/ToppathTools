@@ -3,6 +3,7 @@
  * 獨立成沒有副作用的模組，測試可以拿記憶體 DB 直接打同一支，不用另抄一份 SQL。
  */
 import type Database from 'better-sqlite3'
+import { encryptSecret } from './secret-crypto.js'
 
 export type AccountRow = { email: string; token?: string; label: string; role?: string; status?: string }
 
@@ -14,5 +15,5 @@ export type AccountRow = { email: string; token?: string; label: string; role?: 
 export function upsertAccountIn(db: Database.Database, a: AccountRow) {
   db.prepare(`INSERT INTO jira_accounts (email, token, label, role, status) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(email) DO UPDATE SET token = excluded.token, label = excluded.label, role = excluded.role, status = excluded.status`)
-    .run(a.email, a.token ?? '', a.label, a.role ?? 'qa', a.status ?? 'active')
+    .run(a.email, encryptSecret(a.token ?? ''), a.label, a.role ?? 'qa', a.status ?? 'active')
 }

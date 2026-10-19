@@ -2,12 +2,13 @@
  * 通知設定頁走查（v5.5.0 起原「Lark 通知」改名「通知設定」、出口固定 Lark；普通版＋修仙版）：打真的伺服器、真的設定；試發攔下來不真的送（避免洗群）。
  * 前提：已跑過 lark-notify-live-check.mjs（憑證已存）。跑法：node scripts/ui-checks/lark-notify-walkthrough.mjs
  */
+import { mintDevSession, devSidHash } from './lib/dev-session.mjs'
 import Database from 'better-sqlite3'
 import { chromium } from 'playwright'
 
 const HOST = '192.168.3.41'
 const db = new Database('server/data.db')
-const { sid } = db.prepare("SELECT sid FROM auth_sessions WHERE email='eric.wu@toppath.tw' AND expires_at>? ORDER BY created_at DESC").get(Date.now())
+const { sid } = mintDevSession(db, 'eric.wu@toppath.tw')
 let fail = 0
 const check = (name, ok, extra = '') => { console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  ' + extra : ''}`); if (!ok) fail++ }
 const browser = await chromium.launch()
