@@ -647,6 +647,24 @@ export async function runFrontendStep(step, ctx) {
     markWsBefore(ctx);
     await log(`⏳ ${idx} ${label}`);
     /**
+     * 1019「找不到就跳過」H5 版（AI T-061：Video 頁 Quick Join 有機台才進得去，
+     * 沒機台時「Quit → Confirm」那兩顆要略過，不能判失敗）。規則跟 pc_click_node 的 1008 版一樣：
+     *   - 等 3 秒選擇器還是 0 個 → 記 SKIP（不算通過也不算失敗，備註留下「沒做」）
+     *   - 找到了 → 照常點；點不到照樣失敗，不吞錯
+     * ⚠️ 判斷「在不在」用的是選擇器原樣，不經錄製器的定位階梯——這個選項給手寫選擇器用。
+     */
+    if (step.skipIfMissing === true) {
+      const sel = (step.selector ?? '').trim();
+      if (!sel) throw new Error('勾了找不到就跳過，但沒填選擇器');
+      const deadline = Date.now() + 3000;
+      let n = await page.locator(sel).count();
+      while (n === 0 && Date.now() < deadline) { await page.waitForTimeout(500); n = await page.locator(sel).count(); }
+      if (n === 0) {
+        await log(`⏭ ${idx} ${label}（畫面上沒有 ${sel}，照設定跳過）`);
+        return { shots, skipped: `畫面上沒有 ${sel}` };
+      }
+    }
+    /**
      * 🚨 **被蓋住的按鈕要有退路，否則只會看到一句 `Timeout 10000ms exceeded`。**
      *
      * 2026-09-19 實測（H5 機台內選面額）：`.btn_bet >> nth=1` 唯一命中、畫面上看得到、

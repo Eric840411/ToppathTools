@@ -132,5 +132,26 @@ const runRead = async (step: Record<string, unknown>, page: unknown, state: { va
   ok(err0 === '' && calls.length === 0, "scroll 捲動量 '0' → 相對捲動，不呼叫 scrollIntoView", { err0, calls })
 }
 
+// 1019 H5 click 找不到就跳過：0 個 → 回 skipped、不點；有 → 照常走點擊（這裡用假頁面，點擊路徑會丟別的錯，證明沒被跳過）
+{
+  const clicks: string[] = []
+  const skipPage = (n: number) => ({
+    url: () => 'http://qat/lobby',
+    locator: () => ({ count: async () => n }),
+    waitForTimeout: async () => {},
+  })
+  const run = async (n: number, extra: Record<string, unknown> = {}) => {
+    let msg = ''; let out: unknown
+    try { out = await runFrontendStep({ id: 'k', name: 'n', action: 'click', selector: '.box-btn_text2', skipIfMissing: true, ...extra }, { idx: '', label: '', log: () => {}, page: skipPage(n), startUrl: 'http://qat/', state: {}, recordedLocator: async () => { clicks.push('resolved'); throw new Error('reached-click') } }) } catch (e) { msg = e instanceof Error ? e.message : String(e) }
+    return { msg, out: out as { skipped?: string } | undefined }
+  }
+  const r0 = await run(0)
+  ok(r0.msg === '' && !!r0.out?.skipped && clicks.length === 0, 'H5 click 找不到就跳過：0 個 → skipped、沒有去點', r0)
+  const r1 = await run(1)
+  ok(r1.msg === 'reached-click', 'H5 click 找不到就跳過：有 1 個 → 照常走點擊路徑', r1.msg)
+  const r2 = await run(0, { skipIfMissing: undefined })
+  ok(r2.msg === 'reached-click', 'H5 click 沒勾跳過：0 個也照常走點擊（交給點擊報錯）', r2.msg)
+}
+
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)
 process.exit(fail ? 1 : 0)

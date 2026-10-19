@@ -60,7 +60,7 @@ export interface AutoStep {
   /** assert_pc_node（1014，CodeX P2 方案 C）：同名／同標籤命中多顆時，預設報歧義；勾了＝至少一顆存在（配「必須在畫面內」＝至少一顆在畫面內） */
   allowMultiple?: boolean
   /**
-   * pc_click_node：找不到就跳過（記 SKIP，不算失敗）。1008 PC 使用者：大廳廣告有時有、有時沒有。
+   * pc_click_node／click（H5，1019）：找不到就跳過（記 SKIP，不算失敗）。1008 PC 使用者：大廳廣告有時有、有時沒有。
    * ⚠️ 只有「場景讀得到、節點確定不存在」才跳過；場景讀不到、找到了卻點不到 → 照樣失敗（CodeX 方案 g）
    */
   skipIfMissing?: boolean
