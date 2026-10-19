@@ -1149,6 +1149,27 @@ export async function runFrontendStep(step, ctx) {
     }
     const domSel = (step.selector ?? '').trim();
     const nodeName = (step.nodeName ?? '').trim();
+    if (step.readMode !== undefined && step.readMode !== 'text' && step.readMode !== 'count') {
+      // 打錯字（'Count'）不能默默當成讀文字——那樣讀到的是空字串，錯誤會出現在後面的比對、離原因很遠
+      throw new Error(`readMode 只能是 text（讀文字）或 count（數個數）（現在是「${step.readMode}」）`);
+    }
+    if (step.readMode === 'count') {
+      /**
+       * 數「符合選擇器的元素有幾個」存成變數（1019 AI T-044 要的）。
+       *
+       * 🚨 **為什麼需要**：有些狀態只差在 class、沒有文字（最愛愛心 `.gm-favor` vs `.gm-favor.active`），
+       *    讀文字讀不出來，腳本就沒辦法先記住「原本是不是最愛」——只能用前置條件把另一種狀態擋掉。
+       *    數個數（亮＝1、沒亮＝0）再用「比對兩個值」驗 `after = 1 - before`，兩種起始狀態都能跑同一支。
+       * ⚠️ 0 是合法結果，不會失敗——所以選擇器打錯也會讀成 0。要搭配一顆斷言確認「被數的東西本身在」
+       *    （例：先 assert_visible `.gm-favor`，再數 `.gm-favor.active`）。
+       */
+      if (!domSel || nodeName) throw new Error('數個數只支援 DOM 選擇器（H5），不能填 Cocos 節點名');
+      if (step.pattern) throw new Error('數個數不能搭配「只取一段」');
+      const count = await page.locator(domSel).count();
+      vars[name] = String(count);
+      await log(`✅ ${idx} ${label}（${name} = ${count} 個）`);
+      return { shots };
+    }
     if (!!domSel === !!nodeName) throw new Error('要**擇一**填：DOM 選擇器（H5）或 Cocos 節點名（PC）');
     let value;
     if (domSel) {

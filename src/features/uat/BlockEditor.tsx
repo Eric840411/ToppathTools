@@ -250,19 +250,33 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             )}
             {selected.action === 'read_value' && (
               <>
-                <label>DOM 選擇器（H5，二選一）
+                <label>讀什麼
+                  <select className="uat-field" value={selected.readMode ?? 'text'} onChange={event => updateSelected(event.target.value === 'count'
+                    // 隱藏的欄位要一起清掉，不然畫面上看不到、執行時卻報「不能填 Cocos 節點名／不能搭配只取一段」
+                    ? { readMode: 'count', nodeName: undefined, pattern: undefined }
+                    : { readMode: undefined })}>
+                    <option value="text">元素的文字</option>
+                    <option value="count">符合的元素有幾個（H5）</option>
+                  </select>
+                  {selected.readMode === 'count' && <span className="uat-hint">適合只差在 class、沒有文字的狀態（例：數 <code>.gm-favor.active</code>，亮＝1、沒亮＝0）。0 個不會失敗，選擇器打錯也會讀成 0——前面先放一顆斷言確認被數的東西在</span>}
+                </label>
+                <label>{selected.readMode === 'count' ? 'DOM 選擇器（H5）' : 'DOM 選擇器（H5，二選一）'}
                   <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder=".balance-value" />
                 </label>
-                <label>Cocos 節點名／路徑（PC，二選一）
-                  <input className="uat-field uat-code-field" value={selected.nodeName ?? ''} onChange={event => updateSelected({ nodeName: event.target.value })} placeholder="lb_coin" />
-                </label>
+                {selected.readMode !== 'count' && (
+                  <label>Cocos 節點名／路徑（PC，二選一）
+                    <input className="uat-field uat-code-field" value={selected.nodeName ?? ''} onChange={event => updateSelected({ nodeName: event.target.value })} placeholder="lb_coin" />
+                  </label>
+                )}
                 <label>存成變數名
                   <input className="uat-field uat-code-field" value={selected.as ?? ''} onChange={event => updateSelected({ as: event.target.value })} placeholder="beforeBalance" />
                 </label>
-                <label>只取一段（選填，正規式）
-                  <input className="uat-field uat-code-field" value={selected.pattern ?? ''} onChange={event => updateSelected({ pattern: event.target.value || undefined })} placeholder="less than ([\d,]*\d)" />
-                  <span className="uat-hint">用括號包住要存的那段，存第 1 組（取數字用 <code>([\d,]*\d)</code>，結尾限定數字才不會吃到後面的逗號）；對不到會讓這步失敗並顯示讀到的整句，不會存空值。留空＝存整段文字</span>
-                </label>
+                {selected.readMode !== 'count' && (
+                  <label>只取一段（選填，正規式）
+                    <input className="uat-field uat-code-field" value={selected.pattern ?? ''} onChange={event => updateSelected({ pattern: event.target.value || undefined })} placeholder="less than ([\d,]*\d)" />
+                    <span className="uat-hint">用括號包住要存的那段，存第 1 組（取數字用 <code>([\d,]*\d)</code>，結尾限定數字才不會吃到後面的逗號）；對不到會讓這步失敗並顯示讀到的整句，不會存空值。留空＝存整段文字</span>
+                  </label>
+                )}
                 <label className="uat-checkline">
                   <input type="checkbox" checked={selected.overwrite === true} onChange={event => updateSelected({ overwrite: event.target.checked })} />
                   允許覆寫同名變數

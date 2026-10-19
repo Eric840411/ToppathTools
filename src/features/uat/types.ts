@@ -93,6 +93,8 @@ export interface AutoStep {
   overwrite?: boolean
   /** `read_value`：擷取規則（正規式，存第 1 個擷取群組）；對不到就失敗，不存空值 */
   pattern?: string
+  /** `read_value`：`text`（預設）讀文字；`count` 數符合 DOM 選擇器的元素個數（0 也是合法值） */
+  readMode?: 'text' | 'count'
   /** `assert_compare`：右邊的算式（左邊用 `value`） */
   expect?: string
   /** `assert_compare`：容差 */

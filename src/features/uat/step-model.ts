@@ -115,6 +115,8 @@ const ENUMS: Record<string, readonly string[]> = {
   matchMode: ['contains', 'equals', 'regex', 'number'],
   // 1014 pc_pick_machine：只挑空機／排除離線
   pickFrom: ['free', 'online'],
+  // 1019 read_value：讀文字（預設）／數符合的元素個數
+  readMode: ['text', 'count'],
 }
 function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof item === 'string') return { ...createStep('wait'), name: item, value: '1000' }
