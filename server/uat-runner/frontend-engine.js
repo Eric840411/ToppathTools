@@ -820,6 +820,14 @@ export async function runFrontendStep(step, ctx) {
     const raw = (step.value ?? '').trim().toLowerCase();
     const sel = (step.selector ?? '').trim();
     /**
+     * `align`（1019 AI T-055 要的）：把元素捲進畫面時對齊哪裡，`center`（預設）或 `start`（頂端）。
+     * 🚨 H5 大廳上方遊戲列選中哪款，是看「捲到最上面的是哪個遊戲區塊」——置中的話上一個區塊還壓在頂端，
+     *    遊戲列停在上一款，按下排 Quick Join 就進錯遊戲（或跳 No machines）。
+     * ⚠️ 打錯字要擋，不能默默當成置中（跟 readMode 同一條規則）。
+     */
+    const align = step.align ?? 'center';
+    if (align !== 'center' && align !== 'start') throw new Error(`align 只能是 center（置中）或 start（對齊頂端）（現在是「${step.align}」）`);
+    /**
      * H5（DOM）捲動。三種用法：
      *   - 有 selector、value 空 → 把那個元素捲進畫面（`scrollIntoView`）
      *   - value = `top` / `bottom` → 捲到頭／捲到底
@@ -830,7 +838,7 @@ export async function runFrontendStep(step, ctx) {
      *    會自己找「真的捲得動」的那個容器（scrollHeight 比 clientHeight 大的最大那個），
      *    找不到才退回 window——並且**把用了哪一個寫進 log**，不然完全看不出是誰在捲。
      */
-    const result = await page.evaluate(({ raw, sel }) => {
+    const result = await page.evaluate(({ raw, sel, align }) => {
       const pickScroller = () => {
         let best = null; let bestArea = 0;
         for (const el of document.querySelectorAll('div, main, section, ul')) {
@@ -847,7 +855,7 @@ export async function runFrontendStep(step, ctx) {
       if (sel) {
         const target = document.querySelector(sel);
         if (!target) return { ok: false, how: '', message: `找不到 ${sel}` };
-        if (!raw) { target.scrollIntoView({ block: 'center' }); return { ok: true, how: `scrollIntoView(${sel})` }; }
+        if (!raw) { target.scrollIntoView({ block: align }); return { ok: true, how: `scrollIntoView(${sel}${align === 'start' ? '，對齊頂端' : ''})` }; }
       }
       const scroller = sel ? document.querySelector(sel) : (pickScroller() ?? document.scrollingElement ?? document.body);
       if (!scroller) return { ok: false, how: '', message: '找不到可以捲的容器' };
@@ -860,7 +868,7 @@ export async function runFrontendStep(step, ctx) {
       else if (raw.startsWith('to:')) scroller.scrollTop = Number(raw.slice(3)) || 0;
       else scroller.scrollTop = before + (Number(raw) || 0);
       return { ok: true, how, before, after: scroller.scrollTop };
-    }, { raw, sel });
+    }, { raw, sel, align });
     if (!result.ok) throw new Error(result.message ?? '捲不動');
     await page.waitForTimeout(1200);
     await log(`✅ ${idx} ${label}（${result.how}${result.after !== undefined ? `：${result.before} → ${result.after}` : ''}）`);

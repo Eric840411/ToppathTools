@@ -30,8 +30,8 @@ const FULL: Omit<AutoStep, 'id' | 'name' | 'action' | 'children' | 'collapsed'> 
   key: 'Space', futureField: { a: [1, 2] },
   // 1015 長按／拖動
   fromSelector: '.chest', toSelector: '.slot', fromX: 10, fromY: 20, toX: 30, toY: 40, holdMs: 800, durationMs: 600, moveSteps: 12,
-  // 1019 read_value 數個數
-  readMode: 'count',
+  // 1019 read_value 數個數、scroll 對齊頂端
+  readMode: 'count', align: 'start',
 }
 for (const def of STEP_LIBRARY) {
   const isContainer = def.action === 'group' || def.action === 'repeat'
@@ -106,6 +106,25 @@ const runRead = async (step: Record<string, unknown>, page: unknown, state: { va
   ok(bad4.msg.includes('readMode'), 'readMode 打錯：載入→執行，照樣被執行器擋', bad4.msg)
   const dup = await runRead({ selector: '.a', as: 'x', readMode: 'count' }, countPage({ '.a': 2 }), { vars: { x: '1' } })
   ok(dup.msg.includes('重複'), '數個數：同名變數沒勾覆寫 → 擋（沿用讀文字的規則）', dup.msg)
+}
+
+// 1019 scroll align：打錯字載入時保留、執行器在碰頁面之前就擋（不默默當成置中）；start 會傳進 scrollIntoView
+{
+  const [loadedAl] = compileExecutableSteps(parseSteps(JSON.stringify([{ id: 'a1', name: 'n', action: 'scroll', selector: '.sec', align: 'Start' }]))) as unknown as Record<string, unknown>[]
+  ok(loadedAl.align === 'Start', 'align 不認得的值 → 載入時原樣保留', loadedAl)
+  let msg = ''
+  try { await runFrontendStep(loadedAl, { idx: '', label: '', log: () => {}, page: {}, startUrl: 'http://qat/' }) } catch (e) { msg = e instanceof Error ? e.message : String(e) }
+  ok(msg.includes('align'), 'align 打錯：載入→執行，執行器擋', msg)
+  // 頁面端：記下 scrollIntoView 收到的參數（evaluate 直接在 node 端跑那個函式，給假的 document）
+  const calls: unknown[] = []
+  const fakeDoc = { querySelector: () => ({ scrollIntoView: (o: unknown) => calls.push(o) }) }
+  const fakePage = { evaluate: async (fn: (a: unknown) => unknown, arg: unknown) => { const g = globalThis as Record<string, unknown>; const prev = g.document; g.document = fakeDoc; try { return fn(arg) } finally { g.document = prev } }, waitForTimeout: async () => {} }
+  for (const [align, want] of [['start', 'start'], [undefined, 'center']] as const) {
+    calls.length = 0
+    let err = ''
+    try { await runFrontendStep({ id: 'a2', name: 'n', action: 'scroll', selector: '.sec', ...(align ? { align } : {}) }, { idx: '', label: '', log: () => {}, page: fakePage, startUrl: 'http://qat/' }) } catch (e) { err = e instanceof Error ? e.message : String(e) }
+    ok(err === '' && eq(calls, [{ block: want }]), `scroll align=${align ?? '(預設)'} → scrollIntoView block:${want}`, { err, calls })
+  }
 }
 
 console.log(fail ? `❌ ${fail}/${n} 失敗` : `✅ ${n}/${n} 通過`)

@@ -102,7 +102,7 @@ export function createStep(action = 'goto'): AutoStep {
  *    白名單＝每加一個欄位就要記得改兩處，漏了沒有任何錯誤；改成「預設保留、已知的才驗」。
  *    守門：scripts/ui-checks/step-model-roundtrip.test.ts（每種 action、每個欄位都要原封不動地存回來）
  */
-const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason', 'readMode'] as const
+const STRING_KEYS = ['value', 'selector', 'fromSelector', 'toSelector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason', 'from', 'as', 'pattern', 'expect', 'nodeName', 'reason', 'readMode', 'align'] as const
 const NUMBER_KEYS = ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount', 'minAdvanceSec', 'settleMs', 'tolerancePct', 'absoluteTolerance', 'timeoutMs', 'fromX', 'fromY', 'toX', 'toY', 'holdMs', 'durationMs', 'moveSteps'] as const
 // ⚠️ 1015 長按／拖動的範圍（holdMs／durationMs 0～10000、moveSteps 1～60）**不在這裡驗**：超出範圍的值要原樣留著，
 //    讓執行器報錯。在這裡刪掉的話 holdMs:20000 讀進來就變成預設 1500，靜默改掉使用者寫的值（CodeX review 011f6fe [P2]）

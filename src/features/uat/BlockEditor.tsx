@@ -404,6 +404,15 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
                 <span className="uat-hint">填了 Selector 又不填這欄＝把那個元素捲進畫面。沒填 Selector 時會自己找真的捲得動的容器（行動版常常不是 window 在捲）</span>
               </label>
             )}
+            {selected.action === 'scroll' && !!selected.selector && !(selected.value ?? '').trim() && (
+              <label>捲進畫面時對齊
+                <select className="uat-field" value={selected.align ?? 'center'} onChange={event => updateSelected({ align: event.target.value === 'start' ? 'start' : undefined })}>
+                  <option value="center">置中</option>
+                  <option value="start">對齊頂端</option>
+                </select>
+                <span className="uat-hint">H5 大廳上方遊戲列是看「最上面的區塊」決定選中哪款——要切到某款遊戲再按下排 Quick Join，選對齊頂端</span>
+              </label>
+            )}
             {selected.action === 'pc_scroll' && (
               <>
                 <label>捲到哪

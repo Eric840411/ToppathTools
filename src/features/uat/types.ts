@@ -95,6 +95,8 @@ export interface AutoStep {
   pattern?: string
   /** `read_value`：`text`（預設）讀文字；`count` 數符合 DOM 選擇器的元素個數（0 也是合法值） */
   readMode?: 'text' | 'count'
+  /** `scroll`（有選擇器、捲進畫面時）：`center`（預設）置中；`start` 對齊頂端（H5 大廳遊戲列看頂端區塊決定選中哪款） */
+  align?: 'center' | 'start'
   /** `assert_compare`：右邊的算式（左邊用 `value`） */
   expect?: string
   /** `assert_compare`：容差 */
