@@ -1105,7 +1105,7 @@ function App() {
         <AuthLoginModal onLogin={handleGlobalAccountSelect} themeMode={themeMode} />
       )}
 
-      <AiAgentMonitorWidget />
+      {globalAccount && <AiAgentMonitorWidget />}
       {breakthroughLevel && <CultivationBreakthroughOverlay level={breakthroughLevel} onComplete={closeBreakthrough} hold={breakthroughPreviewHold} />}
     </div>
   )

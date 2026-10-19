@@ -16,7 +16,7 @@ import {
   writeLimiter,
 } from '../shared.js'
 import { getRequestContext } from '../request-context.js'
-import { getAuthAccount } from '../auth-session.js'
+import { getAuthAccount, requireAdminMw } from '../auth-session.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 
 const maskKey = (k: string) => k.slice(0, 7) + '****' + k.slice(-4)
@@ -859,7 +859,7 @@ router.get('/api/gemini/keys', (_req, res) => {
 })
 
 // POST /api/gemini/keys
-router.post('/api/gemini/keys', writeLimiter, (req, res) => {
+router.post('/api/gemini/keys', requireAdminMw, writeLimiter, (req, res) => {
   const body = z.object({ label: z.string().min(1), key: z.string().min(10) }).parse(req.body)
   const exists = readGeminiKeys().find(k => k.label === body.label)
   if (exists) return res.status(400).json({ ok: false, message: '此名稱已存在' })
@@ -868,7 +868,7 @@ router.post('/api/gemini/keys', writeLimiter, (req, res) => {
 })
 
 // DELETE /api/gemini/keys/:label
-router.delete('/api/gemini/keys/:label', (req, res) => {
+router.delete('/api/gemini/keys/:label', requireAdminMw, (req, res) => {
   db.prepare('DELETE FROM gemini_keys WHERE label = ?').run(req.params.label)
   res.json({ ok: true })
 })
@@ -881,14 +881,14 @@ router.get('/api/openai/key', (_req, res) => {
 })
 
 // POST /api/openai/key
-router.post('/api/openai/key', writeLimiter, (req, res) => {
+router.post('/api/openai/key', requireAdminMw, writeLimiter, (req, res) => {
   const { key } = z.object({ key: z.string().min(10) }).parse(req.body)
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('openai_api_key', encryptSecret(key))
   res.json({ ok: true })
 })
 
 // DELETE /api/openai/key
-router.delete('/api/openai/key', (_req, res) => {
+router.delete('/api/openai/key', requireAdminMw, (_req, res) => {
   db.prepare('DELETE FROM settings WHERE key = ?').run('openai_api_key')
   res.json({ ok: true })
 })
@@ -902,7 +902,7 @@ router.get('/api/ollama/config', (_req, res) => {
 })
 
 // POST /api/ollama/config
-router.post('/api/ollama/config', writeLimiter, (req, res) => {
+router.post('/api/ollama/config', requireAdminMw, writeLimiter, (req, res) => {
   const { baseUrl, model } = z.object({ baseUrl: z.string(), model: z.string() }).parse(req.body)
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ollama_base_url', baseUrl)
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ollama_model', model)
@@ -910,7 +910,7 @@ router.post('/api/ollama/config', writeLimiter, (req, res) => {
 })
 
 // DELETE /api/ollama/config
-router.delete('/api/ollama/config', (_req, res) => {
+router.delete('/api/ollama/config', requireAdminMw, (_req, res) => {
   db.prepare('DELETE FROM settings WHERE key = ?').run('ollama_base_url')
   db.prepare('DELETE FROM settings WHERE key = ?').run('ollama_model')
   res.json({ ok: true })
@@ -976,7 +976,7 @@ router.get('/api/gemini/prompts', (_req, res) => {
 })
 
 // POST /api/gemini/prompts
-router.post('/api/gemini/prompts', writeLimiter, (req, res) => {
+router.post('/api/gemini/prompts', requireAdminMw, writeLimiter, (req, res) => {
   const body = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -988,7 +988,7 @@ router.post('/api/gemini/prompts', writeLimiter, (req, res) => {
 })
 
 // DELETE /api/gemini/prompts/:id
-router.delete('/api/gemini/prompts/:id', (req, res) => {
+router.delete('/api/gemini/prompts/:id', requireAdminMw, (req, res) => {
   db.prepare('DELETE FROM gemini_prompts WHERE id = ?').run(req.params.id)
   res.json({ ok: true })
 })

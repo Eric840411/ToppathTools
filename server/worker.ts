@@ -63,7 +63,8 @@ import {
   router as scriptedBetRouter,
 } from './routes/scripted-bet.js'
 import { getAiAgentMonitorSnapshot } from './routes/gemini.js'
-import { runWithRequestContext } from './request-context.js'
+import { getRequestContext, runWithRequestContext } from './request-context.js'
+import { isGuardedPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
 import {
   viewerSockets,
   broadcastBuffer,
@@ -134,6 +135,19 @@ app.use((req, _res, next) => {
     { ip, user, userDisplay, authEmail, path: req.path, method: req.method, operation: `${req.method} ${req.path}` },
     () => next(),
   )
+})
+
+// 全站登入檢查（資安審查 2026-10-19；跟 server/index.ts 同一份白名單）。
+// worker 原本綁 0.0.0.0、幾乎每條路由都不看身分，直接打 :3010 就能啟停 AutoSpin、刪歷史、改設定。
+// 現在：/api 要有 main 簽過的身分（authEmail）或在白名單；/internal 只收本機直連。
+app.use((req, res, next) => {
+  if (!isGuardedPath(req.path)) return next()
+  if (req.path.startsWith('/internal/')) {
+    if (isLoopbackDirect(req.socket.remoteAddress, req.headers)) return next()
+    return res.status(404).end()
+  }
+  if (req.method === 'OPTIONS' || getRequestContext()?.authEmail || publicApiRule(req.method, req.path)) return next()
+  return res.status(401).json({ ok: false, code: 'UNAUTHENTICATED', message: '請先登入' })
 })
 
 function memorySnapshot() {
@@ -1009,8 +1023,11 @@ process.on('unhandledRejection', reason => {
 // recon-spin 觀測都在這個 process，兩邊各跑一份會對同一個後台重複查詢。
 startLiveLedgerLoop()
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`[Worker] toppath-worker listening on http://localhost:${port}`)
+// 預設只聽本機：所有對外流量都經過 main（:3000）的登入檢查再 proxy 過來。
+// worker 若真的要放在另一台主機，設 WORKER_HOST=0.0.0.0 並自行用防火牆限制來源（資安審查 2026-10-19）
+const host = process.env.WORKER_HOST || '127.0.0.1'
+server.listen(port, host, () => {
+  console.log(`[Worker] toppath-worker listening on http://${host}:${port}`)
 })
 
 

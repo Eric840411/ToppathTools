@@ -11,6 +11,7 @@ import { parseServerCfgSource } from '../../shared/server-cfg-parse.js'
 import { safeFetch, assertSafeUrl } from '../lib/safe-fetch.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 import { safeEqualString } from '../pin-hash.js'
+import { requireAdminMw } from '../auth-session.js'
 import { chromium } from 'playwright'
 import { fetchAllGMList } from '../lib/pinus-client.js'
 import { refreshWatchIndex, watchState, watchAgeMs, lookupWatchEntry } from '../lib/osm-watch.js'
@@ -849,7 +850,7 @@ router.get('/api/osm/alert/config', (_req, res) => {
 })
 
 // POST /api/osm/alert/config
-router.post('/api/osm/alert/config', (req, res) => {
+router.post('/api/osm/alert/config', requireAdminMw, (req, res) => {
   const body = z.object({ enabled: z.boolean().optional(), schedule: z.string().optional(), webhookUrl: z.string().optional() }).parse(req.body)
   if (body.enabled !== undefined) setAlertConfigKey('enabled', String(body.enabled))
   if (body.schedule !== undefined) setAlertConfigKey('schedule', body.schedule)

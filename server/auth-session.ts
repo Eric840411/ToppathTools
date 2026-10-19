@@ -170,3 +170,13 @@ export function pruneOtherAuthSessions(req: Request): { email: string; removed: 
 export function clearAuthSession(res: Response, req?: Request) {
   res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; ${cookieFlags(req)}; Max-Age=0`)
 }
+
+/** 共用設定（全站 AI key、prompt、告警 webhook…）的寫入只給管理員（資安審查 2026-10-19） */
+export function requireAdminMw(req: Request, res: Response, next: () => void) {
+  const account = getAuthAccount(req)
+  if (!account || account.role !== 'admin') {
+    res.status(403).json({ ok: false, message: '只有管理員可以修改這個共用設定' })
+    return
+  }
+  next()
+}

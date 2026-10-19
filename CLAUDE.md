@@ -106,6 +106,7 @@ When adding a new route:
 2. If it needs DB/auth/helpers, import from `../shared.js`
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
+5. **全站預設要登入**（v5.66.0）：不帶瀏覽器 cookie 的呼叫端（agent、安裝腳本、外部推送）打的新路由，要加進 `server/public-routes.ts` 並寫明誰在打；能帶 agent token 就自己驗，不要只靠白名單
 
 # Product Features — 索引
 
@@ -139,6 +140,7 @@ When adding a new route:
 | 29 | **Lark 通知**（通知出口 Discord／Lark／雙發、embed 轉卡片、只補送失敗那邊、只發不收） | `docs/features/29-lark-notify.md` |
 | 30 | **角色管理**（自建角色、依角色分配可見功能、一個帳號一個角色、管理員固定） | `docs/features/30-roles.md` |
 | 31 | **記憶共享 relay**（`/kb-mcp/*`，Spug 只轉接給 osm-qa-agent 本機 connector；不記錄內容、`KB_RELAY_SECRET`、nginx 設定） | `docs/features/31-kb-relay.md` |
+| 32 | **資安防護**（全站預設要登入＋免登入白名單、機密欄位加密、PIN scrypt、session 只存雜湊、路徑穿越／SSRF／不執行 serverCfg；**退版會讓密文被當明文**） | `docs/features/32-security.md` |
 
 > **維護規則**：每次新增或修改功能，必須同步更新對應的 `docs/features/*.md`；新增功能要在上表加一列。
 > 記錄格式不變：功能說明 + 使用者可執行的操作清單。

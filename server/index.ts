@@ -44,11 +44,12 @@ import { getAuthAccount } from './auth-session.js'
 import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
 
 // Shared logger
-import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
+import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity, verifyLocalAgentToken } from './shared.js'
 import { BACKUP_KEY, runDiscordRetireMigration } from './discord-retire-migration.js'
 import { ensureLocalSeeds } from './agent-seeds.js'
 import { migrateSecretsAtRest } from './secret-migration.js'
 import { upgradeLegacyPinHashes } from './pin-hash.js'
+import { isGuardedPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
 
 dotenv.config()
 
@@ -234,6 +235,20 @@ app.use((req, _res, next) => {
   )
 })
 
+// ─── 全站登入檢查（資安審查 2026-10-19）──────────────────────────────────────────
+// 原本後端沒有全站檢查，約 300 條 /api 不登入就能打（含改 AI key、啟停 AutoSpin、讀操作歷史）。
+// 改成預設要登入；不需要 cookie 的只有 public-routes.ts 那份白名單（main／worker 共用）。
+// /internal/* 只給同一台主機的 worker 回呼（loopback 直連、沒經過 nginx）。
+app.use((req, res, next) => {
+  if (!isGuardedPath(req.path)) return next()
+  if (req.path.startsWith('/internal/')) {
+    if (isLoopbackDirect(req.socket.remoteAddress, req.headers)) return next()
+    return res.status(404).end()
+  }
+  if (req.method === 'OPTIONS' || getRequestContext()?.authEmail || publicApiRule(req.method, req.path)) return next()
+  return res.status(401).json({ ok: false, code: 'UNAUTHENTICATED', message: '請先登入' })
+})
+
 app.use(dashboardMetricsMiddleware)
 
 // ─── Health ───────────────────────────────────────────────────────────────────
@@ -325,8 +340,9 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
     }
     headers.delete('x-personal-gemini-key')
     if (req.path === '/api/machine-test/ocr-proxy') {
-      const ownerEmail = req.header('x-agent-owner')?.trim() ?? ''
-      const personalGeminiKey = ownerEmail ? getUserAiKey(ownerEmail, 'gemini') : null
+      // 先驗 agent token 再查個人 key：原本只看呼叫端自稱的 x-agent-owner 就去查（資安審查 2026-10-19）
+      const verified = verifyLocalAgentToken(req.header('x-agent-token') ?? '', req.header('x-agent-owner') ?? '')
+      const personalGeminiKey = verified ? getUserAiKey(verified.ownerKey, 'gemini') : null
       if (personalGeminiKey) headers.set('x-personal-gemini-key', personalGeminiKey)
     }
 
@@ -469,6 +485,12 @@ function proxyWsToWorker(clientWs: WebSocket, req: import('http').IncomingMessag
 
 wss.on('connection', (ws, req) => {
   const path = req.url?.split('?')[0] ?? ''
+  // 機台測試的即時事件（含 replay 緩衝）原本任何人連得上就收得到；改成要登入（資安審查 2026-10-19）。
+  // /ws/agent 不在這裡擋：agent 沒有瀏覽器 cookie，靠訊息裡的 agentToken 由 worker 驗
+  if (path === '/ws/machine-test/events' && !getAuthAccount(req as unknown as express.Request)) {
+    ws.close(1008, 'Unauthenticated')
+    return
+  }
   if (shouldProxyWsToWorker(path)) {
     proxyWsToWorker(ws, req, path)
     return

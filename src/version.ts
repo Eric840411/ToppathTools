@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.65.0'
+export const APP_VERSION = '5.66.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.66.0', date: '2026-10-20', changes: ["security(資安審查＋修復)：使用者 1019 要求審查洩漏風險並修復、可用加密——四面向平行審查後分三批。A：路徑穿越（..%2F..%2Fdata.db 可下載 DB／.env、刪任意檔）改 safeChildPath；Config 比對不再用 vm 執行抓回來的 serverCfg.js（可 RCE），改 acorn 只解析字面值（前端 new Function 一併換）；run-lark-tc-backend.js 拿掉寫死的 Lark App Secret，改由伺服器派工帶短效 tenant token；gemini-keys.json.migrated 移出版控、版號告警 webhook 不再寫死；safeFetch 擋 SSRF（每一跳都檢查、私有網段只放 OSM 網域）；上傳副檔名白名單＋nosniff；reconcile token／告警 webhook／JP Group 密碼不再原樣回前端。B：secret-crypto（AES-256-GCM，SECRETS_KEY 沒設沿用 MEEGLE_TOKEN_KEY）加密 11 類機密欄位、啟動時原地遷移；PIN 改 scrypt 加鹽（舊雜湊原地包、不用重設）＋連錯 5 次鎖 5 分鐘＋timingSafeEqual；session 只存 sid 雜湊（原地換、不登出）、https 加 Secure。C：main／worker 全站預設要登入（public-routes.ts 白名單，每條配必擋鄰居測試）、/internal 只收本機直連、worker 只聽 127.0.0.1、WS 事件要登入、共用 AI 設定與告警限管理員、沒設 PIN 的帳號不能只用 email 登入。實機：DB 副本起 main＋worker 跑 46 條冒煙全過；注入拿掉 main 檢查 → 紅 6 條（正好是 main 自己的路由，worker 那層獨立擋住其餘）。⚠️ 退版會讓密文被當明文、所有人登不進來（見 docs/features/32-security.md）；agent 回報路由仍無憑證、後端功能權限、自助註冊列為待辦"] },
   { version: '5.65.0', date: '2026-10-19', changes: ["feat(UAT 前台 H5 點擊 找不到就跳過)：H5 使用者經 osm-qa-agent 提出（AI T-061：Video 頁 Quick Join 有機台才進得去，沒機台時要略過離開機台那幾步，不能判失敗）——click 新增 skipIfMissing，規則同 1008 pc_click_node：等 3 秒選擇器仍 0 個 → 記 SKIP（不算通過也不算失敗，備註留下沒做）；找到了照常點、點不到照樣失敗。判斷在不在用選擇器原樣（可配 :visible），不經錄製器定位階梯；危險動作守衛仍在跳過判斷之前。編輯器 click 顯示「找不到就跳過」勾選。step-model-roundtrip 119 條；UAT 實跑 T-061 沒機台路徑 19/19（Quit 跳過、Confirm 關 Tips）；要更新 Local Agent 才生效"] },
   { version: '5.64.0', date: '2026-10-19', changes: ["feat(UAT 前台 捲動 對齊頂端)：H5 使用者經 osm-qa-agent 提出（AI T-055 要先切到有空機的遊戲再按下排 Quick Join）——scroll 有選擇器、捲進畫面時新增 align:'start'（預設 center 不變）。大廳上方遊戲列看「最上面的區塊」決定選中哪款，置中時上一個區塊還壓在頂端，遊戲列停在上一款 → Quick Join 跳 No machines。align 打錯字直接擋、載入時原樣保留（同 readMode）；編輯器在「有選擇器、捲動量留空」時顯示對齊選項。step-model-roundtrip 115 條；UAT 實跑 T-055 13/13（捲到 JinJiBaoXiGrand → Quick Join 進機台 → Quit）；要更新 Local Agent 才生效"] },
   { version: '5.63.1', date: '2026-10-19', changes: ["fix(UAT 前台 讀成變數 readMode 載入)：CodeX 審 7d71596 [P2]——step-model 把不認得的 readMode 當列舉刪掉，'Count' 載入後退回讀文字、繞過執行器的擋。改成只驗型別（字串）原樣保留、交給執行器報錯；roundtrip 補載入保留＋載入→執行被擋（111 條），換回舊寫法會紅 2 條"] },
