@@ -42,6 +42,7 @@
 
 ## 使用者可執行的操作
 - 還沒設 PIN 的人：請管理員到「權限管理」幫忙設 PIN；啟動 log 會列出這些帳號。
+- **管理員自己也沒有 PIN／所有人都登不進來**：在主機上跑 `node scripts/set-account-pin.mjs --list-no-pin` 看清單，`node scripts/set-account-pin.mjs <email>` 直接設定。
 - 管理員：修改全站 AI key／prompt、版號告警 webhook（非管理員會看到「只有管理員可以修改這個共用設定」）。
 - 版號告警 webhook／JP Group 密碼：畫面只顯示遮罩，**留空儲存＝沿用**，要換才填。
 
