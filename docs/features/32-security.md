@@ -40,12 +40,13 @@
 - 沒設 PIN 的帳號**不能只用 email 登入**（回 `PIN_NOT_SET`）；`set-pin` 限本人或管理員、不能清空。
 - ocr-proxy 先驗 agent token 才查個人 Gemini key。
 
-### v5.66.1～v5.66.2：CodeX 補審（c538e86／e621df1）修正
+### v5.66.1～v5.66.3：CodeX 補審（c538e86／e621df1／db688cf）修正
 | CodeX 指出 | 修法 |
 |---|---|
 | [P1] 守門分大小寫、Express 不分 → `/API/history` 繞過登入（**正式環境實測成立**） | `normalizeGuardPath` 先轉小寫，main／worker 共用（v5.66.1） |
 | [P1] SSRF 漏掉十六進位 IPv4-mapped（`[::ffff:127.0.0.1]` 被 URL 正規化成 `::ffff:7f00:1`） | IPv6 一律展開成 8 組；mapped／相容／SIIT／NAT64／6to4 內嵌的 IPv4 都轉回 IPv4 判斷 |
-| [P1] `agent/start` 公開、靠自報 userLabel，會回解密後 webhook、改 session | `autospin-start-auth.ts`：一次性啟動票（hub-dispatch 發、經 Local Agent 傳給 Python）／舊 agent 相容「該帳號 10 分鐘內剛被派工」／重連必須帶對得上的 prevSessionId；session id 加隨機尾碼 |
+| [P1] `agent/start` 公開、靠自報 userLabel，會回解密後 webhook、改 session | `autospin-start-auth.ts`：一次性啟動票（hub-dispatch 發、經 Local Agent 傳給 Python）＋重連必須帶 prevSessionId 且查到的 id 完全相符；session id 加隨機尾碼。**v5.66.3 拿掉「剛派工」無憑證相容**（CodeX 複審：只憑帳號名可搶先兌換）→ 舊版 Local Agent 要先更新程式碼才能跑 AutoSpin |
+| [P1·複審] 重連查找在 id 查不到時退回該帳號最新 session，亂填 id 也過 | 授權時再比對 `prev.id === prevSessionId`；測試替身改成跟正式查找一樣有 fallback（v5.66.3） |
 | 沒金鑰時寫明文只警告，不接受 | 沒金鑰（或格式錯）**拒絕寫入機密**；讀取仍相容舊明文 |
 | [P2] 代跑 session 也算有效登入 → 併行排程互相延長資格 | `auth_sessions.kind`（user／internal）；「7 天內登入過」與 Dashboard 只算 user |
 | [P2] 管理員可能鎖死、救援腳本不存在 | `scripts/set-account-pin.mjs`（v5.66.0 後補）；正式環境 admin 已確認有 PIN |

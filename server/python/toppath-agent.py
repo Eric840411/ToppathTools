@@ -3538,7 +3538,7 @@ def main():
     print(f"[Agent] 連接伺服器：{server_url}，使用者：{user_label or '(未設定)'}")
 
     try:
-        # 派工時伺服器發的一次性啟動票（v5.66.2）；舊版 Local Agent 沒傳就不帶，伺服器另有相容規則
+        # 派工時伺服器發的一次性啟動票（v5.66.2 起必帶；沒有票伺服器會拒絕，舊版 Local Agent 要先更新程式碼）
         start_body = {'userLabel': user_label}
         if start_ticket:
             start_body['startTicket'] = start_ticket

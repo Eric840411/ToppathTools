@@ -1499,7 +1499,7 @@ router.post('/api/autospin/locks/:id/force-clear', (req, res) => {
   res.json({ ok, wasOrphan })
 })
 
-// 啟動授權（一次性啟動票／剛派工／重連）規則在 autospin-start-auth.ts
+// 啟動授權（一次性啟動票／重連）規則在 autospin-start-auth.ts
 const startAuth = createAgentStartAuth((prevSessionId, userLabel) => findPreviousSessionForReconnect(prevSessionId, userLabel))
 const issueStartTicket = startAuth.issue
 const authorizeAgentStart = startAuth.authorize
@@ -1509,7 +1509,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
   const body = req.body as { userLabel?: string; reconnect?: boolean; prevSessionId?: string; startTicket?: string }
   const userLabel = body.userLabel ?? ''
   if (!authorizeAgentStart(body)) {
-    return res.status(403).json({ ok: false, message: '啟動授權無效或已過期：請從工具的 AutoSpin 頁面重新派工' })
+    return res.status(403).json({ ok: false, message: '啟動授權無效或已過期：請從 AutoSpin 頁面重新派工；Local Agent 若是舊版，請先到 Local Agent 頁按「更新程式碼」' })
   }
   const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
   let sessionId: string
