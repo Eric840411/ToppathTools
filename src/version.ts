@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.66.1'
+export const APP_VERSION = '5.66.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.66.2', date: '2026-10-21', changes: ["fix(資安 CodeX 補審其餘項)：① SSRF：IPv6 一律展開判斷，十六進位 IPv4-mapped（[::ffff:127.0.0.1] 正規化後的 ::ffff:7f00:1）、IPv4 相容、SIIT、NAT64、6to4 內嵌的 IPv4 都轉回 IPv4 檢查（safe-fetch 39 條，拿掉轉換紅 11 條）；② AutoSpin agent/start 不再只靠自報 userLabel：派工時發一次性啟動票經 Local Agent 傳給 Python，舊版 Local Agent 相容「該帳號 10 分鐘內剛被派工」、重連必須帶對得上的 prevSessionId，session id 加隨機尾碼（autospin-start-auth 18 條）；③ 沒金鑰（或格式錯）時拒絕寫入機密，不再退回存明文；④ auth_sessions 加 kind，UAT 排程代跑 session 不算使用者登入、Dashboard 也不計。實機冒煙 54 條（含大小寫變體、agent/start 偽票、IPv6 mapped SSRF）。要更新 Local Agent 才會帶啟動票"] },
   { version: '5.66.1', date: '2026-10-21', changes: ["fix(資安 登入檢查大小寫繞過)：CodeX 審 c538e86 [P1]——白名單／守門比對網址時分大小寫，但 Express 路由不分，/API/history 會跳過登入檢查又被正常處理（正式環境實測 200）。守門前先轉小寫（normalizeGuardPath），main 與 worker 共用；public-routes 測試補大小寫變體（70 條），拿掉轉小寫會紅 6 條"] },
   { version: '5.66.0', date: '2026-10-20', changes: ["security(資安審查＋修復)：使用者 1019 要求審查洩漏風險並修復、可用加密——四面向平行審查後分三批。A：路徑穿越（..%2F..%2Fdata.db 可下載 DB／.env、刪任意檔）改 safeChildPath；Config 比對不再用 vm 執行抓回來的 serverCfg.js（可 RCE），改 acorn 只解析字面值（前端 new Function 一併換）；run-lark-tc-backend.js 拿掉寫死的 Lark App Secret，改由伺服器派工帶短效 tenant token；gemini-keys.json.migrated 移出版控、版號告警 webhook 不再寫死；safeFetch 擋 SSRF（每一跳都檢查、私有網段只放 OSM 網域）；上傳副檔名白名單＋nosniff；reconcile token／告警 webhook／JP Group 密碼不再原樣回前端。B：secret-crypto（AES-256-GCM，SECRETS_KEY 沒設沿用 MEEGLE_TOKEN_KEY）加密 11 類機密欄位、啟動時原地遷移；PIN 改 scrypt 加鹽（舊雜湊原地包、不用重設）＋連錯 5 次鎖 5 分鐘＋timingSafeEqual；session 只存 sid 雜湊（原地換、不登出）、https 加 Secure。C：main／worker 全站預設要登入（public-routes.ts 白名單，每條配必擋鄰居測試）、/internal 只收本機直連、worker 只聽 127.0.0.1、WS 事件要登入、共用 AI 設定與告警限管理員、沒設 PIN 的帳號不能只用 email 登入。實機：DB 副本起 main＋worker 跑 46 條冒煙全過；注入拿掉 main 檢查 → 紅 6 條（正好是 main 自己的路由，worker 那層獨立擋住其餘）。⚠️ 退版會讓密文被當明文、所有人登不進來（見 docs/features/32-security.md）；agent 回報路由仍無憑證、後端功能權限、自助註冊列為待辦"] },
   { version: '5.65.0', date: '2026-10-19', changes: ["feat(UAT 前台 H5 點擊 找不到就跳過)：H5 使用者經 osm-qa-agent 提出（AI T-061：Video 頁 Quick Join 有機台才進得去，沒機台時要略過離開機台那幾步，不能判失敗）——click 新增 skipIfMissing，規則同 1008 pc_click_node：等 3 秒選擇器仍 0 個 → 記 SKIP（不算通過也不算失敗，備註留下沒做）；找到了照常點、點不到照樣失敗。判斷在不在用選擇器原樣（可配 :visible），不經錄製器定位階梯；危險動作守衛仍在跳過判斷之前。編輯器 click 顯示「找不到就跳過」勾選。step-model-roundtrip 119 條；UAT 實跑 T-061 沒機台路徑 19/19（Quit 跳過、Confirm 關 Tips）；要更新 Local Agent 才生效"] },

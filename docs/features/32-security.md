@@ -26,7 +26,7 @@
   `uat_backend_credentials.password`、`url_pool_accounts.password`、`autospin_configs.larkWebhook`、
   `alert_config.webhook_url`、`reconcile_config`／`meter_reconcile_config` 中 token／password 結尾的 key。
 - **啟動時原地遷移**（冪等，只有 main 跑）。log 看 `[security] 機密欄位加密 OK（金鑰：…）`。
-- 讀取對明文／密文都相容；沒金鑰時寫明文並在啟動時警告（不擋功能）。
+- 讀取對明文／密文都相容；**沒金鑰時拒絕寫入機密**（v5.66.2 起，原本是寫明文＋警告）。
 - **PIN**：`scrypt(sha256(pin), salt)`，舊雜湊啟動時原地包、使用者不用重設；比對 `timingSafeEqual`；
   同一帳號連錯 5 次鎖 5 分鐘（`server/pin-hash.ts`）。
 - **session**：`auth_sessions.sid` 只存 sha256（舊資料原地換、不會被登出）；https 下 cookie 加 `Secure`。
@@ -39,6 +39,16 @@
 - 共用設定（全站 AI key、prompt、Ollama、版號告警）寫入限管理員。
 - 沒設 PIN 的帳號**不能只用 email 登入**（回 `PIN_NOT_SET`）；`set-pin` 限本人或管理員、不能清空。
 - ocr-proxy 先驗 agent token 才查個人 Gemini key。
+
+### v5.66.1～v5.66.2：CodeX 補審（c538e86／e621df1）修正
+| CodeX 指出 | 修法 |
+|---|---|
+| [P1] 守門分大小寫、Express 不分 → `/API/history` 繞過登入（**正式環境實測成立**） | `normalizeGuardPath` 先轉小寫，main／worker 共用（v5.66.1） |
+| [P1] SSRF 漏掉十六進位 IPv4-mapped（`[::ffff:127.0.0.1]` 被 URL 正規化成 `::ffff:7f00:1`） | IPv6 一律展開成 8 組；mapped／相容／SIIT／NAT64／6to4 內嵌的 IPv4 都轉回 IPv4 判斷 |
+| [P1] `agent/start` 公開、靠自報 userLabel，會回解密後 webhook、改 session | `autospin-start-auth.ts`：一次性啟動票（hub-dispatch 發、經 Local Agent 傳給 Python）／舊 agent 相容「該帳號 10 分鐘內剛被派工」／重連必須帶對得上的 prevSessionId；session id 加隨機尾碼 |
+| 沒金鑰時寫明文只警告，不接受 | 沒金鑰（或格式錯）**拒絕寫入機密**；讀取仍相容舊明文 |
+| [P2] 代跑 session 也算有效登入 → 併行排程互相延長資格 | `auth_sessions.kind`（user／internal）；「7 天內登入過」與 Dashboard 只算 user |
+| [P2] 管理員可能鎖死、救援腳本不存在 | `scripts/set-account-pin.mjs`（v5.66.0 後補）；正式環境 admin 已確認有 PIN |
 
 ## 使用者可執行的操作
 - 還沒設 PIN 的人：請管理員到「權限管理」幫忙設 PIN；啟動 log 會列出這些帳號。
@@ -59,7 +69,7 @@
   **注入**：把 main 的登入檢查改成全放行 → 紅 6 條，正好是 main 自己處理的路由；轉給 worker 的仍 401（worker 那層獨立生效）。
 
 ## 待辦（這次沒做完的）
-1. **agent 回報路由還沒有憑證**：Python AutoSpin agent（`/api/autospin/agent/*`）、Local Agent 的 UI 截圖回報、
+1. **agent 回報路由還沒有憑證**（`agent/start` 已改成啟動票，其餘仍無）：Python AutoSpin agent 的 log／stop／should-stop 等、Local Agent 的 UI 截圖回報、
    cctv／audio 上傳、OSMWatcher 推送。要它們帶 token 得先更新每台 agent，否則部署當下斷線——先列在白名單，
    下一階段：agent 帶 `x-agent-token` → 伺服器先「有帶就驗」、全部 agent 更新後改成必帶。
 2. **功能權限（角色可見頁面）只在前端擋**：後端只有 Meegle／週報／Sheet 有檢查。要做 `requirePage(key)`。

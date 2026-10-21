@@ -13,8 +13,9 @@
  *   （空字串會被當成「沒設定」往下走，看不出是壞掉）
  * - 其他 → 視為舊的明文原樣回傳（遷移前的資料、或沒設金鑰時寫進去的）
  *
- * 寫入規則：有金鑰就加密；**沒金鑰時寫明文並在啟動時大聲警告**——不擋寫入，
- * 因為擋了等於整個工具的設定頁都不能用，而明文是改版前的現狀，不比現在更糟。
+ * 寫入規則：有金鑰就加密；**沒金鑰（或格式不對）一律拒絕寫入**，丟錯讓畫面看得到原因。
+ * 原本是「寫明文＋啟動時警告」，CodeX 審 e621df1 不接受用在正式環境：退路一旦生效就沒人會發現
+ * DB 又變回明文。讀取仍相容舊明文（遷移前的資料）。
  * 啟動時 `secretKeyStatus()` 會印出目前是哪一種，部署後看 log 就知道有沒有生效。
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
@@ -42,14 +43,14 @@ export function isEncryptedSecret(stored: unknown): boolean {
   return typeof stored === 'string' && stored.startsWith(`${PREFIX}:`) && stored.split(':').length === 4
 }
 
-/** 空字串／null 原樣回傳（代表「沒設定」）；沒金鑰時回明文。 */
+/** 空字串／null 原樣回傳（代表「沒設定」）；沒金鑰時丟錯（不寫明文）。 */
 export function encryptSecret(plain: string, env?: NodeJS.ProcessEnv): string
 export function encryptSecret(plain: string | null | undefined, env?: NodeJS.ProcessEnv): string | null | undefined
 export function encryptSecret(plain: string | null | undefined, env: NodeJS.ProcessEnv = process.env): string | null | undefined {
   if (plain === null || plain === undefined || plain === '') return plain
   if (isEncryptedSecret(plain)) return plain // 不重複加密
   const key = currentKey(env)
-  if (!key) return plain
+  if (!key) throw new Error('伺服器沒有設定 SECRETS_KEY／MEEGLE_TOKEN_KEY（或格式錯誤），為了不以明文存放，拒絕儲存這筆機密')
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
   const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])

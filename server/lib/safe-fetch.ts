@@ -44,16 +44,52 @@ export function classifyIp(ip: string): 'block' | 'private' | 'public' {
     return 'public'
   }
   if (isIP(ip) === 6) {
-    const s = ip.toLowerCase()
-    const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    if (mapped) return classifyIp(mapped[1])
-    if (s === '::' || s === '::1') return 'block'
-    if (/^fe[89ab]/.test(s)) return 'block'        // link-local fe80::/10
-    if (/^ff/.test(s)) return 'block'              // multicast
-    if (/^f[cd]/.test(s)) return 'private'         // ULA fc00::/7
+    // 一律展開成 8 組再判斷：WHATWG URL 會把 [::ffff:127.0.0.1] 正規化成 [::ffff:7f00:1]，
+    // 原本只比對點分十進位寫法 → 十六進位寫法繞過（CodeX 審 c538e86 [P1]）
+    const h = expandIPv6(ip)
+    if (!h) return 'block'
+    const v4 = embeddedIPv4(h)
+    if (v4) return classifyIp(v4)
+    if (h.every(x => x === 0)) return 'block'                              // ::
+    if (h.slice(0, 7).every(x => x === 0) && h[7] === 1) return 'block'    // ::1
+    if ((h[0] & 0xffc0) === 0xfe80) return 'block'                         // link-local fe80::/10
+    if ((h[0] & 0xff00) === 0xff00) return 'block'                         // multicast
+    if ((h[0] & 0xfe00) === 0xfc00) return 'private'                       // ULA fc00::/7
     return 'public'
   }
   return 'block'
+}
+
+/** 展開成 8 個 16-bit 整數；支援 :: 縮寫與結尾的點分 IPv4。格式不對回 null */
+export function expandIPv6(ip: string): number[] | null {
+  let s = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0]
+  const dotted = s.match(/(\d+\.\d+\.\d+\.\d+)$/)
+  if (dotted) {
+    if (isIP(dotted[1]) !== 4) return null
+    const n = dotted[1].split('.').map(Number)
+    s = s.slice(0, -dotted[1].length) + `${((n[0] << 8) | n[1]).toString(16)}:${((n[2] << 8) | n[3]).toString(16)}`
+  }
+  const parts = s.split('::')
+  if (parts.length > 2) return null
+  const head = parts[0] ? parts[0].split(':') : []
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : []
+  const fill = parts.length === 2 ? 8 - head.length - tail.length : 0
+  if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null
+  const groups = [...head, ...Array(fill).fill('0'), ...tail]
+  if (groups.length !== 8 || groups.some(g => !/^[0-9a-f]{1,4}$/.test(g))) return null
+  return groups.map(g => parseInt(g, 16))
+}
+
+/** 內嵌 IPv4 的幾種 IPv6 寫法：mapped(::ffff:a.b.c.d)、相容(::a.b.c.d)、SIIT(::ffff:0:a.b.c.d)、NAT64(64:ff9b::/96)、6to4(2002::/16) */
+function embeddedIPv4(h: number[]): string | null {
+  const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`
+  const zero = (from: number, to: number) => h.slice(from, to).every(x => x === 0)
+  if (zero(0, 5) && h[5] === 0xffff) return v4(h[6], h[7])
+  if (zero(0, 4) && h[4] === 0xffff && h[5] === 0) return v4(h[6], h[7])
+  if (zero(0, 6) && !(h[6] === 0 && h[7] <= 1)) return v4(h[6], h[7])
+  if (h[0] === 0x64 && h[1] === 0xff9b && zero(2, 6)) return v4(h[6], h[7])
+  if (h[0] === 0x2002) return v4(h[1], h[2])
+  return null
 }
 
 function hostAllowsPrivate(host: string): boolean {

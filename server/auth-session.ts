@@ -22,6 +22,17 @@ const sessions = new Map<string, AuthSession>()
 
 // 舊資料（原值 sid，48 字元 hex）原地換成雜湊（64 字元）——使用者 cookie 不變、不會被登出。
 // server／worker 都會載入這支：immediate transaction ＋ 長度判斷，後到的什麼都不改
+// kind：'user'＝真的登入；'internal'＝伺服器代跑（UAT 排程）用的短效 session。
+// 「這個人有沒有在 7 天內登入」只能看 user——代跑 session 也算的話，併行排程會互相延長對方的代跑資格，
+// 使用者登出後排程還會一直跑（CodeX 審 e621df1 [P2]）
+try {
+  const cols = db.prepare('PRAGMA table_info(auth_sessions)').all() as { name: string }[]
+  if (!cols.some(c => c.name === 'kind')) db.exec(`ALTER TABLE auth_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'`)
+} catch (e) {
+  // server／worker 同時啟動時另一邊可能剛加完欄位
+  if (!String(e).includes('duplicate column')) throw e
+}
+
 db.transaction(() => {
   const legacy = db.prepare('SELECT sid FROM auth_sessions WHERE length(sid) <> 64').all() as { sid: string }[]
   const upd = db.prepare('UPDATE auth_sessions SET sid = ? WHERE sid = ?')
@@ -107,17 +118,17 @@ export function getActiveAuthSessions() {
   for (const [sid, session] of sessions.entries()) {
     if (session.expiresAt <= ts) sessions.delete(sid)
   }
-  const rows = db.prepare('SELECT sid, email, created_at, expires_at FROM auth_sessions WHERE expires_at > ?').all(ts) as { sid: string; email: string; created_at: number; expires_at: number }[]
+  const rows = db.prepare("SELECT sid, email, created_at, expires_at FROM auth_sessions WHERE expires_at > ? AND kind = 'user'").all(ts) as { sid: string; email: string; created_at: number; expires_at: number }[]
   return rows.map(r => ({ sid: r.sid, email: r.email, createdAt: r.created_at, expiresAt: r.expires_at }))
 }
 
-function insertSession(email: string, ttlMs: number): string {
+function insertSession(email: string, ttlMs: number, kind: 'user' | 'internal' = 'user'): string {
   const raw = randomBytes(24).toString('hex')
   const now = Date.now()
   const expiresAt = now + ttlMs
   const sid = hashSid(raw)
   sessions.set(sid, { email, createdAt: now, expiresAt })
-  db.prepare('INSERT OR REPLACE INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)').run(sid, email, now, expiresAt)
+  db.prepare('INSERT OR REPLACE INTO auth_sessions (sid, email, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?)').run(sid, email, now, expiresAt, kind)
   return raw
 }
 
@@ -132,7 +143,7 @@ export function createAuthSession(email: string, res: Response, req?: Request) {
 
 /** 這個帳號有沒有還沒過期的登入（UAT 排程用「7 天內登入過」當作同意代跑的依據） */
 export function hasLiveSession(email: string): boolean {
-  return !!db.prepare('SELECT 1 FROM auth_sessions WHERE email = ? AND expires_at > ?').get(email, Date.now())
+  return !!db.prepare("SELECT 1 FROM auth_sessions WHERE email = ? AND expires_at > ? AND kind = 'user'").get(email, Date.now())
 }
 
 /**
@@ -140,7 +151,7 @@ export function hasLiveSession(email: string): boolean {
  * 原本 UAT 排程直接從 DB 讀那個人的 sid 拿來當 cookie——sid 改存雜湊後讀不到原值，改成現發一張。
  */
 export function mintInternalSession(email: string, ttlMs: number): string {
-  return insertSession(email, ttlMs)
+  return insertSession(email, ttlMs, 'internal')
 }
 
 export function revokeSessionByRaw(raw: string) {

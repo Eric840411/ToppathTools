@@ -80,7 +80,7 @@ try {
 try {
   const r = migrateSecretsAtRest(db)
   if (r.status === 'missing') {
-    console.warn('[security] ⚠️ 沒有設定 SECRETS_KEY／MEEGLE_TOKEN_KEY：資料庫裡的 API key／密碼仍是明文存放')
+    console.error('[security] ❌ 沒有設定 SECRETS_KEY／MEEGLE_TOKEN_KEY：既有機密仍是明文，而且之後儲存任何 API key／密碼都會被拒絕')
   } else {
     const done = Object.entries(r.encrypted).map(([k, n]) => `${k}×${n}`).join('、')
     console.log(`[security] 機密欄位加密 OK（金鑰：${r.status}）${done ? `，本次加密 ${done}` : '，沒有待加密的明文'}`)

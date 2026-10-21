@@ -3523,6 +3523,7 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
 
 def main():
     global server_url, user_label, session_id
+    start_ticket = ''
 
     if len(sys.argv) > 1:
         try:
@@ -3530,14 +3531,19 @@ def main():
             params = parse_qs(parsed.query)
             server_url = params.get('server', [server_url])[0].rstrip('/')
             user_label = params.get('user', [''])[0]
+            start_ticket = params.get('ticket', [''])[0]
         except Exception:
             pass
 
     print(f"[Agent] 連接伺服器：{server_url}，使用者：{user_label or '(未設定)'}")
 
     try:
+        # 派工時伺服器發的一次性啟動票（v5.66.2）；舊版 Local Agent 沒傳就不帶，伺服器另有相容規則
+        start_body = {'userLabel': user_label}
+        if start_ticket:
+            start_body['startTicket'] = start_ticket
         resp = requests.post(f"{server_url}/api/autospin/agent/start",
-                             json={'userLabel': user_label}, timeout=10)
+                             json=start_body, timeout=10)
         data = resp.json()
         if not data.get('ok', True):
             # 伺服器明確拒絕（例如 heavy-task 衝突：這個帳號已有其他重任務在跑），印出伺服器

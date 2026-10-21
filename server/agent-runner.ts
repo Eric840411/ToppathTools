@@ -355,6 +355,7 @@ interface AutoSpinStartMessage {
   type: 'autospin_start'
   sessionId: string
   userLabel: string
+  startTicket?: string
 }
 
 type IncomingMessage =
@@ -2486,7 +2487,7 @@ function connect() {
     // 在被派工時啟動它、停止時關閉它，並在結束時回報 agent_done 釋放此 agent。
     if (msg.type === 'autospin_start') {
       const startMsg = msg as AutoSpinStartMessage
-      const { sessionId, userLabel } = startMsg
+      const { sessionId, userLabel, startTicket } = startMsg
 
       if (autospinChild) {
         try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
@@ -2500,7 +2501,8 @@ function connect() {
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
         return
       }
-      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}`
+      // startTicket：派工時伺服器發的一次性啟動票，Python 呼叫 /agent/start 要帶（v5.66.2）
+      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}${startTicket ? `&ticket=${encodeURIComponent(startTicket)}` : ''}`
       console.log(`[Agent:${AGENT_LABEL}] AutoSpin start → ${PYTHON_EXE} ${scriptPath} (server=${httpBase}, user=${userLabel || '(none)'})`)
       const child = spawn(PYTHON_EXE, [scriptPath, uriArg], {
         cwd: join(process.cwd(), 'server', 'python'),

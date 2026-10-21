@@ -26,7 +26,8 @@ import {
   type HeavyTaskToken,
 } from '../heavy-task-guard.js'
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
-import { randomUUID } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
+import { createAgentStartAuth } from '../autospin-start-auth.js'
 import { safeChildPath, IMAGE_EXTS } from '../lib/safe-path.js'
 import { encryptSecret, decryptSecret, isSecretConfigKey } from '../secret-crypto.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
@@ -1498,10 +1499,18 @@ router.post('/api/autospin/locks/:id/force-clear', (req, res) => {
   res.json({ ok, wasOrphan })
 })
 
+// 啟動授權（一次性啟動票／剛派工／重連）規則在 autospin-start-auth.ts
+const startAuth = createAgentStartAuth((prevSessionId, userLabel) => findPreviousSessionForReconnect(prevSessionId, userLabel))
+const issueStartTicket = startAuth.issue
+const authorizeAgentStart = startAuth.authorize
+
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
-  const body = req.body as { userLabel?: string; reconnect?: boolean; prevSessionId?: string }
+  const body = req.body as { userLabel?: string; reconnect?: boolean; prevSessionId?: string; startTicket?: string }
   const userLabel = body.userLabel ?? ''
+  if (!authorizeAgentStart(body)) {
+    return res.status(403).json({ ok: false, message: '啟動授權無效或已過期：請從工具的 AutoSpin 頁面重新派工' })
+  }
   const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
   let sessionId: string
   let isNewSession = false
@@ -1559,7 +1568,8 @@ router.post('/api/autospin/agent/start', (req, res) => {
         inheritedPause = prev.pauseRequested === true
       }
     }
-    sessionId = `agent-${Date.now()}`
+    // 加隨機尾碼：session id 會被拿來當重連與各回報路由的識別，純時間戳猜得到（資安審查 2026-10-21）
+    sessionId = `agent-${Date.now()}-${randomBytes(8).toString('hex')}`
     isNewSession = true
     agentSessions.set(sessionId, {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
@@ -1943,7 +1953,8 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   agent.sessionId = dispatchId
   // 派工是給哪個帳號的——Python 之後呼叫 /agent/start 時靠它把 session 連回這台 agent
   agent.dispatchUserLabel = userLabel
-  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel }))
+  const startTicket = issueStartTicket(userLabel)
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, startTicket }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
 

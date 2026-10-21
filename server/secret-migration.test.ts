@@ -62,13 +62,20 @@ ok('isSecretConfigKey token', isSecretConfigKey('osm_token'))
 ok('isSecretConfigKey login_password', isSecretConfigKey('gcp_login_password'))
 ok('isSecretConfigKey 非機密', !isSecretConfigKey('lastlogintime') && !isSecretConfigKey('osm_base_url'))
 const c = encryptSecret('hello', env)
+let threw = false
 ok('加密成 v1', isEncryptedSecret(c))
 ok('解得回', decryptSecret(c, env) === 'hello')
 ok('不重複加密', encryptSecret(c, env) === c)
 ok('明文原樣回傳', decryptSecret('plain', env) === 'plain')
 ok('空值原樣', encryptSecret('', env) === '' && decryptSecret('', env) === '')
-ok('沒金鑰時寫明文', encryptSecret('x', {} as NodeJS.ProcessEnv) === 'x')
-let threw = false
+threw = false
+try { encryptSecret('x', {} as NodeJS.ProcessEnv) } catch { threw = true }
+ok('沒金鑰時拒絕寫入（不寫明文）', threw)
+threw = false
+try { encryptSecret('x', { SECRETS_KEY: 'too-short' } as NodeJS.ProcessEnv) } catch { threw = true }
+ok('金鑰格式錯也拒絕', threw)
+ok('沒金鑰時空值仍可寫（代表清空）', encryptSecret('', {} as NodeJS.ProcessEnv) === '')
+threw = false
 try { decryptSecret(c, otherEnv) } catch { threw = true }
 ok('換金鑰解不開會丟錯', threw)
 threw = false
