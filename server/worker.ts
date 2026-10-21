@@ -64,7 +64,7 @@ import {
 } from './routes/scripted-bet.js'
 import { getAiAgentMonitorSnapshot } from './routes/gemini.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
-import { isGuardedPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
+import { isGuardedPath, isInternalPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
 import {
   viewerSockets,
   broadcastBuffer,
@@ -142,7 +142,7 @@ app.use((req, _res, next) => {
 // 現在：/api 要有 main 簽過的身分（authEmail）或在白名單；/internal 只收本機直連。
 app.use((req, res, next) => {
   if (!isGuardedPath(req.path)) return next()
-  if (req.path.startsWith('/internal/')) {
+  if (isInternalPath(req.path)) {
     if (isLoopbackDirect(req.socket.remoteAddress, req.headers)) return next()
     return res.status(404).end()
   }

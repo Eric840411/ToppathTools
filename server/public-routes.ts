@@ -48,7 +48,17 @@ export const PUBLIC_API_RULES: Rule[] = [
   r('GET', /^\/api\/autospin\/live-ledger\/sls-health$/, 'osm-qa-agent usage-monitor 定時檢查（唯讀）'),
 ]
 
-export function publicApiRule(method: string, path: string): Rule | null {
+/**
+ * 守門比對前先正規化成 Express 路由實際比對的樣子。
+ * ⚠️ Express 路由**不分大小寫**（/API/history 會打到 /api/history 的 handler），
+ * 這裡原本分大小寫 → 大寫網址整個跳過登入檢查（CodeX 審 c538e86 [P1]，正式環境實測成立）。
+ */
+export function normalizeGuardPath(path: string): string {
+  return path.toLowerCase()
+}
+
+export function publicApiRule(method: string, rawPath: string): Rule | null {
+  const path = normalizeGuardPath(rawPath)
   const m = method.toUpperCase()
   const effective = m === 'HEAD' ? 'GET' : m
   for (const rule of PUBLIC_API_RULES) {
@@ -58,8 +68,14 @@ export function publicApiRule(method: string, path: string): Rule | null {
 }
 
 /** 需要登入檢查的路徑：/api/* 與 /internal/*（其餘是前端靜態檔） */
-export function isGuardedPath(path: string): boolean {
-  return path.startsWith('/api/') || path === '/api' || path.startsWith('/internal/')
+export function isGuardedPath(rawPath: string): boolean {
+  const path = normalizeGuardPath(rawPath)
+  return path.startsWith('/api/') || path === '/api' || path.startsWith('/internal/') || path === '/internal'
+}
+
+export function isInternalPath(rawPath: string): boolean {
+  const path = normalizeGuardPath(rawPath)
+  return path.startsWith('/internal/') || path === '/internal'
 }
 
 /**

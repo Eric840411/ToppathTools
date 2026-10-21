@@ -49,7 +49,7 @@ import { BACKUP_KEY, runDiscordRetireMigration } from './discord-retire-migratio
 import { ensureLocalSeeds } from './agent-seeds.js'
 import { migrateSecretsAtRest } from './secret-migration.js'
 import { upgradeLegacyPinHashes } from './pin-hash.js'
-import { isGuardedPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
+import { isGuardedPath, isInternalPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
 
 dotenv.config()
 
@@ -241,7 +241,7 @@ app.use((req, _res, next) => {
 // /internal/* 只給同一台主機的 worker 回呼（loopback 直連、沒經過 nginx）。
 app.use((req, res, next) => {
   if (!isGuardedPath(req.path)) return next()
-  if (req.path.startsWith('/internal/')) {
+  if (isInternalPath(req.path)) {
     if (isLoopbackDirect(req.socket.remoteAddress, req.headers)) return next()
     return res.status(404).end()
   }

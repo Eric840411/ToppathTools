@@ -2,7 +2,7 @@
  * 免登入白名單的回歸。跑法：npx tsx server/public-routes.test.ts
  * 重點是「旁邊的路由沒有被順手放行」——每條放行規則都配一條長得很像但必須擋的路徑。
  */
-import { publicApiRule, isGuardedPath, isLoopbackDirect } from './public-routes.js'
+import { publicApiRule, isGuardedPath, isInternalPath, isLoopbackDirect } from './public-routes.js'
 
 let pass = 0
 const fails: string[] = []
@@ -38,6 +38,13 @@ shut('GET', '/api/gemini/keys'); shut('POST', '/api/gemini/keys'); shut('GET', '
 shut('POST', '/api/osm/config-compare'); shut('POST', '/api/osm/alert/config'); shut('GET', '/api/url-pool/go/a')
 shut('POST', '/internal/testcase-jobs/x/finish')
 
+// CodeX [P1]：Express 路由不分大小寫，守門也不能分
+for (const p of ['/API/history', '/Api/gemini/keys', '/aPi/autospin/configs', '/INTERNAL/worker/health']) {
+  if (isGuardedPath(p)) pass++; else fails.push(`大小寫變體要受守門：${p}`)
+}
+if (isInternalPath('/Internal/worker/tasks')) pass++; else fails.push('isInternalPath 大小寫')
+shut('GET', '/API/history'); shut('POST', '/API/GEMINI/KEYS')
+open('GET', '/API/HEALTH')   // 白名單也一樣不分大小寫（跟 Express 一致）
 if (isGuardedPath('/api/x') && isGuardedPath('/internal/worker/health') && !isGuardedPath('/assets/app.js') && !isGuardedPath('/')) pass++
 else fails.push('isGuardedPath')
 
