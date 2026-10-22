@@ -137,6 +137,14 @@ export function OsmReleasesPage() {
     })
   }, [releases, filters, compById])
 
+  // 月份用下拉選單，不用 <input type="month">：Safari／Firefox 桌機版不支援，會退化成空白文字框（使用者 1022 回報）。
+  // 選項只列這個分頁實際有紀錄的月份；存成檢視的月份就算現在沒資料也要留著，不然選單顯示不出目前的值
+  const monthOptions = useMemo(() => {
+    const set = new Set(releases.map(r => keyDate(r).slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m)))
+    for (const m of [filters.from, filters.to]) if (m) set.add(m)
+    return [...set].sort().reverse()
+  }, [releases, filters.from, filters.to])
+
   const selected = filtered.find(r => r.id === selectedId) ?? filtered[0] ?? null
   const perms = meta?.perms ?? { view: true, edit: false, manage: false }
   const filterActive = !!(filters.search || filters.from || filters.to || filters.statusIds.length || filters.componentIds.length)
@@ -225,9 +233,15 @@ export function OsmReleasesPage() {
           <div className="orl-filters">
             <input className="orl-input orl-search" placeholder="搜尋單號、內容或版號…（例 P5MA-3060）" value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} />
             <label className="orl-range">日期
-              <input type="month" className="orl-input" value={filters.from} onChange={e => setFilters(f => ({ ...f, from: e.target.value }))} />
+              <select className="orl-input" value={filters.from} onChange={e => setFilters(f => ({ ...f, from: e.target.value }))}>
+                <option value="">最早</option>
+                {monthOptions.map(m => <option key={m} value={m}>{m.replace('-', '/')}</option>)}
+              </select>
               ～
-              <input type="month" className="orl-input" value={filters.to} onChange={e => setFilters(f => ({ ...f, to: e.target.value }))} />
+              <select className="orl-input" value={filters.to} onChange={e => setFilters(f => ({ ...f, to: e.target.value }))}>
+                <option value="">最新</option>
+                {monthOptions.map(m => <option key={m} value={m}>{m.replace('-', '/')}</option>)}
+              </select>
             </label>
             <select className="orl-input" value={filters.statusIds[0] ?? ''} onChange={e => setFilters(f => ({ ...f, statusIds: e.target.value ? [Number(e.target.value)] : [] }))}>
               <option value="">狀態：全部</option>

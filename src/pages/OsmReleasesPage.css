@@ -59,8 +59,9 @@ select.orl-input, button.orl-input { cursor: pointer; }
 /* 篩選列 */
 .orl-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .orl-search { flex: 0 1 300px; }
+.orl-filters > .orl-link { font-size: 12.5px; color: var(--orl-muted); }
 .orl-range { display: inline-flex; align-items: center; gap: 6px; color: var(--orl-muted); font-size: 12.5px; }
-.orl-range .orl-input { width: 138px; }
+.orl-range .orl-input { width: 104px; }
 .orl-pick { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--orl-muted); }
 .orl-pick.is-set { color: var(--orl-text); border-color: var(--orl-primary); }
 .orl-seg { display: inline-flex; border: 1px solid var(--orl-input-border); border-radius: 7px; overflow: hidden; }
