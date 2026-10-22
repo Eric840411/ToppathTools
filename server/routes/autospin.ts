@@ -3853,7 +3853,8 @@ interface JpGroupRow {
 const jpGroupSchema = z.object({
   code: z.string().min(1).max(50),
   display_name: z.string().min(1).max(100),
-  environment: z.enum(['QAT', 'UAT', 'PROD']),
+  // 使用者 1022：JP Group 只留 QAT／UAT（PROD 預設帶的是正式後台帳號）。既有的 PROD 資料照常顯示、可以在畫面上刪除
+  environment: z.enum(['QAT', 'UAT']),
   luckylink_url: z.string().url(),
   luckylink_group_name: z.string().min(1),
   login_user: z.string().default('admin'),

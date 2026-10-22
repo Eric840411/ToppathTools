@@ -349,7 +349,6 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   const JP_ENV_PRESETS: Record<string, { luckylink_url: string; login_user: string; login_pass: string }> = {
     QAT:  { luckylink_url: 'https://luckylink-backendserver.osmslot.org',      login_user: 'admin',    login_pass: '' },
     UAT:  { luckylink_url: 'https://luckylink-uat-backendserver.osmslot.org',    login_user: 'admin',    login_pass: '' },
-    PROD: { luckylink_url: 'https://luckylink-prod-backendserver.cliveslot.com', login_user: '', login_pass: '' },
   }
 
   interface JpGroup { id: number; code: string; display_name: string; environment: string; luckylink_url: string; luckylink_group_name: string; login_user: string; login_pass: string; game_codes: string[]; enabled: boolean }
@@ -1159,7 +1158,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 13, color: '#94a3b8' }}>環境</label>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {(['QAT', 'UAT', 'PROD'] as const).map(env => (
+                    {(['QAT', 'UAT'] as const).map(env => (
                       <button key={env} onClick={() => {
                         const preset = JP_ENV_PRESETS[env]
                         setJpGroupForm(f => ({ ...f, environment: env, ...(jpGroupEditing === null ? preset : {}) }))
