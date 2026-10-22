@@ -32,7 +32,7 @@ import {
 } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
 import { initOsmMachineTypes, saveChannelMachineTypes } from '../osm-machine-types.js'
-import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
+import { launchGuardedChromium, newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = Router()
 
@@ -1181,9 +1181,9 @@ router.get('/api/osm/machine-pull/:requestId', (req, res) => {
 // POST /api/osm/frontend-machines-auto
 // Use Playwright to open lobby URL (WITHOUT gameid) and intercept large WS frames from hall.hallHandler.getAllGMListReq.
 router.post('/api/osm/frontend-machines-auto', heavyLimiter, async (req, res) => {
-  const browser = await chromium.launch({
+  const browser = await launchGuardedChromium(chromium, {
     headless: true,
-    args: ['--disable-dev-shm-usage', '--no-sandbox', ...browserGuardLaunchArgs()],
+    args: ['--disable-dev-shm-usage', '--no-sandbox'],
   })
   try {
     const { url } = z.object({ url: z.string().min(1) }).parse(req.body)

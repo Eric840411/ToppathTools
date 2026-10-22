@@ -23,7 +23,7 @@
  */
 import net from 'net'
 import { isIP } from 'net'
-import type { Browser, BrowserContext, BrowserContextOptions } from 'playwright'
+import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions } from 'playwright'
 
 const OWNED_SUFFIXES = ['osmplay.com', 'osmplay-new.com', 'osmslot.org', 'cliveslot.com']
 
@@ -179,7 +179,12 @@ export function installEgressGuard(label: string) {
 export async function guardBrowserContext(
   context: BrowserContext,
   extraHosts: readonly string[] = [],
+  hasDnsRules = false,
 ) {
+  // 沒帶 host-resolver-rules 的瀏覽器（report 期間啟動、或不是走 launchGuardedChromium 開的）擋不住轉址：
+  // 只要現在是 enforce 就整個停擺（fail closed），請使用者重開瀏覽器——report 到期後既有瀏覽器不會留下缺口
+  //（CodeX 審 f2c9fa3 [P1]）
+  const failClosed = () => !hasDnsRules && browserEgressMode().mode === 'enforce'
   const allowed = (url: string): boolean => {
     let u: URL
     try { u = new URL(url) } catch { return false }
@@ -190,6 +195,10 @@ export async function guardBrowserContext(
   }
   await context.route('**/*', route => {
     const url = route.request().url()
+    if (failClosed() && !/^(data|blob|about):/.test(url)) {
+      logViolation('browser:(沒有 DNS 規則的瀏覽器，請重新啟動)', '', 'enforce')
+      return route.abort('blockedbyclient')
+    }
     // ⚠️ route 只攔第一跳：放行後瀏覽器自己跟 3xx，下一跳不會再進來（實測連 route.fulfill 交回 3xx 也一樣）。
     //    轉址的逐跳限制靠啟動參數 browserGuardLaunchArgs() 的 --host-resolver-rules（CodeX 審 529c495 [P1]）
     if (allowed(url)) return route.continue()
@@ -201,6 +210,7 @@ export async function guardBrowserContext(
   })
   if (context.routeWebSocket) {
     await context.routeWebSocket(/.*/, ws => {
+      if (failClosed()) return ws.close({ code: 1008, reason: 'egress: restart browser' })
       if (allowed(ws.url())) { ws.connectToServer(); return }
       const { mode } = browserEgressMode()
       let host = ''
@@ -247,9 +257,35 @@ export function browserGuardLaunchArgs(extraHosts: readonly string[] = GAME_PAGE
   return [`--host-resolver-rules=${rules.join(', ')}`]
 }
 
+/** 啟動時有帶 host-resolver-rules 的瀏覽器 */
+const dnsGuardedBrowsers = new WeakSet<object>()
+
+/** 呼叫端自己用其他方式啟動（例如 spawn Chrome 再 connectOverCDP）時，照實登記有沒有帶規則 */
+export function markBrowserDnsGuard(browser: object, launchArgs: readonly string[]) {
+  if (launchArgs.some(a => a.startsWith('--host-resolver-rules=MAP * ~NOTFOUND'))) dnsGuardedBrowsers.add(browser)
+}
+
+/** 伺服器端開 Chromium 一律用這個：合併 DNS 規則參數並登記 */
+export async function launchGuardedChromium(
+  launcher: { launch(opts?: LaunchOptions): Promise<Browser> },
+  opts: LaunchOptions = {},
+): Promise<Browser> {
+  const guard = browserGuardLaunchArgs()
+  const args = [...(opts.args ?? []), ...guard]
+  const browser = await launcher.launch({ ...opts, args })
+  markBrowserDnsGuard(browser, args)
+  return browser
+}
+
 /** 伺服器端開瀏覽器一律用這個：停用 Service Worker（不然請求繞過 route）＋掛出站攔截 */
 export async function newGuardedContext(browser: Browser, opts: BrowserContextOptions = {}): Promise<BrowserContext> {
   const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' })
-  await guardBrowserContext(ctx, GAME_PAGE_EXTRA_HOSTS)
+  await guardBrowserContext(ctx, GAME_PAGE_EXTRA_HOSTS, dnsGuardedBrowsers.has(browser))
+  return ctx
+}
+
+/** connectOverCDP 拿到的既有 context（headed 模式）也要掛攔截 */
+export async function guardExistingContext(browser: Browser, ctx: BrowserContext): Promise<BrowserContext> {
+  await guardBrowserContext(ctx, GAME_PAGE_EXTRA_HOSTS, dnsGuardedBrowsers.has(browser))
   return ctx
 }

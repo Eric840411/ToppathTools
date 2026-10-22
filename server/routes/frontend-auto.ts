@@ -42,7 +42,7 @@ import { uploadLarkAttachment, updateLarkRecord, parseLarkBaseUrl } from '../uat
 //    agent 上那顆積木被靜默跳過。
 import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
 import { agentUpdateStatus } from './machine-test.js'
-import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, guardExistingContext, launchGuardedChromium, markBrowserDnsGuard, newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -832,11 +832,13 @@ async function launchRecorderChrome(sessionId: string, url: string, width: numbe
     '--no-default-browser-check',
     '--new-window',
     `--window-size=${initialWindow.width},${initialWindow.height}`,
+    // 出站白名單的 DNS 規則（CodeX 審 f2c9fa3 [P1]：headed／錄製這條原本沒納管）
+    ...browserGuardLaunchArgs(),
     url,
   ]
   const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
   const port = await waitForDebugPort(profileDir, { isAlive: () => proc.exitCode === null })
-  return { proc, profileDir, port }
+  return { proc, profileDir, port, args }
 }
 
 async function syncPlaywrightViewport(page: import('playwright').Page, width: number, height: number, platform: Platform) {
@@ -2074,8 +2076,9 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         chromeProfileDir = launched.profileDir
         await waitForJson(`http://127.0.0.1:${launched.port}/json/version`)
         browser = await pw.chromium.connectOverCDP(`http://127.0.0.1:${launched.port}`)
+        markBrowserDnsGuard(browser, launched.args)
       } else {
-        browser = await pw.chromium.launch({
+        browser = await launchGuardedChromium(pw.chromium, {
           headless: true,
           /**
            * ⚠️ **PC（Cocos）要多帶兩個顯示卡參數**，跟 `agent-runner.ts` 的 `PC_BROWSER_ARGS` 一樣。
@@ -2087,16 +2090,16 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
            * ⚠️ 只加最保守的兩個。`--use-gl=angle --use-angle=swiftshader` 在某些機器會讓
            *    GPU process 直接掛掉，症狀是「連 evaluate 都問不到」——比沒有 WebGL 更難查。
            */
-          args: [...(platform === 'pc'
+          args: platform === 'pc'
             ? ['--force-device-scale-factor=1', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
-            : ['--force-device-scale-factor=1']), ...browserGuardLaunchArgs()],
+            : ['--force-device-scale-factor=1'],
         })
       }
       await log('✅ 瀏覽器已啟動')
 
       await log('🔧 建立瀏覽器 context...')
       const ctx = headed
-        ? browser.contexts()[0] ?? await newGuardedContext(browser)
+        ? (browser.contexts()[0] ? await guardExistingContext(browser, browser.contexts()[0]) : await newGuardedContext(browser))
         : await newGuardedContext(browser, {
             viewport: { width: w, height: h },
             screen: { width: w, height: h },

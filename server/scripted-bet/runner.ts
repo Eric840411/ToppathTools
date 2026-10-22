@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { chromium, type Browser, type ElementHandle, type Frame, type Page } from 'playwright'
-import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
+import { launchGuardedChromium, newGuardedContext } from '../lib/egress-guard.js'
 import type {
   ScriptedBetAccount,
   ScriptedBetAccountStatus,
@@ -947,9 +947,9 @@ export class ScriptedBetRunner extends EventEmitter {
     })
 
     try {
-      browser = await chromium.launch({
+      browser = await launchGuardedChromium(chromium, {
         headless: !this.config.headedMode,
-        args: [...(this.config.headedMode ? [] : ['--mute-audio']), ...browserGuardLaunchArgs()],
+        args: this.config.headedMode ? [] : ['--mute-audio'],
       })
       this.currentBrowser = browser
 
