@@ -39,6 +39,7 @@ import { router as larkNotifyRouter } from './routes/lark-notify.js'
 import { router as accountsRouter } from './routes/accounts.js'
 import { router as sheetsRouter } from './routes/sheets.js'
 import { router as attachmentsRouter } from './routes/attachments.js'
+import { router as osmReleasesRouter } from './routes/osm-releases.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
@@ -412,6 +413,7 @@ app.use(larkNotifyRouter)
 app.use(accountsRouter)
 app.use(sheetsRouter)
 app.use(attachmentsRouter)
+app.use(osmReleasesRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

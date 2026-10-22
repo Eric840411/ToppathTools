@@ -122,6 +122,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'weekly-report': '週報彙整',
   'lark-notify': 'Lark 通知設定',
   'meter-reconcile': 'Meter 對帳',
+  'osm-releases': 'OSM 版本更新紀錄',
   'egm-daycount': 'Egm DayCount 對帳',
 }
 type FeatureFilter = 'all' | keyof typeof FEATURE_LABELS
