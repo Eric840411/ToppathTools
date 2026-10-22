@@ -42,7 +42,7 @@ import { uploadLarkAttachment, updateLarkRecord, parseLarkBaseUrl } from '../uat
 //    agent 上那顆積木被靜默跳過。
 import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
 import { agentUpdateStatus } from './machine-test.js'
-import { newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -2087,9 +2087,9 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
            * ⚠️ 只加最保守的兩個。`--use-gl=angle --use-angle=swiftshader` 在某些機器會讓
            *    GPU process 直接掛掉，症狀是「連 evaluate 都問不到」——比沒有 WebGL 更難查。
            */
-          args: platform === 'pc'
+          args: [...(platform === 'pc'
             ? ['--force-device-scale-factor=1', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
-            : ['--force-device-scale-factor=1'],
+            : ['--force-device-scale-factor=1']), ...browserGuardLaunchArgs()],
         })
       }
       await log('✅ 瀏覽器已啟動')

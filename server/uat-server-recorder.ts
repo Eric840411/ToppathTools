@@ -1,7 +1,7 @@
 import { chromium, type Browser } from 'playwright'
 import { toUrlPattern } from './uat-runner/net-capture.js'
 import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
-import { newGuardedContext } from './lib/egress-guard.js'
+import { browserGuardLaunchArgs, newGuardedContext } from './lib/egress-guard.js'
 
 type Options = {
   backendUrl: string; username: string; password: string; script: string; marker: string;
@@ -18,7 +18,7 @@ type Options = {
 }
 
 /** Explicit server mode only; no automatic fallback from a disconnected Agent. */
-export async function startServerRecorder(options: Options, launch = () => chromium.launch({ headless: false, args: ['--start-maximized'] })) {
+export async function startServerRecorder(options: Options, launch = () => chromium.launch({ headless: false, args: ['--start-maximized', ...browserGuardLaunchArgs()] })) {
   let browser: Browser | undefined
   let finished = false
   let armed = false

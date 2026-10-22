@@ -58,8 +58,12 @@
   - **預設 enforce**；`EGRESS_MODE=report` 必須搭配 `EGRESS_REPORT_UNTIL=<ISO>`，過期自動回 enforce（CodeX：report 要明確且有期限）
   - log 只記 host／port：`[egress] BLOCKED host=… port=…`
   - ⚠️ 管不到子程序（python、uat-runner 本機模式）與 Local Agent → **運維的出站預設拒絕才是獨立防線**
-- **瀏覽器**：伺服器端 8 處開瀏覽器改用 `newGuardedContext`（停用 Service Worker、context 層 route＋routeWebSocket）。
-  因為遊戲前端會載入第三方資源、清單未齊，**瀏覽器層預設 report**，設 `BROWSER_EGRESS_MODE=enforce` 才擋；先看 `WOULD-BLOCK host=browser:…` log 補清單
+- **瀏覽器**：伺服器端開瀏覽器改用 `newGuardedContext`（停用 Service Worker、context 層 route＋routeWebSocket）＋啟動參數 `browserGuardLaunchArgs()`
+  （Chromium `--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE <白名單>"`）。v5.66.5 依 CodeX 複審：
+  - route 只攔第一跳（實測連 route.fulfill 交回 3xx 也一樣），**轉址逐跳的限制靠 host-resolver-rules**（網路層，IP 字面值也會被 MAP 對到）
+  - 瀏覽器層也**預設 enforce**；要觀察時設 `BROWSER_EGRESS_MODE=report`＋`BROWSER_EGRESS_REPORT_UNTIL=<ISO>`
+  - 實測 QAT／UAT H5 前台頁 200 正常載入，只擋到 googletagmanager、阿里雲 RUM（統計）
+  - ⚠️ WebRTC（UDP）不經過，要靠運維出站防線
 - **TLS**：gate WebSocket 拿掉 `rejectUnauthorized:false`、前台機台資訊頁拿掉 `ignoreHTTPSErrors`（QAT／Prod gate 憑證實測有效）；UAT 後台預設改 https（後台帳密原本以明文 http 傳）
 - **Google key 改放 header**（`x-goog-api-key`）：Gemini 6 處、Sheets 4 處，網址不再帶 `?key=`
 - **金鑰輪換**：密文改 `v2:<kid>:…`；`SECRETS_KEY`（建議專屬）＋`SECRETS_KEYS_OLD`（舊金鑰，只解密）＋`MEEGLE_TOKEN_KEY`（沒設 SECRETS_KEY 時沿用）。

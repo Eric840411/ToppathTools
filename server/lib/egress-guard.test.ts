@@ -3,7 +3,7 @@
  * 重點：共用平台只放用得到的 hostname（不是整個網域）、report 模式要有期限、真的連線會被擋。
  */
 import { createServer } from 'net'
-import { isEgressAllowed, egressMode, installEgressGuard, registerEgressHost } from './egress-guard.js'
+import { isEgressAllowed, egressMode, browserEgressMode, installEgressGuard, registerEgressHost } from './egress-guard.js'
 
 let pass = 0
 const fails: string[] = []
@@ -25,6 +25,11 @@ eq('阿里雲其他不放', isEgressAllowed('attacker.oss-ap-southeast-1.aliyunc
 eq('loopback', isEgressAllowed('127.0.0.1', env), true)
 eq('localhost', isEgressAllowed('localhost', env), true)
 eq('任意外站', isEgressAllowed('attacker.example', env), false)
+// CodeX 審 529c495 [P1]：假 loopback
+eq('127.開頭的網域不是 loopback', isEgressAllowed('127.attacker.example', env), false)
+eq('localhost 前綴網域', isEgressAllowed('localhost.attacker.example', env), false)
+eq('127/8 其他位址', isEgressAllowed('127.0.0.2', env), true)
+eq('mapped loopback', isEgressAllowed('::ffff:127.0.0.1', env), true)
 eq('公網 IP', isEgressAllowed('8.8.8.8', env), false)
 eq('大小寫與結尾點', isEgressAllowed('OPEN.LARKSUITE.COM.', env), true)
 registerEgressHost('http://192.168.2.106:11434')
@@ -35,6 +40,10 @@ eq('預設 enforce', egressMode({} as NodeJS.ProcessEnv, now).mode, 'enforce')
 eq('report 沒期限 → enforce', egressMode({ EGRESS_MODE: 'report' } as NodeJS.ProcessEnv, now).mode, 'enforce')
 eq('report 過期 → enforce', egressMode({ EGRESS_MODE: 'report', EGRESS_REPORT_UNTIL: '2026-10-21T00:00:00Z' } as NodeJS.ProcessEnv, now).mode, 'enforce')
 eq('report 期限內', egressMode({ EGRESS_MODE: 'report', EGRESS_REPORT_UNTIL: '2026-10-24T00:00:00Z' } as NodeJS.ProcessEnv, now).mode, 'report')
+eq('瀏覽器預設 enforce', browserEgressMode({} as NodeJS.ProcessEnv, now).mode, 'enforce')
+eq('瀏覽器 report 沒期限 → enforce', browserEgressMode({ BROWSER_EGRESS_MODE: 'report' } as NodeJS.ProcessEnv, now).mode, 'enforce')
+eq('瀏覽器 report 期限內', browserEgressMode({ BROWSER_EGRESS_MODE: 'report', BROWSER_EGRESS_REPORT_UNTIL: '2026-10-24T00:00:00Z' } as NodeJS.ProcessEnv, now).mode, 'report')
+eq('Node 的 report 不影響瀏覽器', browserEgressMode({ EGRESS_MODE: 'report', EGRESS_REPORT_UNTIL: '2026-10-24T00:00:00Z' } as NodeJS.ProcessEnv, now).mode, 'enforce')
 
 // 真的連線：裝上攔截後，fetch 清單外主機要失敗、本機要成功
 installEgressGuard('test')

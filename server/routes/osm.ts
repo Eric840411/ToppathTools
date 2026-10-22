@@ -32,7 +32,7 @@ import {
 } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
 import { initOsmMachineTypes, saveChannelMachineTypes } from '../osm-machine-types.js'
-import { newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = Router()
 
@@ -1183,7 +1183,7 @@ router.get('/api/osm/machine-pull/:requestId', (req, res) => {
 router.post('/api/osm/frontend-machines-auto', heavyLimiter, async (req, res) => {
   const browser = await chromium.launch({
     headless: true,
-    args: ['--disable-dev-shm-usage', '--no-sandbox'],
+    args: ['--disable-dev-shm-usage', '--no-sandbox', ...browserGuardLaunchArgs()],
   })
   try {
     const { url } = z.object({ url: z.string().min(1) }).parse(req.body)

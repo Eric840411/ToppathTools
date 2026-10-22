@@ -89,7 +89,11 @@ export function registerEgressHost(hostOrUrl: string | null | undefined) {
 
 function isLoopback(host: string): boolean {
   const h = host.replace(/^\[|\]$/g, '').toLowerCase()
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.startsWith('127.') || h === '::ffff:127.0.0.1'
+  if (h === 'localhost' || h === '::1') return true
+  // 一定要先確認是 IPv4 字面值再看 127/8：只看 startsWith('127.') 會放行 127.attacker.example（CodeX 審 529c495 [P1]）
+  if (isIP(h) === 4) return h.startsWith('127.')
+  const mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  return !!mapped && isIP(mapped[1]) === 4 && mapped[1].startsWith('127.')
 }
 
 export function isEgressAllowed(rawHost: string, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -104,12 +108,14 @@ export function isEgressAllowed(rawHost: string, env: NodeJS.ProcessEnv = proces
 
 export type EgressMode = 'enforce' | 'report'
 
-export function egressMode(env: NodeJS.ProcessEnv = process.env, now = Date.now()): { mode: EgressMode; reason: string } {
-  if ((env.EGRESS_MODE ?? '').toLowerCase() !== 'report') return { mode: 'enforce', reason: '預設' }
-  const until = Date.parse(env.EGRESS_REPORT_UNTIL ?? '')
-  if (!Number.isFinite(until)) return { mode: 'enforce', reason: 'EGRESS_MODE=report 但沒設 EGRESS_REPORT_UNTIL，維持 enforce' }
-  if (until <= now) return { mode: 'enforce', reason: `report 期限 ${env.EGRESS_REPORT_UNTIL} 已過，恢復 enforce` }
-  return { mode: 'report', reason: `report 到 ${env.EGRESS_REPORT_UNTIL}` }
+/** prefix＝''（Node 這層）或 'BROWSER_'（瀏覽器那層）；兩層規則一樣：預設 enforce，report 必須設期限 */
+export function egressMode(env: NodeJS.ProcessEnv = process.env, now = Date.now(), prefix = ''): { mode: EgressMode; reason: string } {
+  const modeKey = `${prefix}EGRESS_MODE`, untilKey = `${prefix}EGRESS_REPORT_UNTIL`
+  if ((env[modeKey] ?? '').toLowerCase() !== 'report') return { mode: 'enforce', reason: '預設' }
+  const until = Date.parse(env[untilKey] ?? '')
+  if (!Number.isFinite(until)) return { mode: 'enforce', reason: `${modeKey}=report 但沒設 ${untilKey}，維持 enforce` }
+  if (until <= now) return { mode: 'enforce', reason: `report 期限 ${env[untilKey]} 已過，恢復 enforce` }
+  return { mode: 'report', reason: `report 到 ${env[untilKey]}` }
 }
 
 const lastLogged = new Map<string, number>()
@@ -184,6 +190,8 @@ export async function guardBrowserContext(
   }
   await context.route('**/*', route => {
     const url = route.request().url()
+    // ⚠️ route 只攔第一跳：放行後瀏覽器自己跟 3xx，下一跳不會再進來（實測連 route.fulfill 交回 3xx 也一樣）。
+    //    轉址的逐跳限制靠啟動參數 browserGuardLaunchArgs() 的 --host-resolver-rules（CodeX 審 529c495 [P1]）
     if (allowed(url)) return route.continue()
     const { mode } = browserEgressMode()
     let host = ''
@@ -211,15 +219,32 @@ export const GAME_PAGE_EXTRA_HOSTS = [
 ] as const
 
 /**
- * 瀏覽器這層的模式：**預設 report（只記不擋）**，設 BROWSER_EGRESS_MODE=enforce 才擋。
- * 跟 Node 那層相反的原因：伺服器上跑的 headless 頁面都是 OSM 遊戲前端，會載入騰訊 RTC 視訊外掛（bewen.me）、
- * 統計、客服、阿里雲 OSS 等第三方資源，完整清單還不知道——直接擋會讓 Game Show／Scripted Bet 這些工具壞掉。
- * 先收 log（`[egress] WOULD-BLOCK host=browser:…`）把清單補齊，再切 enforce。
+ * 瀏覽器這層的模式：跟 Node 那層同一套規則——**預設 enforce**，要觀察第三方資源清單時設
+ * BROWSER_EGRESS_MODE=report＋BROWSER_EGRESS_REPORT_UNTIL=<ISO>，過期自動回 enforce（CodeX：不接受無期限 report）。
+ * 遊戲頁需要的第三方資源逐項加進 GAME_PAGE_EXTRA_HOSTS；統計（PostHog）、客服（lc.chat）不是必要就不加。
+ * 觀察期看 `[egress] WOULD-BLOCK host=browser:…`。
+ * ⚠️ WebRTC（TRTC 視訊）走 UDP，不經過 route，這層管不到——要靠運維的出站防線。
  */
-export function browserEgressMode(env: NodeJS.ProcessEnv = process.env): { mode: EgressMode; reason: string } {
-  return (env.BROWSER_EGRESS_MODE ?? '').toLowerCase() === 'enforce'
-    ? { mode: 'enforce', reason: 'BROWSER_EGRESS_MODE=enforce' }
-    : { mode: 'report', reason: '瀏覽器預設 report' }
+export function browserEgressMode(env: NodeJS.ProcessEnv = process.env, now = Date.now()): { mode: EgressMode; reason: string } {
+  return egressMode(env, now, 'BROWSER_')
+}
+
+/**
+ * 瀏覽器啟動參數：讓 Chromium 的 DNS 解析只認白名單（`MAP * ~NOTFOUND` 再逐一 EXCLUDE）。
+ * 這是網路層的限制，轉址的每一跳、子資源、WebSocket 都要解析主機名，所以都會被擋——補上 route 只攔第一跳的洞。
+ * 實測 IP 字面值（http://1.2.3.4）也會被 `MAP *` 對到，所以轉址到 IP 一樣擋得住；本機要明確 EXCLUDE 127.0.0.1。
+ * ⚠️ WebRTC（UDP）不經過這裡，要靠運維的出站防線。
+ * report 模式不加（只記不擋）。Chromium 只認最後一個 --host-resolver-rules，呼叫端不要再自己帶一個。
+ */
+export function browserGuardLaunchArgs(extraHosts: readonly string[] = GAME_PAGE_EXTRA_HOSTS, env: NodeJS.ProcessEnv = process.env, extraRules: string[] = []): string[] {
+  if (browserEgressMode(env).mode !== 'enforce') return []
+  loadEnvHosts(env)
+  const excludes = new Set<string>(['localhost', '127.0.0.1', '[::1]', ...STATIC_HOSTS, ...dynamicHosts, ...extraHosts.map(h => h.replace(/^\./, '*.'))])
+  for (const s of OWNED_SUFFIXES) { excludes.add(s); excludes.add(`*.${s}`) }
+  // doc-xx-xx-docs.googleusercontent.com（Google Doc 匯出轉址）
+  excludes.add('*-docs.googleusercontent.com')
+  const rules = ['MAP * ~NOTFOUND', ...[...excludes].map(h => `EXCLUDE ${h}`), ...extraRules]
+  return [`--host-resolver-rules=${rules.join(', ')}`]
 }
 
 /** 伺服器端開瀏覽器一律用這個：停用 Service Worker（不然請求繞過 route）＋掛出站攔截 */

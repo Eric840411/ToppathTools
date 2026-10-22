@@ -22,7 +22,7 @@ import crypto from 'crypto'
 import { upload, addHistory, browserLimiter } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
-import { newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = Router()
 
@@ -343,7 +343,7 @@ async function _captureImages(
   const preset = CAPTURE_PRESETS[mode] ?? CAPTURE_PRESETS.standard
   let browser
   try {
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({ headless: true, args: browserGuardLaunchArgs() })
     const context = await newGuardedContext(browser, {
       viewport: { width: 1440, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
@@ -528,7 +528,7 @@ router.post('/api/gs/stats/start', async (req, res) => {
       await browserLimiter.schedule(async () => {
     let browser
     try {
-      browser = await chromium.launch({ headless: true })
+      browser = await chromium.launch({ headless: true, args: browserGuardLaunchArgs() })
       const context = await newGuardedContext(browser, {
         viewport: { width: 1440, height: 900 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
@@ -794,7 +794,7 @@ router.post('/api/gs/bonus-v2/start', async (req, res) => {
   res.json({ ok: true })
 
   try {
-    bv2Browser = await chromium.launch({ headless: false })
+    bv2Browser = await chromium.launch({ headless: false, args: browserGuardLaunchArgs() })
     const context = await newGuardedContext(bv2Browser)
     const page = await context.newPage()
     let wsCount = 0
@@ -1057,7 +1057,7 @@ router.post('/api/gs/img-compare/capture', async (req, res) => {
 
   try {
     send({ type: 'status', message: '啟動瀏覽器…' })
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({ headless: true, args: browserGuardLaunchArgs() })
     const context = await newGuardedContext(browser, {
       viewport: { width: 1440, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',

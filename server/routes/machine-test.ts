@@ -47,7 +47,7 @@ import { safeChildPath } from '../lib/safe-path.js'
 import { safeEqualString } from '../pin-hash.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 import { assertSafeUrl, isObviouslyInternalHost } from '../lib/safe-fetch.js'
-import { newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, newGuardedContext } from '../lib/egress-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -569,7 +569,7 @@ router.post('/api/image-check/start', async (req, res, next) => {
     if (browserLimiter.queued() >= 8) {
       return res.status(429).json({ ok: false, message: `browser queue is full: ${browserLimiter.queued()}` })
     }
-    const browser = await browserLimiter.schedule(() => chromium.launch({ headless: true }))
+    const browser = await browserLimiter.schedule(() => chromium.launch({ headless: true, args: browserGuardLaunchArgs() }))
     const page = await (await newGuardedContext(browser, { viewport: { width: 1280, height: 800 } })).newPage()
     await page.route('**/*', route => {
       let u: URL | null = null
