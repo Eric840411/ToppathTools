@@ -91,7 +91,8 @@ function openPinusWs(wsUrl: string, timeoutMs: number): Promise<{
   close: () => void
 }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl, { rejectUnauthorized: false })
+    // 要驗憑證：連 gate 會帶 token（資安 2026-10-22；QAT／Prod gate 憑證實測有效，原本 rejectUnauthorized:false）
+    const ws = new WebSocket(wsUrl)
     let buf = Buffer.alloc(0)
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null
     const responseMap = new Map<number, (data: Buffer) => void>()

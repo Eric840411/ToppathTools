@@ -1,6 +1,7 @@
 import { chromium, type Browser } from 'playwright'
 import { toUrlPattern } from './uat-runner/net-capture.js'
 import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
+import { newGuardedContext } from './lib/egress-guard.js'
 
 type Options = {
   backendUrl: string; username: string; password: string; script: string; marker: string;
@@ -30,7 +31,7 @@ export async function startServerRecorder(options: Options, launch = () => chrom
   }
   try {
     browser = await launch()
-    const context = await browser.newContext({ viewport: null })
+    const context = await newGuardedContext(browser, { viewport: null })
     await context.addInitScript(options.script)
     const page = await context.newPage()
     /**

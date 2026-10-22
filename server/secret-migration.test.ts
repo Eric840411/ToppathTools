@@ -8,7 +8,8 @@
 import Database from 'better-sqlite3'
 import { randomBytes } from 'crypto'
 import { migrateSecretsAtRest } from './secret-migration.js'
-import { decryptSecret, encryptSecret, isEncryptedSecret, isSecretConfigKey } from './secret-crypto.js'
+import { createCipheriv } from 'crypto'
+import { decryptSecret, encryptSecret, isEncryptedSecret, isSecretConfigKey, isCurrentKeySecret, currentKeyId } from './secret-crypto.js'
 
 let pass = 0
 const fails: string[] = []
@@ -63,7 +64,7 @@ ok('isSecretConfigKey login_password', isSecretConfigKey('gcp_login_password'))
 ok('isSecretConfigKey 非機密', !isSecretConfigKey('lastlogintime') && !isSecretConfigKey('osm_base_url'))
 const c = encryptSecret('hello', env)
 let threw = false
-ok('加密成 v1', isEncryptedSecret(c))
+ok('加密成 v2（帶金鑰指紋）', isEncryptedSecret(c) && c.startsWith('v2:'))
 ok('解得回', decryptSecret(c, env) === 'hello')
 ok('不重複加密', encryptSecret(c, env) === c)
 ok('明文原樣回傳', decryptSecret('plain', env) === 'plain')
@@ -119,6 +120,42 @@ ok('第二次不重複加密', val(db, `SELECT value v FROM settings WHERE key='
 const db2 = seed()
 const r3 = migrateSecretsAtRest(db2, {} as NodeJS.ProcessEnv)
 ok('沒金鑰一筆都不動', r3.status === 'missing' && val(db2, `SELECT value v FROM settings WHERE key='openai_api_key'`) === 'sk-plain-openai')
+
+// ── 換金鑰（v5.66.4）──
+// 手工做一筆 v1（v5.66.0～5.66.3 的格式）：舊資料要解得開，遷移時改成 v2
+function legacyV1(plain: string, keyB64: string) {
+  const key = Buffer.from(keyB64, 'base64'); const iv = randomBytes(12)
+  const ci = createCipheriv('aes-256-gcm', key, iv); const ct = Buffer.concat([ci.update(plain, 'utf8'), ci.final()])
+  return ['v1', iv.toString('base64'), ci.getAuthTag().toString('base64'), ct.toString('base64')].join(':')
+}
+const keyA = randomBytes(32).toString('base64'), keyB = randomBytes(32).toString('base64')
+const envMeegleOnly = { MEEGLE_TOKEN_KEY: keyA } as NodeJS.ProcessEnv
+const v1 = legacyV1('old-secret', keyA)
+ok('v1 舊資料解得開', decryptSecret(v1, envMeegleOnly) === 'old-secret')
+ok('改設 SECRETS_KEY 後 v1 仍解得開（MEEGLE 留著）', decryptSecret(v1, { SECRETS_KEY: keyB, MEEGLE_TOKEN_KEY: keyA } as NodeJS.ProcessEnv) === 'old-secret')
+const dbR = new Database(':memory:')
+dbR.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`)
+dbR.prepare(`INSERT INTO settings VALUES ('openai_api_key', ?)`).run(v1)
+migrateSecretsAtRest(dbR, envMeegleOnly)
+const afterV1 = val(dbR, `SELECT value v FROM settings WHERE key='openai_api_key'`)
+ok('遷移把 v1 改成 v2', afterV1.startsWith('v2:') && decryptSecret(afterV1, envMeegleOnly) === 'old-secret')
+// 換成 B，A 放到 OLD → 遷移重新加密成 B
+const envRot = { SECRETS_KEY: keyB, SECRETS_KEYS_OLD: keyA } as NodeJS.ProcessEnv
+ok('換金鑰前不是目前金鑰', !isCurrentKeySecret(afterV1, envRot))
+const rr = migrateSecretsAtRest(dbR, envRot)
+const afterRot = val(dbR, `SELECT value v FROM settings WHERE key='openai_api_key'`)
+ok('換金鑰後是新金鑰的 kid', afterRot.split(':')[1] === currentKeyId(envRot) && rr.encrypted['settings.value'] === 1)
+ok('只有新金鑰也解得開', decryptSecret(afterRot, { SECRETS_KEY: keyB } as NodeJS.ProcessEnv) === 'old-secret')
+// 舊金鑰沒留：遷移不能弄壞資料，要記失敗數
+const dbF = new Database(':memory:')
+dbF.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`)
+dbF.prepare(`INSERT INTO settings VALUES ('openai_api_key', ?)`).run(afterRot)
+const rf = migrateSecretsAtRest(dbF, { SECRETS_KEY: randomBytes(32).toString('base64') } as NodeJS.ProcessEnv)
+ok('舊金鑰沒留：資料原樣保留', val(dbF, `SELECT value v FROM settings WHERE key='openai_api_key'`) === afterRot)
+ok('舊金鑰沒留：記失敗數', rf.failed['settings.value'] === 1)
+let threwKid = false
+try { decryptSecret(afterRot, { SECRETS_KEY: keyA } as NodeJS.ProcessEnv) } catch (e) { threwKid = /金鑰/.test(String(e)) }
+ok('找不到 kid 的金鑰：明確丟錯', threwKid)
 
 console.log(`secret-migration: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  FAIL', f); process.exit(1) }

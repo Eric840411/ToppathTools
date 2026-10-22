@@ -32,6 +32,7 @@ import {
 } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
 import { initOsmMachineTypes, saveChannelMachineTypes } from '../osm-machine-types.js'
+import { newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = Router()
 
@@ -1195,7 +1196,8 @@ router.post('/api/osm/frontend-machines-auto', heavyLimiter, async (req, res) =>
     const lobbyUrl = parsed.toString()
 
     const largeFrames: string[] = []
-    const context = await browser.newContext({ ignoreHTTPSErrors: true })
+    // 不再 ignoreHTTPSErrors（資安 2026-10-22：會帶 token 連 gate，要驗憑證；QAT／Prod gate 憑證實測有效）
+    const context = await newGuardedContext(browser)
     const page = await context.newPage()
 
     // Intercept WebSocket frames; capture large ones (>5000 bytes) using latin1 to avoid UTF-8 truncation

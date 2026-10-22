@@ -665,7 +665,7 @@ const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
 /** agent 端要有這個 capability 才收得到 backend_uat_start */
 /** 錄製時要連的後台，跟 run-lark-tc-backend.js 的 BACKEND_URL 同一個環境。
  *  兩邊各有一份是因為 runner 是獨立 spawn 的程序，共用不了模組層級的常數。 */
-const BACKEND_URL_FOR_RECORD = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org'
+const BACKEND_URL_FOR_RECORD = process.env.UAT_BACKEND_URL ?? 'https://uat-cp.osmslot.org'
 
 /**
  * 後台站台。**錄製與執行共用這一份對照**——各寫一份的話會出現
@@ -675,8 +675,8 @@ const BACKEND_URL_FOR_RECORD = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osm
  *    配錯的話會停在登入頁，而症狀是後面每一步都說「找不到元素」。
  */
 export const UAT_BACKEND_SITES = {
-  cp: { label: 'CP', url: process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org', profile: 'cpBackend' as const },
-  nc: { label: 'NC', url: process.env.UAT_NC_BACKEND_URL ?? 'http://uat-nc.osmslot.org', profile: 'nchBackend' as const },
+  cp: { label: 'CP', url: process.env.UAT_BACKEND_URL ?? 'https://uat-cp.osmslot.org', profile: 'cpBackend' as const },
+  nc: { label: 'NC', url: process.env.UAT_NC_BACKEND_URL ?? 'https://uat-nc.osmslot.org', profile: 'nchBackend' as const },
 }
 export type UatBackendSite = keyof typeof UAT_BACKEND_SITES
 export function pickSite(raw: unknown): UatBackendSite {

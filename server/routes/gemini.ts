@@ -18,6 +18,7 @@ import {
 import { getRequestContext } from '../request-context.js'
 import { getAuthAccount, requireAdminMw } from '../auth-session.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
+import { registerEgressHost } from '../lib/egress-guard.js'
 
 const maskKey = (k: string) => k.slice(0, 7) + '****' + k.slice(-4)
 
@@ -362,10 +363,10 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
 
     while (true) {
       resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           signal: AbortSignal.timeout(300000),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
@@ -467,6 +468,11 @@ export const renderPrompt = (template: string, vars: Record<string, string>): st
 
 /** Read Ollama base URL + model from DB first, fall back to .env */
 const readOllamaConfig = (): { baseUrl: string; model: string } => {
+  const cfg = readOllamaConfigRaw()
+  registerEgressHost(cfg.baseUrl) // 管理員設定的 Ollama 位址是合法出站目的地（出站白名單）
+  return cfg
+}
+const readOllamaConfigRaw = (): { baseUrl: string; model: string } => {
   const urlRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('ollama_base_url') as { value: string } | undefined
   const modelRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('ollama_model') as { value: string } | undefined
   return {
@@ -566,10 +572,10 @@ export const callGeminiVision = async (
       const i = offset % keyEntries.length
       const { label, key } = keyEntries[i]
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           signal: AbortSignal.timeout(300000),
           body: JSON.stringify({
             contents: [{
@@ -649,10 +655,10 @@ export const callGeminiVisionMulti = async (
       const i = offset % keyEntries.length
       const { label, key } = keyEntries[i]
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           signal: AbortSignal.timeout(300000),
           body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1 } }),
         },
@@ -940,10 +946,10 @@ router.post('/api/gemini/probe', heavyLimiter, async (_req, res) => {
   const results = await Promise.all(keys.map(async ({ label, key }) => {
     try {
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           body: JSON.stringify({ contents: [{ parts: [{ text: '1+1=?' }] }], generationConfig: { maxOutputTokens: 5 } }),
         },
       )

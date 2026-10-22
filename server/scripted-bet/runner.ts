@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events'
 import { chromium, type Browser, type ElementHandle, type Frame, type Page } from 'playwright'
+import { newGuardedContext } from '../lib/egress-guard.js'
 import type {
   ScriptedBetAccount,
   ScriptedBetAccountStatus,
@@ -779,7 +780,7 @@ export class ScriptedBetRunner extends EventEmitter {
     this.update(account, { state: 'opening', startedAt, message: 'open account URL' })
 
     try {
-      context = await browser.newContext({
+      context = await newGuardedContext(browser, {
         viewport: { width: 430, height: 860 },
         isMobile: true,
         hasTouch: true,

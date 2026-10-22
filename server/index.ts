@@ -7,7 +7,7 @@ import { buildInfo } from './build-info.js'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { createServer } from 'http'
 import { networkInterfaces } from 'os'
 import { join } from 'path'
@@ -50,6 +50,10 @@ import { ensureLocalSeeds } from './agent-seeds.js'
 import { migrateSecretsAtRest } from './secret-migration.js'
 import { upgradeLegacyPinHashes } from './pin-hash.js'
 import { isGuardedPath, isInternalPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
+import { installEgressGuard } from './lib/egress-guard.js'
+
+// 出站白名單（資安 2026-10-22）：這支 process 只能連清單內的主機，見 lib/egress-guard.ts
+installEgressGuard('server')
 
 dotenv.config()
 
@@ -83,11 +87,23 @@ try {
     console.error('[security] ❌ 沒有設定 SECRETS_KEY／MEEGLE_TOKEN_KEY：既有機密仍是明文，而且之後儲存任何 API key／密碼都會被拒絕')
   } else {
     const done = Object.entries(r.encrypted).map(([k, n]) => `${k}×${n}`).join('、')
-    console.log(`[security] 機密欄位加密 OK（金鑰：${r.status}）${done ? `，本次加密 ${done}` : '，沒有待加密的明文'}`)
+    console.log(`[security] 機密欄位加密 OK（金鑰：${r.status}）${done ? `，本次加密／換金鑰 ${done}` : '，全部已是目前金鑰'}`)
+    const failed = Object.entries(r.failed).map(([k, n]) => `${k}×${n}`).join('、')
+    if (failed) console.error(`[security] ❌ 有密文解不開（舊金鑰沒留在 SECRETS_KEYS_OLD？）：${failed}`)
+    if (r.status === 'MEEGLE_TOKEN_KEY') console.warn('[security] 建議另設專屬的 SECRETS_KEY（目前跟 Meegle 共用同一把金鑰）')
   }
 } catch (e) {
   console.error('[security] 機密欄位加密失敗（資料未變動，讀取不受影響）：', e)
 }
+
+// .env 放著金鑰與憑證：Linux 上要求只有擁有者能讀（600），否則警告（資安 2026-10-22）
+try {
+  const envPath = join(process.cwd(), '.env')
+  if (process.platform !== 'win32' && existsSync(envPath)) {
+    const mode = statSync(envPath).mode & 0o777
+    if (mode & 0o077) console.warn(`[security] ⚠️ .env 權限是 ${mode.toString(8)}，其他使用者讀得到金鑰；請執行 chmod 600 .env`)
+  }
+} catch { /* 檢查失敗不影響開機 */ }
 
 // PIN 舊雜湊（不加鹽 sha256）原地包成 scrypt；列出還沒設 PIN 的帳號（v5.66.0 起這些帳號登不進來）
 try {

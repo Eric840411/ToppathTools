@@ -22,6 +22,7 @@ import crypto from 'crypto'
 import { upload, addHistory, browserLimiter } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = Router()
 
@@ -343,7 +344,7 @@ async function _captureImages(
   let browser
   try {
     browser = await chromium.launch({ headless: true })
-    const context = await browser.newContext({
+    const context = await newGuardedContext(browser, {
       viewport: { width: 1440, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
     })
@@ -528,7 +529,7 @@ router.post('/api/gs/stats/start', async (req, res) => {
     let browser
     try {
       browser = await chromium.launch({ headless: true })
-      const context = await browser.newContext({
+      const context = await newGuardedContext(browser, {
         viewport: { width: 1440, height: 900 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
       })
@@ -794,7 +795,7 @@ router.post('/api/gs/bonus-v2/start', async (req, res) => {
 
   try {
     bv2Browser = await chromium.launch({ headless: false })
-    const context = await bv2Browser.newContext()
+    const context = await newGuardedContext(bv2Browser)
     const page = await context.newPage()
     let wsCount = 0
 
@@ -1057,7 +1058,7 @@ router.post('/api/gs/img-compare/capture', async (req, res) => {
   try {
     send({ type: 'status', message: '啟動瀏覽器…' })
     browser = await chromium.launch({ headless: true })
-    const context = await browser.newContext({
+    const context = await newGuardedContext(browser, {
       viewport: { width: 1440, height: 900 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
     })

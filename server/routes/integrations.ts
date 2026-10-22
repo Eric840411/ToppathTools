@@ -1110,7 +1110,7 @@ const multiWritebackGoogle = async (sheetUrl: string, writes: MultiWrite[], acce
 
   const apiKey = mustEnv('GOOGLE_API_KEY')
   const metaResp = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?key=${apiKey}&fields=sheets.properties`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, { headers: { 'x-goog-api-key': apiKey } },
   )
   const meta = await metaResp.json() as { sheets?: { properties: { sheetId: number; title: string } }[] }
   const sheet = meta.sheets?.find(s => String(s.properties.sheetId) === gid) ?? meta.sheets?.[0]
@@ -2626,7 +2626,7 @@ router.post('/api/google/sheets/records', async (req, res, next) => {
     const apiKey = mustEnv('GOOGLE_API_KEY')
 
     const metaResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?key=${apiKey}&fields=sheets.properties`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, { headers: { 'x-goog-api-key': apiKey } },
     )
     const meta = await metaResp.json() as {
       sheets?: { properties: { sheetId: number; title: string } }[]
@@ -2645,7 +2645,7 @@ router.post('/api/google/sheets/records', async (req, res, next) => {
 
     const range = encodeURIComponent(`${sheetName}!A1:Z1000`)
     const valResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}&valueRenderOption=FORMATTED_VALUE`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE`, { headers: { 'x-goog-api-key': apiKey } },
     )
     const valData = await valResp.json() as {
       values?: string[][]
@@ -2705,7 +2705,7 @@ router.post('/api/google/sheets/writeback', async (req, res, next) => {
     const apiKey = mustEnv('GOOGLE_API_KEY')
 
     const metaResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?key=${apiKey}&fields=sheets.properties`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, { headers: { 'x-goog-api-key': apiKey } },
     )
     const meta = await metaResp.json() as { sheets?: { properties: { sheetId: number; title: string } }[] }
     const sheet = meta.sheets?.find(s => String(s.properties.sheetId) === gid) ?? meta.sheets?.[0]

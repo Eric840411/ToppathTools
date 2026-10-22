@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.66.3'
+export const APP_VERSION = '5.66.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.66.4', date: '2026-10-22', changes: ["security(出站防護＋金鑰輪換)：使用者 1022 要求加白之外防止資料外洩，CodeX 同意做法——① 應用層出站白名單攔在 net.Socket.connect（main／worker 的 fetch、ws、SDK 一處攔全部），自家網域用後綴、Google／Lark／阿里雲只列用得到的 hostname、.env 網址自動加入；預設 enforce，report 須設期限、過期自動恢復；log 只記 host。② 伺服器端 8 處開瀏覽器改 newGuardedContext（停用 Service Worker、context route＋routeWebSocket），遊戲頁第三方資源未齊故瀏覽器層預設 report。③ gate WS 與前台機台頁恢復驗證憑證、UAT 後台預設改 https。④ Gemini／Sheets key 改放 x-goog-api-key header（10 處）。⑤ 密文改 v2:<kid>，支援 SECRETS_KEY／SECRETS_KEYS_OLD 換金鑰，啟動遷移自動重新加密、解不開的保留並報數；啟動檢查 .env 權限。實機：DB 副本起 main＋worker，Toppath／ImageRecon／OSM／Ollama 都放行、外站 example.com 被擋；egress-guard 24、secret-migration 57（含換金鑰）。scripted-bet runner 跟著用，agent 白名單補 lib/egress-guard.ts"] },
   { version: '5.66.3', date: '2026-10-21', changes: ["fix(資安 AutoSpin 啟動授權)：CodeX 複審 db688cf 兩個 [P1]——① 重連的查找函式在 prevSessionId 查不到時會退回該帳號最新 session，亂填 id 也能借用別人的 session → 授權時再比對 id 完全相符（測試替身改成跟正式查找一樣有 fallback，拿掉比對會紅）；② 「該帳號 10 分鐘內剛被派工」的無憑證相容可被匿名者只憑帳號名搶先兌換，兌換後原票還能再用 → 拿掉，只認一次性啟動票與重連。舊版 Local Agent 要先「更新程式碼」才能跑 AutoSpin（403 訊息會提示）"] },
   { version: '5.66.2', date: '2026-10-21', changes: ["fix(資安 CodeX 補審其餘項)：① SSRF：IPv6 一律展開判斷，十六進位 IPv4-mapped（[::ffff:127.0.0.1] 正規化後的 ::ffff:7f00:1）、IPv4 相容、SIIT、NAT64、6to4 內嵌的 IPv4 都轉回 IPv4 檢查（safe-fetch 39 條，拿掉轉換紅 11 條）；② AutoSpin agent/start 不再只靠自報 userLabel：派工時發一次性啟動票經 Local Agent 傳給 Python，舊版 Local Agent 相容「該帳號 10 分鐘內剛被派工」、重連必須帶對得上的 prevSessionId，session id 加隨機尾碼（autospin-start-auth 18 條）；③ 沒金鑰（或格式錯）時拒絕寫入機密，不再退回存明文；④ auth_sessions 加 kind，UAT 排程代跑 session 不算使用者登入、Dashboard 也不計。實機冒煙 54 條（含大小寫變體、agent/start 偽票、IPv6 mapped SSRF）。要更新 Local Agent 才會帶啟動票"] },
   { version: '5.66.1', date: '2026-10-21', changes: ["fix(資安 登入檢查大小寫繞過)：CodeX 審 c538e86 [P1]——白名單／守門比對網址時分大小寫，但 Express 路由不分，/API/history 會跳過登入檢查又被正常處理（正式環境實測 200）。守門前先轉小寫（normalizeGuardPath），main 與 worker 共用；public-routes 測試補大小寫變體（70 條），拿掉轉小寫會紅 6 條"] },

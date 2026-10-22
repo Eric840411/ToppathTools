@@ -51,6 +51,22 @@
 | [P2] 代跑 session 也算有效登入 → 併行排程互相延長資格 | `auth_sessions.kind`（user／internal）；「7 天內登入過」與 Dashboard 只算 user |
 | [P2] 管理員可能鎖死、救援腳本不存在 | `scripts/set-account-pin.mjs`（v5.66.0 後補）；正式環境 admin 已確認有 PIN |
 
+### v5.66.4：出站防護＋金鑰輪換（使用者 1022：加白之外要防止被打進來時資料外洩；CodeX 同意做法）
+- **應用層出站白名單**（`server/lib/egress-guard.ts`）：攔在 `net.Socket.prototype.connect`，main／worker 裡 fetch、ws、SDK 一處攔全部。
+  - 自家網域用後綴（`*.osmplay.com`、`*.osmplay-new.com`、`*.osmslot.org`、`*.cliveslot.com`）；Google／Lark／阿里雲只列用得到的完整 hostname
+  - `.env` 裡 `*_URL` 等網址、SLS project host 自動加入；管理員設的 Ollama 位址動態登記
+  - **預設 enforce**；`EGRESS_MODE=report` 必須搭配 `EGRESS_REPORT_UNTIL=<ISO>`，過期自動回 enforce（CodeX：report 要明確且有期限）
+  - log 只記 host／port：`[egress] BLOCKED host=… port=…`
+  - ⚠️ 管不到子程序（python、uat-runner 本機模式）與 Local Agent → **運維的出站預設拒絕才是獨立防線**
+- **瀏覽器**：伺服器端 8 處開瀏覽器改用 `newGuardedContext`（停用 Service Worker、context 層 route＋routeWebSocket）。
+  因為遊戲前端會載入第三方資源、清單未齊，**瀏覽器層預設 report**，設 `BROWSER_EGRESS_MODE=enforce` 才擋；先看 `WOULD-BLOCK host=browser:…` log 補清單
+- **TLS**：gate WebSocket 拿掉 `rejectUnauthorized:false`、前台機台資訊頁拿掉 `ignoreHTTPSErrors`（QAT／Prod gate 憑證實測有效）；UAT 後台預設改 https（後台帳密原本以明文 http 傳）
+- **Google key 改放 header**（`x-goog-api-key`）：Gemini 6 處、Sheets 4 處，網址不再帶 `?key=`
+- **金鑰輪換**：密文改 `v2:<kid>:…`；`SECRETS_KEY`（建議專屬）＋`SECRETS_KEYS_OLD`（舊金鑰，只解密）＋`MEEGLE_TOKEN_KEY`（沒設 SECRETS_KEY 時沿用）。
+  啟動遷移會把 v1 與舊金鑰的密文重新加密成目前金鑰；解不開的原樣保留並在 log 報數量。換金鑰步驟見 `server/secret-crypto.ts` 檔頭
+- 啟動時檢查 `.env` 權限（非 600 就警告）
+- **第二步（使用者 1022 決定先緩）**：阿里雲 KMS 憑據管理、ECS RAM 角色、SLS 改 RAM 授權、DB 備份加密
+
 ## 使用者可執行的操作
 - 還沒設 PIN 的人：請管理員到「權限管理」幫忙設 PIN；啟動 log 會列出這些帳號。
 - **管理員自己也沒有 PIN／所有人都登不進來**：在主機上跑 `node scripts/set-account-pin.mjs --list-no-pin` 看清單，`node scripts/set-account-pin.mjs <email>` 直接設定。

@@ -64,14 +64,14 @@ const CUSTOM_TRIAL = (() => {
  *    拿 CP 的帳密去登 NP 會停在登入頁，症狀是後面每一步都說「找不到元素」。
  */
 const BACKEND_SITE = (process.env.UAT_BACKEND_SITE || 'cp').toLowerCase() === 'nc' ? 'nc' : 'cp';
-const BACKEND_URL = process.env.UAT_BACKEND_URL || (BACKEND_SITE === 'nc' ? 'http://uat-nc.osmslot.org' : 'http://uat-cp.osmslot.org');
+const BACKEND_URL = process.env.UAT_BACKEND_URL || (BACKEND_SITE === 'nc' ? 'https://uat-nc.osmslot.org' : 'https://uat-cp.osmslot.org');
 /**
  * 跨站（1006）：open_page 寫了 site 時要去的網址。新版派工會帶兩站網址；
  * 舊 server 只帶 UAT_BACKEND_URL（＝選的那一站），另一站退回內建網址。
  */
 const SITE_URLS = {
-  cp: process.env.UAT_CP_BACKEND_URL || (BACKEND_SITE === 'cp' ? BACKEND_URL : 'http://uat-cp.osmslot.org'),
-  nc: process.env.UAT_NC_BACKEND_URL || (BACKEND_SITE === 'nc' ? BACKEND_URL : 'http://uat-nc.osmslot.org'),
+  cp: process.env.UAT_CP_BACKEND_URL || (BACKEND_SITE === 'cp' ? BACKEND_URL : 'https://uat-cp.osmslot.org'),
+  nc: process.env.UAT_NC_BACKEND_URL || (BACKEND_SITE === 'nc' ? BACKEND_URL : 'https://uat-nc.osmslot.org'),
 };
 const SCREENSHOT_DIR = './data/raw/screenshots/lark_tc';
 
@@ -4765,7 +4765,7 @@ async function performAction(page, pagePath, action, label, taskDesc) {
   }
 }
 
-const NCH_BACKEND_URL = 'http://uat-nc.osmslot.org';
+const NCH_BACKEND_URL = 'https://uat-nc.osmslot.org';
 async function testNCHPointsSetting(browser, pagePath, label, taskDesc) {
   let ctx;
   try {

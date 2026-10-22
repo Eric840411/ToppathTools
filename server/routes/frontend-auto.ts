@@ -42,6 +42,7 @@ import { uploadLarkAttachment, updateLarkRecord, parseLarkBaseUrl } from '../uat
 //    agent 上那顆積木被靜默跳過。
 import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
 import { agentUpdateStatus } from './machine-test.js'
+import { newGuardedContext } from '../lib/egress-guard.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -1483,7 +1484,7 @@ const PAUSED_CROP_MESSAGE = '錄製目前暫停中，請先繼續錄製再框選
 const SERVER_MODE = 'server'
 
 /** 後台設定片段要連的後台。跟 Backend UAT 錄製同一個環境變數，不另外設一個 */
-const BACKEND_URL_FOR_SNIPPETS = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org'
+const BACKEND_URL_FOR_SNIPPETS = process.env.UAT_BACKEND_URL ?? 'https://uat-cp.osmslot.org'
 
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
@@ -2095,8 +2096,8 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
       await log('🔧 建立瀏覽器 context...')
       const ctx = headed
-        ? browser.contexts()[0] ?? await browser.newContext()
-        : await browser.newContext({
+        ? browser.contexts()[0] ?? await newGuardedContext(browser)
+        : await newGuardedContext(browser, {
             viewport: { width: w, height: h },
             screen: { width: w, height: h },
             deviceScaleFactor: 1,

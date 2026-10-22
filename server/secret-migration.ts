@@ -12,7 +12,7 @@
  *    退版前要先把這些欄位解密回去，或改回舊版前重新輸入。步驟寫在 docs/features/32-security.md。
  */
 import type Database from 'better-sqlite3'
-import { encryptSecret, isEncryptedSecret, isSecretConfigKey, secretKeyStatus } from './secret-crypto.js'
+import { encryptSecret, isCurrentKeySecret, isSecretConfigKey, secretKeyStatus } from './secret-crypto.js'
 
 type Target = { table: string; column: string; where?: string; filter?: (row: Record<string, unknown>) => boolean; extra?: string }
 
@@ -33,11 +33,11 @@ export const SECRET_TARGETS: Target[] = [
   { table: 'meter_reconcile_config', column: 'value', extra: 'key', filter: r => isSecretConfigKey(String(r.key)) },
 ]
 
-export type SecretMigrationResult = { status: ReturnType<typeof secretKeyStatus>; encrypted: Record<string, number>; skipped: string[] }
+export type SecretMigrationResult = { status: ReturnType<typeof secretKeyStatus>; encrypted: Record<string, number>; skipped: string[]; failed: Record<string, number> }
 
 export function migrateSecretsAtRest(db: Database.Database, env: NodeJS.ProcessEnv = process.env): SecretMigrationResult {
   const status = secretKeyStatus(env)
-  const result: SecretMigrationResult = { status, encrypted: {}, skipped: [] }
+  const result: SecretMigrationResult = { status, encrypted: {}, skipped: [], failed: {} }
   if (status === 'missing') return result
   for (const t of SECRET_TARGETS) {
     const label = `${t.table}.${t.column}`
@@ -48,15 +48,20 @@ export function migrateSecretsAtRest(db: Database.Database, env: NodeJS.ProcessE
     const select = `SELECT rowid AS __rid, ${t.column} AS __v${t.extra ? `, ${t.extra}` : ''} FROM ${t.table}${t.where ? ` WHERE ${t.where}` : ''}`
     const update = db.prepare(`UPDATE ${t.table} SET ${t.column} = ? WHERE rowid = ? AND ${t.column} = ?`)
     let n = 0
+    let bad = 0
     db.transaction(() => {
       for (const row of db.prepare(select).all() as Record<string, unknown>[]) {
         const v = row.__v
-        if (typeof v !== 'string' || !v || isEncryptedSecret(v)) continue
+        // 明文 → 加密；v1 或舊金鑰的 v2 → 用目前金鑰重新加密（換金鑰就靠這裡）；已是目前金鑰 → 跳過
+        if (typeof v !== 'string' || !v || isCurrentKeySecret(v, env)) continue
         if (t.filter && !t.filter(row)) continue
-        n += update.run(encryptSecret(v, env), row.__rid, v).changes
+        let next: string
+        try { next = encryptSecret(v, env) } catch { bad++; continue } // 解不開（舊金鑰沒留）就留原樣、記數量
+        n += update.run(next, row.__rid, v).changes
       }
     }).immediate()
     if (n) result.encrypted[label] = n
+    if (bad) result.failed[label] = bad
   }
   return result
 }

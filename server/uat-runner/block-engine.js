@@ -243,7 +243,7 @@ export const BLOCK_DEFS = {
     description: '這一步要打到指定的後端 API，而且狀態碼要符合',
     params: [
       { key: 'urlPattern', label: 'API 網址（可用 * 當萬用字元）', type: 'text', required: true,
-        placeholder: 'http://uat-cp.osmslot.org/api/egm/update/*',
+        placeholder: 'https://uat-cp.osmslot.org/api/egm/update/*',
         help: '從錄製畫面的 API 清單點過來時會自動填。id／token 那些位置要用 *，不然換一筆資料就對不上' },
       { key: 'expectStatus', label: '狀態碼要求', type: 'select', options: ['2xx', 'any', 'exact'], default: '2xx' },
       { key: 'statusCode', label: '指定狀態碼（上面選 exact 才用）', type: 'number', placeholder: '200' },

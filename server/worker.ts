@@ -83,6 +83,10 @@ import {
 } from './agent-hub.js'
 import type { TestEvent } from './machine-test/types.js'
 import type { ScriptedBetEvent } from './scripted-bet/types.js'
+import { installEgressGuard } from './lib/egress-guard.js'
+
+// 出站白名單（資安 2026-10-22）：這支 process 只能連清單內的主機，見 lib/egress-guard.ts
+installEgressGuard('worker')
 dotenv.config()
 
 const app = express()

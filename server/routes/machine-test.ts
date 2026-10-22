@@ -47,6 +47,7 @@ import { safeChildPath } from '../lib/safe-path.js'
 import { safeEqualString } from '../pin-hash.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 import { assertSafeUrl, isObviouslyInternalHost } from '../lib/safe-fetch.js'
+import { newGuardedContext } from '../lib/egress-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -78,6 +79,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
   // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
   'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
+  // scripted-bet/runner.ts 開瀏覽器時掛出站攔截（v5.66.4），agent 端少這支會在 import 當下炸掉
+  'lib/egress-guard.ts':           join(SERVER_ROOT, 'lib', 'egress-guard.ts'),
   // Backend UAT（agent 端 spawn 它跑 Playwright）。腳本用相對路徑讀 ./tc-registry.json，
   // 所以兩個都要送過去，且要落在 agent 的 server/uat-runner/ 底下。
   // 刻意不含 config/backend-test-params.json —— 那裡面是真實帳密，
@@ -509,10 +512,10 @@ Only include paths with "/" and a file extension. Do NOT include .meta files.`
     for (const { label, key } of keyEntries) {
       try {
         const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
             body: JSON.stringify({
               contents: [{ parts: [
                 { text: prompt },
@@ -567,16 +570,16 @@ router.post('/api/image-check/start', async (req, res, next) => {
       return res.status(429).json({ ok: false, message: `browser queue is full: ${browserLimiter.queued()}` })
     }
     const browser = await browserLimiter.schedule(() => chromium.launch({ headless: true }))
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+    const page = await (await newGuardedContext(browser, { viewport: { width: 1280, height: 800 } })).newPage()
     await page.route('**/*', route => {
       let u: URL | null = null
       try { u = new URL(route.request().url()) } catch { /* invalid */ }
       if (!u) return route.abort()
-      if (u.protocol === 'data:' || u.protocol === 'blob:') return route.continue()
+      if (u.protocol === 'data:' || u.protocol === 'blob:') return route.fallback()
       if ((u.protocol !== 'http:' && u.protocol !== 'https:' && u.protocol !== 'ws:' && u.protocol !== 'wss:') || isObviouslyInternalHost(u.hostname)) {
         return route.abort('blockedbyclient')
       }
-      return route.continue()
+      return route.fallback() // 交給 context 層的出站白名單繼續判斷（continue 會跳過它）
     })
     const loadedImageUrls: string[] = []
 
