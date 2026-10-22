@@ -212,11 +212,18 @@ export function updateComponent(db: DB, id: number, p: { name?: string; groupNam
     .run(p.name?.trim() ?? null, p.groupName?.trim() ?? null, p.active == null ? null : p.active ? 1 : 0, id)
 }
 
-/** 已被紀錄用過的元件不能刪，只能停用（舊紀錄還要讀得到）；沒用過的可以真的刪掉 */
+/**
+ * 已被紀錄用過的元件不能刪，只能停用（舊紀錄還要讀得到）；沒用過的可以真的刪掉。
+ * 「用過」跟 listComponents 的被引用數同一個定義（不算「未提供」），不然畫面顯示 0 筆、刪除卻被拒絕。
+ * 刪掉時連同只剩「未提供」的值列一起清，不留孤兒（已刪紀錄的內容在修改履歷快照裡）。
+ */
 export function deleteComponent(db: DB, id: number): { ok: boolean; message?: string } {
-  const used = (db.prepare(`SELECT COUNT(*) c FROM osm_release_values v JOIN osm_releases r ON r.id = v.release_id WHERE v.component_id = ? AND r.deleted = 0`).get(id) as { c: number }).c
+  const used = (db.prepare(`SELECT COUNT(*) c FROM osm_release_values v JOIN osm_releases r ON r.id = v.release_id WHERE v.component_id = ? AND r.deleted = 0 AND v.state <> 'na'`).get(id) as { c: number }).c
   if (used) return { ok: false, message: `這個元件已被 ${used} 筆紀錄使用，只能停用` }
-  db.prepare('DELETE FROM osm_release_components WHERE id = ?').run(id)
+  db.transaction(() => {
+    db.prepare('DELETE FROM osm_release_values WHERE component_id = ?').run(id)
+    db.prepare('DELETE FROM osm_release_components WHERE id = ?').run(id)
+  })()
   return { ok: true }
 }
 

@@ -26,6 +26,7 @@ const UiScreenshotPage = lazy(() => import('./pages/UiScreenshotPage').then(m =>
 const LarkNotifySettingsPage = lazy(() => import('./pages/LarkNotifySettingsPage').then(m => ({ default: m.LarkNotifySettingsPage })))
 const AutoSpinNotifySettingsPage = lazy(() => import('./pages/AutoSpinNotifySettingsPage').then(m => ({ default: m.AutoSpinNotifySettingsPage })))
 const CultivationLeaderboardPage = lazy(() => import('./pages/CultivationLeaderboardPage').then(m => ({ default: m.CultivationLeaderboardPage })))
+const OsmReleasesPage = lazy(() => import('./pages/OsmReleasesPage').then(m => ({ default: m.OsmReleasesPage })))
 const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m => ({ default: m.XianxiaQuotesPage })))
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
 const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
@@ -48,7 +49,7 @@ import './App.css'
 // 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
-  | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
+  | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'osm-releases' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
   | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
 type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
 
@@ -140,6 +141,14 @@ const groups: Group[] = [
         icon: 'C',
         iconClass: 'tab-icon--osm',
         description: '貼上線上 URL（含 token），自動擷取 serverCfg.js 並與模板深層比對，快速確認更版後設定是否正確',
+      },
+      {
+        id: 'osm-releases',
+        label: 'OSM 版本更新紀錄',
+        themeLabel: '版本更新卷宗',
+        icon: 'R',
+        iconClass: 'tab-icon--osm',
+        description: '各分頁（OSM／Toppath／PC_OSM／APP／OM）每次測試與上線的元件版號、更新內容，取代 Lark 版本表',
       },
       {
         id: 'autospin',
@@ -599,6 +608,8 @@ function App() {
     // Jira 頁的特例整條移除：canonical key 改成 'jira' 之後剛好等於 tabId，
     // 直接走下面那行通用判斷就好。原本那條是三個 key 的 OR，是「看起來三個開關
     // 其實只有一個」的來源。
+    // 編輯／管理權限都隱含查看（後端 need() 也是這樣判斷）
+    if (tabId === 'osm-releases') return ['osm-releases', 'osm-releases-edit', 'osm-releases-manage'].some(k => permissions.includes(k))
     if (tabId === 'scripted-bet') return permissions.includes('machinetest') || permissions.includes('url-pool')
     return permissions.includes(tabId)
   }
@@ -1075,6 +1086,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-releases' && <OsmReleasesPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'scripted-bet' && <ScriptedBetPage currentAccount={globalAccount} />}

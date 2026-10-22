@@ -141,6 +141,7 @@ When adding a new route:
 | 30 | **角色管理**（自建角色、依角色分配可見功能、一個帳號一個角色、管理員固定） | `docs/features/30-roles.md` |
 | 31 | **記憶共享 relay**（`/kb-mcp/*`，Spug 只轉接給 osm-qa-agent 本機 connector；不記錄內容、`KB_RELAY_SECRET`、nginx 設定） | `docs/features/31-kb-relay.md` |
 | 32 | **資安防護**（全站預設要登入＋免登入白名單、機密欄位加密、PIN scrypt、session 只存雜湊、路徑穿越／SSRF／不執行 serverCfg；**退版會讓密文被當明文**） | `docs/features/32-security.md` |
+| 33 | **OSM 版本更新紀錄**（取代 Lark 版本表、工具是主檔；元件三態 有更新／未異動／未提供、樂觀鎖 409、軟刪除＋修改履歷、三層權限、Lark 一次匯入冪等） | `docs/features/33-osm-releases.md` |
 
 > **維護規則**：每次新增或修改功能，必須同步更新對應的 `docs/features/*.md`；新增功能要在上表加一列。
 > 記錄格式不變：功能說明 + 使用者可執行的操作清單。
