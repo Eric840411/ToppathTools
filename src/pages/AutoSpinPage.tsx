@@ -1162,7 +1162,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                       <button key={env} onClick={() => {
                         const preset = JP_ENV_PRESETS[env]
                         setJpGroupForm(f => ({ ...f, environment: env, ...(jpGroupEditing === null ? preset : {}) }))
-                      }} style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: `2px solid ${jpGroupForm.environment === env ? (env === 'PROD' ? '#f59e0b' : env === 'UAT' ? '#22c55e' : '#38bdf8') : '#334155'}`, background: jpGroupForm.environment === env ? (env === 'PROD' ? 'rgba(245,158,11,0.15)' : env === 'UAT' ? 'rgba(34,197,94,0.15)' : 'rgba(56,189,248,0.15)') : 'transparent', color: jpGroupForm.environment === env ? '#f1f5f9' : '#64748b', fontWeight: jpGroupForm.environment === env ? 700 : 400, cursor: 'pointer', fontSize: 13 }}>
+                      }} style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: `2px solid ${jpGroupForm.environment === env ? (env === 'UAT' ? '#22c55e' : '#38bdf8') : '#334155'}`, background: jpGroupForm.environment === env ? (env === 'UAT' ? 'rgba(34,197,94,0.15)' : 'rgba(56,189,248,0.15)') : 'transparent', color: jpGroupForm.environment === env ? '#f1f5f9' : '#64748b', fontWeight: jpGroupForm.environment === env ? 700 : 400, cursor: 'pointer', fontSize: 13 }}>
                         {env}
                       </button>
                     ))}
