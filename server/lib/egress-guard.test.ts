@@ -75,6 +75,32 @@ eq('到期後被切斷', sock.destroyed, true)
 eq('到期關閉數', closedN >= 1, true)
 holdSrv.close()
 
+// CodeX 審 7dd7e81 [P1]：連線建立「當下」剛好跨過到期——判斷模式時還是 report、登記時已到期。
+// 用受控時鐘重現：第一次讀時間在期限前，之後都在期限後；不能讓 socket 復活連上
+{
+  let conns = 0
+  const edgeSrv = createServer(sk => { conns++; sk.on('data', () => conns++) })
+  await new Promise<void>(r => edgeSrv.listen(0, '127.0.0.1', () => r()))
+  const edgePort = (edgeSrv.address() as { port: number }).port
+  const T = Date.now() + 60_000
+  process.env.EGRESS_MODE = 'report'
+  process.env.EGRESS_REPORT_UNTIL = new Date(T).toISOString()
+  const realNow = Date.now
+  let first = true
+  Date.now = () => (first ? (first = false, T - 1) : T + 1)
+  const edgeSock = connect({ host: 'evil-edge.invalid', port: edgePort, lookup: fakeLookup } as never)
+  Date.now = realNow
+  const events: string[] = []
+  edgeSock.on('error', e => events.push(`error:${(e as NodeJS.ErrnoException).code}`))
+  edgeSock.on('connect', () => { events.push('connect'); edgeSock.write('leak') })
+  edgeSock.on('close', () => events.push('close'))
+  await new Promise(r => setTimeout(r, 500))
+  delete process.env.EGRESS_MODE; delete process.env.EGRESS_REPORT_UNTIL
+  eq('跨到期的連線不會復活', events.includes('connect'), false)
+  eq('對方沒收到連線或資料', conns, 0)
+  edgeSrv.close()
+}
+
 // 錄製用 Chrome（spawn 的子程序）：report 期間開的，到期要結束
 process.env.BROWSER_EGRESS_MODE = 'report'
 process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(Date.now() + 3600_000).toISOString()

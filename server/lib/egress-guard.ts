@@ -227,6 +227,9 @@ export function installEgressGuard(label: string) {
         // report 放行的清單外連線：到期就切斷
         const off = onReportExpiry('', () => this.destroy(Object.assign(new Error(`EGRESS_REPORT_EXPIRED: ${h}`), { code: 'EGRESS_BLOCKED' })))
         this.once('close', off)
+        // 登記當下剛好到期 → 上面已經 destroy 了，**不能再呼叫原本的 connect**，不然 socket 會復活、又不在列冊裡
+        //（CodeX 審 7dd7e81 [P1]：事件順序 EGRESS_BLOCKED → close → connect）
+        if (this.destroyed) return this
       }
     }
     return original.apply(this, args)
