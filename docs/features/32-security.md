@@ -64,7 +64,7 @@
   - 瀏覽器層也**預設 enforce**；要觀察時設 `BROWSER_EGRESS_MODE=report`＋`BROWSER_EGRESS_REPORT_UNTIL=<ISO>`
   - 實測 QAT／UAT H5 前台頁 200 正常載入，只擋到 googletagmanager、阿里雲 RUM（統計）
   - v5.66.6（CodeX 複審 f2c9fa3）：伺服器端一律用 `launchGuardedChromium` 開瀏覽器並登記有沒有帶 DNS 規則；**沒帶規則的瀏覽器只要進入 enforce 就整個停擺**（report 期間開的瀏覽器到期後不會留缺口，要重開）；frontend-auto 的 headed／錄製 spawn Chrome 也帶規則、`connectOverCDP` 後照實登記並對既有 context 掛攔截
-  - v5.66.7（CodeX 複審 7508e3e）：**report 期間放行的東西全部列冊，到期主動關掉**——Node 那層清單外的 socket、report 期間開的瀏覽器（連同裡面的 WebSocket）、錄製／headed 用 spawn 的 Chrome 子程序。每 30 秒檢查一次（`checkReportExpiry`），不再只靠「新連線時」檢查
+  - v5.66.7（CodeX 複審 7508e3e）：**report 期間放行的東西全部列冊，到期主動關掉**——Node 那層清單外的 socket、report 期間開的瀏覽器（連同裡面的 WebSocket）、錄製／headed 用 spawn 的 Chrome 子程序。到期那一刻有精準計時器（30 秒輪詢只是備援）；v5.66.8 起**凡是沒帶 DNS 規則就納管**，登記當下若已到期立刻關（CodeX 複審 c96c6aa）
   - ⚠️ WebRTC（UDP）不經過，要靠運維出站防線
 - **TLS**：gate WebSocket 拿掉 `rejectUnauthorized:false`、前台機台資訊頁拿掉 `ignoreHTTPSErrors`（QAT／Prod gate 憑證實測有效）；UAT 後台預設改 https（後台帳密原本以明文 http 傳）
 - **Google key 改放 header**（`x-goog-api-key`）：Gemini 6 處、Sheets 4 處，網址不再帶 `?key=`

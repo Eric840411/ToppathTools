@@ -150,20 +150,41 @@ export function checkReportExpiry(env: NodeJS.ProcessEnv = process.env, now = Da
   return closed
 }
 
-/** report 期間放行的東西登記在這裡；回傳取消登記的函式（東西自己先關掉時呼叫） */
+const exactTimers: Partial<Record<Prefix, { timer: ReturnType<typeof setTimeout>; until: number }>> = {}
+
+/** 精準計時：在 report 到期那一刻檢查（30 秒輪詢只是備援，不然到期後會有最多 30 秒空窗——CodeX 審 c96c6aa）。
+ *  期限變了（例如改了設定）就重設 */
+function armExactTimer(prefix: Prefix, env: NodeJS.ProcessEnv = process.env, now = Date.now()) {
+  const until = Date.parse(env[`${prefix}EGRESS_REPORT_UNTIL`] ?? '')
+  const cur = exactTimers[prefix]
+  if (cur && cur.until === until) return
+  if (cur) { clearTimeout(cur.timer); delete exactTimers[prefix] }
+  if (!Number.isFinite(until)) return
+  const delay = Math.min(Math.max(until - now, 0) + 50, 2_147_000_000)
+  const timer = setTimeout(() => { delete exactTimers[prefix]; checkReportExpiry(); if (reportCleanups[prefix].size) armExactTimer(prefix) }, delay)
+  timer.unref?.()
+  exactTimers[prefix] = { timer, until }
+}
+
+/**
+ * 登記「沒有被完整防護的東西」；回傳取消登記的函式（東西自己先關掉時呼叫）。
+ * ⚠️ 登記完**立刻檢查一次**：啟動時還在 report、登記時已經到期的話，要當場關掉（CodeX 審 c96c6aa [P1]）。
+ */
 export function onReportExpiry(prefix: Prefix, cleanup: () => void): () => void {
   reportCleanups[prefix].add(cleanup)
   if (!expiryTimer) {
-    expiryTimer = setInterval(() => checkReportExpiry(), 30_000)
+    expiryTimer = setInterval(() => { checkReportExpiry(); for (const p of ['', 'BROWSER_'] as Prefix[]) if (reportCleanups[p].size) armExactTimer(p) }, 30_000)
     expiryTimer.unref?.()
   }
+  armExactTimer(prefix)
+  checkReportExpiry()
   return () => { reportCleanups[prefix].delete(cleanup) }
 }
 
 /** 錄製／headed 用 spawn 開的 Chrome：report 期間開的，到期就結束它 */
 export function registerReportBrowserProcess(proc: { kill(signal?: NodeJS.Signals): boolean; once(ev: 'exit', fn: () => void): unknown }, launchArgs: readonly string[]) {
+  // 凡是沒帶 DNS 規則就納管，不看「現在」是不是 report——產生參數時是 report、登記時已到期的，登記當下就會被關
   if (launchArgs.some(a => a.startsWith('--host-resolver-rules=MAP * ~NOTFOUND'))) return
-  if (browserEgressMode().mode !== 'report') return
   const off = onReportExpiry('BROWSER_', () => { proc.kill() })
   proc.once('exit', off)
 }
@@ -318,7 +339,8 @@ export async function launchGuardedChromium(
   const browser = await launcher.launch({ ...opts, args })
   markBrowserDnsGuard(browser, args)
   // report 期間開的（沒有 DNS 規則）：到期整個關掉，裡面的 WebSocket 一起斷
-  if (!dnsGuardedBrowsers.has(browser) && browserEgressMode().mode === 'report') {
+  // 沒帶 DNS 規則一律納管（不看現在的模式），登記當下若已到期會立刻關閉
+  if (!dnsGuardedBrowsers.has(browser)) {
     const off = onReportExpiry('BROWSER_', () => { void browser.close().catch(() => {}) })
     browser.on('disconnected', off)
   }

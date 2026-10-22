@@ -84,6 +84,22 @@ const exited = new Promise<boolean>(r => { child.once('exit', () => r(true)); se
 delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
 checkReportExpiry()
 eq('到期後錄製用子程序被結束', await exited, true)
+// CodeX 審 c96c6aa [P1]：產生參數時是 report（所以沒帶 DNS 規則）、登記時已經到期 → 登記當下就要關
+const child3 = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+const exited3 = new Promise<boolean>(r => { child3.once('exit', () => r(true)); setTimeout(() => r(false), 5000) })
+registerReportBrowserProcess(child3, []) // 此時環境已是 enforce
+eq('登記時已到期：當場結束（不能跳過）', await exited3, true)
+
+// 不手動呼叫 checkReportExpiry：到期那一刻的精準計時器要自己關（30 秒輪詢不夠快）
+process.env.BROWSER_EGRESS_MODE = 'report'
+process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(Date.now() + 800).toISOString()
+const child4 = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+const exited4 = new Promise<number>(r => { const t0 = Date.now(); child4.once('exit', () => r(Date.now() - t0)); setTimeout(() => r(-1), 6000) })
+registerReportBrowserProcess(child4, [])
+const took = await exited4
+eq('到期時自動結束（不靠手動檢查、不等 30 秒輪詢）', took > 0 && took < 3000, true)
+delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
+
 const child2 = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], { stdio: 'ignore' })
 registerReportBrowserProcess(child2, ['--host-resolver-rules=MAP * ~NOTFOUND'])
 eq('有 DNS 規則的不必登記（不會被誤殺）', checkReportExpiry(), 0)

@@ -99,20 +99,25 @@ try {
   let afterExpiry = 0
   let expired = false
   wss.on('connection', ws => ws.on('message', () => { if (expired) afterExpiry++ }))
+  // 期限在啟動前就設好（正式環境也是啟動時固定），留 6 秒給下面開頁、連 WS
   process.env.BROWSER_EGRESS_MODE = 'report'
-  process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(Date.now() + 3600_000).toISOString()
+  const until3 = Date.now() + 6000
+  process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(until3).toISOString()
   const b3 = await launchGuardedChromium(chromium, { headless: true, args: ['--host-resolver-rules=MAP evil.test 127.0.0.1'] })
   const p3 = await (await newGuardedContext(b3)).newPage()
   await p3.goto(`http://127.0.0.1:${port}/`)
   await p3.evaluate(url => new Promise<void>(res => { const w = new WebSocket(url); (window as unknown as { __w: WebSocket }).__w = w; w.onopen = () => res() }), `ws://evil.test:${wsPort}/`)
-  delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
+  // 不手動清理：靠到期那一刻的精準計時器自己關（CodeX 審 c96c6aa：手動清理只證明清理後無訊息）
+  let leaked = 0
+  const sender = setInterval(() => { void p3.evaluate(() => (window as unknown as { __w: WebSocket }).__w.send('tick')).catch(() => {}) }, 100)
+  await new Promise(r => setTimeout(r, Math.max(until3 - Date.now(), 0)))
   expired = true
-  checkReportExpiry()
-  await new Promise(r => setTimeout(r, 1500))
-  ok('到期後 report 期間開的瀏覽器被關掉', !b3.isConnected())
-  await p3.evaluate(() => (window as unknown as { __w: WebSocket }).__w.send('leak')).catch(() => {})
-  await new Promise(r => setTimeout(r, 500))
-  ok('到期後外站 WebSocket 收不到資料', afterExpiry === 0, String(afterExpiry))
+  await new Promise(r => setTimeout(r, 2500))
+  clearInterval(sender)
+  leaked = afterExpiry
+  delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
+  ok('到期後（容許 300ms 內的在途訊息）外站 WS 收不到持續傳送', leaked <= 3, String(leaked))
+  ok('到期後 report 期間開的瀏覽器被自動關掉（沒有手動清理）', !b3.isConnected())
   wss.close()
 }
 srv.close()

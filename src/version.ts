@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.66.7'
+export const APP_VERSION = '5.66.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.66.8', date: '2026-10-22', changes: ["fix(出站防護 CodeX 複審 c96c6aa)：[P1] 產生參數時是 report、登記時已到期的瀏覽器／錄製 Chrome 會被跳過不納管 → 凡是沒帶 DNS 規則就登記、登記當下立刻檢查（已到期就關）；30 秒輪詢有空窗 → 加到期那一刻的精準計時器（期限變了會重設）。測試補「登記時已到期」與「不手動清理、到期自動關、外站 WS 收不到持續傳送」（egress-guard 39、browser 11）"] },
   { version: '5.66.7', date: '2026-10-22', changes: ["fix(出站防護 CodeX 複審 7508e3e)：① [P1] 錄製路徑走原生 CDP、沒有 context 可掛 route，report 期間開的到期後沒人攔；② [P1] report 期間建立的外站 WebSocket 到期後還能傳資料。改成 report 期間放行的東西全部列冊、到期主動關掉：Node 那層清單外 socket、report 期間開的瀏覽器（含 WebSocket）、錄製／headed spawn 的 Chrome 子程序；每 30 秒檢查。測試：Node socket、子程序、瀏覽器外站 WS 跨到期（egress-guard 37、browser 11）"] },
   { version: '5.66.6', date: '2026-10-22', changes: ["fix(出站防護 CodeX 複審 f2c9fa3)：① [P1] report 期間啟動的瀏覽器沒有 DNS 規則，到期變 enforce 後轉址仍有缺口 → 伺服器端一律用 launchGuardedChromium 開並登記；沒帶規則的瀏覽器一進 enforce 就整個停擺（要重開）；② [P1] frontend-auto headed／錄製 spawn 的 Chrome 沒納管 → spawn 參數帶 DNS 規則、connectOverCDP 後照實登記、既有 context 也掛攔截。真瀏覽器測試補白名單轉址到 IP（附對照組）與同一瀏覽器跨 report 到期（9 條）"] },
   { version: '5.66.5', date: '2026-10-22', changes: ["fix(出站防護 CodeX 複審 529c495)：① [P1] 假 loopback——startsWith('127.') 會放行 127.attacker.example，改成先確認是 IPv4 字面值；② [P1] 瀏覽器轉址繞過——route 只攔第一跳（實測 route.fulfill 交回 3xx 也不會再進 handler），改用 Chromium --host-resolver-rules「MAP * ~NOTFOUND＋逐一 EXCLUDE 白名單」在網路層限制每一跳（IP 字面值也會被擋），伺服器端 8 處 launch 都帶；③ 瀏覽器層改預設 enforce，report 須設 BROWSER_EGRESS_REPORT_UNTIL。新增真瀏覽器測試（含不掛防護的對照組會載到外站）；QAT／UAT H5 前台實測正常載入，只擋到統計服務"] },
