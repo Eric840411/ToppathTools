@@ -11,7 +11,7 @@ import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { db, addHistory, getEffectivePermissions, getLarkToken, writeLimiter } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
-import { validateRelease, mergeUnsentFields, type ReleaseInput } from '../../shared/osm-release-rules.js'
+import { validateRelease, mergeUnsentFields, type ReleaseInput, type ReleaseUpdateInput } from '../../shared/osm-release-rules.js'
 import {
   initOsmReleaseSchema, listTabs, listComponents, listStatuses, listReleases, getRelease, createRelease, updateRelease, deleteRelease,
   listRevisions, upsertTab, addComponent, updateComponent, deleteComponent, reorder, addStatus, updateStatus,
@@ -58,6 +58,12 @@ const releaseSchema = z.object({
   sqlText: z.string().max(20000).default(''),
   resultText: z.string().max(20000).default(''),
   values: z.array(valueSchema).max(200).default([]),
+})
+// 編輯：SQL／更新結果／values 沒送＝保留原值，不能用 .default('') 把「沒送」跟「送空的」抹成同一種
+const releaseUpdateSchema = releaseSchema.extend({
+  sqlText: z.string().max(20000).optional(),
+  resultText: z.string().max(20000).optional(),
+  values: z.array(valueSchema).max(200).optional(),
 })
 
 function ruleCtx() {
@@ -114,7 +120,7 @@ router.put('/api/osm-releases/:id', writeLimiter, (req, res) => {
   const cur = getRelease(db, id)
   if (!cur) return res.status(404).json({ ok: false, message: '找不到這筆紀錄（可能已被刪除）' })
   // 隱藏欄位／沒送到的元件保留原值，不能因為畫面沒顯示就清掉
-  const input = mergeUnsentFields(cur, releaseSchema.parse(rest) as ReleaseInput, listTabs(db).find(t => t.id === cur.tabId))
+  const input = mergeUnsentFields(cur, releaseUpdateSchema.parse(rest) as ReleaseUpdateInput)
   // 停用的狀態／元件：舊紀錄原本就用著的可以保留，不能新選
   const errors = validateRelease(input, { ...ruleCtx(), keepIds: { statusId: cur.statusId, componentIds: cur.values.filter(v => v.state === 'updated').map(v => v.componentId) } })
   if (Object.keys(errors).length) return res.status(400).json({ ok: false, message: '有欄位需要修正', errors })

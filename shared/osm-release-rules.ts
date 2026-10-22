@@ -88,22 +88,28 @@ export function serialToDate(v: unknown): string {
   return new Date(ms).toISOString().slice(0, 10)
 }
 
+/** 編輯送來的內容：畫面上沒顯示的欄位不送（undefined＝沒動），跟「送空字串＝清空」是兩回事 */
+export type ReleaseUpdateInput = Omit<ReleaseInput, 'sqlText' | 'resultText' | 'values'> & {
+  sqlText?: string; resultText?: string; values?: ReleaseInput['values']
+}
+
 /**
- * 編輯舊紀錄時，把「這次沒送到」的東西補回原值，再驗證、再寫入（CodeX 1022 審 b160ed5 兩個 [P1]）：
- *   - 分頁設定關掉 SQL／更新結果欄 → 畫面不顯示 → 送來是空的，不能因此清掉舊值
- *   - 送來的 values 沒包含的元件（分頁關掉元件欄、或畫面拿的是舊設定、不認得別人剛加的元件）→ 保留原值
- * 要清掉一個元件的值，畫面要明確送「未提供」；沒送＝沒動。
+ * 編輯舊紀錄時，把「這次沒送到」的東西補回原值，再驗證、再寫入（CodeX 1022 審 b160ed5／32539a1 三個 [P1]）。
+ * 只看「有沒有送」，**不看伺服器現在的分頁設定**：設定改了不會讓紀錄的 rev 變，
+ * 開表單時欄位隱藏、別人之後把欄位打開，舊表單照樣不會帶那欄——拿現在的設定判斷就會把空值當成要清掉。
+ *   - SQL／更新結果沒送 → 保留原值；送了（就算是空字串）→ 照送的存
+ *   - values 沒包含的元件（元件欄隱藏、或畫面不認得別人剛加的元件）→ 保留原值；要清掉必須明確送「未提供」
  */
 export function mergeUnsentFields(
   cur: { sqlText: string; resultText: string; values: ReleaseInput['values'] },
-  input: ReleaseInput,
-  tab: { showSql: boolean; showResult: boolean } | undefined,
+  input: ReleaseUpdateInput,
 ): ReleaseInput {
-  const sent = new Set(input.values.map(v => v.componentId))
+  const values = input.values ?? []
+  const sent = new Set(values.map(v => v.componentId))
   return {
     ...input,
-    sqlText: tab?.showSql ? input.sqlText : cur.sqlText,
-    resultText: tab?.showResult ? input.resultText : cur.resultText,
-    values: [...input.values, ...cur.values.filter(v => !sent.has(v.componentId))],
+    sqlText: input.sqlText ?? cur.sqlText,
+    resultText: input.resultText ?? cur.resultText,
+    values: [...values, ...cur.values.filter(v => !sent.has(v.componentId))],
   }
 }

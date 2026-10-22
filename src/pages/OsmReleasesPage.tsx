@@ -489,6 +489,21 @@ function toInput(meta: Meta, f: Form, isNew: boolean): ReleaseInput {
   }
 }
 
+/**
+ * 編輯送出的內容：這個表單上沒顯示的欄位整個不送（後端「沒送＝保留原值」）。
+ * 不能送空字串——開表單時欄位隱藏、別人之後打開這欄，空字串會被當成要清掉（CodeX 1022 [P1]）
+ */
+function toUpdateBody(meta: Meta, input: ReleaseInput): Record<string, unknown> {
+  const tab = meta.tabs.find(t => t.id === input.tabId)
+  const { sqlText, resultText, values, ...rest } = input
+  return {
+    ...rest,
+    ...(tab?.showSql ? { sqlText } : {}),
+    ...(tab?.showResult ? { resultText } : {}),
+    ...(tab?.showComponents ? { values } : {}),
+  }
+}
+
 function Editor({ meta, reloadMeta, initialTabId, release, onClose, onSaved }: {
   meta: Meta; reloadMeta: () => Promise<Meta | null>; initialTabId: string; release: Release | null; onClose: () => void; onSaved: (r: Release, isNew: boolean) => void
 }) {
@@ -530,7 +545,7 @@ function Editor({ meta, reloadMeta, initialTabId, release, onClose, onSaved }: {
     if (Object.keys(errors).length) { setMsg('有欄位需要修正'); return }
     setSaving(true)
     const j = base
-      ? await api<{ release: Release }>('PUT', `/api/osm-releases/${base.id}`, { ...input, rev: base.rev })
+      ? await api<{ release: Release }>('PUT', `/api/osm-releases/${base.id}`, { ...toUpdateBody(meta, input), rev: base.rev })
       : await api<{ release: Release }>('POST', '/api/osm-releases', input)
     setSaving(false)
     if (j.ok) { onSaved(j.release, !base); return }
