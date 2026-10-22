@@ -5,9 +5,9 @@
  * fixture 全是合成的——repo 是公開的，不放真實 Lark 表內容。
  */
 import Database from 'better-sqlite3'
-import { validateRelease, extractTickets, serialToDate, type ReleaseInput } from '../shared/osm-release-rules.js'
+import { validateRelease, extractTickets, serialToDate, mergeUnsentFields, type ReleaseInput } from '../shared/osm-release-rules.js'
 import {
-  initOsmReleaseSchema, upsertTab, addComponent, updateComponent, deleteComponent, listComponents, listStatuses, updateStatus,
+  initOsmReleaseSchema, upsertTab, listTabs, addComponent, updateComponent, deleteComponent, listComponents, listStatuses, updateStatus,
   createRelease, updateRelease, deleteRelease, getRelease, listReleases, listRevisions,
 } from './osm-release-store.js'
 import { parseReleaseSheet, applyParsedSheet } from './osm-release-import.js'
@@ -98,6 +98,41 @@ const fresh = () => { const db = new Database(':memory:'); initOsmReleaseSchema(
   const mk = (testDate: string, releaseDate: string) => createRelease(db, { tabId: 't', statusId: 1, testDate, releaseDate, content: 'x', sqlText: '', resultText: '', values: [] }, 'A')
   const a = mk('2026-09-01', ''), b = mk('2026-08-01', '2026-10-01'), c = mk('2026-09-15', '2026-09-20')
   eq('排序用上線日期，沒有才用測試日期，新的在前', listReleases(db).map(r => r.id), [b, c, a])
+}
+
+// ─── 沒送到的欄位要保留（CodeX 1022 審 b160ed5 兩個 [P1]）──────────────────────
+{
+  const db = fresh()
+  upsertTab(db, { id: 'osm', name: 'OSM', showComponents: true, showSql: true, showResult: true })
+  const h5 = addComponent(db, { tabId: 'osm', name: 'H5' })
+  const base: ReleaseInput = { tabId: 'osm', statusId: 1, testDate: '2026-10-13', releaseDate: '', content: '原內容', sqlText: 'UPDATE t SET a=1', resultText: '成功',
+    values: [{ componentId: h5, state: 'updated', version: '1.0' }] }
+  const id = createRelease(db, base, 'A')
+  // 走跟 PUT 路由一樣的順序：先補回沒送到的，再驗證、再寫入
+  const save = (rev: number, sent: ReleaseInput) => {
+    const cur = getRelease(db, id)!
+    const merged = mergeUnsentFields(cur, sent, listTabs(db).find(t => t.id === cur.tabId))
+    const errs = validateRelease(merged, { tabs: listTabs(db), components: listComponents(db), statuses: listStatuses(db), keepIds: { statusId: cur.statusId, componentIds: cur.values.filter(v => v.state === 'updated').map(v => v.componentId) } })
+    return Object.keys(errs).length ? { ok: false, errs } : updateRelease(db, id, rev, merged, 'A')
+  }
+
+  // ① 設定關掉 SQL／更新結果／元件欄 → 畫面不顯示、送來是空的
+  upsertTab(db, { id: 'osm', name: 'OSM', showComponents: false, showSql: false, showResult: false })
+  eq('隱藏欄位時只改內容 → 存得進去', save(1, { ...base, content: '只改文字', sqlText: '', resultText: '', values: [] }).ok, true)
+  const r1 = getRelease(db, id)!
+  eq('隱藏的 SQL／更新結果保留原值', [r1.sqlText, r1.resultText], ['UPDATE t SET a=1', '成功'])
+  eq('隱藏的元件值保留原值', r1.values.map(v => [v.state, v.version]), [['updated', '1.0']])
+  eq('內容有改到', r1.content, '只改文字')
+  upsertTab(db, { id: 'osm', name: 'OSM', showComponents: true, showSql: true, showResult: true })
+
+  // ② A 開著舊設定；B 新增元件 C 並更新這筆；A 409 後用最新版重存，送出的 values 不認得 C
+  const c = addComponent(db, { tabId: 'osm', name: 'C' })
+  eq('B 更新新元件', save(2, { ...base, content: '只改文字', values: [{ componentId: h5, state: 'updated', version: '1.0' }, { componentId: c, state: 'updated', version: '9.9' }] }).ok, true)
+  eq('A 用舊設定（不認得 C）在最新版上存', save(3, { ...base, content: 'A 改的', values: [{ componentId: h5, state: 'updated', version: '1.1' }] }).ok, true)
+  const r2 = getRelease(db, id)!
+  eq('別人的新元件值沒被刪掉', r2.values.find(v => v.componentId === c), { componentId: c, state: 'updated', version: '9.9' })
+  eq('A 送的值有寫進去', r2.values.find(v => v.componentId === h5)?.version, '1.1')
+  eq('要清掉就明確送「未提供」', (save(4, { ...base, values: [{ componentId: c, state: 'na', version: '' }] }), getRelease(db, id)!.values.find(v => v.componentId === c)?.state), 'na')
 }
 
 // ─── 匯入 ──────────────────────────────────────────────────────────────────────

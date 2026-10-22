@@ -87,3 +87,23 @@ export function serialToDate(v: unknown): string {
   const ms = Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000
   return new Date(ms).toISOString().slice(0, 10)
 }
+
+/**
+ * 編輯舊紀錄時，把「這次沒送到」的東西補回原值，再驗證、再寫入（CodeX 1022 審 b160ed5 兩個 [P1]）：
+ *   - 分頁設定關掉 SQL／更新結果欄 → 畫面不顯示 → 送來是空的，不能因此清掉舊值
+ *   - 送來的 values 沒包含的元件（分頁關掉元件欄、或畫面拿的是舊設定、不認得別人剛加的元件）→ 保留原值
+ * 要清掉一個元件的值，畫面要明確送「未提供」；沒送＝沒動。
+ */
+export function mergeUnsentFields(
+  cur: { sqlText: string; resultText: string; values: ReleaseInput['values'] },
+  input: ReleaseInput,
+  tab: { showSql: boolean; showResult: boolean } | undefined,
+): ReleaseInput {
+  const sent = new Set(input.values.map(v => v.componentId))
+  return {
+    ...input,
+    sqlText: tab?.showSql ? input.sqlText : cur.sqlText,
+    resultText: tab?.showResult ? input.resultText : cur.resultText,
+    values: [...input.values, ...cur.values.filter(v => !sent.has(v.componentId))],
+  }
+}

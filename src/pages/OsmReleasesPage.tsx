@@ -196,10 +196,10 @@ export function OsmReleasesPage() {
       <div className="orl-head">
         <div className="orl-head-meta">
           {meta.lastUpdated ? <>最後更新 {fmtTime(meta.lastUpdated.at)}・由 {meta.lastUpdated.by}</> : '還沒有任何紀錄'}
-          {!perms.edit && <span className="orl-ro">🔒 唯讀</span>}
+          {!perms.edit && <span className="orl-ro">唯讀</span>}
         </div>
         <div className="orl-head-actions">
-          {perms.manage && <button className="orl-btn" onClick={() => setScreen('settings')}>⚙ 設定</button>}
+          {perms.manage && <button className="orl-btn" onClick={() => setScreen('settings')}>設定</button>}
           <span title={perms.edit ? '' : '需要「編輯紀錄」權限，請洽管理員'}>
             <button className="orl-btn orl-btn--primary" disabled={!perms.edit || !tab?.active} onClick={() => setEditor({ release: null })}>＋ 新增更新</button>
           </span>
@@ -210,7 +210,7 @@ export function OsmReleasesPage() {
 
       {meta.tabs.length === 0 ? (
         <div className="orl-card orl-empty">
-          還沒有任何分頁。{perms.manage ? '請到「⚙ 設定 → 從 Lark 匯入」匯入歷史資料，或新增分頁。' : '請洽管理員設定。'}
+          還沒有任何分頁。{perms.manage ? '請到「設定 → 從 Lark 匯入」匯入歷史資料，或新增分頁。' : '請洽管理員設定。'}
         </div>
       ) : (
         <>
@@ -239,7 +239,7 @@ export function OsmReleasesPage() {
               </button>
             )}
             <select className="orl-input" value="" onChange={e => { if (e.target.value === '__save') void saveView(); else applyView(e.target.value) }}>
-              <option value="">★ 我的檢視{views.length ? `（${views.length}）` : ''}</option>
+              <option value="">我的檢視{views.length ? `（${views.length}）` : ''}</option>
               {views.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               <option value="__save">＋ 把目前篩選存成檢視…</option>
             </select>
@@ -320,7 +320,7 @@ export function OsmReleasesPage() {
       )}
 
       {editor && (
-        <Editor meta={meta} initialTabId={filters.tabId} release={editor.release} onClose={() => setEditor(null)}
+        <Editor meta={meta} reloadMeta={loadMeta} initialTabId={filters.tabId} release={editor.release} onClose={() => setEditor(null)}
           onSaved={(r, isNew) => void afterSave(r, isNew ? '已新增' : '已儲存')} />
       )}
       {revisionsOf && <Revisions release={revisionsOf} compById={compById} statusById={statusById} onClose={() => setRevisionsOf(null)} />}
@@ -489,8 +489,8 @@ function toInput(meta: Meta, f: Form, isNew: boolean): ReleaseInput {
   }
 }
 
-function Editor({ meta, initialTabId, release, onClose, onSaved }: {
-  meta: Meta; initialTabId: string; release: Release | null; onClose: () => void; onSaved: (r: Release, isNew: boolean) => void
+function Editor({ meta, reloadMeta, initialTabId, release, onClose, onSaved }: {
+  meta: Meta; reloadMeta: () => Promise<Meta | null>; initialTabId: string; release: Release | null; onClose: () => void; onSaved: (r: Release, isNew: boolean) => void
 }) {
   const [base, setBase] = useState<Release | null>(release)
   const [form, setForm] = useState<Form>(() => formFrom(release, initialTabId, meta))
@@ -538,11 +538,15 @@ function Editor({ meta, initialTabId, release, onClose, onSaved }: {
     setServerErrors(j.errors ?? {}); setMsg(j.message ?? '儲存失敗')
   }
 
-  /** 衝突時：拿最新版重新開始（我的修改會被捨棄，所以先確認） */
-  const takeLatest = () => {
+  /**
+   * 衝突時：拿最新版重新開始（我的修改會被捨棄，所以先確認）。
+   * 設定要一起重讀——對方可能剛加了元件，用舊設定重建表單會看不到那些值（CodeX 1022 [P1]；後端也會補回沒送到的值）
+   */
+  const takeLatest = async () => {
     if (!conflict || !window.confirm('改用最新版本？你在這個視窗的修改會被捨棄。')) return
-    const f = formFrom(conflict, conflict.tabId, meta)
-    setBase(conflict); setForm(f); setInitial(JSON.stringify(toInput(meta, f, false))); setConflict(null); setServerErrors({}); setMsg('')
+    const m = (await reloadMeta()) ?? meta
+    const f = formFrom(conflict, conflict.tabId, m)
+    setBase(conflict); setForm(f); setInitial(JSON.stringify(toInput(m, f, false))); setConflict(null); setServerErrors({}); setMsg('')
   }
 
   const err = (k: string) => shownErrors[k] ? <div className="orl-err">{shownErrors[k]}</div> : null
@@ -558,7 +562,7 @@ function Editor({ meta, initialTabId, release, onClose, onSaved }: {
           <div className="orl-banner">
             <b>{conflict.updatedBy}</b> 在 {fmtTime(conflict.updatedAt)} 改過這筆（已是第 {conflict.rev} 版），你的修改還沒存。
             <div className="orl-banner-actions">
-              <button className="orl-btn" onClick={takeLatest}>改用最新版本重新編輯</button>
+              <button className="orl-btn" onClick={() => void takeLatest()}>改用最新版本重新編輯</button>
               <span className="orl-muted">或先把要改的內容複製起來再切換</span>
             </div>
           </div>
