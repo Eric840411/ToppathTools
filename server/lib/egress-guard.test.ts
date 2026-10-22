@@ -3,7 +3,9 @@
  * 重點：共用平台只放用得到的 hostname（不是整個網域）、report 模式要有期限、真的連線會被擋。
  */
 import { createServer } from 'net'
-import { isEgressAllowed, egressMode, browserEgressMode, installEgressGuard, registerEgressHost } from './egress-guard.js'
+import { connect } from 'net'
+import { spawn } from 'child_process'
+import { isEgressAllowed, egressMode, browserEgressMode, installEgressGuard, registerEgressHost, checkReportExpiry, registerReportBrowserProcess } from './egress-guard.js'
 
 let pass = 0
 const fails: string[] = []
@@ -54,6 +56,38 @@ const local = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text()).catch
 eq('本機連線照常', local, 'ok')
 const blocked = await fetch('http://attacker.example/').then(() => 'connected').catch(e => String(e.cause?.code ?? e.cause?.message ?? e))
 eq('清單外被擋', /EGRESS_BLOCKED/.test(blocked), true)
+
+// CodeX 審 7508e3e [P1]：report 期間放行的清單外連線，到期要被切斷（不能只在建立時檢查）
+process.env.EGRESS_MODE = 'report'
+process.env.EGRESS_REPORT_UNTIL = new Date(Date.now() + 3600_000).toISOString()
+const fakeLookup = (_h: string, o: { all?: boolean }, cb: (e: null, a: unknown, f?: number) => void) => (o?.all ? cb(null, [{ address: '127.0.0.1', family: 4 }]) : cb(null, '127.0.0.1', 4))
+const holdSrv = createServer(() => { /* 保持連線不關，模擬持續傳資料的外站 */ })
+await new Promise<void>(r => holdSrv.listen(0, '127.0.0.1', () => r()))
+const holdPort = (holdSrv.address() as { port: number }).port
+const sock = connect({ host: 'evil.invalid', port: holdPort, lookup: fakeLookup } as never)
+sock.on('error', () => { /* 到期被切斷時會帶 EGRESS_REPORT_EXPIRED */ })
+await new Promise<void>((res, rej) => { sock.once('connect', () => res()); sock.once('error', rej) })
+eq('report 期間清單外連線可建立', sock.destroyed, false)
+delete process.env.EGRESS_MODE; delete process.env.EGRESS_REPORT_UNTIL
+const closedN = checkReportExpiry()
+await new Promise(r => setTimeout(r, 50))
+eq('到期後被切斷', sock.destroyed, true)
+eq('到期關閉數', closedN >= 1, true)
+holdSrv.close()
+
+// 錄製用 Chrome（spawn 的子程序）：report 期間開的，到期要結束
+process.env.BROWSER_EGRESS_MODE = 'report'
+process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(Date.now() + 3600_000).toISOString()
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+registerReportBrowserProcess(child, [])
+const exited = new Promise<boolean>(r => { child.once('exit', () => r(true)); setTimeout(() => r(false), 5000) })
+delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
+checkReportExpiry()
+eq('到期後錄製用子程序被結束', await exited, true)
+const child2 = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], { stdio: 'ignore' })
+registerReportBrowserProcess(child2, ['--host-resolver-rules=MAP * ~NOTFOUND'])
+eq('有 DNS 規則的不必登記（不會被誤殺）', checkReportExpiry(), 0)
+
 srv.close()
 
 console.log(`egress-guard: ${pass} pass, ${fails.length} fail`)

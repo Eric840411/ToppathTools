@@ -128,6 +128,46 @@ function logViolation(host: string, port: unknown, mode: EgressMode) {
   console.warn(`[egress] ${tag} host=${host} port=${port ?? ''} pid=${process.pid}`)
 }
 
+// ─── report 到期：主動收掉 report 期間放行的東西 ─────────────────────────────────────
+// CodeX 審 7508e3e [P1]：只在「建立連線時」檢查的話，report 期間建立的外站 socket／WebSocket、
+// report 期間開的瀏覽器與錄製用 Chrome，到期後都還活著、還能繼續傳資料。
+// 所以 report 期間放行的每一樣都列冊，一到期（或被改成 enforce）就關掉。
+type Prefix = '' | 'BROWSER_'
+const reportCleanups: Record<Prefix, Set<() => void>> = { '': new Set(), BROWSER_: new Set() }
+let expiryTimer: ReturnType<typeof setInterval> | null = null
+
+/** 立刻檢查一次：已經不是 report 的那一層，把列冊的東西全部關掉。回傳關掉幾個（測試用） */
+export function checkReportExpiry(env: NodeJS.ProcessEnv = process.env, now = Date.now()): number {
+  let closed = 0
+  for (const prefix of ['', 'BROWSER_'] as Prefix[]) {
+    if (egressMode(env, now, prefix).mode === 'report') continue
+    const set = reportCleanups[prefix]
+    if (!set.size) continue
+    console.warn(`[egress] ${prefix ? '瀏覽器' : 'Node'} report 期已結束，關閉 report 期間放行的 ${set.size} 個連線／瀏覽器`)
+    for (const fn of [...set]) { try { fn() } catch { /* 已經關了 */ } closed++ }
+    set.clear()
+  }
+  return closed
+}
+
+/** report 期間放行的東西登記在這裡；回傳取消登記的函式（東西自己先關掉時呼叫） */
+export function onReportExpiry(prefix: Prefix, cleanup: () => void): () => void {
+  reportCleanups[prefix].add(cleanup)
+  if (!expiryTimer) {
+    expiryTimer = setInterval(() => checkReportExpiry(), 30_000)
+    expiryTimer.unref?.()
+  }
+  return () => { reportCleanups[prefix].delete(cleanup) }
+}
+
+/** 錄製／headed 用 spawn 開的 Chrome：report 期間開的，到期就結束它 */
+export function registerReportBrowserProcess(proc: { kill(signal?: NodeJS.Signals): boolean; once(ev: 'exit', fn: () => void): unknown }, launchArgs: readonly string[]) {
+  if (launchArgs.some(a => a.startsWith('--host-resolver-rules=MAP * ~NOTFOUND'))) return
+  if (browserEgressMode().mode !== 'report') return
+  const off = onReportExpiry('BROWSER_', () => { proc.kill() })
+  proc.once('exit', off)
+}
+
 let installed = false
 
 /** 掛上攔截。main 與 worker 各自在最早的 import 呼叫一次 */
@@ -163,6 +203,9 @@ export function installEgressGuard(label: string) {
           process.nextTick(() => this.destroy(err))
           return this
         }
+        // report 放行的清單外連線：到期就切斷
+        const off = onReportExpiry('', () => this.destroy(Object.assign(new Error(`EGRESS_REPORT_EXPIRED: ${h}`), { code: 'EGRESS_BLOCKED' })))
+        this.once('close', off)
       }
     }
     return original.apply(this, args)
@@ -274,6 +317,11 @@ export async function launchGuardedChromium(
   const args = [...(opts.args ?? []), ...guard]
   const browser = await launcher.launch({ ...opts, args })
   markBrowserDnsGuard(browser, args)
+  // report 期間開的（沒有 DNS 規則）：到期整個關掉，裡面的 WebSocket 一起斷
+  if (!dnsGuardedBrowsers.has(browser) && browserEgressMode().mode === 'report') {
+    const off = onReportExpiry('BROWSER_', () => { void browser.close().catch(() => {}) })
+    browser.on('disconnected', off)
+  }
   return browser
 }
 

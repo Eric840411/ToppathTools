@@ -7,7 +7,8 @@
  */
 import { createServer } from 'http'
 import { chromium } from 'playwright'
-import { newGuardedContext, browserGuardLaunchArgs, launchGuardedChromium, markBrowserDnsGuard } from './egress-guard.js'
+import { WebSocketServer } from 'ws'
+import { newGuardedContext, browserGuardLaunchArgs, launchGuardedChromium, markBrowserDnsGuard, checkReportExpiry } from './egress-guard.js'
 
 let pass = 0
 const fails: string[] = []
@@ -89,6 +90,30 @@ try {
   try { await p2.goto(`http://127.0.0.1:${port}/`, { timeout: 8000 }) } catch (e) { err = String(e) }
   ok('到期後同一個瀏覽器停擺（連白名單也擋，要求重開）', /ERR_BLOCKED_BY_CLIENT/.test(err), err.slice(0, 80))
   await b2.close()
+}
+// CodeX 審 7508e3e [P1]：report 期間開到外站的 WebSocket，到期後不能再傳資料
+{
+  const wss = new WebSocketServer({ port: 0, host: '0.0.0.0' })
+  await new Promise<void>(r => wss.once('listening', () => r()))
+  const wsPort = (wss.address() as { port: number }).port
+  let afterExpiry = 0
+  let expired = false
+  wss.on('connection', ws => ws.on('message', () => { if (expired) afterExpiry++ }))
+  process.env.BROWSER_EGRESS_MODE = 'report'
+  process.env.BROWSER_EGRESS_REPORT_UNTIL = new Date(Date.now() + 3600_000).toISOString()
+  const b3 = await launchGuardedChromium(chromium, { headless: true, args: ['--host-resolver-rules=MAP evil.test 127.0.0.1'] })
+  const p3 = await (await newGuardedContext(b3)).newPage()
+  await p3.goto(`http://127.0.0.1:${port}/`)
+  await p3.evaluate(url => new Promise<void>(res => { const w = new WebSocket(url); (window as unknown as { __w: WebSocket }).__w = w; w.onopen = () => res() }), `ws://evil.test:${wsPort}/`)
+  delete process.env.BROWSER_EGRESS_MODE; delete process.env.BROWSER_EGRESS_REPORT_UNTIL
+  expired = true
+  checkReportExpiry()
+  await new Promise(r => setTimeout(r, 1500))
+  ok('到期後 report 期間開的瀏覽器被關掉', !b3.isConnected())
+  await p3.evaluate(() => (window as unknown as { __w: WebSocket }).__w.send('leak')).catch(() => {})
+  await new Promise(r => setTimeout(r, 500))
+  ok('到期後外站 WebSocket 收不到資料', afterExpiry === 0, String(afterExpiry))
+  wss.close()
 }
 srv.close()
 

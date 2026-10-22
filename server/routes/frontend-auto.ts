@@ -42,7 +42,7 @@ import { uploadLarkAttachment, updateLarkRecord, parseLarkBaseUrl } from '../uat
 //    agent 上那顆積木被靜默跳過。
 import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
 import { agentUpdateStatus } from './machine-test.js'
-import { browserGuardLaunchArgs, guardExistingContext, launchGuardedChromium, markBrowserDnsGuard, newGuardedContext } from '../lib/egress-guard.js'
+import { browserGuardLaunchArgs, guardExistingContext, launchGuardedChromium, markBrowserDnsGuard, newGuardedContext, registerReportBrowserProcess } from '../lib/egress-guard.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -837,6 +837,9 @@ async function launchRecorderChrome(sessionId: string, url: string, width: numbe
     url,
   ]
   const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+  // report 期間開的（沒有 DNS 規則）：到期就結束這個 Chrome——錄製走原生 CDP，沒有 Playwright context 可以掛 route
+  //（CodeX 審 7508e3e [P1]）
+  registerReportBrowserProcess(proc, args)
   const port = await waitForDebugPort(profileDir, { isAlive: () => proc.exitCode === null })
   return { proc, profileDir, port, args }
 }
