@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import { retireOfficeServiceWorkers } from '../officeServiceWorker'
 import './OfficePage.css'
 
 /**
@@ -30,7 +31,11 @@ function AppIcon({ id, size }: { id: string; size: number }) {
   return <img src={`/office-icons/${ICONS[id] ?? 'word.svg'}`} width={size} height={size} alt="" aria-hidden="true" draggable={false} />
 }
 
-export function OfficePage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
+export function OfficePage({ themeMode, onOpenCountChange }: {
+  themeMode: 'classic' | 'xianxia'
+  /** 開著幾個工具；App 登出前用來確認（登出會卸載這頁，iframe 裡沒存的內容會不見） */
+  onOpenCountChange?: (n: number) => void
+}) {
   const [data, setData] = useState<AppsResponse | null>(null)
   const [error, setError] = useState('')
   const [open, setOpen] = useState<string[]>([])
@@ -50,14 +55,29 @@ export function OfficePage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) 
     return () => { alive = false }
   }, [])
 
+  // 舊版本註冊過的 Effect Service Worker 會在登出後仍由快取開頁面，進來就清掉（後端也把 sw.js 換成退役版）
+  useEffect(() => { void retireOfficeServiceWorkers() }, [])
+
+  useEffect(() => { onOpenCountChange?.(open.length) }, [open.length, onOpenCountChange])
+
+  // 有開著的工具時，關分頁／重新整理要先確認（切 Toppath 其他頁不會卸載，見 App.tsx）
+  useEffect(() => {
+    if (open.length === 0) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [open.length])
+
   const apps = data?.apps ?? []
   const groups = [...new Set(apps.map(a => a.group))]
   const byId = (id: string) => apps.find(a => a.id === id)
+  // 網址綁版本：部署切版時，已開著的工具繼續從自己那一版的目錄載資源，不會混版（CodeX 審 5f7c6d0 [P2]）
+  const appUrl = (id: string) => `/office/v/${data?.release ?? ''}/${id}/`
 
   function launch(app: OfficeApp) {
     setNotice('')
     if (app.isolate) {
-      window.open(`/office/${app.id}/`, '_blank', 'noopener')
+      window.open(appUrl(app.id), '_blank', 'noopener')
       return
     }
     if (open.includes(app.id)) { setCurrent(app.id); return }
@@ -143,7 +163,7 @@ export function OfficePage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) 
                 <iframe
                   key={id}
                   className={`office-frame${current === id ? ' office-frame--active' : ''}`}
-                  src={`/office/${id}/`}
+                  src={appUrl(id)}
                   title={byId(id)?.label ?? id}
                   allow="clipboard-read; clipboard-write; fullscreen"
                 />

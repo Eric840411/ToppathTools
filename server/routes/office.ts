@@ -12,7 +12,7 @@ import { accountHasPermission } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
 import {
   availableApps, currentReleaseDir, isHashedAsset, resolveOfficePath,
-  OFFICE_GZIP_EXTS, OFFICE_TYPES,
+  OFFICE_GZIP_EXTS, OFFICE_RETIRE_SW, OFFICE_TYPES,
 } from '../office-files.js'
 
 export const router = Router()
@@ -55,13 +55,19 @@ router.get('/api/office/apps', (req, res) => {
 
 function serveOffice(req: Request, res: Response) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(405).end()
+  const base = officeBaseDir()
+  const target = resolveOfficePath(base, req.path, currentReleaseDir(base)?.name ?? null)
+  // 退役 SW 不驗登入：登出狀態下舊 SW 也要能被換掉（原因見 OFFICE_RETIRE_SW）
+  if (target.kind === 'sw') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+    return res.end(req.method === 'HEAD' ? undefined : OFFICE_RETIRE_SW)
+  }
   if (!gate(req, res)) return
-  const rel = currentReleaseDir(officeBaseDir())
-  if (!rel) return res.status(503).type('text/plain; charset=utf-8').send('文書工具尚未部署')
-  const target = resolveOfficePath(rel.dir, req.path)
+  if (target.kind === 'undeployed') return res.status(503).type('text/plain; charset=utf-8').send('文書工具尚未部署')
   if (target.kind === 'redirect') {
     const q = req.originalUrl.indexOf('?')
-    return res.redirect(301, target.to + (q >= 0 ? req.originalUrl.slice(q) : ''))
+    // 302：入口 /office/<app>/ 指向的版本會隨部署改變，不能讓瀏覽器永久記住
+    return res.redirect(302, target.to + (q >= 0 ? req.originalUrl.slice(q) : ''))
   }
   if (target.kind === 'notfound' || !existsSync(target.file) || !statSync(target.file).isFile()) {
     return res.status(404).type('text/plain; charset=utf-8').send('not found')

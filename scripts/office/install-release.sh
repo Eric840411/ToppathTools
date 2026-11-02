@@ -9,11 +9,18 @@ set -euo pipefail
 BASE="${OFFICE_DIST_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/office-dist}"
 APPS=(word excel ppt pdf photo light vector design fig cad film effect sound)
 KEEP=3
+RETAIN_MIN="${OFFICE_RETAIN_MIN:-1440}"
 
 switch_to() {
   local name="$1"
   [[ "$name" =~ ^[A-Za-z0-9._-]{1,64}$ && "$name" != "." && "$name" != ".." ]] || { echo "版本名不合法：$name" >&2; exit 2; }
   [[ -d "$BASE/releases/$name" ]] || { echo "沒有這個版本：$BASE/releases/$name" >&2; exit 1; }
+  # 記下舊版本「被換下來的時間」：已開著的頁面網址綁著舊版本，換下來 RETAIN_MIN 分鐘內不能刪
+  if [[ -f "$BASE/CURRENT" ]]; then
+    local old; old="$(cat "$BASE/CURRENT")"
+    [[ -n "$old" && "$old" != "$name" && -d "$BASE/releases/$old" ]] && touch "$BASE/releases/$old/.retired-at"
+  fi
+  rm -f "$BASE/releases/$name/.retired-at"
   printf '%s\n' "$name" > "$BASE/CURRENT.tmp"
   mv -f "$BASE/CURRENT.tmp" "$BASE/CURRENT"
   echo "目前版本 → $name"
@@ -50,10 +57,15 @@ mv "$STAGE/$NAME" "$DEST"
 echo "已安裝 $NAME（$found 個工具）"
 switch_to "$NAME"
 
-# 只留最近 KEEP 個版本（目前這個一定留）
+# 只留最近 KEEP 個版本；目前這個一定留，換下來不到 RETAIN_MIN 分鐘的也留（還有人開著舊版本的頁面）
 current="$(cat "$BASE/CURRENT")"
 ls -1t "$BASE/releases" | grep -v '^\.' | tail -n +$((KEEP + 1)) | while read -r old; do
   [[ "$old" == "$current" ]] && continue
+  marker="$BASE/releases/$old/.retired-at"
+  if [[ ! -f "$marker" ]] || [[ -z "$(find "$marker" -mmin +"$RETAIN_MIN")" ]]; then
+    echo "保留 $old（換下來未滿 $RETAIN_MIN 分鐘）"
+    continue
+  fi
   rm -rf "${BASE:?}/releases/${old:?}"
   echo "清掉舊版本 $old"
 done

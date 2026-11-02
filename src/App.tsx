@@ -43,6 +43,7 @@ import { SidebarFlyout, SidebarTooltip, useSidebarCollapsed, useTinyViewport } f
 import { type AccountInfo } from './accountTypes'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
+import { retireOfficeServiceWorkers } from './officeServiceWorker'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
 import './App.css'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
@@ -392,6 +393,9 @@ function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
   // Meegle 綁定引導 →「前往綁定」：去個人帳號頁的期間，Meegle 批量工具保持掛載（只是隱藏），回來草稿、分頁、空間都還在（CodeX 2026-10-06）
   const [meegleBindTrip, setMeegleBindTrip] = useState(false)
+  // 文書工具：進過一次就保持掛載（只是隱藏），切到別頁再回來 iframe 裡沒存的內容還在（CodeX 審 5f7c6d0 [P1]）
+  const [officeKept, setOfficeKept] = useState(false)
+  const [officeOpenCount, setOfficeOpenCount] = useState(0)
   useEffect(() => { if (activeGroup !== 'account' && activeGroup !== 'jira') setMeegleBindTrip(false) }, [activeGroup])
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   // 側欄收放：收起時有子頁籤的主頁籤點了是「開哪個主頁籤的選單」——獨立狀態，不改目前頁面與高亮（CodeX）
@@ -595,6 +599,10 @@ function App() {
     saveGlobalAccount(acc)
   }
   async function handleGlobalAccountClear() {
+    if (officeOpenCount > 0 && !window.confirm(`文書工具還開著 ${officeOpenCount} 個，登出會關掉它們，沒存的內容會不見。確定登出？`)) return
+    setOfficeKept(false)
+    setOfficeOpenCount(0)
+    void retireOfficeServiceWorkers()
     setBreakthroughLevel(null)
     setGlobalAccount(null)
     saveGlobalAccount(null)
@@ -646,6 +654,8 @@ function App() {
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
+  const officeAllowed = canAccess('office')
+  if (currentGroup?.id === 'office' && !officeKept) setOfficeKept(true)
   const currentTab = currentGroup?.subtabs?.find(s => s.id === activeTab)
   // If current tab is not in visible subtabs, reset to first subtab of current group
   const effectiveTab = currentTab ? activeTab : (currentGroup?.subtabs?.[0]?.id ?? currentGroup?.tab ?? activeTab)
@@ -1092,7 +1102,11 @@ function App() {
             )}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
-            {currentGroup?.id === 'office' && <OfficePage themeMode={themeMode} />}
+            {officeAllowed && (officeKept || currentGroup?.id === 'office') && (
+              <div hidden={currentGroup?.id !== 'office'}>
+                <OfficePage themeMode={themeMode} onOpenCountChange={setOfficeOpenCount} />
+              </div>
+            )}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
