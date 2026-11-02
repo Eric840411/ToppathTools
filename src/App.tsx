@@ -49,7 +49,9 @@ import './App.css'
 // 新版外框（ui-redesign）：要在 App.css 之後載入；範圍限 html[data-ui="redesign"]
 import './redesign/redesign.css'
 // 逐頁重做（第二批起）：每頁一支，範圍同樣限 html[data-ui="redesign"]
+import './redesign/pages/kit.css'
 import './redesign/pages/dashboard.css'
+import './redesign/pages/machine-test.css'
 import { TopControls } from './redesign/TopControls'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
 // applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」

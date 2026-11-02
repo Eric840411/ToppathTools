@@ -1822,7 +1822,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                   <span className="mt-summary-num">{warnCount}</span>
                   <span>警告</span>
                 </div>
-                <div className="mt-summary-item mt-summary-fail">
+                <div className={`mt-summary-item mt-summary-fail${failCount > 0 ? ' mt-summary-fail--hot' : ''}`}>
                   <span className="mt-summary-num">{failCount}</span>
                   <span>失敗</span>
                 </div>

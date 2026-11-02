@@ -1,0 +1,80 @@
+/* ══════════════════════════════════════════════════════════════════
+   機台自動化測試（逐頁重做第 2 頁，原型 v7「機台自動化測試」）
+   只改長相：測試項目改成可點的膠囊（勾選＝亮起）、摘要數字磚依結果上色並浮起（FAIL 有數字時告警光暈）、
+   進度條凹槽＋流光、執行日誌凹槽。欄位、流程、送出行為都不動。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 測試項目：膠囊。勾起來的亮強調色；「待串接」的維持半透明 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-checks { gap: 8px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px 6px 10px; border-radius: 999px;
+  border: 1px solid var(--rd-line-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .01));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 2px 0 rgba(0, 0, 0, .3);
+  cursor: pointer;
+  transition: border-color .14s ease, background .14s ease, box-shadow .14s ease, color .14s ease;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check:has(input:checked) {
+  border-color: color-mix(in srgb, var(--rd-accent) 70%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 24%, transparent), color-mix(in srgb, var(--rd-accent) 10%, transparent));
+  color: var(--rd-fg);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .14) inset, 0 2px 0 rgba(0, 0, 0, .3), 0 0 14px -4px var(--rd-glow);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check:has(input:disabled) { cursor: not-allowed; opacity: .55; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check input { accent-color: var(--rd-accent); margin: 0; }
+
+/* 摘要數字磚：跟 Dashboard 同一套（依結果上色、浮起、上緣細光） */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item {
+  --tile: #8a97ab;
+  position: relative; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tile) 32%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
+  box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--tile), transparent); opacity: .7;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-pass { --tile: #34d17a; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-warn { --tile: #f5c04a; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-fail { --tile: #ff5d6c; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item .mt-summary-num {
+  color: var(--tile); text-shadow: 0 2px 0 rgba(0, 0, 0, .45); font-variant-numeric: tabular-nums;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-total .mt-summary-num { color: var(--rd-fg); }
+/* FAIL 大於 0 才告警（mt-summary-fail--hot，JSX 依 failCount 掛）：呼吸光暈只掛在這一塊，常駐動畫數＝異常數，不是磚數 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-fail--hot {
+  animation: rd-mt-alarm 2.4s ease-in-out infinite;
+}
+@keyframes rd-mt-alarm { 50% { box-shadow: var(--rd-elev-1), 0 0 0 1px #ff5d6c, 0 0 24px rgba(255, 93, 108, .4); } }
+
+/* 進度條：凹槽軌道＋條身流光 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-bar {
+  height: 8px; background: var(--rd-bg-2); box-shadow: var(--rd-well);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-fill {
+  position: relative; overflow: hidden;
+  background: linear-gradient(90deg, var(--rd-accent), #4cc3ff);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 0 10px var(--rd-glow);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-fill::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent);
+  transform: translateX(-100%); animation: rd-mt-sheen 1.8s linear infinite;
+}
+@keyframes rd-mt-sheen { to { transform: translateX(100%); } }
+
+/* 執行日誌：凹槽 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-log-box {
+  background: color-mix(in srgb, var(--rd-bg) 75%, transparent);
+  box-shadow: var(--rd-well);
+  border-color: var(--rd-line);
+}
+
+/* 尚未開始的階段卡（待串接）：虛線框維持，底色跟新版面板一致 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-phase-card {
+  border: 1.5px dashed var(--rd-line-2);
+  background: color-mix(in srgb, var(--rd-panel) 70%, transparent);
+  box-shadow: none;
+}
