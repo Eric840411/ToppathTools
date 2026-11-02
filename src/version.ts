@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.68.4'
+export const APP_VERSION = '5.68.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.68.5', date: '2026-11-02', changes: ["fix(文書工具 版面)：工作區高度改用 offsetTop 量——getBoundingClientRect 含 transform，換頁進場動畫播到一半量到的會多 10px，工作區底部間歇性短一截（office-layout-check 實測抓到）"] },
   { version: '5.68.4', date: '2026-11-02', changes: ["change(文書工具 版面)：使用者 1102 說開了工具後畫面太小，版面照 CodeX 建議——開了工具之後 13 格工具收進工作區上方的「＋ 開啟工具」選單，工作區高度改成視窗剩下的高度（拿掉 820px 上限）；新增「放大」用瀏覽器全螢幕（不支援的退回 CSS 滿版、Esc 離開）。切版面只改外層 class，iframe 不重建、沒存的內容不會丟。不自動收側欄（CodeX：會改變導覽習慣）。office-layout-check 10 條"] },
   { version: '5.68.3', date: '2026-11-02', changes: ["fix(文書工具)：使用者 1102 本機開文書工具看到「讀取工具清單失敗（HTTP 200）」——前端已是新版、toppath-server 還是 10/22 的舊程式（build 後沒重啟），/api/office/apps 落到 SPA fallback 回首頁 HTML。回 200 但不是 JSON 時改成直接說「伺服器還沒更新，請重啟 toppath-server」；本機已重啟並裝上 Eric Office"] },
   { version: '5.68.2', date: '2026-11-02', changes: ["fix(文書工具)：CodeX 複審 38f09fb 再抓兩個，都實際重現——[P1] sw.js 比對的是解碼前的字串，%73w.js 照樣送出 Effect 原本的 SW：改成比對解碼後的最後一段，並且在檢查版本存不存在之前；[P1] 工作區容器放在會被 Game Show 圖片比對／Bonus V2 整個換掉的 <main> 裡，切到那兩頁 iframe 仍被卸載：移到三元判斷外面，用 display:none 隱藏。單元 36 條；冒煙＋6 種注入都紅；瀏覽器實測切 Dashboard／圖片比對／Bonus V2 回來 iframe 都還是同一個"] },

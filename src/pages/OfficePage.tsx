@@ -46,7 +46,6 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
   const [maximized, setMaximized] = useState(false)
   const wsRef = useRef<HTMLElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
-  const [areaH, setAreaH] = useState<number | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -80,10 +79,14 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
   const fitArea = useCallback(() => {
     const el = areaRef.current
     if (!el) return
-    const top = el.getBoundingClientRect().top + window.scrollY
-    setAreaH(Math.max(360, Math.floor(window.innerHeight - top - 16)))
+    // ⚠️ 用 offsetTop 累加，不用 getBoundingClientRect：後者含 transform，換頁進場動畫（往下滑 10px）播到一半量到的會多 10px，
+    //    工作區底部就短一截（實測 1102，間歇性）
+    let top = 0
+    for (let n: HTMLElement | null = el; n; n = n.offsetParent as HTMLElement | null) top += n.offsetTop
+    // 直接寫在元素上（量 DOM → 改 DOM），不繞 state；放大時交給 CSS（flex:1）
+    el.style.height = el.closest('.office-ws--max, :fullscreen') ? '' : `${Math.max(360, Math.floor(window.innerHeight - top - 16))}px`
   }, [])
-  useLayoutEffect(() => { fitArea() }, [fitArea, open.length, pickerOpen, notice, data])
+  useLayoutEffect(() => { fitArea() }, [fitArea, open.length, pickerOpen, notice, data, maximized])
   useEffect(() => {
     window.addEventListener('resize', fitArea)
     return () => window.removeEventListener('resize', fitArea)
@@ -229,7 +232,7 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
               </div>
             )}
             {notice && <div className="office-notice office-notice--bar">{notice}</div>}
-            <div className="office-area" ref={areaRef} style={!maximized && areaH ? { height: areaH } : undefined}>
+            <div className="office-area" ref={areaRef}>
               {open.length === 0 && <div className="office-placeholder">開啟的工具會顯示在這裡</div>}
               {/* ⚠️ iframe 一律在這裡、順序固定：切版面（收工具格、放大）只改外層 class，不能讓它們被卸載或重建，否則沒存的內容會不見 */}
               {open.map(id => (
