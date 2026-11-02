@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountInfo } from '../accountTypes'
-import { XianxiaIcon } from '../components/XianxiaIcon'
+import { PageActions } from '../redesign/PageActions'
 import { APP_VERSION } from '../version'
 
 interface LocalAgent {
@@ -113,7 +113,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
       const d = await res.json() as { ok: boolean; message: string }
       setUpdateResults(prev => ({ ...prev, [agentId]: d }))
     } catch {
-      setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '失敗 網路錯誤' } }))
+      setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '網路錯誤' } }))
     } finally {
       setUpdatingAgent(null)
     }
@@ -167,15 +167,16 @@ export function LocalAgentPage({ currentAccount }: Props) {
   }, [agents])
 
   return (
-    <div className="local-agent-page">
+    <div className="local-agent-page la-page">
+      {/* 新版（原型 v7）：數字磚 → 下載與安裝｜安全與 Token → 已連線 Agent；版面樣式在 redesign/pages/ops.css */}
       <div className="local-agent-head">
         <div>
           <h1 className="local-agent-title">Toppath Local Agent</h1>
           <p className="local-agent-sub">管理本機 Agent 下載、連線狀態與安全 token。MachineTest 與 Scripted Bet 都會透過這裡註冊的本機 Agent 執行。</p>
         </div>
-        <div className="local-agent-actions">
-          <button className="btn-ghost" type="button" onClick={refresh} disabled={loading}>重新整理</button>
-        </div>
+        <PageActions className="local-agent-actions">
+          <button className="btn-ghost la-btn" type="button" onClick={refresh} disabled={loading}>重新整理</button>
+        </PageActions>
       </div>
 
       {error && <div className="local-agent-alert local-agent-alert--error">{error}</div>}
@@ -188,21 +189,17 @@ export function LocalAgentPage({ currentAccount }: Props) {
       </div>
 
       <div className="local-agent-grid">
-        <section className="section-card local-agent-card">
-          <div className="local-agent-section-head">
-            <h2 className="section-title">下載與安裝</h2>
-            <span className="badge badge--ok">目前登入：{status?.operator?.name ?? currentAccount?.label ?? '未登入'}</span>
-          </div>
-
-          <p className="local-agent-card-note">安裝檔會自動嵌入你的 owner key 與一次性 Agent token，請勿轉傳。安裝後的 Agent 可執行 MachineTest / Scripted Bet / AutoSpin。</p>
+        <section className="section-card local-agent-card la-panel">
+          <h2 className="section-title la-title">
+            下載與安裝
+            <span className="la-meta">目前登入：{status?.operator?.name ?? currentAccount?.label ?? '未登入'}</span>
+          </h2>
 
           {(() => {
             const isWin = installOS === 'win'
-            const accent = '#3b82f6'
-            const border = '#23344d'
             const os = isWin
               ? {
-                  icon: 'monitor' as const, title: 'Windows Agent', dir: 'C:\\machine-test-agent',
+                  title: 'Windows Agent', dir: 'C:\\machine-test-agent',
                   href: '/api/machine-test/agent/install.bat', dl: '下載 install.bat',
                   steps: [
                     { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
@@ -211,7 +208,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
                   ],
                 }
               : {
-                  icon: 'overview' as const, title: 'macOS Agent', dir: '~/toppath-local-agent',
+                  title: 'macOS Agent', dir: '~/toppath-local-agent',
                   href: '/api/machine-test/agent/install-mac.command', dl: '下載 install-mac.command',
                   steps: [
                     { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
@@ -220,76 +217,64 @@ export function LocalAgentPage({ currentAccount }: Props) {
                   ],
                 }
             const tabBtn = (key: 'win' | 'mac', label: string) => (
-              <button type="button" onClick={() => setInstallOS(key)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, borderRadius: 11, cursor: 'pointer',
-                  border: `1px solid ${installOS === key ? accent : border}`, background: installOS === key ? '#16263f' : '#0f172a',
-                  color: installOS === key ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14 }}>
-                <XianxiaIcon name={key === 'win' ? 'monitor' : 'overview'} size={19} /> {label}
+              <button type="button" role="tab" className="rd-tab la-tab" aria-selected={installOS === key}
+                onClick={() => setInstallOS(key)}>
+                {label}
               </button>
             )
             return (
               <>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                <div className="rd-tabs la-tabs" role="tablist" aria-label="作業系統">
                   {tabBtn('win', 'Windows')}{tabBtn('mac', 'macOS')}
                 </div>
 
-                {/* hero download */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'linear-gradient(135deg,#16263f,#101d31)', border: `1px solid ${border}`, borderRadius: 13, padding: '15px 17px', marginBottom: 18 }}>
-                  <div style={{ width: 46, height: 46, borderRadius: 12, background: '#0e1a2d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><XianxiaIcon name={os.icon} size={34} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <b style={{ fontSize: 15 }}>{os.title}</b>
-                    <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>需先安裝 Node.js 20 LTS · 安裝位置 <code>{os.dir}</code></p>
-                  </div>
-                  <a href={os.href} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#2563eb', color: '#fff', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{os.dl}</a>
+                <div className="la-agent-card">
+                  <b className="la-agent-title">{os.title}</b>
+                  <div className="la-mono-sm">需先安裝 Node.js 20 LTS · 安裝位置 <code>{os.dir}</code></div>
+                  <a className="la-dl" href={os.href}>{os.dl}</a>
                 </div>
 
-                {/* stepper */}
-                <div style={{ paddingLeft: 4 }}>
+                {/* 步驟：橫向三格（原型 .steps）；指令與提示放在各自那一步底下 */}
+                <div className="la-steps">
                   {os.steps.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 13, paddingBottom: i === os.steps.length - 1 ? 0 : 18, position: 'relative' }}>
-                      {i < os.steps.length - 1 && <div style={{ position: 'absolute', left: 13, top: 28, bottom: -2, width: 2, background: border }} />}
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#16263f', border: `1px solid ${accent}`, color: '#7dd3fc', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>{i + 1}</div>
-                      <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-                        <b style={{ fontSize: 13.5 }}>{s.t}</b>
-                        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#94a3b8' }}>{s.d}</p>
-                        {s.cmd && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, background: '#070d18', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px' }}>
-                            <code style={{ flex: 1, fontFamily: 'monospace', fontSize: 11.5, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'nowrap' }}>{s.cmd}</code>
-                            <button type="button" onClick={() => copyCmd(s.cmd!)}
-                              style={{ background: '#1a2740', color: '#94a3b8', border: `1px solid ${border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
-                              {copiedCmd === s.cmd ? '已複製' : '複製'}
-                            </button>
-                          </div>
-                        )}
-                        {'tip' in s && s.tip && (
-                          <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', background: '#0e1a2d', borderLeft: `3px solid ${accent}`, borderRadius: '0 6px 6px 0', padding: '7px 10px' }}>{s.tip}</div>
-                        )}
-                      </div>
+                    <div key={i} className="la-stp">
+                      <i>{i + 1}</i>
+                      <b className="la-stp-t">{s.t}</b>
+                      <p className="la-stp-d">{s.d}</p>
+                      {s.cmd && (
+                        <div className="la-cmd">
+                          <code>{s.cmd}</code>
+                          <button type="button" className="la-copy" onClick={() => copyCmd(s.cmd!)}>
+                            {copiedCmd === s.cmd ? '已複製' : '複製'}
+                          </button>
+                        </div>
+                      )}
+                      {'tip' in s && s.tip && (
+                        <div className="la-tip">{s.tip}</div>
+                      )}
                     </div>
                   ))}
                 </div>
 
-                <div className="local-agent-field-grid" style={{ marginTop: 20 }}>
-                  <label className="field">
-                    <span>Server URL</span>
-                    <input value={window.location.origin} readOnly />
-                  </label>
-                  <label className="field">
-                    <span>目前能力</span>
-                    <input value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet, autospin'} readOnly />
-                  </label>
+                <p className="local-agent-card-note la-note">安裝檔會自動嵌入你的 owner key 與一次性 Agent token，請勿轉傳。安裝後的 Agent 可執行 MachineTest / Scripted Bet / AutoSpin。</p>
+
+                <div className="la-form">
+                  <label className="la-l" htmlFor="la-server-url">Server URL</label>
+                  <input id="la-server-url" className="la-field" value={window.location.origin} readOnly />
+                  <label className="la-l" htmlFor="la-caps">目前能力</label>
+                  <input id="la-caps" className="la-field" value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet, autospin'} readOnly />
                 </div>
               </>
             )
           })()}
         </section>
 
-        <section className="section-card local-agent-card">
-          <div className="local-agent-section-head">
-            <h2 className="section-title">安全與 Token</h2>
-            <span className="badge badge--warn">不要共用 installer</span>
-          </div>
-          <p className="local-agent-card-note">Agent token 只在 installer 產生時寫入本機 start.bat，伺服器只保存 hash。若裝置遺失或換人使用，可撤銷 token 後重新下載。</p>
+        <section className="section-card local-agent-card la-panel">
+          <h2 className="section-title la-title">
+            安全與 Token
+            <span className="la-meta">不要共用 installer</span>
+          </h2>
+          <p className="local-agent-card-note la-note">Agent token 只在 installer 產生時寫入本機 start.bat，伺服器只保存 hash。若裝置遺失或換人使用，可撤銷 token 後重新下載。</p>
 
           <div className="local-agent-token-list">
             {tokens.length === 0 && (
@@ -299,22 +284,22 @@ export function LocalAgentPage({ currentAccount }: Props) {
               const hostname = tokenHostnameMap[token.id]
               const shortId = token.id.length > 20 ? token.id.slice(0, 20) + '…' : token.id
               return (
-                <div className={`local-agent-token-row${token.revoked ? ' local-agent-token-row--revoked' : ''}`} key={token.id}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                <div className={`local-agent-token-row la-token${token.revoked ? ' local-agent-token-row--revoked' : ''}`} key={token.id}>
+                  <div className="la-token-body">
                     <div className="local-agent-token-title">
                       <span>{hostname || token.label || 'Toppath Local Agent'}</span>
-                      <span className={token.revoked ? 'badge badge--error' : token.connected ? 'badge badge--ok' : 'badge'}>
+                      <span className={`la-pill ${token.revoked ? 'la-pill--skip' : token.connected ? 'la-pill--pass' : 'la-pill--run'}`}>
                         {token.revoked ? 'Revoked' : token.connected ? 'Connected' : 'Issued'}
                       </span>
                     </div>
-                    <div className="local-agent-token-meta">
+                    <div className="local-agent-token-meta la-mono-sm">
                       建立：{formatTime(token.createdAt)}
                       {token.lastSeenAt && <span> · 最後連線：{relativeTime(token.lastSeenAt)}</span>}
+                      <span> · </span><code title={token.id}>{shortId}</code>
                     </div>
-                    <code title={token.id}>{shortId}</code>
                   </div>
                   {!token.revoked && (
-                    <button className="btn-ghost local-agent-danger" type="button" onClick={() => revokeToken(token.id)}>撤銷</button>
+                    <button className="btn-ghost local-agent-danger la-revoke" type="button" onClick={() => revokeToken(token.id)}>撤銷</button>
                   )}
                 </div>
               )
@@ -332,59 +317,11 @@ export function LocalAgentPage({ currentAccount }: Props) {
         </section>
       </div>
 
-      <section className="section-card local-agent-card local-agent-full">
-        <div className="local-agent-section-head">
-          <h2 className="section-title">Machine Test 額外安裝</h2>
-          <span className="field-hint">音頻測試與 CCTV 需要額外設定</span>
-        </div>
-        <div className="local-agent-extra-grid">
-          <div className="local-agent-extra-item">
-            <div className="local-agent-extra-head">
-              <span className="badge badge--warn">音頻測試</span>
-              <strong>VB-Cable 虛擬音效卡</strong>
-            </div>
-            <p>錄製遊戲音頻需要 VB-Audio Virtual Cable，安裝後系統會出現「CABLE Input」虛擬音效裝置。</p>
-            <ol>
-              <li>前往 <a href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer">https://vb-audio.com/Cable/</a> 下載安裝</li>
-              <li>安裝後<strong>重新開機</strong></li>
-              <li>確認「CABLE Input (VB-Audio Virtual Cable)」已出現在音效裝置清單</li>
-            </ol>
-            <div className="local-agent-note">不安裝則音頻測試步驟自動標記 SKIP，不影響其他測試項目。</div>
-          </div>
-          <div className="local-agent-extra-item">
-            <div className="local-agent-extra-head">
-              <span className="badge badge--warn">CCTV 測試</span>
-              <strong>GEMINI_API_KEY 設定</strong>
-            </div>
-            <p>CCTV 號碼比對使用 Gemini Vision OCR，Agent 機台需要有可用的 Gemini API Key。</p>
-            <ol>
-              <li>在 <code>C:\machine-test-agent\start.bat</code> 中加入：</li>
-              <li><code>set GEMINI_API_KEY=你的金鑰</code></li>
-              <li>重新啟動 Agent（關掉 start.bat 視窗再重開）</li>
-            </ol>
-            <div className="local-agent-note">也可以在工具的「AI 模型和 Prompt 設定」頁面新增 Gemini Key，Agent 會優先使用 start.bat 中的設定。</div>
-          </div>
-          <div className="local-agent-extra-item">
-            <div className="local-agent-extra-head">
-              <span className="badge">注意事項</span>
-              <strong>更新 Agent 版本</strong>
-            </div>
-            <p>伺服器更新後，Agent 機台的 runner.ts 也需要同步更新，否則新功能不會生效。</p>
-            <ol>
-              <li>重新點「下載 install.bat」取得最新安裝包</li>
-              <li>在 Agent 機台執行新的 install.bat（會覆蓋舊版原始碼）</li>
-              <li>重新啟動 start.bat</li>
-            </ol>
-            <div className="local-agent-note">同一台電腦可多次安裝，不影響現有設定。Token 會重新產生，舊連線會自動斷開。</div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section-card local-agent-card local-agent-full">
-        <div className="local-agent-section-head">
-          <h2 className="section-title">已連線 Agent</h2>
-          <span className="field-hint">功能頁會從這裡選擇可用 Agent</span>
-        </div>
+      <section className="section-card local-agent-card local-agent-full la-panel">
+        <h2 className="section-title la-title">
+          已連線 Agent
+          <span className="la-meta">功能頁會從這裡選擇可用 Agent</span>
+        </h2>
 
         <div className="local-agent-list">
           {agents.length === 0 && (
@@ -394,7 +331,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
             <div className="local-agent-row" key={agent.agentId}>
               <div style={{ flex: 1 }}>
                 <div className="local-agent-row-title">
-                  <span className={agent.busy ? 'badge badge--warn' : 'badge badge--ok'}>{agent.busy ? 'BUSY' : 'READY'}</span>
+                  <span className={`la-pill ${agent.busy ? 'la-pill--warn' : 'la-pill--pass'}`}>{agent.busy ? 'BUSY' : 'READY'}</span>
                   <strong>{agent.hostname}</strong>
                 </div>
                 <div className="local-agent-row-meta">
@@ -414,6 +351,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
                     {agent.sourceVersion ? `v${agent.sourceVersion}` : '版本未知'}
                   </span>
                 </div>
+
                 {/* ⚠️ 「需要更新」跟「需要重啟」刻意分成兩種——**下一步不一樣**：
                     前者按下面的「更新程式碼」，後者要重開 agent。
                     合成一句「不是最新」會讓人不知道該做什麼（跟 CodeX 討論定案）。
@@ -491,6 +429,55 @@ export function LocalAgentPage({ currentAccount }: Props) {
           ))}
         </div>
       </section>
+
+      <section className="section-card local-agent-card local-agent-full la-panel">
+        <h2 className="section-title la-title">
+          Machine Test 額外安裝
+          <span className="la-meta">音頻測試與 CCTV 需要額外設定</span>
+        </h2>
+        <div className="local-agent-extra-grid">
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge badge--warn">音頻測試</span>
+              <strong>VB-Cable 虛擬音效卡</strong>
+            </div>
+            <p>錄製遊戲音頻需要 VB-Audio Virtual Cable，安裝後系統會出現「CABLE Input」虛擬音效裝置。</p>
+            <ol>
+              <li>前往 <a href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer">https://vb-audio.com/Cable/</a> 下載安裝</li>
+              <li>安裝後<strong>重新開機</strong></li>
+              <li>確認「CABLE Input (VB-Audio Virtual Cable)」已出現在音效裝置清單</li>
+            </ol>
+            <div className="local-agent-note">不安裝則音頻測試步驟自動標記 SKIP，不影響其他測試項目。</div>
+          </div>
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge badge--warn">CCTV 測試</span>
+              <strong>GEMINI_API_KEY 設定</strong>
+            </div>
+            <p>CCTV 號碼比對使用 Gemini Vision OCR，Agent 機台需要有可用的 Gemini API Key。</p>
+            <ol>
+              <li>在 <code>C:\machine-test-agent\start.bat</code> 中加入：</li>
+              <li><code>set GEMINI_API_KEY=你的金鑰</code></li>
+              <li>重新啟動 Agent（關掉 start.bat 視窗再重開）</li>
+            </ol>
+            <div className="local-agent-note">也可以在工具的「AI 模型和 Prompt 設定」頁面新增 Gemini Key，Agent 會優先使用 start.bat 中的設定。</div>
+          </div>
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge">注意事項</span>
+              <strong>更新 Agent 版本</strong>
+            </div>
+            <p>伺服器更新後，Agent 機台的 runner.ts 也需要同步更新，否則新功能不會生效。</p>
+            <ol>
+              <li>重新點「下載 install.bat」取得最新安裝包</li>
+              <li>在 Agent 機台執行新的 install.bat（會覆蓋舊版原始碼）</li>
+              <li>重新啟動 start.bat</li>
+            </ol>
+            <div className="local-agent-note">同一台電腦可多次安裝，不影響現有設定。Token 會重新產生，舊連線會自動斷開。</div>
+          </div>
+        </div>
+      </section>
+
     </div>
   )
 }

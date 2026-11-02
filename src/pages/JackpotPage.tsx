@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react'
 import Portal from '../components/Portal'
+import { PageActions } from '../redesign/PageActions'
 import { watchCompareState, type WatchThresholdRow, type WatchRole } from '../data/watchCompare'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -320,87 +321,86 @@ export function JackpotPage() {
   ]))
 
   return (
-    <div className="osm-page">
-      {/* Header */}
-      <section className="osm-section">
-        <div className="osm-section-header">
-          <div>
-            <h2 className="osm-section-title">Jackpot 獎池監控</h2>
-            <p className="osm-section-sub">後端每 15 秒自動拉取一次獎池數據，異常自動推送 Lark 告警（頁面關閉也持續運行）</p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>● 後端監控中</span>
-            <label style={{ fontSize: 13, color: '#64748b', marginLeft: 8 }}>Channel ID</label>
-            <input
-              value={pendingChannelId}
-              onChange={e => handleChannelIdChange(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, width: 100 }}
-            />
-            <button
-              type="button"
-              className="osm-btn"
-              style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
-              onClick={openSettings}
-              title="管理員：設定各遊戲閾值與 Lark 告警"
-            >
-              告警設定
-            </button>
-          </div>
-        </div>
+    <div className="osm-page jp-page">
+      {/* 新版（原型 v7）：狀態膠囊＋告警設定搬到頁首右側；版面樣式在 redesign/pages/ops.css */}
+      <PageActions className="jp-head-actions">
+        <span className="jp-pill jp-pill--ok">後端監控中</span>
+        <button
+          type="button"
+          className="btn-ghost jp-btn"
+          onClick={openSettings}
+          title="管理員：設定各遊戲閾值與 Lark 告警"
+        >
+          告警設定
+        </button>
+      </PageActions>
 
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 12, color: '#64748b', marginTop: 4 }}>
+      {/* ── 門檻來源（list.json）狀態 ────────────────────────────────────────
+          ⚠️ 三件事刻意分開講，混在一起就會誤導：
+            ①「這次沒抓到」修得好；②「來源沒設門檻」修接口也不會有值；
+            ③ 抓得到 list.json **不等於**辨識機已經載入它——所以一律稱「設定值」。 */}
+      <section className="section-card jp-status">
+        <div className="jp-inline">
+          {watch?.never
+            ? <span className="jp-pill jp-pill--fail">門檻來源 list.json · 從未取得</span>
+            : watch?.stale
+            ? <span className="jp-pill jp-pill--warn">門檻來源 list.json · 更新失敗，沿用 {fmtTime(watch.fetchedAt)} 的讀取值</span>
+            : watch
+            ? <span className="jp-pill jp-pill--ok">門檻來源 list.json · 讀取於 {fmtTime(watch.fetchedAt)}{watch.ageSec !== null && `（${Math.round(watch.ageSec / 60)} 分前）`}</span>
+            : <span className="jp-pill">門檻來源 list.json · 尚未載入</span>}
+          {coverage && (
+            <span className="jp-mono jp-cov">
+              <b className="jp-ok">完整 {coverage.full}</b>／<b className="jp-warn">部分 {coverage.partial}</b>／<b className="jp-fail">無 {coverage.none}</b>
+              {coverage.unmatched > 0 && <span className="jp-dim">{'　'}list.json 查無此機種 {coverage.unmatched}</span>}
+              {coverage.conflict > 0 && <span className="jp-fail">{'　'}範圍衝突 {coverage.conflict}</span>}
+            </span>
+          )}
+          <span className="jp-spacer" />
+          <button
+            type="button" className="btn-ghost jp-btn jp-btn--lg" disabled={watchRefreshing}
+            onClick={async () => {
+              setWatchRefreshing(true)
+              try { await fetch('/api/osm/jackpot/watch-refresh', { method: 'POST' }); fetchState() }
+              finally { setWatchRefreshing(false) }
+            }}
+          >{watchRefreshing ? '讀取中…' : '重新讀取'}</button>
+        </div>
+        {watch?.never && watch.lastError && (
+          <div className="jp-note jp-fail">目前全部用手動設定／內建預設（原因：{watch.lastError}{/未設定/.test(watch.lastError) ? '——server 環境變數要設 OSM_WATCH_URL 與 OSM_WATCH_TOKEN' : ''}）</div>
+        )}
+        {watch?.never && !watch.lastError && (
+          <div className="jp-note jp-fail">目前全部用手動設定／內建預設</div>
+        )}
+        {watch?.stale && watch.lastError && <div className="jp-note jp-warn">（{watch.lastError}）</div>}
+        {coverage && (
+          <div className="jp-note">覆蓋率以目前監控的 {coverage.games} 款為分母，只算最大池／第二池。接口正常不代表門檻齊全；「無」是來源沒設，不是這次沒抓到。</div>
+        )}
+        <div className="jp-note">後端每 15 秒自動拉取一次獎池數據，異常自動推送 Lark 告警（頁面關閉也持續運行）</div>
+
+        <div className="jp-meta">
           {lastAttemptAt
             ? <span>
-                最後嘗試：{lastAttemptAt}
-                {lastUpdated && lastUpdated !== lastAttemptAt && <span style={{ color: '#f59e0b' }}>　上次成功：{lastUpdated}</span>}
-                {lastUpdated === lastAttemptAt && <span style={{ color: '#22c55e' }}>　通過 成功</span>}
-                　<span style={{ color: '#22c55e' }}>● 後端 15s 輪詢</span>
+                最後嘗試：<span className="jp-mono">{lastAttemptAt}</span>
+                {lastUpdated && lastUpdated !== lastAttemptAt && <span className="jp-warn">　上次成功：{lastUpdated}</span>}
+                {lastUpdated === lastAttemptAt && <span className="jp-ok">　成功</span>}
+                {'　'}<span className="jp-ok">後端 15s 輪詢</span>
               </span>
-            : <span style={{ color: '#94a3b8' }}>正在連線中...</span>
+            : <span className="jp-dim">正在連線中...</span>
           }
-          {larkSentAt && <span>通過 已發送告警 Lark（{larkSentAt}）</span>}
+          {larkSentAt && <span>已發送告警 Lark（{larkSentAt}）</span>}
+          <label className="jp-channel">
+            <span>Channel ID</span>
+            <input
+              className="jp-field"
+              value={pendingChannelId}
+              onChange={e => handleChannelIdChange(e.target.value)}
+            />
+          </label>
         </div>
 
-        {/* ── 門檻來源（list.json）狀態 ────────────────────────────────────────
-            ⚠️ 三件事刻意分開講，混在一起就會誤導：
-              ①「這次沒抓到」修得好；②「來源沒設門檻」修接口也不會有值；
-              ③ 抓得到 list.json **不等於**辨識機已經載入它——所以一律稱「設定值」。 */}
-        <div style={{ marginTop: 8, padding: '8px 12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, lineHeight: 1.8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <b style={{ color: '#cbd5e1' }}>門檻來源：list.json</b>
-            {watch?.never
-              ? <span style={{ color: '#ef4444' }}>從未取得——目前全部用手動設定／內建預設{watch.lastError ? `（原因：${watch.lastError}${/未設定/.test(watch.lastError) ? '——server 環境變數要設 OSM_WATCH_URL 與 OSM_WATCH_TOKEN' : ''}）` : ''}</span>
-              : watch?.stale
-              ? <span style={{ color: '#f59e0b' }}>更新失敗，沿用 {fmtTime(watch.fetchedAt)} 的讀取值{watch.lastError ? `（${watch.lastError}）` : ''}</span>
-              : watch
-              ? <span style={{ color: '#22c55e' }}>讀取於 {fmtTime(watch.fetchedAt)}{watch.ageSec !== null && `（${Math.round(watch.ageSec / 60)} 分前）`}</span>
-              : <span style={{ color: '#94a3b8' }}>尚未載入</span>}
-            <button
-              type="button" className="osm-btn" disabled={watchRefreshing}
-              style={{ padding: '2px 10px', fontSize: 11, background: '#1e293b', color: '#94a3b8', border: '1px solid #2d3f55' }}
-              onClick={async () => {
-                setWatchRefreshing(true)
-                try { await fetch('/api/osm/jackpot/watch-refresh', { method: 'POST' }); fetchState() }
-                finally { setWatchRefreshing(false) }
-              }}
-            >{watchRefreshing ? '讀取中…' : '重新讀取'}</button>
-          </div>
-          {coverage && (
-            <div style={{ color: '#94a3b8' }}>
-              覆蓋率（以目前監控的 {coverage.games} 款為分母，只算最大池／第二池）：
-              <b style={{ color: '#22c55e', margin: '0 4px' }}>完整 {coverage.full}</b>／
-              <b style={{ color: '#f59e0b', margin: '0 4px' }}>部分 {coverage.partial}</b>／
-              <b style={{ color: '#ef4444', margin: '0 4px' }}>無 {coverage.none}</b>
-              {coverage.unmatched > 0 && <span>{'　'}list.json 查無此機種 {coverage.unmatched}</span>}
-              {coverage.conflict > 0 && <span style={{ color: '#ef4444' }}>{'　'}範圍衝突 {coverage.conflict}</span>}
-              <span style={{ marginLeft: 8, opacity: .8 }}>（接口正常不代表門檻齊全；「無」是來源沒設，不是這次沒抓到）</span>
-            </div>
-          )}
-        </div>
-
-        {error && <div className="osm-alert osm-alert--error" style={{ marginTop: 8 }}>{error}</div>}
+        {error && <div className="jp-alert">{error}</div>}
         {lastRequestBody && (
-          <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>
+          <div className="jp-reqbody">
             最後請求體：{lastRequestBody}
           </div>
         )}
@@ -408,31 +408,28 @@ export function JackpotPage() {
 
       {/* Jackpot table */}
       {games.length > 0 && (
-        <section className="osm-section">
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#334155' }}>獎池數據</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <section className="section-card jp-panel jp-panel--table">
+          <h3 className="section-title">獎池數據</h3>
+          <div className="table-wrap">
+            <table className="version-table jp-table">
               <thead>
-                <tr style={{ background: '#f1f5f9', textAlign: 'left' }}>
-                  <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0' }}>Game ID</th>
+                <tr>
+                  <th>Game ID</th>
                   {LEVELS.map(lv => (
-                    <th key={lv} style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0', color: LEVEL_COLORS[lv], textTransform: 'capitalize' }}>
+                    <th key={lv}>
                       {lv.charAt(0).toUpperCase() + lv.slice(1)}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {games.map((g, i) => {
+                {games.map(g => {
                   const gid = g.gameid
                   const rowHasAnomaly = LEVELS.some(lv => anomalyKeys.has(`${gid}:${lv}`))
                   return (
-                    <tr key={gid} style={{
-                      background: rowHasAnomaly ? 'rgba(251,146,60,0.1)' : i % 2 === 0 ? '#1e293b' : '#162032',
-                      borderLeft: rowHasAnomaly ? '3px solid #f97316' : '3px solid transparent',
-                    }}>
-                      <td style={{ padding: '7px 12px', borderBottom: '1px solid #f1f5f9', fontFamily: 'monospace', fontWeight: rowHasAnomaly ? 600 : undefined }}>
-                        {rowHasAnomaly && ''}{gid}
+                    <tr key={gid} className={rowHasAnomaly ? 'jp-row--anomaly' : undefined}>
+                      <td className="jp-gid">
+                        {gid}
                       </td>
                       {LEVELS.map(lv => {
                         const val = g[lv]
@@ -440,16 +437,12 @@ export function JackpotPage() {
                         const alertOn = getSetting(gid, lv).enabled
                         const th = thresholds[`${gid}:${lv}`]
                         return (
-                          <td key={lv} style={{
-                            padding: '7px 12px', borderBottom: '1px solid #f1f5f9', textAlign: 'right',
-                            color: isAnomaly ? '#dc2626' : undefined,
-                            fontWeight: isAnomaly ? 600 : undefined,
-                          }}>
+                          <td key={lv} className={isAnomaly ? 'jp-cell jp-cell--anomaly' : 'jp-cell'}>
                             {val !== undefined && val >= 0
-                              ? val.toLocaleString()
-                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                              ? <span className="jp-mono">{val.toLocaleString()}</span>
+                              : <span className="jp-dim">—</span>}
                             {!alertOn && (
-                              <span title="Lark 告警已關閉" style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }}>已靜音</span>
+                              <span title="Lark 告警已關閉" className="jp-muted-tag">已靜音</span>
                             )}
                             {/* ⚠️ 判定用的門檻是哪來的，要跟數值擺在一起。
                                 只看綠燈的話，「用內建預設判過關」會被當成「符合這台的 list.json 範圍」。 */}
@@ -468,27 +461,23 @@ export function JackpotPage() {
 
       {/* Anomaly log */}
       {anomalyLog.length > 0 && (
-        <section className="osm-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>異常記錄（{anomalyLog.length} 筆）</h3>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <section className="section-card jp-panel">
+          <h3 className="section-title">異常記錄（{anomalyLog.length} 筆）</h3>
+          <div className="jp-anoms">
             {anomalyLog.map((a, i) => (
-              <div key={i} style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.25)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{a.gameId}</span>
-                  <span style={{ background: LEVEL_COLORS[a.level], color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 11, textTransform: 'capitalize' }}>{a.level}</span>
+              <div key={i} className="jp-anom">
+                {/* 原型兩列：① 名稱＋原因膠囊 ② 時間 · 獎池 · 數值變化 */}
+                <div className="jp-anom-h">
+                  <span className="jp-anom-gid">{a.gameId}</span>
+                  <span className="jp-pill jp-pill--warn jp-anom-reason" title={a.reason}>{a.reason}</span>
                   {!getSetting(a.gameId, a.level).enabled && (
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>未發 Lark</span>
+                    <span className="jp-dim jp-small">未發 Lark</span>
                   )}
-                  <span style={{ color: '#94a3b8', fontSize: 11, marginLeft: 'auto' }}>{a.time}</span>
                 </div>
-                <div style={{ color: '#92400e' }}>{a.reason}</div>
-                {a.prevValue !== undefined && (
-                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
-                    {a.prevValue.toLocaleString()} → {a.value.toLocaleString()}
-                  </div>
-                )}
+                <div className="jp-mono jp-anom-diff">
+                  {a.time} · <span className="jp-anom-lv" style={{ '--c': LEVEL_COLORS[a.level] } as CSSProperties}>{a.level}</span>{' '}
+                  {a.prevValue !== undefined && <>{a.prevValue.toLocaleString()} → {a.value.toLocaleString()}</>}
+                </div>
               </div>
             ))}
           </div>
@@ -496,10 +485,11 @@ export function JackpotPage() {
       )}
 
       {games.length === 0 && !error && (
-        <section className="osm-section">
-          <div className="osm-empty">
+        <section className="section-card jp-panel">
+          <h3 className="section-title">獎池數據</h3>
+          <div className="jp-empty">
             <p>後端監控啟動中，正在載入獎池資料...</p>
-            <p style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+            <p className="jp-small jp-dim">
               異常偵測規則：位數異常（±2位）、數值超出合理範圍、單次暴增 &gt;50%
             </p>
           </div>
@@ -739,10 +729,10 @@ function ThresholdChip({ view, level }: { view: ThresholdView; level: JpLevel })
   ].filter(Boolean).join('\n')
 
   return (
-    <div title={title} style={{ fontSize: 10, color, marginTop: 2, whiteSpace: 'nowrap' }}>
+    <span className="jp-th-chip" title={title} style={{ color }}>
       {label}
       {extra.length > 0 && <span style={{ color: '#f59e0b' }}>・{extra.join('・')}</span>}
-    </div>
+    </span>
   )
 }
 

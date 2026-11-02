@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.4'
+export const APP_VERSION = '5.73.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.5', date: '2026-11-02', changes: ["style(新版排版 Jackpot 監控、Local Agent)：CodeX 對照設計圖 3 輪判定一致（±2px）——Jackpot：後端監控中／告警設定搬到頁首右側、門檻來源膠囊＋完整／部分／無計數（後端有 coverage 才顯示）＋重新讀取、獎池數據原型表格（欄寬照原型、列高 38px、直接接標題帶）、異常卡兩列；Local Agent：重新整理到頁首、四格數字磚、Windows／macOS 分頁、橫向三步驟（指令與複製留在各步驟下）、Token 精簡卡＋狀態膠囊＋小撤銷鈕。本機 OSM 白名單連不到，Jackpot 有資料的畫面用唯讀假 /state 截圖比對，真資料要推 Spug 再驗"] },
   { version: '5.73.4', date: '2026-11-02', changes: ["style(新版排版 腳本化投注紀錄、UI 解析度截圖)：CodeX 對照設計圖判定一致（腳本化投注 5 輪、UI 截圖 2 輪）——執行設定標籤在左、Spin 次數／間隔最小～最大同列、流程狀態改橫向步驟條（產品 6 步、目前步驟照原本判斷）＋固定 150px 日誌、帳號執行清單滿版表格（面板內捲動、欄寬照原型）；UI 截圖左欄 300px 資料來源→解析度選擇→執行選項、右欄進度→截圖結果→日誌→匯出與回寫，Local Agent 併進執行選項。頁首有操作按鈕時收回 5px（全站）。拿掉裝飾 emoji 與「通過 」前綴"] },
   { version: '5.73.3', date: '2026-11-02', changes: ["style(新版排版 週報彙整)：CodeX 對照設計圖 3 輪判定一致（±2px）——抓取範圍＋現在時間搬到頁首右側、每塊改面板標題帶、Step 1 網址＋重新讀取同列＋已讀取膠囊、來源 Sheet 標籤在左、四格數字磚、預期結果原型表格（11：29：27：33、直接接標題帶）、送出併進預期結果面板底部。真實功能（Meegle 撈單、頁籤日期式報表、依人員分組草稿）與順序保留。「通過 全部送出成功」改成不靠文字前綴判顏色（共用常數）"] },
   { version: '5.73.2', date: '2026-11-02', changes: ["style(新版排版 圖片刪除驗證)：CodeX 對照設計圖 4 輪判定一致（±2px）——輸入／結果 7：3、標籤欄 96px、貼上區與路徑框跨滿面板、URL 34px、按鈕 36px。結果畫面要真的跑一次偵測才出現，這次只比到輸入狀態"] },

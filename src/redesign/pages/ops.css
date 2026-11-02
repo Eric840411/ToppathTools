@@ -1,0 +1,256 @@
+/* ══════════════════════════════════════════════════════════════════
+   Jackpot 監控＋Local Agent（原型 v7）：
+   - 每一塊都是原型面板：.section-card + 第一個子元素 .section-title ＝ 標題帶（kit.css）
+   - 頁首右側（PageActions）：Jackpot 放「後端監控中」膠囊＋告警設定；Local Agent 放重新整理
+   - Jackpot：門檻來源膠囊＋完整／部分／無＋重新讀取 → 獎池數據表格 → 異常記錄卡
+   - Local Agent：四格數字磚 → 下載與安裝（OS 分頁、Agent 卡、橫向三步）｜安全與 Token（精簡卡）→ 已連線 Agent 兩欄卡
+   基本樣式不加 redesign 範圍（JSX 已改用這些 class，舊外框也要能看）；配色只動普通版，仙俠版只吃版面。功能不動。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 共用：膠囊（原型 .pill）、等寬字 ── */
+.jp-pill, .la-pill {
+  --c: #94a3b8;
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; white-space: nowrap;
+  font-size: 12px; font-weight: 600; line-height: 1.5; color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, transparent); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset;
+}
+.jp-pill::before, .la-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; flex: none; }
+.jp-pill--ok, .la-pill--pass { --c: #34d399; }
+.jp-pill--warn, .la-pill--warn { --c: #fbbf24; }
+.jp-pill--fail { --c: #f87171; }
+.la-pill--run { --c: #60a5fa; }
+.la-pill--skip { --c: #94a3b8; }
+.jp-mono, .la-mono-sm { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+/* ════════════════════ Jackpot 監控 ════════════════════ */
+.jp-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding-bottom: 24px; }
+:root[data-ui="redesign"] .osm-page.jp-page { display: flex; align-items: stretch; }
+.jp-page > .section-card { margin-bottom: 0; min-width: 0; }
+.jp-head-actions { display: flex; align-items: center; gap: 10px; }
+.jp-btn { height: 36px; padding: 0 18px; border-radius: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.jp-btn--lg { height: 38px; padding: 0 20px; font-size: 14px; font-weight: 700; }
+
+.jp-ok { color: #34d399; }
+.jp-warn { color: #fbbf24; }
+.jp-fail { color: #f87171; }
+.jp-dim { color: var(--rd-fg-3, #64748b); }
+.jp-small { font-size: 11.5px; }
+.jp-spacer { flex: 1; }
+
+/* 門檻來源面板 */
+.jp-inline { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; min-width: 0; }
+.jp-inline .jp-pill { white-space: normal; }
+.jp-cov { font-size: 13px; color: var(--rd-fg-2, #94a3b8); }
+.jp-cov b { font-weight: 500; }
+.jp-note { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--rd-fg-3, #64748b); }
+.jp-note.jp-fail { color: #f87171; }
+.jp-note.jp-warn { color: #fbbf24; }
+.jp-meta {
+  display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--rd-line, #263345); font-size: 12px; color: var(--rd-fg-2, #94a3b8);
+}
+.jp-channel { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--rd-fg-2, #94a3b8); }
+.jp-field {
+  height: 30px; width: 100px; padding: 0 10px; border-radius: 6px; font-size: 13px;
+  border: 1px solid var(--rd-line-2, #2d3f55); background: var(--rd-bg-2, #0f172a); color: var(--rd-fg, #e2e8f0);
+}
+.jp-field:focus { outline: none; border-color: var(--rd-accent, #3b82f6); box-shadow: 0 0 0 3px var(--rd-glow, rgba(59, 130, 246, .25)); }
+.jp-alert {
+  margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; color: #f87171;
+  border: 1px solid rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .08); overflow-wrap: anywhere;
+}
+.jp-reqbody { margin-top: 6px; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg-3, #64748b); overflow-wrap: anywhere; }
+
+/* 獎池數據表格 */
+.jp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.jp-table :is(th, td) { padding: 9px 12px; text-align: left; vertical-align: middle; }
+.jp-table th { font-size: 12px; font-weight: 500; white-space: nowrap; }
+.jp-table td { border-bottom: 1px solid var(--rd-line, #263345); }
+.jp-table tbody tr:last-child td { border-bottom: 0; }
+.jp-gid { font-weight: 600; white-space: nowrap; }
+.jp-cell { white-space: nowrap; }
+.jp-cell--anomaly .jp-mono { color: #fbbf24; font-weight: 600; }
+.jp-row--anomaly { background: rgba(251, 191, 36, .06); box-shadow: 3px 0 0 #fbbf24 inset; }
+.jp-th-chip {
+  display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 5px; font-size: 11.5px; line-height: 1.6; white-space: nowrap;
+  vertical-align: middle; background: var(--rd-panel-2, #162032); border: 1px solid var(--rd-line-2, #2d3f55);
+}
+.jp-muted-tag { margin-left: 6px; font-size: 11px; color: var(--rd-fg-3, #64748b); }
+
+/* 異常記錄卡（原型 .card，警示色邊框） */
+.jp-anoms { display: grid; gap: 10px; }
+.jp-anom {
+  padding: 12px 14px; border-radius: 9px; min-width: 0;
+  background: linear-gradient(170deg, var(--rd-panel-2, #162032), var(--rd-panel, #0e1a2e));
+  border: 1px solid color-mix(in srgb, #fbbf24 50%, transparent); box-shadow: var(--rd-elev-1, none);
+}
+.jp-anom-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jp-anom-gid { font-size: 14.5px; font-weight: 700; color: var(--rd-fg, #e2e8f0); }
+.jp-pill--lv { text-transform: capitalize; }
+.jp-anom-time { margin-left: auto; }
+.jp-anom-reason { margin-top: 6px; font-size: 13px; color: var(--rd-fg-2, #cbd5e1); }
+.jp-anom-diff { margin-top: 4px; font-size: 12.5px; color: var(--rd-fg-2, #94a3b8); }
+.jp-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--rd-fg-2, #94a3b8); }
+.jp-empty p { margin: 0; }
+.jp-empty p + p { margin-top: 6px; }
+
+/* ════════════════════ Local Agent ════════════════════ */
+.la-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.la-page > *, .la-page .local-agent-metrics, .la-page .local-agent-full { margin-bottom: 0; margin-top: 0; }
+.la-btn { height: 36px; padding: 0 18px; border-radius: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+/* 新版：頁首已有大標題，這頁自己的標題＋說明行收掉（說明跟原型一樣不顯示；按鈕已搬到頁首右側） */
+:root[data-ui="redesign"] .la-page > .local-agent-head:not(:has(.local-agent-actions)) { display: none; }
+
+/* 面板標題帶：右側小字 meta（原型 .panel-h .meta） */
+.la-title { display: flex; align-items: center; gap: 10px; }
+.la-meta { margin-left: auto; font: 400 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg-3, #64748b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.la-note { margin: 12px 0 0; font-size: 12px; line-height: 1.6; color: var(--rd-fg-3, #64748b); }
+.la-panel > .la-note:nth-child(2) { margin: 0 0 12px; }
+
+/* 數字磚（原型 .stat） */
+:root[data-ui="redesign"] .la-page .local-agent-metric {
+  --c: var(--rd-accent, #4c8dff);
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 10px; min-width: 0;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"] .la-page .local-agent-metric:has(.local-agent-tone-ok) { --c: #34d399; }
+:root[data-ui="redesign"] .la-page .local-agent-metric:has(.local-agent-tone-blue) { --c: #60a5fa; }
+:root[data-ui="redesign"] .la-page .local-agent-metric:has(.local-agent-tone-warn) { --c: #fbbf24; }
+:root[data-ui="redesign"] .la-page .local-agent-metric-label { font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--rd-fg-2); }
+:root[data-ui="redesign"] .la-page .local-agent-metric-value { margin: 0; font: 600 26px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--c); text-shadow: 0 2px 0 rgba(0, 0, 0, .45); }
+:root[data-ui="redesign"] .la-page .local-agent-metric-sub { margin: 0; font-size: 12px; color: var(--rd-fg-3); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric { border-radius: 4px; }
+
+/* 下載與安裝｜安全與 Token：1:1 兩欄、同高 */
+:root[data-ui="redesign"] .la-page .local-agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+.la-page .local-agent-card { margin: 0; min-width: 0; }
+
+/* OS 分頁（原型 .tabs；新版樣式在 kit.css 的 .rd-tabs，舊外框補最基本的） */
+.la-tabs { display: flex; gap: 4px; }
+.la-tab { cursor: pointer; }
+:root:not([data-ui="redesign"]) .la-tab { padding: 6px 14px; border-radius: 7px; border: 1px solid #2d3f55; background: none; color: #94a3b8; }
+:root:not([data-ui="redesign"]) .la-tab[aria-selected="true"] { color: #fff; border-color: #3b82f6; background: #16263f; }
+:root[data-ui="redesign"] .la-page .la-tabs { width: 100%; }
+:root[data-ui="redesign"] .la-page .la-tab { font-size: 14px; font-weight: 600; padding: 7px 18px; }
+
+/* Agent 卡（原型 .card：標題、mono 說明、滿版主按鈕） */
+.la-agent-card {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 14px; border-radius: 9px; min-width: 0;
+  background: linear-gradient(170deg, var(--rd-panel-2, #162032), var(--rd-panel, #0e1a2e));
+  border: 1px solid var(--rd-line-2, #2d3f55); box-shadow: var(--rd-elev-1, none);
+}
+.la-agent-title { font-size: 14.5px; color: var(--rd-fg, #e2e8f0); }
+.la-mono-sm { font-size: 12.5px; color: var(--rd-fg-2, #94a3b8); overflow-wrap: anywhere; }
+.la-mono-sm code { font: inherit; color: var(--rd-fg, #e2e8f0); }
+.la-dl {
+  display: flex; align-items: center; height: 36px; padding: 0 18px; border-radius: 7px; text-decoration: none;
+  font-size: 13.5px; font-weight: 700; color: #fff; background: #2563eb; box-shadow: 0 4px 18px rgba(37, 99, 235, .35);
+}
+.la-dl:hover { filter: brightness(1.08); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-dl {
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2)));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 4px 18px var(--rd-glow);
+}
+
+/* 步驟：橫向三格（原型 .steps／.stp），每一步底下放說明、指令、提示 */
+.la-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; margin-top: 16px; }
+.la-stp { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; text-align: center; }
+.la-stp::before { content: ""; position: absolute; top: 15px; left: calc(-50% - 6px); right: calc(50% + 6px); height: 3px; border-radius: 2px; background: var(--rd-line-2, #2d3f55); }
+.la-stp:first-child::before { display: none; }
+.la-stp > i {
+  position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 2px;
+  font-style: normal; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-accent-2, #7dd3fc);
+  background: var(--rd-panel-2, #162032); border: 1px solid var(--rd-accent, #3b82f6); box-shadow: var(--rd-elev-1, none);
+}
+.la-stp-t { font-size: 13px; color: var(--rd-fg, #e2e8f0); }
+.la-stp-d { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rd-fg-3, #64748b); }
+.la-cmd {
+  align-self: stretch; display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 4px; padding: 7px 8px; border-radius: 7px; text-align: left;
+  background: color-mix(in srgb, var(--rd-bg, #070d18) 75%, transparent); box-shadow: var(--rd-well, none); border: 1px solid var(--rd-line, #23344d);
+}
+.la-cmd code { font: 11.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg, #cbd5e1); word-break: break-all; }
+.la-copy {
+  align-self: flex-end; height: 24px; padding: 0 10px; border-radius: 6px; font-size: 11.5px; cursor: pointer;
+  color: var(--rd-fg-2, #94a3b8); background: var(--rd-panel-2, #1a2740); border: 1px solid var(--rd-line-2, #2d3f55);
+}
+.la-copy:hover { color: var(--rd-fg, #e2e8f0); border-color: var(--rd-accent, #3b82f6); }
+.la-tip { align-self: stretch; margin-top: 2px; padding: 6px 8px; border-left: 3px solid var(--rd-accent, #3b82f6); border-radius: 0 6px 6px 0; text-align: left; font-size: 11.5px; line-height: 1.5; color: var(--rd-fg-3, #64748b); background: color-mix(in srgb, var(--rd-panel-2, #0e1a2d) 70%, transparent); }
+
+/* Server URL／目前能力：原型 .form（96px 標籤欄、34px 欄位） */
+.la-form { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px 14px; align-items: center; margin-top: 14px; }
+.la-l { font-size: 13px; color: var(--rd-fg-2, #94a3b8); }
+.la-field {
+  height: 34px; width: 100%; min-width: 0; box-sizing: border-box; padding: 0 10px; border-radius: 6px; font-size: 13px;
+  border: 1px solid var(--rd-line-2, #2d3f55); background: var(--rd-bg-2, #0f172a); color: var(--rd-fg, #e2e8f0);
+}
+
+/* Token 卡：精簡（名稱＋狀態膠囊、一行 mono 資訊），撤銷是小的次要動作 */
+.la-page .local-agent-token-list { gap: 8px; }
+.la-token { padding: 10px 12px; gap: 10px; }
+.la-token-body { min-width: 0; }
+.la-token .local-agent-token-title > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.la-token .local-agent-token-meta { display: block; margin-top: 5px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.la-token .local-agent-token-meta code { display: inline; margin: 0; font: inherit; }
+.la-revoke { height: 28px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-page :is(.local-agent-token-row, .local-agent-row, .local-agent-extra-item) {
+  background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel)); border-color: var(--rd-line-2); border-radius: 9px; box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-page .local-agent-token-row--revoked { opacity: .55; }
+
+/* 已連線 Agent：兩欄卡（原型 .grid.g2 .card） */
+:root[data-ui="redesign"] .la-page .local-agent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+:root[data-ui="redesign"] .la-page .local-agent-list > .local-agent-empty { grid-column: 1 / -1; }
+:root[data-ui="redesign"] .la-page .local-agent-row { align-items: start; padding: 14px; }
+:root[data-ui="redesign"] .la-page .local-agent-row-title strong { font-size: 14.5px; }
+:root[data-ui="redesign"] .la-page .local-agent-row-meta { flex-direction: column; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--rd-fg-2); }
+:root[data-ui="redesign"] .la-page .local-agent-cap { font-weight: 500; font-size: 12px; padding: 1px 8px; border-radius: 5px; }
+:root[data-ui="redesign"] .la-page .local-agent-empty { padding: 28px 16px; text-align: center; background: none; }
+
+@media (max-width: 1100px) {
+  :root[data-ui="redesign"] .la-page :is(.local-agent-grid, .local-agent-list) { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  :root[data-ui="redesign"] .la-page .local-agent-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .la-steps { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .la-stp::before { display: none; }
+}
+
+/* ══ 第二輪（CodeX 對照設計圖）══ */
+/* 獎池數據：表格緊貼標題帶、左右內縮 10px（原型 .tbl-wrap margin 0 10px 10px） */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.jp-panel--table:has(> .section-title:first-child) { padding: 0 0 10px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.jp-panel--table > .section-title:first-child { margin: 0 0 0; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .jp-panel--table > .table-wrap { margin: 0 10px; }
+/* 欄寬照原型量出來的比例（Game ID 14.6／Grand 32.2／Major 15.1／Minor 12.5／Mini 11.1／Fortunate 14.5） */
+.jp-table { table-layout: fixed; }
+.jp-table th:nth-child(1) { width: 14.6%; }
+.jp-table th:nth-child(2) { width: 32.2%; }
+.jp-table th:nth-child(3) { width: 15.1%; }
+.jp-table th:nth-child(4) { width: 12.5%; }
+.jp-table th:nth-child(5) { width: 11.1%; }
+.jp-table th:nth-child(6) { width: 14.5%; }
+.jp-table td { overflow: hidden; text-overflow: ellipsis; }
+/* 異常卡：兩列（名稱＋原因膠囊／時間 · 獎池 · 數值變化），約 80px 高 */
+.jp-anom { padding: 14px 14px; }
+.jp-anom-h { flex-wrap: nowrap; min-width: 0; }
+.jp-anom-reason { margin: 0; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--c); font-size: 12px; }
+.jp-anom-diff { margin-top: 8px; font-size: 12.5px; color: var(--rd-fg-2, #94a3b8); line-height: 1.4; }
+.jp-anom-lv { color: var(--c); text-transform: capitalize; }
+
+/* Local Agent：數字磚 92px 高（原型 .stat） */
+:root[data-ui="redesign"] .la-page .local-agent-metric { box-sizing: border-box; height: 92px; padding: 12px 14px; gap: 2px; justify-content: center; }
+:root[data-ui="redesign"] .la-page .local-agent-metric-label { line-height: 1.4; }
+:root[data-ui="redesign"] .la-page .local-agent-metric-value { line-height: 1.15; }
+:root[data-ui="redesign"] .la-page .local-agent-metric-sub { line-height: 1.4; }
+/* OS 分頁列 44px 高、選項 36px，選 Windows／macOS 尺寸不變 */
+:root[data-ui="redesign"] .la-page .la-tabs { box-sizing: border-box; height: 44px; padding: 4px; align-items: stretch; }
+:root[data-ui="redesign"] .la-page .la-tab { box-sizing: border-box; height: 36px; padding: 0 18px; line-height: 36px; font-weight: 600; border: 0; }
+
+/* ══ 第三輪（CodeX 對照設計圖）══ */
+/* 獎池數據：資料列 38px 高 */
+:root[data-ui="redesign"] .main-content .jp-table.version-table tbody td { box-sizing: border-box; height: 38px; padding-top: 0; padding-bottom: 0; line-height: 1.3; }
+/* Token 卡 72px 高 */
+.la-page .la-token { box-sizing: border-box; min-height: 72px; padding: 12px; }
+/* 安裝步驟：節點間距約 167px（左右各內縮 22.5px，中間節點不動） */
+.la-steps { padding: 0 22.5px; }
