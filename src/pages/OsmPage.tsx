@@ -894,7 +894,7 @@ function VersionDashboard({
           <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標元件</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
-              <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
+              <div key={`${c.system}-${c.name}`} className="osm-offtarget-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
                 <span style={{ padding: '2px 7px', borderRadius: 4, background: `color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 16%, transparent)`, border: `1px solid color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 40%, transparent)`, color: sysColor[c.system] ?? '#94a3b8', fontSize: 11, flexShrink: 0, fontWeight: 700 }}>{c.system}</span>
                 <span style={{ flex: 1, fontWeight: 600, color: '#f1f5f9', fontSize: 13 }}>{c.name}</span>
                 <span style={{ color: '#f87171', fontWeight: 700, fontSize: 12 }}>{c.current || '—'}</span>

@@ -29,29 +29,29 @@
 }
 
 /* ── 面板：同普通版的浮起面板，圓角 3px＋鎏金角框（原型 .panel::before／::after） ── */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card) {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
   border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
   border-radius: 3px !important;
   box-shadow: var(--rd-elev-2) !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel):hover {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card):hover {
   transform: none !important;
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
   box-shadow: var(--rd-elev-2) !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::before,
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::after {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::after {
   content: "" !important; display: block !important; position: absolute !important; z-index: 3 !important;
   inset: auto !important; width: 14px !important; height: 14px !important; margin: 0 !important;
   border: 2px solid var(--rd-ornament) !important; border-radius: 0 !important;
   background: none !important; box-shadow: none !important; transform: none !important; animation: none !important;
   opacity: .85 !important; pointer-events: none !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::before {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::before {
   top: -1px !important; left: -1px !important; border-right: 0 !important; border-bottom: 0 !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::after {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::after {
   bottom: -1px !important; right: -1px !important; border-left: 0 !important; border-top: 0 !important;
 }
 /* Dashboard 面板原本 overflow:hidden，角框會被裁掉一半；表格本身不超寬，放開 */
@@ -257,4 +257,115 @@
   background: var(--rd-panel-2) !important;
   border-color: var(--rd-line-2) !important;
   color: var(--rd-fg-2) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   第二批：Meegle 批量工具、TestCase 生成、週報彙整、文書工具、OSM 版號同步、圖片刪除驗證
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 按鈕前的裝飾符號（舊仙俠：主按鈕前一顆菱形、次要按鈕前一個圓圈）——原型按鈕沒有，收掉 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.submit-btn, .osm-btn, .btn-ghost, .settings-btn, .discord-notify-btn, .cr-btn)::before {
+  content: none !important; display: none !important;
+}
+
+/* 分頁列：TestCase 的「操作類型」外框在新版是拿掉的（testcase.css），面板角框不要畫上去；分頁裡的仙俠小圖原型沒有 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tc-action-card::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tc-action-card::after { content: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab .xianxia-action-icon { display: none; }
+
+/* OSM 區塊標題：舊仙俠的空心符印＋標題下金線換成鎏金菱形（同 .section-title） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-section-title { color: var(--rd-fg) !important; padding-left: 17px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-section-title::before {
+  display: block; left: 2px; width: 7px; height: 7px; margin: -3.5px 0 0; border: 0; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-section-title::after { display: none !important; }
+/* 空狀態：普通版的藍灰底框（#0f172a／#2d3f55）換成墨綠虛線框 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-empty {
+  background: color-mix(in srgb, var(--rd-bg) 60%, transparent) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg-3) !important;
+}
+
+/* TestCase：範例表格外框、說明列底色、行內 code */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .sheet-preview-wrap { border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .sheet-preview-wrap td[colspan] { background: color-mix(in srgb, var(--rd-bg) 60%, transparent) !important; color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content code { background: var(--rd-bg-2); color: var(--rd-fg-2); }
+
+/* Meegle：頁面自帶的 --mb-* 配色換成新版 tokens；外框、步驟點、說明區、空間切換列同一套墨綠 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-page,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-modal-back {
+  --mb-bg: var(--rd-bg); --mb-card: var(--rd-panel); --mb-card2: var(--rd-panel-2);
+  --mb-border: var(--rd-line-2); --mb-border-strong: color-mix(in srgb, var(--rd-accent) 45%, var(--rd-line-2));
+  --mb-text: var(--rd-fg); --mb-muted: var(--rd-fg-2);
+  --mb-primary: var(--rd-accent); --mb-primary-2: color-mix(in srgb, var(--rd-accent) 70%, #000); --mb-primary-glow: var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-shell-title,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-pane-title { letter-spacing: normal; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-step-dot { border-color: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-step--current .mb-step-dot { background: var(--rd-panel-2); border-color: var(--rd-accent); color: var(--rd-accent-2); box-shadow: 0 0 0 4px var(--rd-glow); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-step--current .mb-step-label { color: var(--rd-accent-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-step-line { background: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-btn:not(.mb-btn--primary) { border-color: var(--rd-line-2); color: var(--rd-fg); background: var(--rd-panel-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-btn:not(:disabled):not(.mb-btn--primary):hover { border-color: var(--rd-accent); background: var(--rd-panel-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-table th { background: var(--rd-bg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mgd { position: relative; color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.mgd-lead, .mgd-table th, .mgd-opt) { color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.mgd-lead b, .mgd-sub) { color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mgd-tab { border-color: var(--rd-line-2); color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mgd-tab.is-on { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-accent) 20%, var(--rd-panel-2)); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.mgd-table th, .mgd-table td) { border-bottom-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mgd code { background: var(--rd-bg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-bar { border-color: var(--rd-line-2); background: color-mix(in srgb, var(--rd-panel) 80%, transparent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-bar-label { color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-seg { border-color: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-seg-btn { color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-seg-btn + .msp-seg-btn { border-left-color: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-seg-btn.is-on.msp-seg-btn--test { background: color-mix(in srgb, var(--rd-accent) 22%, var(--rd-panel-2)); color: var(--rd-fg); }
+
+/* 文書工具：「新分頁」小籤原本是石板灰 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-app-tag { background: color-mix(in srgb, var(--rd-ornament) 16%, transparent); color: var(--rd-ornament); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-group-label { font-family: inherit; }
+/* OSM：未達標元件列（行內 #1e293b／#334155）、渠道卡（#162032，左邊框是狀態色要留著）、統計籤 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-offtarget-row { background: var(--rd-panel-2) !important; border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-offtarget-row > span:nth-child(2) { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-channel-row {
+  background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel)) !important;
+  border-top-color: var(--rd-line-2) !important; border-right-color: var(--rd-line-2) !important; border-bottom-color: var(--rd-line-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .stat-chip:not(.stat-chip--ok):not(.stat-chip--warn) { background: var(--rd-panel-2) !important; border-color: var(--rd-line-2) !important; }
+/* TestCase「流程說明」：新版是一行小字展開鈕，舊仙俠 .info-block 把它畫成一條底色框 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .tc-flow { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .tc-flow::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .tc-flow::after { content: none !important; }
+/* OSM 區塊標題列上的次要操作（取得元件版本…）：普通版是文字操作（osm.css），上面那條「主按鈕強調色」權重更高、會把它塗回實心，這裡壓回去 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .osm-section-header .osm-btn.osm-btn--primary:not(.osm-btn--main):not(.submit-btn--stop):not(.scripted-stop-btn):not(.saved):not(.loading) {
+  background: none !important; border: 0 !important; box-shadow: none !important; padding: 4px 2px !important;
+  color: var(--rd-fg-2) !important; font-weight: 500; font-size: 12.5px;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .osm-section-header .osm-btn.osm-btn--primary:not(.osm-btn--main):hover:not(:disabled) { color: var(--rd-accent-2) !important; text-decoration: underline; }
+
+/* ══ 第二批 CodeX 第二輪 ══ */
+/* 次要按鈕：舊仙俠 .btn-ghost／.settings-btn／一般 .osm-btn 是藍黑底（rgba(15,25,34)）＋金框，全站換成原型的墨綠玻璃按鍵 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.btn-ghost, .settings-btn, .osm-btn:not(.osm-btn--primary)) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2) !important;
+  border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.btn-ghost, .settings-btn, .osm-btn:not(.osm-btn--primary)):hover:not(:disabled) {
+  border-color: var(--rd-accent) !important; color: var(--rd-fg) !important;
+}
+/* 表頭底：舊仙俠全站 thead tr 是藍黑（rgba(14,29,41,.92)） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content thead tr, .dashboard-table thead tr, .sheet-preview-table thead tr) { background: var(--rd-bg-2) !important; }
+/* 文書工具：工具磚墨綠底＋各工具自己的強調色 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-app {
+  border-color: color-mix(in srgb, var(--office-accent) 28%, var(--rd-line-2));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--office-accent) 16%, var(--rd-panel-2)), var(--rd-panel) 80%);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-app:hover { border-color: color-mix(in srgb, var(--office-accent) 60%, var(--rd-line-2)); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-tabs { border-bottom-color: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-tab[aria-selected="true"] { background: var(--rd-panel-2); }
+/* 標題帶（文書工具、Meegle）：圓角跟著仙俠面板 3px，色條換鎏金菱形 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card > .office-head:first-child { border-radius: 3px 3px 0 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-shell > .mb-shell-head:first-child { border-radius: 3px 3px 0 0; border-bottom-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-shell > .mb-shell-head:first-child::before {
+  left: 14px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
 }

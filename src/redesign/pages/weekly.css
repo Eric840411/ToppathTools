@@ -62,10 +62,10 @@
 .wr-inline > .wr-field:not(.wr-grow):not(.wr-w200):not(.wr-w220):not(.wr-w240) { width: auto; }
 .wr-field--ellipsis { text-overflow: ellipsis; }
 .main-content .wr-field--invalid { border-color: var(--wr-fail) !important; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .wr-field:not(.wr-field--invalid) {
+:root[data-ui="redesign"] .main-content .wr-field:not(.wr-field--invalid) {
   background-color: var(--rd-bg-2) !important; border-color: var(--rd-line-2) !important;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .wr-field:focus {
+:root[data-ui="redesign"] .main-content .wr-field:focus {
   border-color: var(--rd-accent) !important; box-shadow: var(--rd-well), 0 0 0 3px var(--rd-glow) !important;
 }
 
@@ -76,7 +76,7 @@
 }
 .main-content .wr-btn--sm { height: 32px; padding: 0 14px; font-size: 12.5px; }
 .main-content .wr-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost.wr-btn { color: var(--rd-fg); font-weight: 700; }
+:root[data-ui="redesign"] .main-content .btn-ghost.wr-btn { color: var(--rd-fg); font-weight: 700; }
 .main-content .wr-icon-btn { width: 30px; height: 30px; padding: 0; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
 /* ── 勾選（原型 .chk） ── */
@@ -119,19 +119,17 @@
   background-color: transparent;
 }
 /* 普通版標題帶左右各 -16px 貼齊面板邊；按鈕不會自動撐滿，寬度要自己補回來 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card > .section-title.wr-collapse:first-child { width: calc(100% + 32px); }
+:root[data-ui="redesign"] .main-content .section-card > .section-title.wr-collapse:first-child { width: calc(100% + 32px); }
 .main-content .wr-people .rd-tab { font-family: inherit; }
 .wr-chev { color: var(--rd-fg-3, #64748b); flex-shrink: 0; transition: transform .15s ease; }
 .wr-meta { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--rd-fg-3, #64748b); font-family: var(--wr-mono); }
 .wr-meta--on { color: var(--rd-accent-2, #7fb0ff); }
 .main-content .section-card.wr-panel--closed { padding-bottom: 0 !important; }
 .main-content .section-card.wr-panel--closed > .section-title:first-child { margin-bottom: 0 !important; border-bottom-color: transparent !important; border-radius: inherit !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card.wr-panel--closed { padding-top: 0 !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card.wr-panel--closed > .section-title:first-child { padding: 14px 0; }
 
 /* 未識別人員：色條換黃 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.wr-panel--warn { border-color: color-mix(in srgb, var(--wr-warn) 40%, transparent); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .wr-panel--warn > .section-title::before { background: var(--wr-warn); box-shadow: 0 0 8px color-mix(in srgb, var(--wr-warn) 50%, transparent); }
+:root[data-ui="redesign"] .main-content .section-card.wr-panel--warn { border-color: color-mix(in srgb, var(--wr-warn) 40%, transparent); }
+:root[data-ui="redesign"] .main-content .wr-panel--warn > .section-title::before { background: var(--wr-warn); box-shadow: 0 0 8px color-mix(in srgb, var(--wr-warn) 50%, transparent); }
 
 /* 還沒讀 Step 1 的佔位 */
 .main-content .section-card.wr-empty { padding: 16px; font-size: 13px; color: var(--rd-fg-3, #64748b); }
@@ -215,5 +213,5 @@
 :root[data-ui="redesign"] .main-content .wr-table .version-table th:nth-child(3) { width: 27%; }
 :root[data-ui="redesign"] .main-content .wr-table .version-table th:nth-child(4) { width: 33%; }
 /* 第二輪：預期結果的表格直接接在標題帶下（原型 .tbl-wrap 上方不留白） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card:has(.wr-table) > .section-title:first-child { margin-bottom: 0; }
+:root[data-ui="redesign"] .main-content .section-card:has(.wr-table) > .section-title:first-child { margin-bottom: 0; }
 :root[data-ui="redesign"] .main-content .section-card .wr-table { margin-top: 0; }

@@ -98,3 +98,29 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
 }
 :root[data-ui="redesign"] .main-content .section-card > .section-title:first-child::before { left: 16px; height: 16px; margin-top: -8px; }
+
+/* ══ 卡片標題帶（原型 .panel-h）補兩種「標題不是卡片第一個子元素」的寫法（兩個皮同一套；1102 CodeX 對照設計圖） ══ */
+/* 文書工具：.office-head（標題＋右側說明）整條當標題帶 */
+:root[data-ui="redesign"] .main-content .section-card:has(> .office-head:first-child) { padding: 0 16px 14px; }
+:root[data-ui="redesign"] .main-content .section-card > .office-head:first-child {
+  margin: 0 -16px 14px; padding: 11px 16px; align-items: center; min-height: 0;
+  border-bottom: 1px solid var(--rd-line); border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+}
+:root[data-ui="redesign"] .main-content .office-head > .section-title { margin: 0; font-size: 14px; font-weight: 700; }
+:root[data-ui="redesign"] .main-content .office-head > .office-muted { font-size: 12px; color: var(--rd-fg-3); }
+/* Meegle 批量開單／評論／狀態／修改：.mb-shell-head 原本是卡片裡縮排的大標題＋分隔線，改成滿版標題帶；「尚未讀取 Sheet」放右側 */
+:root[data-ui="redesign"] .mb-shell > .mb-shell-head:first-child {
+  position: relative; margin: -18px -22px 16px; padding: 11px 16px 11px 29px; align-items: center;
+  border-bottom: 1px solid var(--mb-border); border-radius: 14px 14px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+}
+:root[data-ui="redesign"] .mb-shell > .mb-shell-head:first-child::before {
+  content: ""; position: absolute; left: 16px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"] .mb-shell-head .mb-shell-title { font-size: 14px; font-weight: 700; letter-spacing: normal; }
+:root[data-ui="redesign"] .mb-shell-head .mb-shell-sub {
+  margin-left: auto; padding-left: 0; border-left: 0; font-size: 12px; color: var(--rd-fg-3);
+  font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}

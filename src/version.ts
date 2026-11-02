@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.9'
+export const APP_VERSION = '5.73.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.10', date: '2026-11-02', changes: ["style(修仙版排版 第二批：Meegle 批量工具、TestCase 生成、週報彙整、文書工具、OSM 版號同步、圖片刪除驗證)：CodeX 2 輪判定一致——頁別排版拿掉 :not(xianxia)、舊仙俠衝突處在 xianxia.css 覆蓋；全站修仙次要按鈕（btn-ghost／settings-btn／非主要 osm-btn）改原型墨綠玻璃、表頭改墨綠、拿掉按鈕前舊符號；Meegle 主卡與文書工具工具區改整條標題帶（兩版一起，原型兩版都有）。OsmPage 未達標列只加 class"] },
   { version: '5.73.9', date: '2026-11-02', changes: ["style(修仙版排版 第一批：共用層＋Dashboard、機台自動化測試)：修仙版改用跟普通版同一套排版，只換配色與裝飾（原型：兩套結構不變）——拿掉 dashboard／machine-test／kit 等的 :not(xianxia) 排版範圍、新增 src/redesign/xianxia.css（墨綠 token、面板四角框、標題菱形、內文字體取代襯線、覆蓋舊仙俠 CSS 與新排版衝突處，舊版介面不動）。Dashboard 統計磚緊湊、下排左欄彈性／右欄 340px；機台自動化測試設定欄彈性／摘要 320px 依內容長高、96px 標籤欄、按鈕一列、測試項目四欄勾選（兩版一起，MachineTestPage 只加 class）。CodeX 3 輪判定一致"] },
   { version: '5.73.8', date: '2026-11-02', changes: ["style(新版排版 最後六頁)：AutoSpin 通知、系統管理、Performance Meter 對帳、Egm DayCount 對帳、知識庫、個人帳號，CodeX 對照設計圖判定一致（2～3 輪）——標籤在左、按鈕字級 14px（原型 .btn 繼承 14px）、系統管理角色卡＋權限依文字寬度排列、知識庫五欄 34:13:13:24:16＋文字連結操作、對帳頁查詢條件一列、個人帳號有效徽章在卡片內＋四步驟圓點。共用元件 RoleManager／MeegleIdentityOverridesPanel 只改排版。系統管理的「通過／失敗」前綴因程式用 startsWith 判顏色而保留"] },
   { version: '5.73.7', date: '2026-11-02', changes: ["style(新版排版 OSM 版本更新紀錄、URL 帳號池、操作歷史紀錄)：CodeX 對照設計圖判定一致（2～3 輪）——版本更新紀錄：最後更新／設定／新增更新搬到頁首右側、分頁改原型樣式（筆數保留）、篩選列進面板、月份改面板標題帶、雙欄 7：3；URL 帳號池：環境分頁一列＋其餘全部收進一個面板（H5/PC、統計、篩選、搜尋、表格）、六欄比例照原型、長狀態膠囊在膠囊內省略、清掉淺色主題殘留列底色；操作歷史：重新整理搬到頁首、時間範圍與 31 個功能篩選同一面板、紀錄列照原型（功能膠囊用既有 FEATURE_COLORS）"] },
