@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { loadGlobalAccount } from '../authSession'
+import { PageActions } from '../redesign/PageActions'
 
 /**
  * AutoSpin 通知設定（v5.5.0：原本的「Discord 通知」頁拿掉 Discord 專屬的 Webhook URL 與 Discord ID 對照表）。
@@ -164,7 +165,7 @@ export function AutoSpinNotifySettingsPage() {
         setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin)
         setSavedReportFields(reportFields); setSavedReportCustomNote(reportCustomNote)
         setSavedReportAiEnabled(reportAiEnabled)
-        setReportMsg({ text: '通過 已儲存定時彙總報告設定', ok: true })
+        setReportMsg({ text: '已儲存定時彙總報告設定', ok: true })
       } else {
         setReportMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
       }
@@ -182,7 +183,7 @@ export function AutoSpinNotifySettingsPage() {
       const res = await fetch('/api/autospin/status-report-test', { method: 'POST', headers: { 'x-user-label': getUserLabel() } })
       const data = await res.json()
       setReportMsg(data.ok
-        ? { text: '通過 測試彙總報告已送出（假資料），請到 Lark 通知群組查看效果', ok: true }
+        ? { text: '測試彙總報告已送出（假資料），請到 Lark 通知群組查看效果', ok: true }
         : { text: `試發送失敗：${data.message || '未知錯誤'}`, ok: false })
     } catch (e) {
       setReportMsg({ text: `試發送失敗：${e}`, ok: false })
@@ -206,7 +207,7 @@ export function AutoSpinNotifySettingsPage() {
         setSavedFields(fields)
         setSavedTitleTemplate(titleTemplate.trim() || DEFAULT_TITLE_TEMPLATE)
         setSavedFooter(footer.trim())
-        setMsg({ text: '通過 已儲存通知設定', ok: true })
+        setMsg({ text: '已儲存通知設定', ok: true })
       } else {
         setMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
       }
@@ -222,188 +223,173 @@ export function AutoSpinNotifySettingsPage() {
     || titleTemplate !== savedTitleTemplate || footer !== savedFooter
 
   return (
-    <div className="discord-notify-page">
+    <div className="discord-notify-page st-asn">
+      {/* 新版（原型 v7）：左邊兩張設定面板（標籤在左、控制項在右）、右邊窄欄訊息預覽；已啟用膠囊放頁首右側。版面樣式在 redesign/pages/settings.css */}
       <div className="discord-notify-head">
         <div>
-          <h1 className="discord-notify-title">
-            AutoSpin 通知
-            <span className={savedEnabled ? 'badge badge--ok' : 'badge badge--warn'}>
-              {savedEnabled ? '● 已啟用' : '⏸ 已暫停'}
-            </span>
-          </h1>
+          <h1 className="discord-notify-title">AutoSpin 通知</h1>
           <p className="discord-notify-sub">
             AutoSpin 執行狀態即時彙報與定時彙總報告，發到 Lark 通知群組（群組、機器人、@人 由管理員在「通知設定」頁設定）。每台機台開始測試時建立一則訊息，之後同一則訊息會隨狀態變化持續更新，不會洗版。
           </p>
         </div>
       </div>
+      <PageActions>
+        <span className={savedEnabled ? 'lst-pill lst-pill--pass' : 'lst-pill lst-pill--warn'}>
+          {savedEnabled ? '已啟用' : '已暫停'}
+        </span>
+      </PageActions>
 
       <div className="discord-notify-grid">
         {/* Left: 設定 */}
-        <div>
-          <div className="discord-notify-card">
-            <div className="discord-notify-card-title">訊息格式</div>
-            <p className="discord-notify-card-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）。<strong>啟用開關與顯示欄位依目前帳號分開設定</strong>，標題模板/頁尾文字全員共用。</p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <ToggleSwitch checked={enabled} disabled={loading} onToggle={() => setEnabled(v => !v)} />
-              <div>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用通知</div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後你派工的 session 不會發通知（依目前帳號分開設定，不影響其他人）</div>
+        <div className="st-col">
+          <section className="section-card st-card">
+            <h2 className="section-title">訊息格式</h2>
+            <p className="st-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）。<strong>啟用開關與顯示欄位依目前帳號分開設定</strong>，標題模板/頁尾文字全員共用。</p>
+            <div className="st-form">
+              <span className="st-l" />
+              <div className="st-sw">
+                <ToggleSwitch checked={enabled} disabled={loading} onToggle={() => setEnabled(v => !v)} />
+                <div>
+                  <div className="st-sw-label">啟用通知</div>
+                  <div className="st-hint">關閉後你派工的 session 不會發通知（依目前帳號分開設定，不影響其他人）</div>
+                </div>
               </div>
-            </div>
 
-            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
-              <label>顯示欄位</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <span className="st-l">顯示欄位</span>
+              <div className="st-checks">
                 {FIELD_META.map(f => (
-                  <label
-                    key={f.key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-                      border: '1px solid #334155', borderRadius: 7, background: '#0f172a',
-                      fontSize: 12, color: '#cbd5e1', cursor: 'pointer', userSelect: 'none',
-                    }}
-                  >
+                  <label key={f.key} className="st-chk">
                     <input
                       type="checkbox"
                       checked={fields[f.key]}
                       disabled={loading}
                       onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.checked }))}
-                      style={{ cursor: 'pointer', accentColor: '#5865f2' }}
                     />
                     {f.label}
                   </label>
                 ))}
               </div>
-            </div>
 
-            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
-              <label>訊息標題模板</label>
-              <input
-                className="discord-notify-input"
-                value={titleTemplate}
-                onChange={e => setTitleTemplate(e.target.value)}
-                placeholder={DEFAULT_TITLE_TEMPLATE}
-                disabled={loading}
-              />
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>用 <code>{'{machineType}'}</code> 代表機台代碼，例如加公司代號：<code>[TP] {'{machineType}'}</code></div>
-            </div>
+              <label className="st-l" htmlFor="asn-title-tpl">訊息標題模板</label>
+              <div className="st-cell">
+                <input
+                  id="asn-title-tpl"
+                  className="lst-field st-grow"
+                  value={titleTemplate}
+                  onChange={e => setTitleTemplate(e.target.value)}
+                  placeholder={DEFAULT_TITLE_TEMPLATE}
+                  disabled={loading}
+                />
+                <div className="st-hint">用 <code>{'{machineType}'}</code> 代表機台代碼，例如加公司代號：<code>[TP] {'{machineType}'}</code></div>
+              </div>
 
-            <div className="discord-notify-field">
-              <label>自訂頁尾文字（選填）</label>
+              <label className="st-l" htmlFor="asn-footer">自訂頁尾文字（選填）</label>
               <input
-                className="discord-notify-input"
+                id="asn-footer"
+                className="lst-field st-grow"
                 value={footer}
                 onChange={e => setFooter(e.target.value)}
                 placeholder="例如：Toppath QA Team"
                 disabled={loading}
               />
             </div>
-            <div className="discord-notify-actions">
-              <button className="discord-notify-btn discord-notify-btn--primary" onClick={handleSave} disabled={saving || loading || !isDirty}>
+            <div className="st-actions">
+              <button className="submit-btn lst-btn" onClick={handleSave} disabled={saving || loading || !isDirty}>
                 {saving ? '儲存中…' : '儲存設定'}
               </button>
             </div>
             {msg && <div className={`discord-notify-msg ${msg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{msg.text}</div>}
-          </div>
+          </section>
 
-          <div className="discord-notify-card">
-            <div className="discord-notify-card-title">定時彙總報告（AutoSpin 長時間穩定性統計）</div>
-            <p className="discord-notify-card-note">
+          <section className="section-card st-card">
+            <h2 className="section-title">定時彙總報告（AutoSpin 長時間穩定性統計）</h2>
+            <p className="st-note">
               跟上面的啟動/結束通知發到同一個 Lark 群組，是另外獨立開關——每隔設定的間隔，把累計統計（Spin 數/errcode/斷線重連/CR checks 等）發一則新的彙總訊息，不會覆蓋前一則。<strong>以下設定依目前帳號分開</strong>，只影響你自己派工的 session。
             </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <ToggleSwitch checked={reportEnabled} disabled={loading} onToggle={() => setReportEnabled(v => !v)} />
-              <div>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用定時彙總報告</div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後即使有設定間隔也不會發送</div>
+            <div className="st-form">
+              <span className="st-l" />
+              <div className="st-sw">
+                <ToggleSwitch checked={reportEnabled} disabled={loading} onToggle={() => setReportEnabled(v => !v)} />
+                <div>
+                  <div className="st-sw-label">啟用定時彙總報告</div>
+                  <div className="st-hint">關閉後即使有設定間隔也不會發送</div>
+                </div>
               </div>
-            </div>
-            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
-              <label>間隔（分鐘）</label>
-              <input
-                className="discord-notify-input"
-                type="number" min={1} step={1}
-                value={reportIntervalMin}
-                onChange={e => setReportIntervalMin(Math.max(1, parseInt(e.target.value) || 20))}
-                style={{ maxWidth: 120 }}
-                disabled={loading}
-              />
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Agent 每 3 秒隨心跳拿到最新設定，改了不用重啟 Agent</div>
-            </div>
-            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
-              <label>顯示欄位</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+
+              <label className="st-l" htmlFor="asn-interval">間隔（分鐘）</label>
+              <div className="st-cell">
+                <input
+                  id="asn-interval"
+                  className="lst-field st-grow"
+                  type="number" min={1} step={1}
+                  value={reportIntervalMin}
+                  onChange={e => setReportIntervalMin(Math.max(1, parseInt(e.target.value) || 20))}
+                  disabled={loading}
+                />
+                <div className="st-hint">Agent 每 3 秒隨心跳拿到最新設定，改了不用重啟 Agent</div>
+              </div>
+
+              <span className="st-l st-l--top">顯示欄位</span>
+              <div className="st-checks">
                 {REPORT_FIELD_META.map(f => (
-                  <label
-                    key={f.key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-                      border: '1px solid #334155', borderRadius: 7, background: '#0f172a',
-                      fontSize: 12, color: '#cbd5e1', cursor: 'pointer', userSelect: 'none',
-                    }}
-                  >
+                  <label key={f.key} className="st-chk">
                     <input
                       type="checkbox"
                       checked={reportFields[f.key]}
                       disabled={loading}
                       onChange={e => setReportFields(prev => ({ ...prev, [f.key]: e.target.checked }))}
-                      style={{ cursor: 'pointer', accentColor: '#5865f2' }}
                     />
                     {f.label}
                     {/* ⚠️ 有 hint 的欄位要把「它會查什麼、查不到時怎麼顯示」講出來——
                         看不出差別的開關，使用者只會憑感覺關掉 */}
-                    {f.hint && (
-                      <span
-                        title={f.hint}
-                        style={{ color: '#64748b', fontSize: 11, cursor: 'help', borderBottom: '1px dotted #475569' }}
-                      >ⓘ</span>
-                    )}
+                    {f.hint && <span className="st-info" title={f.hint}>ⓘ</span>}
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="discord-notify-field">
-              <label>自訂欄位（選填）</label>
+
+              <label className="st-l st-l--top" htmlFor="asn-note">自訂欄位（選填）</label>
               <textarea
-                className="discord-notify-input"
+                id="asn-note"
+                className="lst-field st-ta"
                 value={reportCustomNote}
                 onChange={e => setReportCustomNote(e.target.value)}
                 placeholder="會原樣附加在每則彙總報告的最下方，例如備註、負責人、環境標籤等"
                 disabled={loading}
                 rows={2}
-                style={{ resize: 'vertical', fontFamily: 'inherit' }}
               />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 16, marginBottom: 16 }}>
-              <ToggleSwitch checked={reportAiEnabled} disabled={loading} onToggle={() => setReportAiEnabled(v => !v)} />
-              <div>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 3 }}>啟用 AI 分析區塊</div>
-                <div style={{ color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「傀 AI 分析」判斷是否異常</div>
+
+              <span className="st-l" />
+              <div className="st-sw">
+                <ToggleSwitch checked={reportAiEnabled} disabled={loading} onToggle={() => setReportAiEnabled(v => !v)} />
+                <div>
+                  <div className="st-sw-label">啟用 AI 分析區塊</div>
+                  <div className="st-hint">關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「AI 分析」判斷是否異常</div>
+                </div>
               </div>
             </div>
-            <div className="discord-notify-actions">
+            <div className="st-actions">
               <button
-                className="discord-notify-btn discord-notify-btn--primary"
-                onClick={handleSaveReportSettings}
-                disabled={reportSaving || loading || !reportDirty}
-              >
-                {reportSaving ? '儲存中…' : '儲存彙總報告設定'}
-              </button>
-              <button
-                className="discord-notify-btn discord-notify-btn--secondary"
+                className="btn-ghost lst-btn"
                 onClick={handleTestReport}
                 disabled={reportTesting || loading}
                 title="用假資料送一則測試彙總報告，確認格式與效果"
               >
                 {reportTesting ? '送出中…' : '試發送'}
               </button>
+              <button
+                className="submit-btn lst-btn"
+                onClick={handleSaveReportSettings}
+                disabled={reportSaving || loading || !reportDirty}
+              >
+                {reportSaving ? '儲存中…' : '儲存彙總報告設定'}
+              </button>
             </div>
             {reportMsg && <div className={`discord-notify-msg ${reportMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{reportMsg.text}</div>}
-          </div>
+          </section>
 
-          <div className="discord-notify-card">
-            <div className="discord-notify-card-title">更新 狀態生命週期</div>
-            <p className="discord-notify-card-note">
+          <section className="section-card st-card">
+            <h2 className="section-title">狀態生命週期</h2>
+            <p className="st-note">
               同一台機台的通知只會有「一則」訊息，狀態變化時原地編輯更新。
             </p>
             <div className="discord-notify-state-list">
@@ -418,54 +404,29 @@ export function AutoSpinNotifySettingsPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         </div>
 
         {/* Right: 預覽 */}
-        <div className="discord-notify-card">
-          <div className="discord-notify-card-title">訊息預覽</div>
-          <p className="discord-notify-card-note">卡片內容示意（實際發到 Lark，排版會是 Lark 卡片樣式）</p>
-          <div className="discord-notify-preview">
-            <div className="discord-notify-preview-embed">
-              <div className="discord-notify-preview-title">
-                ︎ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
-              </div>
-              <div className="discord-notify-preview-fields">
-                <div>
-                  <div className="discord-notify-preview-field-name">狀態</div>
-                  <div className="discord-notify-preview-field-value">︎ 執行中</div>
-                </div>
-                {fields.spinCount && (
-                  <div>
-                    <div className="discord-notify-preview-field-name">Spin 數</div>
-                    <div className="discord-notify-preview-field-value">128</div>
-                  </div>
-                )}
-                {fields.gameUrl && (
-                  <div className="full">
-                    <div className="discord-notify-preview-field-name">Game URL</div>
-                    <div className="discord-notify-preview-field-value">https://qat-cp.osmslot.org/game/...</div>
-                  </div>
-                )}
-                {fields.errorSummary && (
-                  <div className="full">
-                    <div className="discord-notify-preview-field-name">錯誤摘要</div>
-                    <div className="discord-notify-preview-field-value">（有異常時才會顯示內容）</div>
-                  </div>
-                )}
-                {fields.screenshotUrl && (
-                  <div className="full">
-                    <div className="discord-notify-preview-field-name">截圖</div>
-                    <div className="discord-notify-preview-field-value">https://.../screenshot/xxx/JJBXGRAND_01_128.png</div>
-                  </div>
-                )}
-              </div>
-              <div className="discord-notify-preview-time">
-                {footer ? `${footer} • ` : ''}今天 14:32
-              </div>
+        <section className="section-card st-card st-asn-preview">
+          <h2 className="section-title">訊息預覽</h2>
+          <p className="st-note">卡片內容示意（實際發到 Lark，排版會是 Lark 卡片樣式）</p>
+          <div className="st-pv">
+            <div className="st-pv-title">
+              {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
+            </div>
+            <dl className="st-kv">
+              <dt>狀態</dt><dd>執行中</dd>
+              {fields.spinCount && <><dt>Spin 數</dt><dd>128</dd></>}
+              {fields.gameUrl && <><dt>Game URL</dt><dd>https://qat-cp.osmslot.org/game/...</dd></>}
+              {fields.errorSummary && <><dt>錯誤摘要</dt><dd>（有異常時才會顯示內容）</dd></>}
+              {fields.screenshotUrl && <><dt>截圖</dt><dd>https://.../screenshot/xxx/JJBXGRAND_01_128.png</dd></>}
+            </dl>
+            <div className="st-pv-foot">
+              {footer ? `${footer} • ` : ''}今天 14:32
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   )

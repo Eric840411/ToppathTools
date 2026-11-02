@@ -1,0 +1,316 @@
+/* ══════════════════════════════════════════════════════════════════
+   設定／對帳六頁（原型 v7）：AutoSpin 通知、系統管理、Performance Meter 對帳、Egm DayCount 對帳、知識庫、個人帳號
+   - 每一塊都是原型面板：.section-card（＋第一個子元素 .section-title ＝ 標題帶，kit.css）
+   - .st-raw：有標題帶、但內容貼邊的面板（工具列＋表格），表格左右內縮 10px（原型 .tbl-wrap）
+   - 表單照原型 .form：左邊 96px 標籤欄、右邊控制項；輸入框 34px、按鈕 36px 圓角 7（lst-field／lst-btn，lists.css）
+   配色只動普通版（:not(xianxia)），仙俠版只吃版面。功能不動。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 頁面骨架：面板之間 16px，面板本身不再帶 margin-bottom ── */
+:root[data-ui="redesign"] :is(.st-asn, .st-admin, .st-q-page, .st-kb) { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding-bottom: 24px; }
+:root[data-ui="redesign"] .main-content .section-card.st-card { margin-bottom: 0; min-width: 0; }
+
+/* ── 共用零件 ── */
+.st-note { margin: 0 0 14px; font-size: 12px; line-height: 1.65; color: var(--rd-fg-3, #64748b); }
+.st-note :is(strong, b) { color: var(--rd-fg-2, #94a3b8); font-weight: 600; }
+.st-note.st-note--inline { margin: 0; }
+.st-pad { padding: 0 16px; margin: 12px 0; }
+.st-hint { margin-top: 4px; font-size: 12px; line-height: 1.55; color: var(--rd-fg-3, #64748b); }
+.st-hint code { font-size: 11.5px; }
+.st-dim { color: var(--rd-fg-3, #64748b); font-size: 12px; }
+.st-grow { flex: 1 1 auto; min-width: 0; }
+.st-strong { color: var(--rd-fg, #e2e8f0) !important; font-weight: 500; }
+.st-w180 { width: 180px; }
+.st-w200 { width: 200px; }
+.st-w220 { width: 220px; }
+.st-msg-ok { color: #34d399; font-size: 12.5px; }
+.st-msg-err { color: #f87171; font-size: 12.5px; }
+.st-error { padding: 12px 16px; border-radius: 10px; font-size: 13px; color: #f87171; background: rgba(239, 68, 68, .08); border: 1px solid rgba(239, 68, 68, .35); }
+.lst-note--ok { color: #34d399; background: rgba(52, 211, 153, .08); border-color: rgba(52, 211, 153, .35); }
+.lst-note--bad { color: #f87171; background: rgba(248, 113, 113, .08); border-color: rgba(248, 113, 113, .35); }
+
+/* 表單（原型 .form）：96px 標籤欄 */
+.st-form { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px 14px; align-items: center; }
+.st-l { color: var(--rd-fg-2, #94a3b8); font-size: 13px; line-height: 1.4; }
+.st-l.st-l--top { align-self: start; padding-top: 7px; }
+.st-cell { display: flex; flex-direction: column; min-width: 0; }
+.st-form .lst-field { width: 100%; }
+.st-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.lst-field.st-ta { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; font-family: inherit; line-height: 1.5; }
+.st-sw { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.st-sw-label { font-size: 13.5px; font-weight: 600; color: var(--rd-fg, #e2e8f0); }
+.st-sw .st-hint { margin-top: 1px; }
+
+/* 勾選（原型 .chk）：不加框，一行一個 */
+.st-checks { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.st-chk { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; white-space: nowrap; cursor: pointer; user-select: none; color: var(--rd-fg, #e2e8f0); }
+.st-chk input { accent-color: var(--rd-accent, #3b82f6); width: 15px; height: 15px; margin: 0; cursor: pointer; flex: none; }
+.st-chk input:disabled { cursor: not-allowed; }
+.st-info { color: var(--rd-fg-3, #64748b); font-size: 12px; cursor: help; border-bottom: 1px dotted currentColor; line-height: 1.1; }
+
+/* 按鈕列：靠右（原型 actions） */
+.st-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.st-actions.st-actions--bar { padding-top: 14px; border-top: 1px solid var(--rd-line, #263345); }
+:root[data-ui="redesign"] .main-content .lst-btn.st-btn--danger { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
+:root[data-ui="redesign"] .main-content .lst-btn.st-btn--danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
+.discord-notify-msg { text-align: right; }
+
+/* 表格操作欄：文字連結（原型 預覽・重抓・編輯） */
+.st-links { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.st-links-i { display: inline-flex; align-items: center; gap: 6px; }
+.st-dot { color: var(--rd-fg-3, #64748b); }
+.lst-link:disabled { opacity: .5; cursor: not-allowed; text-decoration: none; }
+.lst-link.st-link--danger { color: #f87171; }
+
+/* 面板標題帶右側的小字（原型 .panel-h .meta） */
+.section-title .st-meta { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--rd-fg-3, #64748b); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+/* ── 貼邊面板（.st-raw）：標題帶＋工具列＋表格 ── */
+:root[data-ui="redesign"] .main-content .section-card.st-raw:has(> .section-title:first-child) { padding: 0; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.st-raw > .section-title:first-child { margin: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card.st-raw > .section-title:first-child { margin: 0; padding: 14px 16px 12px; }
+:root[data-ui="redesign"] .main-content .section-card.st-raw > .section-title + .lst-tbl { margin-top: 10px; }
+.st-raw .lst-tbl.st-tbl-gap { margin-bottom: 14px; }
+.st-raw > .lst-toolbar:last-child { border-bottom: 0; }
+
+/* 表格（原型 table）：全部靠左、表頭不轉大寫 */
+:root[data-ui="redesign"] .main-content .st-tbl th { text-transform: none; padding: 9px 12px; font-size: 12px; font-weight: 500; text-align: left; white-space: nowrap; }
+:root[data-ui="redesign"] .main-content .st-tbl td { padding: 9px 12px; vertical-align: middle; text-align: left; }
+:root[data-ui="redesign"] .main-content .st-tbl tbody tr:last-child td { border-bottom: 0; }
+:root[data-ui="redesign"] .main-content .st-tbl :is(th, td).st-r { text-align: right; }
+.st-tbl.st-num { font-variant-numeric: tabular-nums; }
+.st-tbl.st-num td.st-r { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
+.st-tbl .lst-empty { text-align: center; }
+
+/* ── 收合面板（details）：summary 長得像標題帶 ── */
+:root[data-ui="redesign"] .main-content .section-card.st-details { padding: 0; }
+.st-details > summary {
+  list-style: none; display: flex; align-items: center; gap: 10px; padding: 11px 16px; cursor: pointer; user-select: none;
+  font-size: 13.5px; font-weight: 700; color: var(--rd-fg, #e2e8f0);
+}
+.st-details > summary::-webkit-details-marker { display: none; }
+.st-details > summary::before { content: "▸"; color: var(--rd-fg-3, #64748b); font-size: 12px; transition: transform .14s ease; }
+.st-details[open] > summary { border-bottom: 1px solid var(--rd-line, #263345); margin-bottom: 12px; }
+.st-details[open] > summary::before { transform: rotate(90deg); }
+.st-details > .lst-tbl { margin-top: 0; }
+
+/* ════════════════════ AutoSpin 通知 ════════════════════ */
+:root[data-ui="redesign"] .st-asn .discord-notify-head { margin: 0; }
+:root[data-ui="redesign"] .st-asn .discord-notify-sub { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--rd-fg-3, #64748b); }
+:root[data-ui="redesign"] .st-asn .discord-notify-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.st-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+:root[data-ui="redesign"] .st-asn .discord-notify-state-list { gap: 6px; }
+/* 預覽卡（原型 .card，左邊一條執行中藍） */
+.st-pv {
+  display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: 9px; min-width: 0;
+  background: linear-gradient(170deg, var(--rd-panel-2, #1e293b), var(--rd-panel, #162032));
+  border: 1px solid var(--rd-line-2, #2d3f55); border-left: 3px solid #60a5fa; box-shadow: var(--rd-elev-1, none);
+}
+.st-pv-title { font-size: 14.5px; font-weight: 700; color: var(--rd-fg, #e2e8f0); overflow-wrap: anywhere; }
+.st-kv { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 9px 12px; margin: 0; font-size: 13px; }
+.st-kv dt { color: var(--rd-fg-3, #64748b); }
+.st-kv dd { margin: 0; color: var(--rd-fg, #e2e8f0); font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+.st-pv-foot { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--rd-fg-2, #94a3b8); }
+@media (max-width: 1100px) {
+  :root[data-ui="redesign"] .st-asn .discord-notify-grid { grid-template-columns: 1fr; }
+}
+
+/* ════════════════════ 系統管理 ════════════════════ */
+.role-manager { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.rm-list-tools { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.rm-list-tools .lst-field { width: 100%; }
+.rm-cards { display: grid; gap: 8px; }
+.rm-role {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; padding: 10px 12px; text-align: left; cursor: pointer;
+  border-radius: 9px; font: inherit; color: var(--rd-fg, #e2e8f0);
+  background: linear-gradient(170deg, var(--rd-panel-2, #1e293b), var(--rd-panel, #162032));
+  border: 1px solid var(--rd-line-2, #2d3f55); box-shadow: var(--rd-elev-1, none);
+  transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease;
+}
+.rm-role:hover { border-color: color-mix(in srgb, var(--rd-accent, #3b82f6) 55%, var(--rd-line-2, #2d3f55)); }
+.rm-role:is([aria-pressed="true"], .is-on) { border-color: var(--rd-accent, #3b82f6); box-shadow: var(--rd-elev-1, none), 0 0 0 1px var(--rd-accent, #3b82f6) inset; }
+.rm-role-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rm-role-name { font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rm-role-n { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--rd-fg-2, #94a3b8); }
+.rm-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.rm-tag { flex: none; padding: 0 7px; border-radius: 5px; font-size: 11.5px; font-weight: 500; line-height: 1.6; white-space: nowrap; color: var(--rd-fg-2, #94a3b8); background: var(--rd-panel-2, #1e293b); border: 1px solid var(--rd-line-2, #2d3f55); }
+.rm-tag--fixed { color: #f5b73b; border-color: rgba(245, 183, 59, .5); }
+.rm-tag--custom { color: #a5b4fc; border-color: rgba(129, 140, 248, .55); }
+.rm-gap { margin-bottom: 14px; }
+.rm-name.is-invalid { border-color: #f87171; box-shadow: 0 0 0 2px rgba(248, 113, 113, .25); }
+.rm-err { margin-top: 4px; color: #f87171; font-size: 11.5px; }
+.rm-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.rm-color { width: 20px; height: 20px; border-radius: 50%; padding: 0; cursor: pointer; border: 2px solid transparent; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
+.rm-color[aria-pressed="true"] { border-color: var(--rd-fg, #e2e8f0); box-shadow: 0 0 0 2px var(--rd-glow, rgba(59, 130, 246, .35)); }
+.rm-color:disabled { cursor: not-allowed; }
+.rm-builtin-note { margin: 0; }
+.rm-group { margin-top: 16px; }
+.rm-group-h { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--rd-fg-2, #94a3b8); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.rm-perms { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; }
+.rm-perms .st-chk { white-space: normal; align-items: flex-start; line-height: 1.35; }
+.rm-perms .st-chk input { margin-top: 1px; }
+.rm-go { color: inherit; text-decoration: underline; }
+.rm-edit > .section-title { gap: 10px; }
+@media (max-width: 900px) { .role-manager { grid-template-columns: 1fr; } }
+
+/* 帳號管理：新增表單 */
+.st-addform { margin: 14px 16px; padding: 16px; border-radius: 9px; background: var(--rd-bg-2, #162032); border: 1px solid var(--rd-line-2, #2d3f55); }
+
+/* ════════════════════ 對帳兩頁：查詢列一列排完 ════════════════════ */
+:root[data-ui="redesign"] .main-content .section-card.st-q { padding: 14px 16px; }
+.st-q-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.st-q-f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-q-f.st-q-f--grow { flex: 1 1 150px; }
+.st-q-l { font-size: 11px; line-height: 1.2; color: var(--rd-fg-3, #64748b); white-space: nowrap; }
+.st-q .lst-field { width: 100%; }
+.st-q input[type="date"].lst-field { width: 142px; }
+.st-q .lst-field.st-q-time { width: 104px; }
+:root[data-ui="redesign"] .st-seg.rd-tabs { height: 34px; padding: 2px; gap: 2px; border-radius: 8px; box-sizing: border-box; align-items: stretch; }
+:root[data-ui="redesign"] .st-seg .rd-tab { display: inline-flex; align-items: center; padding: 0 10px; font-size: 12.5px; border-radius: 6px; }
+:root[data-ui="redesign"] .st-seg .rd-tab[aria-pressed="true"] { font-weight: 700; }
+.st-q-chk { height: 34px; }
+.st-q-go { margin-left: auto; }
+.st-q-hint { margin: 10px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--rd-fg-3, #64748b); }
+
+/* 結論列 */
+:root[data-ui="redesign"] .main-content .section-card.st-verdict { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 16px; }
+.lst-pill.st-verdict-pill { font-size: 15px; padding: 5px 14px; }
+.st-verdict-main { flex: 1; min-width: 220px; }
+.st-verdict-why { font-size: 14.5px; font-weight: 700; }
+.st-verdict-sub { margin-top: 3px; font-size: 12px; color: var(--rd-fg-2, #94a3b8); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.st-verdict-num { text-align: right; font-variant-numeric: tabular-nums; }
+.st-verdict-k { font-size: 12px; color: var(--rd-fg-3, #64748b); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.st-verdict-v { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 28px; font-weight: 600; line-height: 1.2; text-shadow: 0 2px 0 rgba(0, 0, 0, .45); color: var(--rd-fg, #e2e8f0); }
+.st-verdict-v.st-verdict-v--sm { font-size: 24px; }
+
+/* 公式列 */
+:root[data-ui="redesign"] .main-content .section-card.st-formula {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 12px 16px;
+  font-size: 12.5px; line-height: 1.7; color: var(--rd-fg-2, #94a3b8); font-variant-numeric: tabular-nums;
+}
+.st-formula b { color: var(--rd-fg, #e2e8f0); font-weight: 600; }
+
+/* 三張來源卡 */
+.st-g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.st-card-sub { margin: 0 0 8px; }
+.st-k { font-size: 12.5px; color: var(--rd-fg-3, #64748b); }
+.st-v { font-size: 13px; font-weight: 600; color: var(--rd-fg, #e2e8f0); text-align: right; }
+.st-hp-row {
+  display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; padding: 6px 8px; border-radius: 6px; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  background: var(--rd-bg-2, #0b1322); border: 1px solid var(--rd-line-2, #2d3f55);
+}
+@media (max-width: 1100px) { .st-g3 { grid-template-columns: 1fr; } }
+
+/* 原始欄位／後台設定 */
+.st-raw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 0 16px 14px; }
+.st-raw-cell { padding: 6px 9px; border-radius: 6px; font-size: 11px; color: var(--rd-fg-2, #94a3b8); background: var(--rd-bg-2, #0b1322); border: 1px solid var(--rd-line-2, #2d3f55); }
+.st-raw-v { color: var(--rd-fg-2, #94a3b8); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.st-cfg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 16px 16px; }
+.st-cfg { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 9px; min-width: 0; background: color-mix(in srgb, var(--rd-bg-2, #0b1322) 80%, transparent); border: 1px solid var(--rd-line-2, #2d3f55); }
+.st-cfg-h { font-size: 13.5px; font-weight: 700; color: var(--rd-fg, #e2e8f0); margin-bottom: 2px; }
+.st-cfg-row { display: flex; align-items: center; gap: 10px; }
+.st-cfg-l { flex: none; width: 150px; text-align: right; font-size: 12px; color: var(--rd-fg-2, #94a3b8); }
+.st-cfg-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+@media (max-width: 1100px) { .st-cfg-grid { grid-template-columns: 1fr; } }
+
+/* ════════════════════ 知識庫 ════════════════════ */
+.kb-tabs { flex-wrap: nowrap; align-items: center; }
+.kb-tab-wrap { position: relative; display: inline-flex; flex: none; }
+.kb-tab { display: inline-flex; align-items: center; gap: 6px; }
+.kb-tab-wrap.has-del .kb-tab { padding-right: 26px; }
+.kb-count { font-size: 12.5px; opacity: .8; font-variant-numeric: tabular-nums; }
+.kb-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+.kb-tab-del {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 1px 3px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; line-height: 1; color: var(--rd-fg-3, #64748b); opacity: 0; transition: opacity .12s ease;
+}
+.kb-tab-wrap:hover .kb-tab-del, .kb-tab-del:focus-visible { opacity: 1; }
+.kb-tab-del:hover { color: #f87171; }
+:root[data-ui="redesign"] .rd-tab.kb-tab-add { color: var(--rd-fg-2, #94a3b8); }
+.kb-addfolder { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; flex: none; }
+.lst-field.kb-addfolder-input { width: 140px; flex: none; }
+.kb-color { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; flex: none; border: 2px solid transparent; box-sizing: border-box; }
+.kb-title-folder { display: inline-flex; align-items: center; gap: 7px; }
+.lst-field.kb-type { width: 200px; flex: none; }
+.kb-name { display: block; padding: 0; margin: 0 0 2px; border: 0; background: none; cursor: pointer; text-align: left; font: inherit; font-size: 13.5px; font-weight: 500; color: var(--rd-fg, #e2e8f0); }
+.kb-name:hover { color: var(--rd-accent-2, #93c5fd); }
+.kb-url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rd-fg-3, #64748b); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.kb-tags { gap: 4px; }
+.kb-empty { padding: 48px 20px; }
+.kb-empty-t { font-size: 14px; color: var(--rd-fg-2, #94a3b8); margin-bottom: 6px; }
+/* 類型圖示欄：原型沒有；普通版收掉，仙俠版保留它的法器圖示 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .kb-table .kb-ic-col { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .kb-table .kb-ic-col { width: 40px; text-align: center; }
+
+/* ════════════════════ 個人帳號 ════════════════════ */
+:root[data-ui="redesign"] .mg-page { gap: 16px; }
+:root[data-ui="redesign"] .mg-page > .mg-card:first-child { flex: 1 1 480px; }
+:root[data-ui="redesign"] .mg-page > .mg-help { flex: 0 1 340px; }
+:root[data-ui="redesign"] .mg-page > .section-card.mg-card { margin-bottom: 0; border-radius: 12px; }
+:root[data-ui="redesign"] .mg-card > .section-title.mg-title { font-size: 14px; }
+.mg-pill-row { margin-bottom: 12px; }
+:root[data-ui="redesign"] .mg-pill { padding: 2px 10px; border-color: color-mix(in srgb, currentColor 45%, transparent); background: color-mix(in srgb, currentColor 12%, transparent); box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset; }
+:root[data-ui="redesign"] .mg-pill::before { width: 6px; height: 6px; box-shadow: 0 0 6px currentColor; }
+:root[data-ui="redesign"] .mg-rows { grid-template-columns: 82px minmax(0, 1fr); gap: 10px 12px; }
+:root[data-ui="redesign"] .mg-actions { justify-content: flex-end; }
+:root[data-ui="redesign"] .mg-confirm { justify-content: flex-end; }
+:root[data-ui="redesign"] .mg-btn { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 18px; border-radius: 7px; }
+:root[data-ui="redesign"] .mg-btn.mg-btn--small { height: 30px; padding: 0 12px; }
+:root[data-ui="redesign"] .mg-input { height: 34px; padding: 0 10px; border-radius: 6px; }
+/* 取得 Token：圓形編號步驟（原型 .stp） */
+:root[data-ui="redesign"] .mg-steps { counter-reset: mg-step; list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; line-height: 1.5; }
+:root[data-ui="redesign"] .mg-steps li { counter-increment: mg-step; position: relative; display: block; min-height: 30px; padding: 5px 0 5px 40px; line-height: 20px; font-size: 13.5px; }
+:root[data-ui="redesign"] .mg-steps li::before {
+  content: counter(mg-step); position: absolute; left: 0; top: 0; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  font-size: 12.5px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg, #e2e8f0);
+  background: color-mix(in srgb, var(--rd-accent, #3b82f6) 30%, var(--rd-panel-2, #1e293b));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent, #3b82f6) 60%, transparent), 0 0 10px -2px var(--rd-glow, rgba(59, 130, 246, .35));
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mg-steps li::before { background: transparent; color: var(--rd-ornament, #d4b26a); box-shadow: 0 0 0 1px var(--rd-ornament, #d4b26a); }
+:root[data-ui="redesign"] .mg-notes { padding-top: 12px; border-top: 1px solid var(--rd-line, #263345); padding-left: 18px; font-size: 12px; color: var(--rd-fg-3, #64748b); }
+:root[data-ui="redesign"] .mg-notes strong { color: var(--rd-fg-2, #94a3b8); }
+
+/* ── 普通版配色：卡片走原型面板，不吃 MeegleAccountPage.css 的平面底色 ── */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-page {
+  --mg-bg: var(--rd-bg-2); --mg-border: var(--rd-line-2); --mg-text: var(--rd-fg); --mg-muted: var(--rd-fg-2); --mg-primary: var(--rd-accent);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-btn:not(.mg-btn--primary) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-btn--primary {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 -2px 0 rgba(0, 0, 0, .25) inset, 0 3px 0 rgba(0, 0, 0, .35), 0 6px 14px -4px var(--rd-glow);
+}
+
+/* ── 對照修正 ── */
+:root[data-ui="redesign"] .main-content .st-tbl td.lst-empty { text-align: center; }
+.st-toolbar-top select.lst-field:not(.st-w200) { width: auto; flex: 0 1 auto; }
+.st-q-f--grow .st-q-l { overflow: hidden; text-overflow: ellipsis; }
+
+/* ── CodeX 第一輪對照修正 ── */
+/* 按鈕寬度：原型 .btn 字級吃 body 14px（次要 500、主要 700），lst-btn 是 13px／600 → 每顆窄約 6px */
+:root[data-ui="redesign"] .main-content :is(.st-asn, .st-admin, .st-q-page, .st-kb) .lst-btn { font-size: 14px; font-weight: 500; }
+:root[data-ui="redesign"] .main-content :is(.st-asn, .st-admin, .st-q-page, .st-kb) .lst-btn.submit-btn { font-weight: 700; }
+:root[data-ui="redesign"] .mg-btn:not(.mg-btn--small) { font-size: 14px; font-weight: 500; }
+:root[data-ui="redesign"] .mg-btn.mg-btn--primary { font-weight: 700; }
+/* 系統管理：權限照字寬排、放不下才換行；左側角色卡高一點 */
+.rm-perms { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.rm-perms .st-chk { white-space: nowrap; }
+.rm-role { padding: 12px; }
+/* 知識庫：欄寬 34:13:13:24:16（第一欄是類型圖示，普通版收掉） */
+.kb-table { table-layout: fixed; }
+.kb-table th:nth-child(2) { width: 34%; }
+.kb-table th:nth-child(3) { width: 13%; }
+.kb-table th:nth-child(4) { width: 13%; }
+.kb-table th:nth-child(5) { width: 24%; }
+.kb-table th:nth-child(6) { width: 16%; }
+.kb-table td { overflow: hidden; }
+.kb-table .kb-url { max-width: 100%; }
+.kb-table .lst-pill { max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; }
+.lst-field.kb-type { width: 220px; }
+/* 個人帳號：user_key 自己一行，跟身分值左對齊 */
+:root[data-ui="redesign"] .mg-rows dd > .mg-mono { display: block; margin-top: 2px; }
+.kb-table .st-links, .kb-table .st-links-i { gap: 4px; flex-wrap: nowrap; }
+.kb-table td:last-child { overflow: visible; white-space: nowrap; }
+/* 個人帳號第二輪：操作按鈕列與「最後成功驗證」之間收回 5px（CodeX 比對） */
+:root[data-ui="redesign"] .mg-actions { margin-top: -5px; }

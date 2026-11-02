@@ -273,71 +273,46 @@ export function SystemAdminPage() {
 
 
   // ─── Styles ───────────────────────────────────────────────────────────────
+  // 新版（原型 v7）：面板、表格、按鈕交給 redesign/pages/settings.css；這裡只剩彈窗與新增表單用的行內樣式（顏色走 --rd-* 變數）
 
-  const card: React.CSSProperties = {
-    background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12,
-    padding: 24, marginBottom: 20,
-  }
-
-  const tableStyle: React.CSSProperties = {
-    width: '100%', borderCollapse: 'collapse', fontSize: 13,
-  }
-
-  const th: React.CSSProperties = {
-    padding: '10px 16px', textAlign: 'center', fontWeight: 600,
-    background: '#162032', borderBottom: '2px solid #2d3f55', color: '#94a3b8',
-    fontSize: 13,
-  }
-
-  const thLeft: React.CSSProperties = { ...th, textAlign: 'left' }
-
-  const td: React.CSSProperties = {
-    padding: '9px 16px', borderBottom: '1px solid #1e293b', textAlign: 'center',
-  }
-
-  const tdLeft: React.CSSProperties = { ...td, textAlign: 'left' }
+  // 表格用 .version-table（原型表格）；th/td 不再帶行內樣式，只留各格自己的顏色
+  const th: React.CSSProperties = {}
+  const thLeft: React.CSSProperties = th
+  const td: React.CSSProperties = {}
+  const tdLeft: React.CSSProperties = td
 
   const inputStyle: React.CSSProperties = {
-    padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55',
-    fontSize: 13, width: '100%', outline: 'none',
-    background: '#0f172a', color: '#e2e8f0',
+    height: 34, padding: '0 10px', borderRadius: 6, border: '1px solid var(--rd-line-2, #2d3f55)',
+    fontSize: 13, width: '100%', outline: 'none', boxSizing: 'border-box',
+    background: 'var(--rd-bg-2, #0f172a)', color: 'var(--rd-fg, #e2e8f0)',
   }
 
   const btnPrimary: React.CSSProperties = {
-    padding: '7px 16px', background: '#6366f1', color: '#fff',
-    border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+    height: 36, padding: '0 18px', background: 'var(--rd-accent, #6366f1)', color: '#fff',
+    border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 600,
     whiteSpace: 'nowrap',
   }
 
   const btnOutline: React.CSSProperties = {
-    padding: '7px 14px', background: '#1e293b', color: '#94a3b8',
-    border: '1px solid #2d3f55', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+    height: 36, padding: '0 16px', background: 'var(--rd-panel-2, #1e293b)', color: 'var(--rd-fg-2, #94a3b8)',
+    border: '1px solid var(--rd-line-2, #2d3f55)', borderRadius: 7, cursor: 'pointer', fontSize: 13,
     whiteSpace: 'nowrap',
-  }
-
-  const btnDanger: React.CSSProperties = {
-    ...btnOutline, color: '#f87171', borderColor: 'rgba(239,68,68,0.4)',
-    background: 'rgba(239,68,68,0.1)',
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ width: '100%' }}>
-      {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#162032', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #2d3f55' }}>
+    <div className="st-admin">
+      {/* 新版（原型 v7）：分頁＝原型 .tabs；角色管理左清單右編輯；帳號管理是「標題帶＋工具列＋表格」面板。樣式在 redesign/pages/settings.css */}
+      <div className="rd-tabs" role="tablist">
         {([['roles', '角色管理'], ['accounts', '帳號管理']] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
+            role="tab"
+            className="rd-tab"
+            aria-selected={subTab === id}
             onClick={() => setSubTab(id)}
-            style={{
-              padding: '7px 20px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              fontSize: 13, fontWeight: 500,
-              background: subTab === id ? '#1e293b' : 'transparent',
-              color: subTab === id ? '#e2e8f0' : '#64748b',
-              boxShadow: subTab === id ? '0 1px 3px rgba(0,0,0,.3)' : 'none',
-            }}
           >
             {label}
           </button>
@@ -349,29 +324,27 @@ export function SystemAdminPage() {
 
       {/* ── Account Management ── */}
       {subTab === 'accounts' && (
-        <div>
-          <div style={card}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <h2 style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>帳號管理</h2>
-                <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理所有使用者帳號，指派角色與 PIN。一個帳號一個角色；角色能看哪些功能在「角色管理」設定。</p>
-                {accounts.some(a => a.multiRole) && (
-                  <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(245,183,59,.45)', background: 'rgba(245,183,59,.08)', color: '#f5b73b', fontSize: 12.5 }}>
-                    ⚠️ 有 {accounts.filter(a => a.multiRole).length} 個帳號同時掛多個角色（{accounts.filter(a => a.multiRole).map(a => a.label).join('、')}）。現在權限照舊是合起來算，請按「編輯」幫每個帳號選定一個角色。
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {acctMsg && <span style={{ fontSize: 12, color: acctMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{acctMsg}</span>}
-                <button type="button" style={btnPrimary} onClick={() => { setShowAddForm(v => !v); setAcctMsg('') }}>
-                  {showAddForm ? '取消' : '+ 新增帳號'}
-                </button>
-              </div>
+        <>
+          <section className="section-card st-card st-raw">
+            <h2 className="section-title">帳號管理</h2>
+            <div className="lst-toolbar">
+              <span className="st-note st-note--inline st-grow">管理所有使用者帳號，指派角色與 PIN。一個帳號一個角色；角色能看哪些功能在「角色管理」設定。</span>
+              {acctMsg && <span className={acctMsg.startsWith('通過') ? 'st-msg-ok' : 'st-msg-err'}>{acctMsg}</span>}
+              <button type="button" className="submit-btn lst-btn" onClick={() => { setShowAddForm(v => !v); setAcctMsg('') }}>
+                {showAddForm ? '取消' : '+ 新增帳號'}
+              </button>
             </div>
+            {accounts.some(a => a.multiRole) && (
+              <div className="lst-notes">
+                <div className="lst-note lst-note--warn">
+                  有 {accounts.filter(a => a.multiRole).length} 個帳號同時掛多個角色（{accounts.filter(a => a.multiRole).map(a => a.label).join('、')}）。現在權限照舊是合起來算，請按「編輯」幫每個帳號選定一個角色。
+                </div>
+              </div>
+            )}
 
             {/* Add form */}
             {showAddForm && (
-              <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+              <div className="st-addform">
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
                   <div>
                     <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
@@ -584,127 +557,129 @@ export function SystemAdminPage() {
 
             {/* Accounts table */}
             {acctLoading ? (
-              <p style={{ color: '#94a3b8', fontSize: 13 }}>載入中…</p>
+              <p className="lst-empty">載入中…</p>
             ) : (
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thLeft}>帳號</th>
-                    <th style={thLeft}>名稱</th>
-                    <th style={th}>角色</th>
-                    <th style={th}>狀態</th>
-                    <th style={th}>PIN</th>
-                    <th style={th}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map(a => (
-                    <tr key={a.email}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#1e293b')}
-                      onMouseLeave={e => (e.currentTarget.style.background = '')}
-                    >
-                      <td style={{ ...tdLeft, fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{a.email}</td>
-                      <td style={tdLeft}>{a.label}</td>
-                      <td style={td}>
-                        <RoleBadge role={a.role} roles={roleList} />
-                        {a.multiRole && <div style={{ fontSize: 10.5, color: '#f5b73b', marginTop: 3 }}>多個角色，請按編輯選一個</div>}
-                        {!!a.overrideCount && <div style={{ fontSize: 10.5, color: '#a5b4fc', marginTop: 3 }} title="帳號在「功能權限」單獨加減的權限">＋覆寫 {a.overrideCount}</div>}
-                      </td>
-                      <td style={td}>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                          background: a.status === 'active' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                          color: a.status === 'active' ? '#4ade80' : '#f87171',
-                        }}>
-                          {a.status === 'active' ? '啟用' : '停用'}
-                        </span>
-                      </td>
-                      <td style={{ ...td, fontSize: 11, color: a.hasPIN ? '#16a34a' : '#94a3b8' }}>
-                        {a.hasPIN ? '已設定' : '—'}
-                      </td>
-                      <td style={td}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                          <button type="button" style={btnOutline} onClick={() => openEdit(a)}>編輯</button>
-                          <button type="button" style={btnOutline} onClick={() => openPerm(a)}>功能權限</button>
-                          <button type="button" style={btnOutline} onClick={() => openCultivation(a)}>調整境界</button>
-                          <button type="button" style={btnDanger} onClick={() => deleteAccount(a.email)}>刪除</button>
-                        </div>
-                      </td>
+              <div className="table-wrap lst-tbl">
+                <table className="version-table st-tbl">
+                  <thead>
+                    <tr>
+                      <th style={thLeft}>帳號</th>
+                      <th style={thLeft}>名稱</th>
+                      <th style={th}>角色</th>
+                      <th style={th}>狀態</th>
+                      <th style={th}>PIN</th>
+                      <th style={th}>操作</th>
                     </tr>
-                  ))}
-                  {accounts.length === 0 && (
-                    <tr><td colSpan={6} style={{ ...td, color: '#94a3b8', textAlign: 'center', padding: 32 }}>尚無帳號</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {accounts.map(a => (
+                      <tr key={a.email}>
+                        <td style={tdLeft} className="lst-mono-sm">{a.email}</td>
+                        <td style={tdLeft} className="st-strong">{a.label}</td>
+                        <td style={td}>
+                          <RoleBadge role={a.role} roles={roleList} />
+                          {a.multiRole && <div style={{ fontSize: 10.5, color: '#f5b73b', marginTop: 3 }}>多個角色，請按編輯選一個</div>}
+                          {!!a.overrideCount && <div style={{ fontSize: 10.5, color: '#a5b4fc', marginTop: 3 }} title="帳號在「功能權限」單獨加減的權限">＋覆寫 {a.overrideCount}</div>}
+                        </td>
+                        <td style={td}>
+                          <span className={a.status === 'active' ? 'lst-pill lst-pill--pass' : 'lst-pill lst-pill--fail'}>
+                            {a.status === 'active' ? '啟用' : '停用'}
+                          </span>
+                        </td>
+                        <td style={{ ...td, color: a.hasPIN ? 'var(--rd-fg-2, #94a3b8)' : 'var(--rd-fg-3, #64748b)' }}>
+                          {a.hasPIN ? '已設定' : '—'}
+                        </td>
+                        <td style={td}>
+                          <div className="st-links">
+                            <button type="button" className="lst-link" onClick={() => openEdit(a)}>編輯</button>
+                            <span className="st-dot" aria-hidden="true">·</span>
+                            <button type="button" className="lst-link" onClick={() => openPerm(a)}>功能權限</button>
+                            <span className="st-dot" aria-hidden="true">·</span>
+                            <button type="button" className="lst-link" onClick={() => openCultivation(a)}>調整境界</button>
+                            <span className="st-dot" aria-hidden="true">·</span>
+                            <button type="button" className="lst-link st-link--danger" onClick={() => deleteAccount(a.email)}>刪除</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {accounts.length === 0 && (
+                      <tr><td colSpan={6} className="lst-empty">尚無帳號</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </div>
+          </section>
 
           {/* Jira 代理張貼授權 */}
-          <div style={{ borderTop: '1px solid #2d3f55', marginTop: 24, paddingTop: 20 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 4px' }}>代理張貼授權（Jira／Meegle）</h3>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>
+          <section className="section-card st-card st-raw">
+            <h2 className="section-title">代理張貼授權（Jira／Meegle）</h2>
+            <p className="st-note st-pad">
               指定「誰可以用誰的身分做事」。<b>每種用途是分開的，開了一種不會涵蓋另一種</b>——
               「批量評論」是<b>寫入</b>（用他的身分張貼 Jira 留言），「跨帳號讀取」是<b>讀取</b>（週報撈他的 Jira 單），
               「Meegle 批量評論」是用他綁定的 Meegle 帳號<b>上傳附件、留評論</b>（他要先在個人帳號綁 Meegle）。<br />
               被授權的人在批量評論會多出「以誰的身分送出」下拉；
               Jira 上只會顯示被代理的帳號，系統內部的操作紀錄仍會記下實際操作者。撤銷後保留紀錄可查。
             </p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-              <select style={{ ...inputStyle, width: 200, margin: 0 }} value={delActor} onChange={e => setDelActor(e.target.value)}>
+            <div className="lst-toolbar st-toolbar-top">
+              <select className="lst-field st-w200" value={delActor} onChange={e => setDelActor(e.target.value)}>
                 <option value="">授權給誰（代理人）</option>
                 {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
               </select>
-              <span style={{ color: '#64748b', fontSize: 12 }}>可以用</span>
-              <select style={{ ...inputStyle, width: 200, margin: 0 }} value={delTarget} onChange={e => setDelTarget(e.target.value)}>
+              <span className="st-dim">可以用</span>
+              <select className="lst-field st-w200" value={delTarget} onChange={e => setDelTarget(e.target.value)}>
                 <option value="">誰的身分（被代理帳號）</option>
                 {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
               </select>
-              <span style={{ color: '#64748b', fontSize: 12 }}>用途</span>
-              <select style={{ ...inputStyle, minWidth: 190, width: "auto", margin: 0 }} value={delScope}
+              <span className="st-dim">用途</span>
+              <select className="lst-field" value={delScope}
                 onChange={e => setDelScope(e.target.value as typeof delScope)}>
                 {DELEGATION_SCOPES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
-              <button type="button" style={btnPrimary} onClick={addDelegate}>新增授權</button>
-              {delMsg && <span style={{ fontSize: 12, color: delMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{delMsg}</span>}
+              <button type="button" className="submit-btn lst-btn" onClick={addDelegate}>新增授權</button>
+              {delMsg && <span className={delMsg.startsWith('通過') ? 'st-msg-ok' : 'st-msg-err'}>{delMsg}</span>}
             </div>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thLeft}>代理人</th>
-                  <th style={thLeft}>可用身分</th>
-                  <th style={th}>用途</th>
-                  <th style={th}>狀態</th>
-                  <th style={th}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {delegates.map(d => {
-                  const expired = !!d.expires_at && d.expires_at <= Date.now()
-                  const active = d.enabled === 1 && !d.revoked_at && !expired
-                  return (
-                    <tr key={d.id}>
-                      <td style={tdLeft}>{d.actor_email}</td>
-                      <td style={tdLeft}>{d.target_email}</td>
-                      <td style={{ ...td, fontSize: 11, color: '#94a3b8' }}>{delegationScopeShort(d.scope)}</td>
-                      <td style={{ ...td, fontSize: 11, color: active ? '#4ade80' : '#94a3b8' }}>
-                        {active ? '有效' : d.revoked_at ? '已撤銷' : expired ? '已過期' : '停用'}
-                      </td>
-                      <td style={td}>
-                        {active && <button type="button" style={btnDanger} onClick={() => revokeDelegate(d.id)}>撤銷</button>}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {delegates.length === 0 && (
-                  <tr><td colSpan={5} style={{ ...td, color: '#94a3b8', textAlign: 'center', padding: 24 }}>尚無代理授權</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+            <div className="table-wrap lst-tbl">
+              <table className="version-table st-tbl">
+                <thead>
+                  <tr>
+                    <th style={thLeft}>代理人</th>
+                    <th style={thLeft}>可用身分</th>
+                    <th style={th}>用途</th>
+                    <th style={th}>狀態</th>
+                    <th style={th}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {delegates.map(d => {
+                    const expired = !!d.expires_at && d.expires_at <= Date.now()
+                    const active = d.enabled === 1 && !d.revoked_at && !expired
+                    return (
+                      <tr key={d.id}>
+                        <td style={tdLeft}>{d.actor_email}</td>
+                        <td style={tdLeft}>{d.target_email}</td>
+                        <td style={td}>{delegationScopeShort(d.scope)}</td>
+                        <td style={td}>
+                          <span className={active ? 'lst-pill lst-pill--pass' : 'lst-pill'}>
+                            {active ? '有效' : d.revoked_at ? '已撤銷' : expired ? '已過期' : '停用'}
+                          </span>
+                        </td>
+                        <td style={td}>
+                          {active && <button type="button" className="lst-link st-link--danger" onClick={() => revokeDelegate(d.id)}>撤銷</button>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {delegates.length === 0 && (
+                    <tr><td colSpan={5} className="lst-empty">尚無代理授權</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           <MeegleIdentityOverridesPanel />
-        </div>
+        </>
       )}
     </div>
   )

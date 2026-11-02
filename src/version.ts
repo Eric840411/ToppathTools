@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.7'
+export const APP_VERSION = '5.73.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.8', date: '2026-11-02', changes: ["style(新版排版 最後六頁)：AutoSpin 通知、系統管理、Performance Meter 對帳、Egm DayCount 對帳、知識庫、個人帳號，CodeX 對照設計圖判定一致（2～3 輪）——標籤在左、按鈕字級 14px（原型 .btn 繼承 14px）、系統管理角色卡＋權限依文字寬度排列、知識庫五欄 34:13:13:24:16＋文字連結操作、對帳頁查詢條件一列、個人帳號有效徽章在卡片內＋四步驟圓點。共用元件 RoleManager／MeegleIdentityOverridesPanel 只改排版。系統管理的「通過／失敗」前綴因程式用 startsWith 判顏色而保留"] },
   { version: '5.73.7', date: '2026-11-02', changes: ["style(新版排版 OSM 版本更新紀錄、URL 帳號池、操作歷史紀錄)：CodeX 對照設計圖判定一致（2～3 輪）——版本更新紀錄：最後更新／設定／新增更新搬到頁首右側、分頁改原型樣式（筆數保留）、篩選列進面板、月份改面板標題帶、雙欄 7：3；URL 帳號池：環境分頁一列＋其餘全部收進一個面板（H5/PC、統計、篩選、搜尋、表格）、六欄比例照原型、長狀態膠囊在膠囊內省略、清掉淺色主題殘留列底色；操作歷史：重新整理搬到頁首、時間範圍與 31 個功能篩選同一面板、紀錄列照原型（功能膠囊用既有 FEATURE_COLORS）"] },
   { version: '5.73.6', date: '2026-11-02', changes: ["style(新版排版 UAT 整合測試)：CodeX 對照設計圖 3 輪判定一致（±2px）——執行位置獨立一列、分頁改原型小分頁、步驟條橫跨面板（只有原本 step.done 的打勾，拿掉 agent 自加的『目前步驟』高亮——產品不追蹤，不做假進度）、每日排程等另起一列；中段改三欄 錄製腳本／腳本執行順序／執行設定，再兩欄 網路監測／即時日誌（CSS order，DOM 不動）；錄製腳本改描邊卡（名稱＋狀態膠囊同列、步數與時間次列）；執行設定標籤在左 96px；日誌框 160px。lastRunText 多回傳 status／when（原 text 不變，script-sort 測試 13/13）"] },
   { version: '5.73.5', date: '2026-11-02', changes: ["style(新版排版 Jackpot 監控、Local Agent)：CodeX 對照設計圖 3 輪判定一致（±2px）——Jackpot：後端監控中／告警設定搬到頁首右側、門檻來源膠囊＋完整／部分／無計數（後端有 coverage 才顯示）＋重新讀取、獎池數據原型表格（欄寬照原型、列高 38px、直接接標題帶）、異常卡兩列；Local Agent：重新整理到頁首、四格數字磚、Windows／macOS 分頁、橫向三步驟（指令與複製留在各步驟下）、Token 精簡卡＋狀態膠囊＋小撤銷鈕。本機 OSM 白名單連不到，Jackpot 有資料的畫面用唯讀假 /state 截圖比對，真資料要推 Spug 再驗"] },

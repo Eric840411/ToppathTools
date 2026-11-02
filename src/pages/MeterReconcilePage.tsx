@@ -106,7 +106,7 @@ export function MeterReconcilePage() {
         }),
       })
       const d = await res.json()
-      setCfgMsg({ profile, text: d.ok ? '通過 已儲存' : `失敗：${d.message}`, ok: !!d.ok })
+      setCfgMsg({ profile, text: d.ok ? '已儲存' : `失敗：${d.message}`, ok: !!d.ok })
       await loadConfig(profile)
     } finally {
       setSavingCfg(null)
@@ -120,7 +120,7 @@ export function MeterReconcilePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile }),
       })
       const d = await res.json()
-      setCfgMsg({ profile, text: d.message ?? (d.ok ? '通過 成功' : '失敗'), ok: !!d.ok })
+      setCfgMsg({ profile, text: d.message ?? (d.ok ? '成功' : '失敗'), ok: !!d.ok })
     } finally {
       setTestingCfg(null)
     }
@@ -145,197 +145,179 @@ export function MeterReconcilePage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
-    padding: '8px 10px', fontSize: 13,
+    background: 'var(--rd-bg-2, #0b1322)', border: '1px solid var(--rd-line-2, #2d3f55)', borderRadius: 6, color: 'var(--rd-fg, #e2e8f0)',
+    height: 30, padding: '0 8px', fontSize: 12,
   }
-  const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 5, display: 'block' }
-  const card: React.CSSProperties = { background: '#162032', border: '1px solid #2d3f55', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }
-  const kvRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #0f172a', fontVariantNumeric: 'tabular-nums' }
+  const kvRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: '1px solid var(--rd-line, #0f172a)', fontVariantNumeric: 'tabular-nums' }
 
   return (
-    <div style={{ width: '100%' }}>
+    <div className="st-q-page">
+      {/* 新版（原型 v7）：查詢條件收成一列（短標籤在上、長說明降成底下一行小字）；結果每一塊都是原型面板。樣式在 redesign/pages/settings.css */}
 
       {/* Query bar */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <div>
-          <label style={labelStyle}>機台名稱（Client Machine Name）</label>
-          <input value={machineName} onChange={e => setMachineName(e.target.value)}
-            placeholder="例：Triple Treasure Pot(4321aruze)" style={{ ...inputStyle, minWidth: 260 }} />
-        </div>
-        <div>
-          <label style={labelStyle}>資料來源</label>
-          <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 7, overflow: 'hidden' }}>
-            {(['osm', 'gcp'] as const).map(s => (
-              <button key={s} onClick={() => setSource(s)}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
-                  background: source === s ? '#2563eb' : '#0f172a', color: source === s ? '#fff' : '#94a3b8' }}>
-                {s === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}
-              </button>
-            ))}
+      <section className="section-card st-card st-q">
+        <div className="st-q-row">
+          <div className="st-q-f st-q-f--grow">
+            <label className="st-q-l" htmlFor="pm-machine">機台名稱（Client Machine Name）</label>
+            <input id="pm-machine" className="lst-field" value={machineName} onChange={e => setMachineName(e.target.value)}
+              placeholder="例：Triple Treasure Pot(4321aruze)" />
           </div>
-        </div>
-        <div>
-          <label style={labelStyle}>日期</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>查詢範圍（比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒）</label>
-          <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 7, overflow: 'hidden' }}>
-            {([
-              { key: 'gaming' as const, label: 'Gaming Day（06:00~隔天06:00）' },
-              { key: 'calendar' as const, label: '自然日（00:00~24:00）' },
-            ]).map(o => (
-              <button key={o.key} onClick={() => setDayBoundary(o.key)}
-                style={{ padding: '8px 14px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                  background: dayBoundary === o.key ? '#2563eb' : '#0f172a', color: dayBoundary === o.key ? '#fff' : '#94a3b8' }}>
-                {o.label}
-              </button>
-            ))}
+          <div className="st-q-f">
+            <span className="st-q-l">資料來源</span>
+            <div className="rd-tabs st-seg">
+              {(['osm', 'gcp'] as const).map(s => (
+                <button key={s} type="button" className="rd-tab" aria-pressed={source === s} onClick={() => setSource(s)}>
+                  {s === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}
+                </button>
+              ))}
+            </div>
           </div>
+          <div className="st-q-f">
+            <label className="st-q-l" htmlFor="pm-date">日期</label>
+            <input id="pm-date" className="lst-field" type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="st-q-f">
+            <span className="st-q-l">查詢範圍</span>
+            <div className="rd-tabs st-seg">
+              {([
+                { key: 'gaming' as const, label: 'Gaming Day（06:00~隔天06:00）' },
+                { key: 'calendar' as const, label: '自然日（00:00~24:00）' },
+              ]).map(o => (
+                <button key={o.key} type="button" className="rd-tab" aria-pressed={dayBoundary === o.key} onClick={() => setDayBoundary(o.key)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="st-q-f">
+            <label className="st-q-l" htmlFor="pm-start">自訂起始時間</label>
+            <input id="pm-start" className="lst-field st-q-time" type="time" value={customStartTime} onChange={e => setCustomStartTime(e.target.value)} />
+          </div>
+          <button type="button" className="submit-btn lst-btn st-q-go" onClick={handleQuery} disabled={loading}>
+            {loading ? '查詢中…' : '查詢對帳'}
+          </button>
         </div>
-        <div>
-          <label style={labelStyle}>自訂起始時間（選填，機台當天有 meter reset 時用）</label>
-          <input type="time" value={customStartTime} onChange={e => setCustomStartTime(e.target.value)}
-            style={{ ...inputStyle, width: 110 }} />
-        </div>
-        <button onClick={handleQuery} disabled={loading}
-          style={{ marginLeft: 'auto', padding: '9px 22px', background: loading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: loading ? 'default' : 'pointer' }}>
-          {loading ? '查詢中…' : '查詢對帳'}
-        </button>
-      </div>
+        <p className="st-q-hint">
+          查詢範圍：比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒。
+          自訂起始時間：選填，機台當天有 meter reset 時用。
+        </p>
+      </section>
 
-      {error && (
-        <div style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.35)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#f87171', fontSize: 13 }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="st-error">{error}</div>}
 
       {result && (() => {
         // v5.57.0：依 status 顯示——沒資料／沒活動／API 無效是灰色卡片，不是通過也不是失敗
         const st = result.status ?? (result.pass ? 'pass' : 'fail')
         const neutral = st === 'noData' || st === 'noActivity' || st === 'apiError'
         const noNumbers = st === 'noData' || st === 'apiError'   // 實際值／差值沒有意義 → 顯示「—」
-        const tone = st === 'pass' ? { border: 'rgba(34,197,94,.35)', bg: 'rgba(34,197,94,.08)', fg: '#4ade80' }
-          : neutral ? { border: 'rgba(148,163,184,.4)', bg: 'rgba(148,163,184,.08)', fg: '#cbd5e1' }
-          : { border: 'rgba(239,68,68,.35)', bg: 'rgba(239,68,68,.08)', fg: '#f87171' }
+        const tone = st === 'pass' ? { border: 'rgba(34,197,94,.45)', bg: 'rgba(34,197,94,.06)', fg: '#4ade80' }
+          : neutral ? { border: 'rgba(148,163,184,.4)', bg: 'rgba(148,163,184,.06)', fg: '#cbd5e1' }
+          : { border: 'rgba(239,68,68,.45)', bg: 'rgba(239,68,68,.06)', fg: '#f87171' }
         const label = st === 'pass' ? '通過' : st === 'fail' ? '失敗' : st === 'noActivity' ? '沒有活動' : '無法對帳'
         const why = result.statusWhy ?? (st === 'pass' ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差')
         return (
         <>
           {/* Verdict */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 14, borderRadius: 12, padding: '16px 20px', marginBottom: 16,
-            border: `1px solid ${tone.border}`,
-            background: tone.bg,
-          }}>
-            <div style={{ fontSize: 28 }}>{label}</div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: tone.fg }}>
+          <section className="section-card st-card st-verdict" style={{ borderColor: tone.border, background: tone.bg }}>
+            <span className={`lst-pill st-verdict-pill ${st === 'pass' ? 'lst-pill--pass' : neutral ? '' : 'lst-pill--fail'}`}>{label}</span>
+            <div className="st-verdict-main">
+              <div className="st-verdict-why" style={{ color: tone.fg }}>
                 {why}
               </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+              <div className="st-verdict-sub">
                 {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）
                 {result.customStartTime
                   ? <span style={{ color: '#fbbf24' }}> · Game Record 自 {result.customStartTime} 起算</span>
                   : '整天加總'}
               </div>
             </div>
-            <div style={{ marginLeft: 'auto', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: tone.fg }}>{noNumbers ? '—' : fmt(result.delta)}</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>實際 − 預期（差值）</div>
+            <div className="st-verdict-num">
+              <div className="st-verdict-k">實際 − 預期（差值）</div>
+              <div className="st-verdict-v" style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.delta)}</div>
             </div>
-          </div>
+          </section>
 
           {/* Formula */}
-          <div style={{ background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
-            <b style={{ color: '#e2e8f0' }}>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
+          <section className="section-card st-card st-formula">
+            <b>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
             {result.source === 'osm' ? (
               <>
-                <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b> +
-                <b style={{ color: '#e2e8f0' }}>Attendant Paid JP</b> −
-                <b style={{ color: '#e2e8f0' }}>Jackpot Wins</b>（Jackpot Wins 有沒有被同一筆 Game Record 吃掉，取決於這次中獎走哪個派彩管道；沒被吃掉的部分會走 Attendant Paid JP，兩邊互補）
+                <b>Game Record 總 Win</b> +
+                <b>Attendant Paid JP</b> −
+                <b>Jackpot Wins</b>（Jackpot Wins 有沒有被同一筆 Game Record 吃掉，取決於這次中獎走哪個派彩管道；沒被吃掉的部分會走 Attendant Paid JP，兩邊互補）
               </>
             ) : (
-              <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b>
+              <b>Game Record 總 Win</b>
             )}
             　＝<b style={{ color: '#7dd3fc' }}>{fmt(result.expectedCoinOut)}</b>
             　實際（EGM Meter Coin Out）＝<b style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.actualCoinOut)}</b>
-          </div>
+          </section>
 
           {/* Three source cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 16 }}>
-            <div style={card}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>EGM Hourly Meter（差異值）</h3>
-              </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
+          <div className="st-g3">
+            <section className="section-card st-card">
+              <h3 className="section-title">EGM Hourly Meter（差異值）</h3>
+              <div className="st-hint st-card-sub">
                 {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 查詢範圍內最後一個 bucket − 第一個 bucket · 可拿來對照 EGM Performance Meter（該報表通常要等到約 15:15 才有當日數據）
               </div>
               {result.meter ? (
                 <>
-                  <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Coin In</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.meter.coinIn)}</span></div>
-                  <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Coin Out</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.meter.coinOut)}</span></div>
-                  <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Jackpot Wins</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.meter.jackpotWins)}</span></div>
-                  <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>WIN / LOSE</span><span style={{ fontSize: 13, fontWeight: 700, color: result.meter.winLoss < 0 ? '#f87171' : '#e2e8f0' }}>{fmt(result.meter.winLoss)}</span></div>
-                  <div style={{ ...kvRow, borderBottom: 'none' }}><span style={{ fontSize: 12, color: '#94a3b8' }}>RTP</span><span style={{ fontSize: 13, fontWeight: 700, color: result.meter.rtp < 0 ? '#f87171' : '#e2e8f0' }}>{fmt(result.meter.rtp)}%</span></div>
-                  <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Games Played</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.meter.gamesPlayed, 0)}</span></div>
+                  <div style={kvRow}><span className="st-k">Coin In</span><span className="st-v">{fmt(result.meter.coinIn)}</span></div>
+                  <div style={kvRow}><span className="st-k">Coin Out</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.meter.coinOut)}</span></div>
+                  <div style={kvRow}><span className="st-k">Jackpot Wins</span><span className="st-v">{fmt(result.meter.jackpotWins)}</span></div>
+                  <div style={kvRow}><span className="st-k">WIN / LOSE</span><span className="st-v" style={{ color: result.meter.winLoss < 0 ? '#f87171' : undefined }}>{fmt(result.meter.winLoss)}</span></div>
+                  <div style={kvRow}><span className="st-k">RTP</span><span className="st-v" style={{ color: result.meter.rtp < 0 ? '#f87171' : undefined }}>{fmt(result.meter.rtp)}%</span></div>
+                  <div style={{ ...kvRow, borderBottom: 'none' }}><span className="st-k">Games Played</span><span className="st-v">{fmt(result.meter.gamesPlayed, 0)}</span></div>
                 </>
-              ) : <p style={{ fontSize: 12, color: '#64748b' }}>查無資料</p>}
-            </div>
+              ) : <p className="st-dim">查無資料</p>}
+            </section>
 
-            <div style={card}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a78bfa' }} />
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>Game Record 加總</h3>
-              </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
+            <section className="section-card st-card">
+              <h3 className="section-title">Game Record 加總</h3>
+              <div className="st-hint st-card-sub">
                 gameRecordList · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.gameRecord.recordCount} 筆
               </div>
-              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Bet</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.gameRecord.totalBet)}</span></div>
-              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Win</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
-              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Bet Reward Credits（泥碼下注額）</span><span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>{fmt(result.gameRecord.betRewardCredits)}</span></div>
-              <div style={{ ...kvRow, borderBottom: 'none' }}><span style={{ fontSize: 12, color: '#94a3b8' }}>記錄筆數</span><span style={{ fontSize: 13, fontWeight: 700 }}>{result.gameRecord.recordCount}</span></div>
-            </div>
+              <div style={kvRow}><span className="st-k">總 Bet</span><span className="st-v">{fmt(result.gameRecord.totalBet)}</span></div>
+              <div style={kvRow}><span className="st-k">總 Win</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
+              <div style={kvRow}><span className="st-k">Bet Reward Credits（泥碼下注額）</span><span className="st-v" style={{ color: '#fbbf24' }}>{fmt(result.gameRecord.betRewardCredits)}</span></div>
+              <div style={{ ...kvRow, borderBottom: 'none' }}><span className="st-k">記錄筆數</span><span className="st-v">{result.gameRecord.recordCount}</span></div>
+            </section>
 
-            <div style={card}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24' }} />
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>Jackpot Abnormality（Attendant Paid JP）</h3>
-              </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
+            <section className="section-card st-card">
+              <h3 className="section-title">Jackpot Abnormality（Attendant Paid JP）</h3>
+              <div className="st-hint st-card-sub">
                 getHandPayRecord · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.jackpotAbnormality.count} 筆
               </div>
               {result.jackpotAbnormality.records.length === 0
-                ? <p style={{ fontSize: 12, color: '#64748b' }}>當日無 Handpay 記錄</p>
+                ? <p className="st-dim">當日無 Handpay 記錄</p>
                 : result.jackpotAbnormality.records.slice(0, 5).map((it, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, padding: '6px 8px', border: '1px solid #2d3f55', borderRadius: 6, background: '#0b1322', fontVariantNumeric: 'tabular-nums' }}>
+                  <div key={i} className="st-hp-row">
                     <span>{it.payoutTime?.slice(11, 16) ?? '—'} · {it.username ?? '—'}</span>
                     <span style={{ color: '#fbbf24', fontWeight: 700 }}>{fmt(it.handpay)}</span>
                   </div>
                 ))
               }
               {result.jackpotAbnormality.records.length > 5 && (
-                <div style={{ fontSize: 11, color: '#64748b' }}>...還有 {result.jackpotAbnormality.records.length - 5} 筆</div>
+                <div className="st-hint">...還有 {result.jackpotAbnormality.records.length - 5} 筆</div>
               )}
-              <div style={{ ...kvRow, marginTop: 4, borderBottom: 'none' }}><span style={{ fontSize: 12, color: '#94a3b8' }}>Attendant Paid JP 小計</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.attendantPaidJp)}</span></div>
-            </div>
+              <div style={{ ...kvRow, marginTop: 4, borderBottom: 'none' }}><span className="st-k">Attendant Paid JP 小計</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.attendantPaidJp)}</span></div>
+            </section>
           </div>
 
           {/* Raw field debug */}
-          <details style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '2px 16px', marginBottom: 16 }}>
-            <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>原始欄位對照表（除錯用，已驗證欄位標色）</summary>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, paddingBottom: 14 }}>
+          <details className="section-card st-card st-details">
+            <summary>原始欄位對照表（除錯用，已驗證欄位標色）</summary>
+            <div className="st-raw-grid">
               {result.rawMeterRow && Object.entries(result.rawMeterRow)
                 .filter(([k]) => !['0', '1', 'useLastData', 'debug'].includes(k))
                 .map(([k, v]) => {
                   const known = KNOWN_FIELDS.find(f => f.key === k)
                   return (
-                    <div key={k} style={{ background: '#0b1322', border: `1px solid ${known ? 'rgba(34,197,94,.3)' : '#2d3f55'}`, borderRadius: 6, padding: '6px 9px', fontSize: 11 }}>
-                      <div style={{ color: known ? '#4ade80' : '#94a3b8' }}>
-                        欄位 {k}{known ? ` · ${known.label}` : ''}{!known && <span style={{ color: '#64748b', fontSize: 9.5 }}> 語意未確認</span>}
+                    <div key={k} className="st-raw-cell" style={known ? { borderColor: 'rgba(34,197,94,.35)' } : undefined}>
+                      <div style={{ color: known ? '#4ade80' : undefined }}>
+                        欄位 {k}{known ? ` · ${known.label}` : ''}{!known && <span className="st-dim" style={{ fontSize: 9.5 }}> 語意未確認</span>}
                       </div>
-                      <div style={{ color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>{String(v)}</div>
+                      <div className="st-raw-v">{String(v)}</div>
                     </div>
                   )
                 })}
@@ -346,16 +328,15 @@ export function MeterReconcilePage() {
       })()}
 
       {/* Backend config */}
-      <details open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}
-        style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '2px 16px' }}>
-        <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>後台設定（OSM / GCP 兩組後台連線資訊）</summary>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, paddingBottom: 16 }}>
+      <details className="section-card st-card st-details" open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}>
+        <summary>後台設定（OSM / GCP 兩組後台連線資訊）</summary>
+        <div className="st-cfg-grid">
           {(['osm', 'gcp'] as const).map(profile => {
             const cfg = profile === 'osm' ? osmConfig : gcpConfig
             const setCfg = profile === 'osm' ? setOsmConfig : setGcpConfig
             return (
-              <div key={profile} style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 8, padding: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{profile === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}</div>
+              <div key={profile} className="st-cfg">
+                <div className="st-cfg-h">{profile === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}</div>
                 {([
                   ['base_url', 'Base URL', 'https://backendservertest.osmslot.org'],
                   ['origin', 'Origin', profile === 'osm' ? 'https://qat-cp.osmslot.org' : 'https://qat-nc.osmslot.org'],
@@ -363,25 +344,23 @@ export function MeterReconcilePage() {
                   ['login_username', '登入帳號', ''],
                   ['login_password', '登入密碼（留空＝不變更）', ''],
                 ] as const).map(([key, label, ph]) => (
-                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <label style={{ fontSize: 11, color: '#94a3b8', minWidth: 160, textAlign: 'right' }}>{label}</label>
+                  <div key={key} className="st-cfg-row">
+                    <label className="st-cfg-l">{label}</label>
                     <input value={cfg[key]} onChange={e => setCfg(c => ({ ...c, [key]: e.target.value }))}
                       placeholder={ph} type={key === 'login_password' ? 'password' : 'text'}
-                      style={{ flex: 1, ...inputStyle, padding: '5px 8px', fontSize: 12 }} />
+                      style={{ flex: 1, minWidth: 0, ...inputStyle }} />
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
-                  <button onClick={() => saveConfig(profile)} disabled={savingCfg === profile}
-                    style={{ padding: '5px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
-                    {savingCfg === profile ? '儲存中…' : '儲存設定'}
-                  </button>
-                  <button onClick={() => testConfig(profile)} disabled={testingCfg === profile}
-                    style={{ padding: '5px 14px', background: '#0b1322', color: '#93c5fd', border: '1px solid #2563eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+                <div className="st-cfg-actions">
+                  {cfgMsg?.profile === profile && (
+                    <span className={cfgMsg.ok ? 'st-msg-ok' : 'st-msg-err'}>{cfgMsg.text}</span>
+                  )}
+                  <button type="button" className="btn-ghost lst-btn" onClick={() => testConfig(profile)} disabled={testingCfg === profile}>
                     {testingCfg === profile ? '測試中…' : '測試登入'}
                   </button>
-                  {cfgMsg?.profile === profile && (
-                    <span style={{ fontSize: 12, color: cfgMsg.ok ? '#4ade80' : '#f87171' }}>{cfgMsg.text}</span>
-                  )}
+                  <button type="button" className="submit-btn lst-btn" onClick={() => saveConfig(profile)} disabled={savingCfg === profile}>
+                    {savingCfg === profile ? '儲存中…' : '儲存設定'}
+                  </button>
                 </div>
               </div>
             )

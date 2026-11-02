@@ -272,119 +272,102 @@ export function KnowledgePage() {
   const currentFolder = typeof selectedFolderId === 'number' ? folders.find(f => f.id === selectedFolderId) : null
 
   return (
-    <div style={{ width: '100%' }}>
+    <div className="st-kb">
+      {/* 新版（原型 v7）：資料夾＝原型 .tabs（不包面板）；清單面板＝標題帶＋寬工具列＋表格，操作欄是文字連結。樣式在 redesign/pages/settings.css */}
 
       {/* ── Folder tabs bar ── */}
-      <div className="section-card" style={{ marginBottom: 20, padding: '12px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+      <div className="rd-tabs kb-tabs" role="tablist">
+        <FolderTab label="全部" count={effectiveTotal}
+          active={selectedFolderId === 'all'} onClick={() => selectFolder('all')} />
 
-          <FolderTab label="全部" count={effectiveTotal}
-            active={selectedFolderId === 'all'} onClick={() => selectFolder('all')} />
+        <FolderTab label="未分類" count={effectiveUnclassified}
+          active={selectedFolderId === null} onClick={() => selectFolder(null)} />
 
-          <FolderTab label="未分類" count={effectiveUnclassified}
-            active={selectedFolderId === null} onClick={() => selectFolder(null)} />
+        {folders.map(f => (
+          <FolderTab key={f.id} label={f.name}
+            count={allDocs.filter(d => d.folder_id === f.id).length}
+            color={FOLDER_COLORS[f.color]}
+            active={selectedFolderId === f.id}
+            onClick={() => selectFolder(f.id)}
+            onDelete={() => handleDeleteFolder(f.id, f.name)} />
+        ))}
 
-          {folders.map(f => (
-            <FolderTab key={f.id} label={f.name}
-              count={allDocs.filter(d => d.folder_id === f.id).length}
-              color={FOLDER_COLORS[f.color]}
-              active={selectedFolderId === f.id}
-              onClick={() => selectFolder(f.id)}
-              onDelete={() => handleDeleteFolder(f.id, f.name)} />
-          ))}
-
-          <div style={{ width: 1, height: 22, background: '#2d3f55', margin: '0 4px' }} />
-
-          {/* Add folder inline */}
-          {showAddFolder ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input autoFocus value={newFolderName}
-                onChange={e => setNewFolderName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleAddFolder(); if (e.key === 'Escape') setShowAddFolder(false) }}
-                placeholder="資料夾名稱..."
-                style={{ background: '#162032', border: '1px solid #3b82f6', borderRadius: 6, color: '#e2e8f0', padding: '5px 10px', fontSize: 13, outline: 'none', width: 140 }} />
-              {Object.entries(FOLDER_COLORS).map(([key, hex]) => (
-                <span key={key} onClick={() => setNewFolderColor(key)}
-                  style={{ width: 14, height: 14, borderRadius: '50%', background: hex, cursor: 'pointer', flexShrink: 0, border: newFolderColor === key ? '2px solid #fff' : '2px solid transparent' }} />
-              ))}
-              <button onClick={handleAddFolder} disabled={folderSaving}
-                style={{ background: '#2563eb', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                {folderSaving ? '...' : '確認'}
-              </button>
-              <button onClick={() => setShowAddFolder(false)}
-                style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>取消</button>
-            </div>
-          ) : (
-            <button onClick={() => setShowAddFolder(true)}
-              style={{ background: 'transparent', border: '1px dashed #3b4d6a', borderRadius: 6, color: '#94a3b8', padding: '5px 12px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
-              ＋ 新增資料夾
+        {/* Add folder inline */}
+        {showAddFolder ? (
+          <div className="kb-addfolder">
+            <input autoFocus value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddFolder(); if (e.key === 'Escape') setShowAddFolder(false) }}
+              placeholder="資料夾名稱..."
+              className="lst-field lst-field--sm kb-addfolder-input" />
+            {Object.entries(FOLDER_COLORS).map(([key, hex]) => (
+              <span key={key} onClick={() => setNewFolderColor(key)}
+                className="kb-color" style={{ background: hex, borderColor: newFolderColor === key ? '#fff' : 'transparent' }} />
+            ))}
+            <button type="button" onClick={handleAddFolder} disabled={folderSaving} className="lst-sbtn lst-sbtn--info">
+              {folderSaving ? '...' : '確認'}
             </button>
-          )}
-        </div>
+            <button type="button" onClick={() => setShowAddFolder(false)} className="lst-sbtn">取消</button>
+          </div>
+        ) : (
+          <button type="button" className="rd-tab kb-tab-add" onClick={() => setShowAddFolder(true)}>
+            ＋ 新增資料夾
+          </button>
+        )}
       </div>
 
       {/* ── Doc list card ── */}
-      <div className="section-card">
-        {/* Card header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <div style={{ flex: 1 }}>
-            <h2 className="section-title" style={{ fontSize: 15, marginBottom: 0 }}>
-              {selectedFolderId === 'all' && '全部文件'}
-              {selectedFolderId === null && '未分類'}
-              {currentFolder && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: FOLDER_COLORS[currentFolder.color], display: 'inline-block' }} />
-                  {currentFolder.name}
-                </span>
-              )}
-              <span style={{ fontSize: 12, fontWeight: 400, color: '#94a3b8', marginLeft: 10 }}>
-                {filteredDocs.length} 份文件
-              </span>
-            </h2>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋名稱..."
-              style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, color: '#94a3b8', padding: '6px 12px', fontSize: 13, outline: 'none', width: 180 }} />
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-              style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, color: '#94a3b8', padding: '6px 10px', fontSize: 13, outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-              <option value="">全部類型</option>
-              <option value="lark_wiki">Lark Wiki</option>
-              <option value="pdf">PDF URL</option>
-              <option value="google_doc">Google Doc</option>
-              <option value="file_upload">上傳文件</option>
-              <option value="text">純文字</option>
-            </select>
-            <button className="submit-btn" onClick={openAddDoc}
-              style={{ padding: '7px 18px', fontSize: 13, whiteSpace: 'nowrap', width: 'auto' }}>
-              ＋ 新增文件
-            </button>
-          </div>
+      <section className="section-card st-card st-raw">
+        <h2 className="section-title">
+          {selectedFolderId === 'all' && '全部文件'}
+          {selectedFolderId === null && '未分類'}
+          {currentFolder && (
+            <span className="kb-title-folder">
+              <span className="kb-dot" style={{ background: FOLDER_COLORS[currentFolder.color] }} />
+              {currentFolder.name}
+            </span>
+          )}
+          <span className="st-meta">{filteredDocs.length} 份文件</span>
+        </h2>
+        <div className="lst-toolbar">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋名稱..."
+            className="lst-field st-grow" aria-label="搜尋名稱" />
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="lst-field kb-type" aria-label="類型">
+            <option value="">全部類型</option>
+            <option value="lark_wiki">Lark Wiki</option>
+            <option value="pdf">PDF URL</option>
+            <option value="google_doc">Google Doc</option>
+            <option value="file_upload">上傳文件</option>
+            <option value="text">純文字</option>
+          </select>
+          <button type="button" className="submit-btn lst-btn" onClick={openAddDoc}>
+            ＋ 新增文件
+          </button>
         </div>
 
         {/* Table */}
         {docsLoading ? (
-          <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '48px 0' }}>載入中...</div>
+          <div className="lst-empty">載入中...</div>
         ) : filteredDocs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '64px 20px', color: '#334155' }}>
-            <div style={{ fontSize: 36, marginBottom: 12, opacity: .35 }}>匣</div>
-            <div style={{ fontSize: 14, color: '#475569', marginBottom: 6 }}>
+          <div className="lst-empty kb-empty">
+            <div className="kb-empty-t">
               {search || typeFilter ? '沒有符合篩選條件的文件' : '這個資料夾還是空的'}
             </div>
             {!search && !typeFilter && (
-              <div style={{ fontSize: 12, color: '#334155' }}>點擊右上角「＋ 新增文件」加入第一份規格書</div>
+              <div className="st-hint">點擊右上角「＋ 新增文件」加入第一份規格書</div>
             )}
           </div>
         ) : (
-          <div className="table-wrap">
-            <table className="version-table">
+          <div className="table-wrap lst-tbl">
+            <table className="version-table st-tbl kb-table">
               <thead>
                 <tr>
-                  <th style={{ width: 36 }}></th>
+                  <th className="kb-ic-col"></th>
                   <th>文件名稱</th>
-                  <th style={{ width: 96 }}>類型</th>
+                  <th>類型</th>
                   <th>標籤</th>
-                  <th style={{ width: 180 }}>快取狀態</th>
-                  <th style={{ width: 150, textAlign: 'left' }}>操作</th>
+                  <th>快取狀態</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -394,65 +377,57 @@ export function KnowledgePage() {
                   const stale = days >= 7
                   const isRefreshing = refreshingId === doc.id
                   const isDeleting = deletingId === doc.id
+                  const actions: React.ReactNode[] = []
+                  if (doc.content_length > 0) actions.push(
+                    <button key="pv" type="button" className="lst-link" onClick={() => handlePreview(doc.id, doc.name)}>預覽</button>)
+                  if (doc.type !== 'text' && doc.type !== 'file_upload') actions.push(
+                    <button key="rf" type="button" className="lst-link" disabled={isRefreshing} onClick={() => handleRefresh(doc.id)}>
+                      {isRefreshing ? '重抓中…' : '重抓'}
+                    </button>)
+                  actions.push(<button key="ed" type="button" className="lst-link" onClick={() => openEditDoc(doc)}>編輯</button>)
+                  actions.push(
+                    <button key="del" type="button" className="lst-link st-link--danger" disabled={isDeleting} onClick={() => handleDelete(doc.id, doc.name)}>
+                      {isDeleting ? '...' : '刪除'}
+                    </button>)
                   return (
                     <tr key={doc.id}>
-                      <td style={{ textAlign: 'center' }}><XianxiaIcon name={TYPE_ICONS[doc.type]} size={22} /></td>
+                      <td className="kb-ic-col"><XianxiaIcon name={TYPE_ICONS[doc.type]} size={22} /></td>
                       <td>
-                        <div onClick={() => handlePreview(doc.id, doc.name)}
-                          style={{ color: '#cbd5e1', fontWeight: 500, fontSize: 13, cursor: 'pointer', marginBottom: 3 }}
-                          onMouseEnter={e => (e.currentTarget.style.color = '#93c5fd')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>
+                        <button type="button" className="kb-name" onClick={() => handlePreview(doc.id, doc.name)}>
                           {doc.name}
-                        </div>
+                        </button>
                         {doc.source_url && (
-                          <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>
+                          <div className="kb-url">
                             {doc.source_url.replace(/^https?:\/\//, '').slice(0, 65)}
                           </div>
                         )}
                       </td>
                       <td>
-                        <span className={`badge ${
-                          doc.type === 'lark_wiki' ? 'badge--blue' :
-                          doc.type === 'pdf' ? 'badge--error' :
-                          doc.type === 'google_doc' ? 'badge--ok' :
-                          doc.type === 'file_upload' ? 'badge--warn' : ''
-                        }`} style={{ fontSize: 11, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                        <span className={`lst-pill ${
+                          doc.type === 'lark_wiki' ? 'lst-pill--run' :
+                          doc.type === 'pdf' ? 'lst-pill--fail' :
+                          doc.type === 'google_doc' ? 'lst-pill--pass' :
+                          doc.type === 'file_upload' ? 'lst-pill--warn' : ''
+                        }`}>
                           {TYPE_LABELS[doc.type]}
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {tags.map(t => (
-                            <span key={t} style={{ fontSize: 11, padding: '1px 7px', background: '#1e293b', color: '#94a3b8', borderRadius: 4, border: '1px solid #3b4d6a', whiteSpace: 'nowrap' }}>{t}</span>
-                          ))}
+                        <div className="lst-tags kb-tags">
+                          {tags.map(t => <span key={t} className="lst-tag">{t}</span>)}
+                          {!tags.length && <span className="st-dim">—</span>}
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: stale && doc.cached_at ? '#fbbf24' : '#94a3b8', whiteSpace: 'nowrap' }}>
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: doc.cached_at ? (stale ? '#fbbf24' : '#22c55e') : '#64748b', flexShrink: 0 }} />
+                        <span className={`lst-pill ${doc.cached_at ? (stale ? 'lst-pill--warn' : 'lst-pill--pass') : ''}`}>
                           {doc.cached_at
                             ? `${fmtSize(doc.content_length)} · ${fmtDate(doc.cached_at)}${stale ? '（已過期）' : ''}`
                             : '無快取'}
-                        </div>
+                        </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
-                          {doc.content_length > 0 && (
-                            <button className="btn-ghost btn-ghost--step" style={{ padding: '4px 10px', fontSize: 12 }}
-                              onClick={() => handlePreview(doc.id, doc.name)}>預覽</button>
-                          )}
-                          {doc.type !== 'text' && doc.type !== 'file_upload' && (
-                            <button className="btn-ghost btn-ghost--step" style={{ padding: '4px 10px', fontSize: 12 }}
-                              disabled={isRefreshing} onClick={() => handleRefresh(doc.id)}>
-                              {isRefreshing ? '⏳' : '重抓'}
-                            </button>
-                          )}
-                          <button className="btn-ghost btn-ghost--step" style={{ padding: '4px 10px', fontSize: 12 }}
-                            onClick={() => openEditDoc(doc)}>編輯</button>
-                          <button disabled={isDeleting} onClick={() => handleDelete(doc.id, doc.name)}
-                            style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 5, color: '#f87171', padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                            {isDeleting ? '...' : '刪除'}
-                          </button>
+                        <div className="st-links">
+                          {actions.map((a, i) => <span key={i} className="st-links-i">{i > 0 && <span className="st-dot" aria-hidden="true">·</span>}{a}</span>)}
                         </div>
                       </td>
                     </tr>
@@ -462,7 +437,7 @@ export function KnowledgePage() {
             </table>
           </div>
         )}
-      </div>
+      </section>
 
       {/* ── Add Doc Modal ── */}
       {showAddDoc && (
@@ -504,13 +479,11 @@ export function KnowledgePage() {
                     style={{ border: `2px dashed ${formFile ? '#3b82f6' : '#2d3f55'}`, borderRadius: 8, padding: '20px 16px', textAlign: 'center', cursor: 'pointer', background: formFile ? 'rgba(59,130,246,.05)' : 'transparent' }}>
                     {formFile ? (
                       <>
-                        <div style={{ fontSize: 22, marginBottom: 4 }}>頁</div>
                         <div style={{ fontSize: 14, color: '#93c5fd', fontWeight: 600 }}>{formFile.name}</div>
                         <div style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>{(formFile.size / 1024).toFixed(0)} KB · 點擊更換</div>
                       </>
                     ) : (
                       <>
-                        <div style={{ fontSize: 28, marginBottom: 6, opacity: .5 }}>匣</div>
                         <div style={{ fontSize: 13, color: '#64748b' }}>點擊選擇文件</div>
                         <div style={{ fontSize: 11, color: '#334155', marginTop: 4 }}>PDF / Word (.docx) / HTML，最大 20MB</div>
                       </>
@@ -540,12 +513,12 @@ export function KnowledgePage() {
                 <input value={formTags} onChange={e => setFormTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書, v2.3" style={mInput} />
               </FormRow>
-              {formError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>失敗 {formError}</div>}
+              {formError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>{formError}</div>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
               <button className={`submit-btn${saving ? ' loading' : ''}`} onClick={handleSaveDoc} disabled={saving}
                 style={{ padding: '8px 22px', fontSize: 13, width: 'auto' }}>
-                {saving ? '⏳ 處理中...' : '抓取並儲存'}
+                {saving ? '處理中...' : '抓取並儲存'}
               </button>
               <button onClick={() => setShowAddDoc(false)}
                 style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -610,12 +583,12 @@ export function KnowledgePage() {
                 <input value={editTags} onChange={e => setEditTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書" style={mInput} />
               </FormRow>
-              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>失敗 {editError}</div>}
+              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>{editError}</div>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
               <button className={`submit-btn${editSaving ? ' loading' : ''}`} onClick={() => void handleSaveEdit()} disabled={editSaving}
                 style={{ padding: '8px 22px', fontSize: 13, width: 'auto' }}>
-                {editSaving ? '⏳ 儲存中...' : '儲存'}
+                {editSaving ? '儲存中...' : '儲存'}
               </button>
               <button onClick={() => setEditDoc(null)}
                 style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -635,35 +608,16 @@ function FolderTab({ label, count, color, active, onClick, onDelete }: {
   label: string; count: number; color?: string; active: boolean
   onClick: () => void; onDelete?: () => void
 }) {
-  const [hover, setHover] = useState(false)
+  // 新版：原型 .tab（選中＝強調色漸層），資料夾顏色只留前面的小圓點；數字照原型放括號裡
   return (
-    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-      <button onClick={onClick}
-        onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7,
-          padding: onDelete ? '6px 28px 6px 12px' : '6px 12px',
-          borderRadius: 7, border: `1px solid ${active ? (color ?? '#6366f1') : '#2d3f55'}`,
-          background: active ? (color ? `${color}22` : 'rgba(99,102,241,.15)') : hover ? 'rgba(255,255,255,.04)' : 'transparent',
-          color: active ? (color ?? '#a5b4fc') : '#94a3b8',
-          fontSize: 13, cursor: 'pointer', fontWeight: active ? 600 : 400, transition: 'all .12s',
-          whiteSpace: 'nowrap' as const, fontFamily: 'inherit',
-        }}>
-        {color && <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />}
+    <div className={`kb-tab-wrap${onDelete ? ' has-del' : ''}`}>
+      <button type="button" role="tab" className="rd-tab kb-tab" aria-selected={active} onClick={onClick}>
+        {color && <span className="kb-dot" style={{ background: color }} />}
         {label}
-        <span style={{
-          // 只給 padding 的話，數字的垂直位置是由父層 line-height 決定的，看起來會偏下。
-          // 用 inline-flex 置中並給固定高度才會真的在圓圈正中間。
-          fontSize: 11, borderRadius: 9, padding: '0 6px', minWidth: 18,
-          height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          lineHeight: 1,
-          background: active ? (color ? `${color}33` : 'rgba(99,102,241,.25)') : '#1e293b',
-          color: active ? (color ?? '#a5b4fc') : '#94a3b8',
-        }}>{count}</span>
+        <span className="kb-count">({count})</span>
       </button>
-      {onDelete && hover && (
-        <button onClick={e => { e.stopPropagation(); onDelete() }} title="刪除資料夾"
-          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: '1px 2px', fontFamily: 'inherit' }}>
+      {onDelete && (
+        <button type="button" className="kb-tab-del" onClick={e => { e.stopPropagation(); onDelete() }} title="刪除資料夾">
           ×
         </button>
       )}

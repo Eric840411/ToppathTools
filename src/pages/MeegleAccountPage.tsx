@@ -83,14 +83,11 @@ export function MeegleAccountPage({ themeMode, onBack }: { themeMode?: 'classic'
 
   return (
     <div className="mg-page">
-      <section className="mg-card">
-        <div className="mg-card-head">
-          <div>
-            <h2 className="mg-title">{xianxia ? 'Meegle 靈契' : 'Meegle 個人綁定'}</h2>
-            <div className="mg-subtitle">Meegle 個人綁定</div>
-          </div>
-          {!loading && <span className={`mg-pill mg-pill--${state}`}>{pillText}</span>}
-        </div>
+      {/* 新版（原型 v7）：兩塊原型面板（標題帶）；狀態膠囊在卡片左上、按鈕靠右；取得 Token 是圓形編號步驟。樣式在 redesign/pages/settings.css */}
+      <section className="mg-card section-card st-card">
+        <h2 className="section-title mg-title">{xianxia ? 'Meegle 靈契' : 'Meegle 個人綁定'}</h2>
+        <div className="mg-subtitle">Meegle 個人綁定</div>
+        {!loading && <div className="mg-pill-row"><span className={`mg-pill mg-pill--${state}`}>{pillText}</span></div>}
 
         {onBack && (
           <div className={`mg-alert ${binding?.status === 'valid' ? 'mg-alert--ok' : 'mg-alert--warn'}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
@@ -204,8 +201,8 @@ export function MeegleAccountPage({ themeMode, onBack }: { themeMode?: 'classic'
         )}
       </section>
 
-      <aside className="mg-card mg-help">
-        <h3>如何取得 Token</h3>
+      <aside className="mg-card mg-help section-card st-card">
+        <h2 className="section-title">如何取得 Token</h2>
         <ol className="mg-steps">
           <li>在 Lark 開啟 <strong>Meegle</strong></li>
           <li>首頁「MCP &amp; CLI」卡片 → <strong>MCP 設定</strong></li>

@@ -124,79 +124,83 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
     } finally { setBusy(false) }
   }
 
-  const card: React.CSSProperties = { background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12, padding: 16 }
-  const input: React.CSSProperties = { padding: '8px 10px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 13, background: '#0f172a', color: '#e2e8f0', outline: 'none', minWidth: 0 }
-  const btn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap', flexShrink: 0, border: '1px solid #2d3f55', background: '#1e293b', color: '#cbd5e1' }
-  const btnPrimary: React.CSSProperties = { ...btn, background: '#6366f1', border: '1px solid #6366f1', color: '#fff', fontWeight: 600 }
+  // 新版（原型 v7）：左「角色」面板（搜尋＋新增上下疊、角色卡片）、右邊編輯面板（標籤在左、權限是一行一個勾選、按鈕在右下）。樣式在 redesign/pages/settings.css
   const tag = (r: RoleInfo) => r.fixed
-    ? <span className="rm-tag" style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: '1px solid rgba(245,183,59,.5)', color: '#f5b73b', whiteSpace: 'nowrap' }}>固定</span>
+    ? <span className="rm-tag rm-tag--fixed">固定</span>
     : r.builtin
-      ? <span className="rm-tag" style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: '1px solid #2d3f55', color: '#94a3b8', whiteSpace: 'nowrap' }}>內建</span>
-      : <span className="rm-tag" style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: '1px solid #6366f1', color: '#a5b4fc', whiteSpace: 'nowrap' }}>自訂</span>
+      ? <span className="rm-tag">內建</span>
+      : <span className="rm-tag rm-tag--custom">自訂</span>
 
-  if (loading && !roles.length) return <div style={card}><p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>載入中…</p></div>
+  if (loading && !roles.length) return <section className="section-card"><p className="st-dim" style={{ margin: 0 }}>載入中…</p></section>
 
   return (
-    <div className="role-manager" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) 1fr', gap: 14, alignItems: 'start' }}>
-      <div style={card}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <input style={{ ...input, flex: 1 }} placeholder="搜尋角色" value={search} onChange={e => setSearch(e.target.value)} aria-label="搜尋角色" />
-          <button type="button" style={btnPrimary} onClick={startCreate}>＋ 新增</button>
+    <div className="role-manager">
+      <section className="section-card st-card rm-list">
+        <h2 className="section-title">角色</h2>
+        <div className="rm-list-tools">
+          <input className="lst-field" placeholder="搜尋角色" value={search} onChange={e => setSearch(e.target.value)} aria-label="搜尋角色" />
+          <button type="button" className="btn-ghost lst-btn" onClick={startCreate}>＋ 新增</button>
         </div>
-        {visible.map(r => (
-          <button key={r.key} type="button" onClick={() => pick(r.key)} aria-pressed={r.key === cur && !creating}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 10px', marginBottom: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left', color: '#e2e8f0', fontSize: 13,
-              background: r.key === cur && !creating ? 'rgba(99,102,241,.14)' : 'transparent', border: `1px solid ${r.key === cur && !creating ? '#4f46e5' : 'transparent'}` }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: r.color, flexShrink: 0 }} />
-            <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
-            <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>{r.users.length} 人</span>
-            {tag(r)}
-          </button>
-        ))}
-        {creating && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, background: 'rgba(99,102,241,.14)', border: '1px solid #4f46e5', fontSize: 13 }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: draft?.color }} /><span style={{ fontWeight: 600 }}>{draft?.label || '（新角色）'}</span>
-          </div>
-        )}
-      </div>
+        <div className="rm-cards">
+          {visible.map(r => (
+            <button key={r.key} type="button" className="rm-role" onClick={() => pick(r.key)} aria-pressed={r.key === cur && !creating}>
+              <span className="rm-role-h">
+                <span className="rm-dot" style={{ background: r.color }} />
+                <span className="rm-role-name">{r.label}</span>
+                {tag(r)}
+              </span>
+              <span className="rm-role-n">{r.users.length} 人</span>
+            </button>
+          ))}
+          {creating && (
+            <div className="rm-role is-on">
+              <span className="rm-role-h">
+                <span className="rm-dot" style={{ background: draft?.color }} />
+                <span className="rm-role-name">{draft?.label || '（新角色）'}</span>
+              </span>
+            </div>
+          )}
+        </div>
+      </section>
 
       {draft && (creating || role) && (
-        <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <span style={{ width: 16, height: 16, borderRadius: '50%', background: draft.color }} />
-            <h2 style={{ margin: 0, fontSize: 17, color: '#e2e8f0' }}>{creating ? '新增角色' : role!.label}</h2>
+        <section className="section-card st-card rm-edit">
+          <h2 className="section-title">
+            <span className="rm-dot" style={{ background: draft.color }} />
+            {creating ? '新增角色' : role!.label}
             {!creating && tag(role!)}
-          </div>
-          {fixed && <div style={{ border: '1px solid rgba(245,183,59,.45)', background: 'rgba(245,183,59,.08)', color: '#f5b73b', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 12.5 }}>管理員固定擁有所有功能，不能修改或刪除（避免把自己鎖在系統外）。</div>}
+          </h2>
+          {fixed && <div className="lst-note lst-note--warn rm-gap">管理員固定擁有所有功能，不能修改或刪除（避免把自己鎖在系統外）。</div>}
 
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#94a3b8' }}>名稱
-              <input ref={nameRef} style={{ ...input, width: 220, ...(nameError ? { borderColor: '#f87171', boxShadow: '0 0 0 2px rgba(248,113,113,.25)' } : {}) }} value={draft.label} disabled={!custom} maxLength={20}
+          <div className="st-form">
+            <label className="st-l" htmlFor="rm-name">名稱</label>
+            <div className="st-cell">
+              <input id="rm-name" ref={nameRef} className={`lst-field rm-name${nameError ? ' is-invalid' : ''}`} value={draft.label} disabled={!custom} maxLength={20}
                 aria-invalid={nameError || undefined}
                 onChange={e => { const v = e.target.value; setDraft(d => d && ({ ...d, label: v })); if (v.trim()) { setNameError(false); setMsg(m => (m && !m.ok && m.text === '請先填角色名稱' ? null : m)) } }} placeholder="例如：測試協力" />
-              {nameError && <span style={{ color: '#f87171', fontSize: 11.5 }}>名稱必填</span>}
-            </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#94a3b8' }}>顏色
-              <div style={{ display: 'flex', gap: 6 }}>
+              {nameError && <span className="rm-err">名稱必填</span>}
+            </div>
+            <span className="st-l">顏色</span>
+            <div className="st-inline">
+              <div className="rm-colors">
                 {COLORS.map(c => (
-                  <button key={c} type="button" aria-label={`顏色 ${c}`} aria-pressed={draft.color === c} disabled={fixed}
+                  <button key={c} type="button" className="rm-color" aria-label={`顏色 ${c}`} aria-pressed={draft.color === c} disabled={fixed}
                     onClick={() => setDraft(d => d && ({ ...d, color: c }))}
-                    style={{ width: 24, height: 24, borderRadius: 6, background: c, cursor: fixed ? 'not-allowed' : 'pointer', border: `2px solid ${draft.color === c ? '#e2e8f0' : 'transparent'}`, padding: 0 }} />
+                    style={{ background: c }} />
                 ))}
               </div>
+              {!custom && !fixed && <span className="st-hint rm-builtin-note">內建角色這一版不能改名、刪除；顏色與可見功能可以改</span>}
             </div>
-            {!custom && !fixed && <span style={{ fontSize: 12, color: '#64748b' }}>內建角色這一版不能改名、刪除；顏色與可見功能可以改</span>}
           </div>
 
           {groups.map(g => (
-            <div key={g} style={{ marginBottom: 12 }}>
-              <h4 style={{ margin: '0 0 6px', fontSize: 12, color: '#64748b', letterSpacing: '.5px' }}>{g}</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
+            <div key={g} className="rm-group">
+              <h4 className="rm-group-h">{g}</h4>
+              <div className="rm-perms">
                 {pageMeta.filter(p => p.group === g).map(p => {
                   const on = fixed || !!draft.perms[p.key]
                   return (
-                    <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, fontSize: 13, color: '#cbd5e1', cursor: fixed ? 'not-allowed' : 'pointer',
-                      background: '#0f172a', border: `1px solid ${on ? '#4f46e5' : '#1e293b'}` }}>
+                    <label key={p.key} className="st-chk">
                       <input type="checkbox" checked={on} disabled={fixed} onChange={e => setDraft(d => d && ({ ...d, perms: { ...d.perms, [p.key]: e.target.checked } }))} />
                       {p.label}
                     </label>
@@ -207,32 +211,32 @@ export function RoleManager({ pageMeta, onChanged, onGoAccounts }: { pageMeta: P
           ))}
 
           {!creating && role && (
-            <div style={{ marginBottom: 12 }}>
-              <h4 style={{ margin: '0 0 6px', fontSize: 12, color: '#64748b' }}>使用這個角色的帳號（{role.users.length}）</h4>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {role.users.map(u => <span key={u} style={{ padding: '2px 8px', borderRadius: 6, background: '#0f172a', border: '1px solid #1e293b', fontSize: 12, color: '#cbd5e1' }}>{u}</span>)}
-                {!role.users.length && <span style={{ fontSize: 12, color: '#64748b' }}>沒有帳號使用</span>}
+            <div className="rm-group">
+              <h4 className="rm-group-h">使用這個角色的帳號（{role.users.length}）</h4>
+              <div className="lst-tags">
+                {role.users.map(u => <span key={u} className="lst-tag">{u}</span>)}
+                {!role.users.length && <span className="st-dim">沒有帳號使用</span>}
               </div>
-              <p style={{ fontSize: 12, color: '#64748b', margin: '6px 0 0' }}>ⓘ 帳號在「帳號管理」單獨加減的權限（個人覆寫）不在這裡，那邊會標「＋覆寫」</p>
+              <p className="st-hint">ⓘ 帳號在「帳號管理」單獨加減的權限（個人覆寫）不在這裡，那邊會標「＋覆寫」</p>
             </div>
           )}
 
           {msg && (
-            <div style={{ border: `1px solid ${msg.ok ? 'rgba(63,208,127,.45)' : 'rgba(242,107,107,.45)'}`, background: msg.ok ? 'rgba(63,208,127,.08)' : 'rgba(242,107,107,.08)', color: msg.ok ? '#4ade80' : '#f87171', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 12.5 }}>
+            <div className={`lst-note ${msg.ok ? 'lst-note--ok' : 'lst-note--bad'} rm-gap`}>
               {msg.text}{msg.users?.length ? `（${msg.users.join('、')}）` : ''}
-              {msg.users?.length ? <> <button type="button" onClick={onGoAccounts} style={{ background: 'none', border: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer', font: 'inherit', padding: 0 }}>前往帳號管理 →</button></> : null}
+              {msg.users?.length ? <> <button type="button" className="lst-link rm-go" onClick={onGoAccounts}>前往帳號管理 →</button></> : null}
             </div>
           )}
 
           {!fixed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
-              <span style={{ flex: 1, fontSize: 12, color: '#64748b' }}>{dirty ? '尚未儲存變更' : '設定已是最新'}</span>
-              {custom && !creating && <button type="button" style={{ ...btn, color: '#f87171', borderColor: 'rgba(239,68,68,.4)', background: 'rgba(239,68,68,.08)' }} onClick={() => void remove()} disabled={busy}>刪除角色</button>}
-              <button type="button" style={btn} disabled={busy || !dirty} onClick={resetDraft}>取消</button>
-              <button type="button" style={btnPrimary} disabled={busy || !dirty} onClick={() => void save()}>{busy ? '儲存中…' : creating ? '建立角色' : '儲存'}</button>
+            <div className="st-actions st-actions--bar">
+              <span className="st-dim st-grow">{dirty ? '尚未儲存變更' : '設定已是最新'}</span>
+              {custom && !creating && <button type="button" className="btn-ghost lst-btn st-btn--danger" onClick={() => void remove()} disabled={busy}>刪除角色</button>}
+              <button type="button" className="btn-ghost lst-btn" disabled={busy || !dirty} onClick={resetDraft}>取消</button>
+              <button type="button" className="submit-btn lst-btn" disabled={busy || !dirty} onClick={() => void save()}>{busy ? '儲存中…' : creating ? '建立角色' : '儲存'}</button>
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   )
