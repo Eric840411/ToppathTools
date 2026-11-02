@@ -403,7 +403,7 @@ export function KnowledgePage() {
                         )}
                       </td>
                       <td>
-                        <span className={`lst-pill ${
+                        <span className={`lst-pill kb-src kb-src--${doc.type} ${
                           doc.type === 'lark_wiki' ? 'lst-pill--run' :
                           doc.type === 'pdf' ? 'lst-pill--fail' :
                           doc.type === 'google_doc' ? 'lst-pill--pass' :

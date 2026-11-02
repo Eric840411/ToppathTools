@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.13'
+export const APP_VERSION = '5.73.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.14', date: '2026-11-03', changes: ["style(修仙版 第四批 CodeX 意見)：Local Agent 統計磚改墨綠底、數值改一般數字字體並依原型分綠／青／金／中性色；知識庫「上傳文件」類型膠囊修仙改中性灰（與黃色「已過期」區分，KnowledgePage 只加 class）。第三批複審 CodeX 判一致。普通版逐像素不變"] },
   { version: '5.73.13', date: '2026-11-02', changes: ["style(修仙版排版 第五批：圖片比對、Log 攔截工具、Bonus V2 統計、AutoSpin 通知、通知設定、境界排行榜、每日仙語管理、個人帳號、系統管理)：Game Show iframe（server/static/redesign-frame.css）修仙改墨綠＋四角框＋菱形標題；AutoSpin 通知頁說明改回一行小字；通知設定排版兩版共用；境界排行榜九境一列面板＋名次表格（隱藏重複的大橫幅）；每日仙語管理左 320px 兩張表單面板＋右語錄庫（JSX 重排、事件不變、拿掉警告 emoji）；修仙危險鈕恢復紅色。普通版不變。CodeX 複審因用量上限待補；iframe 新樣式要合併後重啟 server 才會在正式環境生效"] },
   { version: '5.73.12', date: '2026-11-02', changes: ["style(修仙版排版 第四批：UAT 整合測試、UI 解析度截圖、Performance Meter 對帳、Egm DayCount 對帳、Local Agent、操作歷史紀錄、知識庫)：uat／ops／settings 排版拿掉 :not(xianxia)，UAT 四塊缺框面板補修仙四角框與菱形標題、拿掉舊仙俠第二條標題槓；知識庫標題菱形不再壓字、檔案類型圖示欄兩版一致隱藏。普通版逐像素不變。CodeX 複審因用量上限待補"] },
   { version: '5.73.11', date: '2026-11-02', changes: ["style(修仙版排版 第三批：Config 比對、OSM 版本更新紀錄、AutoSpin、URL 帳號池、腳本化投注紀錄、Jackpot 監控)：CodeX 首輪判定 OSM 版本更新紀錄／URL 帳號池／Jackpot 一致，其餘三頁照意見修完（複審因 CodeX 用量上限待補）——Config 比對模板欄 300px＋整條標題帶＋編輯刪除移到名稱下方＋新增放底（兩版一起，原型兩版都是）；AutoSpin 表格開關改原型 switch-sm 圓膠囊；腳本化投注日誌框墨綠、狀態圓膠囊。lists／runner／ops 排版拿掉 :not(xianxia)。AutoSpinPage／OsmConfigComparePage 只加 class（Config 模板卡行內樣式搬進 CSS，事件不變）；截圖腳本頁名改比對結尾，避免 AutoSpin 誤開 AutoSpin 通知"] },

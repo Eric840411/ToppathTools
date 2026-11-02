@@ -641,3 +641,20 @@
 /* 危險按鈕（刪除、刪除角色）：全站次要按鈕那條 !important 把紅字壓成白，補回來 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.lst-btn.st-btn--danger { color: #f87171 !important; border-color: color-mix(in srgb, #f87171 55%, transparent) !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.lst-btn.st-btn--danger:hover:not(:disabled) { color: #fca5a5 !important; border-color: #f87171 !important; }
+
+/* ── 第四批 CodeX 複審 ── */
+/* Local Agent 數字磚：舊仙俠把底色塗成藍黑、數字改金色襯線（!important）。照原型：墨綠磚、Connected 綠／Ready 玉色／Busy 金／Security 中性，等寬數字字型 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric {
+  --c: var(--rd-line-2);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 18%, var(--rd-panel-2)), var(--rd-panel) 75%) !important;
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent) !important; box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-ok) { --c: #34d399; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-blue) { --c: var(--rd-accent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-warn) { --c: var(--rd-ornament); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric-value {
+  font: 600 26px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace !important; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric-value:is(.local-agent-tone-ok, .local-agent-tone-blue, .local-agent-tone-warn) { color: var(--c) !important; }
+/* 知識庫「上傳文件」類型籤：原型是中性灰；黃色留給旁邊「已過期」的快取狀態 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill.kb-src--file_upload { --c: var(--rd-fg-3); }
