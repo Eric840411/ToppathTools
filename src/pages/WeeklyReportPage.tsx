@@ -6,18 +6,15 @@ import {
   MERGE_CONTENT, matchLarkProjectByJiraName, matchWeeklyIssueProject, buildPreviewItems, countMergeable, countJiraTagAffected,
   applyDefaultScanSheetProject, AUTO_IMPORT_TARGET_KEYWORDS, matchesAutoImportTarget,
 } from '../../shared/weekly-report-rules.js'
+import { PageActions } from '../redesign/PageActions'
 
 /** 原生 emoji 替代圖示——docs/visual-style.md「禁忌」規定禁用原生 emoji 渲染，改用 icon asset。
  *  currentColor 描邊，一份線稿兩個版面（普通版/仙俠版）共用，外層文字顏色決定圖示顏色。 */
-function CalendarIcon({ size = 14, style }: { size?: number; style?: CSSProperties }) {
+/** 可收合面板標題列的箭頭。用線條箭頭不用 ▶：▶ 在 Mac／Lark 會被畫成彩色 emoji 按鈕（使用者 10/06） */
+function Chevron({ open }: { open: boolean }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-      style={{ display: 'inline-block', verticalAlign: -2, flexShrink: 0, ...style }}>
-      <rect x="3" y="5" width="18" height="16" rx="2.5" />
-      <path d="M8 3v3M16 3v3M3 10h18" />
-      <rect x="7" y="13" width="2.4" height="2.4" rx="0.5" fill="currentColor" stroke="none" />
-      <rect x="11.3" y="13" width="2.4" height="2.4" rx="0.5" fill="currentColor" stroke="none" />
-      <rect x="15.6" y="13" width="2.4" height="2.4" rx="0.5" fill="currentColor" stroke="none" />
+    <svg className="wr-chev" width="10" height="10" viewBox="0 0 10 10" aria-hidden style={{ transform: open ? 'rotate(90deg)' : 'none' }}>
+      <path d="M3 1.5 7 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -74,6 +71,9 @@ interface ScanSheetConfig {
   /** 表單（分頁）名稱，讀表頭時一併拿到。勾了 nameOnly 就是拿它當內容 */
   tabName: string
 }
+/** 送出全部成功的訊息；畫面用 startsWith 判斷要不要顯示成綠色，兩處共用這個常數
+ *  （原本是「通過 全部送出成功」——「通過 」是早期 emoji 換掉後留下的字首） */
+const BATCH_SUBMIT_OK_MSG = '全部送出成功'
 const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']
 
 function newScanSheetConfig(): ScanSheetConfig {
@@ -175,11 +175,7 @@ function SearchableSelect({ value, onChange, options, placeholder, invalid }: {
         onBlur={() => setOpen(false)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        style={{
-          width: '100%', padding: '8px 10px', background: '#0b1322',
-          border: `1px solid ${invalid ? 'var(--cr-rose)' : '#2d3f55'}`, borderRadius: 7,
-          color: '#e2e8f0', fontSize: 12.5,
-        }}
+        className={'wr-field' + (invalid ? ' wr-field--invalid' : '')}
       />
       {open && filtered.length > 0 && (
         <div style={{
@@ -249,11 +245,7 @@ function SearchableMultiSelect({ selected, onChange, options, placeholder }: {
         onChange={e => setQuery(e.target.value)}
         onFocus={() => { setOpen(true); setQuery('') }}
         placeholder={placeholder}
-        style={{
-          width: '100%', padding: '6px 8px', background: '#0b1322',
-          border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 11,
-          textOverflow: 'ellipsis',
-        }}
+        className="wr-field wr-field--ellipsis"
       />
       {open && (
         <div style={{
@@ -291,12 +283,14 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         sub: '每週貼上當週玉簡（Lark Base）鏈印，批次查探玉簡／令牌依道友拆分後一次呈報',
         step1: '貼上本週玉簡鏈印', step1Sub: '每週卷宗不同，貼上鏈印後自動啟卷讀取選項',
         reload: '重新啟卷', parseOkPrefix: '已啟卷', projectLabel: '職司選項', memberLabel: '道友選項',
+        step1Label: '第一步', parseOkPill: '已啟卷',
       }
     : {
         title: '週報彙整',
         sub: '每週貼上當週 Lark Base 網址，批次掃描來源 Sheet／Meegle 依成員拆分後一次送出',
         step1: '貼上本週 Lark Base 網址', step1Sub: '每週表格不同，貼上網址後自動讀取欄位選項',
         reload: '重新讀取', parseOkPrefix: '已讀取表格', projectLabel: '專案選項', memberLabel: '成員選項',
+        step1Label: 'Step 1', parseOkPill: '已讀取',
       }
 
   const [url, setUrl] = useState(() => localStorage.getItem(LAST_URL_KEY) ?? DEFAULT_WEEKLY_URL)
@@ -612,7 +606,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       if (d.ok) {
         setBatchSubmitResult({ successCount: d.successCount ?? 0, failCount: d.failCount ?? 0 })
         if (!d.failCount) {
-          setBatchSubmitMsg('通過 全部送出成功')
+          setBatchSubmitMsg(BATCH_SUBMIT_OK_MSG)
           setScanResult(null); setDraftEdits({})
         } else {
           // 部分失敗時不能整批保留重送——已成功的項目會從清單移除，避免使用者修正失敗項目後重新送出時，
@@ -1084,146 +1078,137 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   }, [tabDateSources, parsed])
 
   return (
-    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {/* topbar 已經顯示標題，這裡不重複顯示大標題，只留說明文字 */}
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{t.sub}</div>
+    <div className="wr-page">
+      {/* 頁首右側（原型 v7）：即時時鐘 + 本次撈取範圍。原本是一條常駐 banner（2026-08-17），
+          範圍掛載時抓一次、不隨時鐘 tick 重新計算（跟 CodeX 討論定案，兩者關注點分開）——資訊不變，只換位置 */}
+      <PageActions>
+        <span className="wr-head-meta">
+          <span>現在時間：<b className="wr-mono">{formatClock(nowClock)}</b></span>
+          {weekRangeInfo ? (
+            <span>本次資料撈取範圍：<b className="wr-mono">{weekRangeInfo.startLabel} — {weekRangeInfo.endLabel}</b></span>
+          ) : weekRangeError ? (
+            <span className="wr-err"><WarningIcon size={11} /> {weekRangeError}</span>
+          ) : (
+            <span>撈取範圍讀取中…</span>
+          )}
+        </span>
+      </PageActions>
 
-      {/* 頁首常駐週期 banner（2026-08-17）：即時時鐘 + 本次 Jira/週期撈取範圍，掛載時抓一次，
-          不隨時鐘 tick 重新計算（跟 CodeX 討論定案，兩者關注點分開） */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '9px 14px', background: 'var(--cr-cyan-soft)', border: '1px solid var(--cr-cyan-border)', borderRadius: 10, fontSize: 11.5, marginBottom: 14 }}>
-        <span style={{ color: '#94a3b8' }}>現在時間：<b style={{ color: '#e2e8f0', fontFamily: 'ui-monospace, monospace', fontWeight: 700 }}>{formatClock(nowClock)}</b></span>
-        {weekRangeInfo ? (
-          <span style={{ color: '#94a3b8' }}>本次資料撈取範圍：<b style={{ color: 'var(--cr-cyan)', fontFamily: 'ui-monospace, monospace' }}>{weekRangeInfo.startLabel} — {weekRangeInfo.endLabel}</b></span>
-        ) : weekRangeError ? (
-          <span style={{ color: 'var(--cr-rose)' }}><WarningIcon size={11} /> {weekRangeError}</span>
-        ) : (
-          <span style={{ color: '#64748b' }}>撈取範圍讀取中…</span>
-        )}
-      </div>
+      {/* topbar 已經顯示標題，這裡不重複顯示大標題，只留說明文字 */}
+      <div className="wr-sub">{t.sub}</div>
 
       {/* 定時備稿提醒（2026-08-27）：預設收合——這是「設定一次就不用再看」的東西，
           常駐展開會把真正要操作的 Step 1 推下去 */}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', marginBottom: 14 }}>
-        <button onClick={() => setReminderOpen(o => !o)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-          {/* 用線條箭頭不用 ▶：▶ 在 Mac／Lark 會被畫成彩色 emoji 按鈕（使用者 10/06） */}
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden style={{ color: '#64748b', flexShrink: 0, transform: reminderOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
-            <path d="M3 1.5 7 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+      <section className={'section-card wr-panel' + (reminderOpen ? '' : ' wr-panel--closed')}>
+        <button type="button" className="section-title wr-collapse" aria-expanded={reminderOpen} onClick={() => setReminderOpen(o => !o)}>
+          <Chevron open={reminderOpen} />
           <span>定時備稿提醒</span>
           {reminder && (
-            <span style={{ fontSize: 11, fontWeight: 500, color: reminder.enabled ? 'var(--cr-cyan)' : '#64748b' }}>
+            <span className={'wr-meta' + (reminder.enabled ? ' wr-meta--on' : '')}>
               {reminder.enabled ? '每' + WEEKDAY_LABELS[reminder.weekday] + ' ' + reminder.time + ' 發 Lark 提醒' : '未啟用'}
             </span>
           )}
         </button>
 
         {reminderOpen && (
-          <div style={{ padding: '0 16px 14px', borderTop: '1px solid #263345', paddingTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.75, marginBottom: 10 }}>
-              到點只發一則 Lark 提醒（卡片上是開啟週報頁的連結），<b style={{ color: '#e2e8f0' }}>不會自動送出週報</b>。
-              開頁面之後掃描／Jira 撈單／頁籤報表本來就會自己跑完備稿，內容確認過再自己按送出。
-            </div>
+          <div className="wr-body">
             {!reminder ? (
-              <div style={{ fontSize: 11, color: '#64748b' }}>讀取設定中…</div>
+              <div className="wr-hint">讀取設定中…</div>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+              <div className="wr-inline">
+                <label className="wr-chk">
                   <input type="checkbox" checked={reminder.enabled} onChange={e => saveReminder({ enabled: e.target.checked })} />
                   <span>啟用</span>
                 </label>
-                <select value={reminder.weekday} onChange={e => saveReminder({ weekday: Number(e.target.value) })}
-                  style={{ padding: '6px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'inherit' }}>
+                <select className="wr-field wr-grow" value={reminder.weekday} onChange={e => saveReminder({ weekday: Number(e.target.value) })}>
                   {WEEKDAY_LABELS.map((w, i) => <option key={i} value={i}>每{w}</option>)}
                 </select>
-                <input type="time" value={reminder.time} onChange={e => e.target.value && saveReminder({ time: e.target.value })}
-                  style={{ padding: '5px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'ui-monospace, monospace' }} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+                <input type="time" className="wr-field wr-grow wr-mono" value={reminder.time} onChange={e => e.target.value && saveReminder({ time: e.target.value })} />
+                <label className="wr-chk">
                   <input type="checkbox" checked={reminder.mentionAll} onChange={e => saveReminder({ mentionAll: e.target.checked })} />
                   <span>@ 所有有週報權限的人</span>
                 </label>
-                <button onClick={testReminder}
-                  style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'transparent', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
-                  試發送
-                </button>
+                <button type="button" className="btn-ghost wr-btn" onClick={testReminder}>試發送</button>
               </div>
             )}
+            <div className="wr-hint wr-msg">
+              到點只發一則 Lark 提醒（卡片上是開啟週報頁的連結），<b>不會自動送出週報</b>。
+              開頁面之後掃描／Jira 撈單／頁籤報表本來就會自己跑完備稿，內容確認過再自己按送出。
+            </div>
 
             {/* 以誰的身分撈 Jira。**明確指定**而不是「誰最後在頁面跑過掃描」——後者會讓授權
                 身分被誰路過決定，而且畫面上完全看不出來變了（2026-08-27 使用者要求改掉）。
                 只能選自己；要選別人得是管理員（後端也會再擋一次，不只靠這裡的下拉限制）。 */}
             {reminder && reminderMeta && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #263345' }}>
-                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, marginBottom: 8 }}>
-                  <b style={{ color: '#e2e8f0' }}>以誰的身分撈 Meegle</b>——排程沒有登入者，要有一個人明確授權（用他自己的 Meegle 綁定查）。
+              <div className="wr-subsec">
+                <div className="wr-hint wr-block">
+                  <b>以誰的身分撈 Meegle</b>——排程沒有登入者，要有一個人明確授權（用他自己的 Meegle 綁定查）。
                   別人只是查詢條件，不用借對方的帳號；授權人沒綁定或綁定失效時整段跳過並標明，不會換人頂替。
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <select value={reminder.jiraActorEmail ?? ''} onChange={e => saveReminder({ jiraActorEmail: e.target.value })}
-                    style={{ padding: '6px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'inherit', minWidth: 200 }}>
+                <div className="wr-inline">
+                  <select className="wr-field wr-w240" value={reminder.jiraActorEmail ?? ''} onChange={e => saveReminder({ jiraActorEmail: e.target.value })}>
                     <option value="">（未指定）</option>
                     {reminderMeta.candidates
                       .filter(c => reminderMeta.me?.isAdmin || c.email.toLowerCase() === (reminderMeta.me?.email ?? '').toLowerCase())
                       .map(c => <option key={c.email} value={c.email}>{c.label}</option>)}
                   </select>
                   {!reminderMeta.me?.isAdmin && (
-                    <span style={{ fontSize: 10.5, color: '#64748b' }}>只能指定自己；要指定別人需要管理員權限</span>
+                    <span className="wr-hint">只能指定自己；要指定別人需要管理員權限</span>
                   )}
                 </div>
                 {!reminder.jiraActorEmail && reminderMeta.effectiveJiraActor && (
-                  <div style={{ fontSize: 10.5, color: '#d8b45a', marginTop: 7 }}>
+                  <div className="wr-warn wr-msg">
                     尚未明確指定，目前會沿用最後一次跑掃描的人
                     {reminderMeta.fallbackActorLabel ? '（' + reminderMeta.fallbackActorLabel + '）' : ''}
                     ——那會隨著誰開過頁面而改變，建議明確指定一個。
                   </div>
                 )}
                 {!reminder.jiraActorEmail && !reminderMeta.effectiveJiraActor && (
-                  <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginTop: 7 }}>
+                  <div className="wr-err wr-msg">
                     還沒有任何身分可用，定時提醒不會撈單。
                   </div>
                 )}
               </div>
             )}
 
-            {reminder && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginTop: 10 }}>
-                {reminderSaving && <span style={{ fontSize: 11, color: '#64748b' }}>儲存中…</span>}
-                {!reminderSaving && reminderMsg && <span style={{ fontSize: 11, color: reminderMsg.includes('失敗') ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>{reminderMsg}</span>}
+            {reminder && (reminderSaving || reminderMsg) && (
+              <div className="wr-msg">
+                {reminderSaving && <span className="wr-hint">儲存中…</span>}
+                {!reminderSaving && reminderMsg && <span className={reminderMsg.includes('失敗') ? 'wr-err' : 'wr-ok'}>{reminderMsg}</span>}
               </div>
             )}
             {reminder?.enabled && reminderCron && (
-              <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 9, fontFamily: 'ui-monospace, monospace' }}>
+              <div className="wr-hint wr-mono wr-msg">
                 cron：{reminderCron}（Asia/Taipei）｜發到「通知設定」頁設定的 Lark 群組
               </div>
             )}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Step 1 — 全寬，網址本來就長 */}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <span style={{ width: 22, height: 22, borderRadius: '50%', background: parsed ? 'var(--xx-jade-solid)' : 'var(--cr-cyan-soft)', color: parsed ? '#fff' : 'var(--cr-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{parsed ? '✓' : '1'}</span>
-          <span style={{ fontSize: 13.5, fontWeight: 700 }}>
-            {t.step1}
-            <small style={{ display: 'block', fontSize: 10.5, fontWeight: 400, color: '#64748b', marginTop: 2 }}>{t.step1Sub}</small>
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://.../base/{appToken}?table={tableId}"
-            style={{ flex: 1, padding: '8px 10px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 12.5 }} />
-          <button onClick={handleParse} disabled={parsing || !url.trim()}
-            style={{ padding: '6px 12px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: parsing ? 'default' : 'pointer', opacity: parsing ? .6 : 1 }}>
+      <section className="section-card wr-panel">
+        <h3 className="section-title">{t.step1Label}　{t.step1}</h3>
+        <div className="wr-inline">
+          <input type="text" className="wr-field wr-grow" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://.../base/{appToken}?table={tableId}" />
+          <button type="button" className="btn-ghost wr-btn" onClick={handleParse} disabled={parsing || !url.trim()}>
             {parsing ? '讀取中…' : t.reload}
           </button>
         </div>
-        {parseMsg && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 11.5, borderRadius: 7, padding: '8px 10px', color: parsed ? 'var(--cr-cyan)' : 'var(--cr-rose)', background: parsed ? 'var(--cr-cyan-soft)' : 'var(--cr-rose-soft, rgba(223,118,94,.12))', border: `1px solid ${parsed ? 'var(--cr-cyan-border)' : 'transparent'}` }}>
-            <span>{parsed ? '✓' : <WarningIcon />}</span>
-            <span>{parseMsg}</span>
-          </div>
-        )}
-      </div>
+        <div className="wr-note">
+          {parseMsg && parsed ? (
+            <>
+              <span className="wr-pill wr-pill--ok">{t.parseOkPill}</span>
+              <span>{parseMsg.startsWith(t.parseOkPrefix) ? parseMsg.slice(t.parseOkPrefix.length).replace(/^\s*—\s*/, '') : parseMsg}</span>
+              <span className="wr-note-sep">{t.step1Sub}</span>
+            </>
+          ) : parseMsg ? (
+            <span className="wr-err"><WarningIcon size={12} /> {parseMsg}</span>
+          ) : (
+            <span>{t.step1Sub}</span>
+          )}
+        </div>
+      </section>
 
       <BatchScanSection
           parsed={parsed}
@@ -1384,88 +1369,84 @@ function BatchScanSection({
 }) {
   if (!parsed) {
     return (
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px', color: '#64748b', fontSize: 12.5 }}>
+      <section className="section-card wr-panel wr-empty">
         請先在上方 Step 1 讀取 Lark Base 網址，才能開始批次掃描
-      </div>
+      </section>
     )
   }
 
   const activeItems = draftEdits[activePerson] ?? []
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
+    <>
       {/* 依時間範圍撈 Jira 單（可多選帳號）*/}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-        <button onClick={openJiraPanel} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 700, borderRadius: 7, background: jiraPanelOpen ? 'var(--cr-cyan-soft)' : 'transparent', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CalendarIcon /> 依時間範圍撈 Meegle 單（可多選人）
+      <section className={'section-card wr-panel' + (jiraPanelOpen ? '' : ' wr-panel--closed')}>
+        <button type="button" className="section-title wr-collapse" aria-expanded={jiraPanelOpen} onClick={openJiraPanel}>
+          <Chevron open={jiraPanelOpen} />
+          <span>依時間範圍撈 Meegle 單（可多選人）</span>
         </button>
         {jiraPanelOpen && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內有建立或更新」的任務項；專案看單子的「關聯需求」（沒有關聯需求才看標題第一個中括號）。撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-              {jiraAccountList.map(a => {
-                const checked = jiraSelectedEmails.has(a.email)
-                return (
-                  <label key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '3px 9px', borderRadius: 999, border: `1px solid ${checked ? 'var(--cr-cyan-border)' : '#2d3f55'}`, background: checked ? 'var(--cr-cyan-soft)' : 'transparent', color: checked ? 'var(--cr-cyan)' : '#94a3b8', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleJiraAccount(a.email)} style={{ accentColor: 'var(--cr-cyan)' }} />
-                    {a.label}
-                  </label>
-                )
-              })}
+          <div className="wr-body">
+            <div className="wr-hint wr-block">用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內有建立或更新」的任務項；專案看單子的「關聯需求」（沒有關聯需求才看標題第一個中括號）。撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
+            <div className="wr-checks wr-block">
+              {jiraAccountList.map(a => (
+                <label key={a.email} className="wr-chk">
+                  <input type="checkbox" checked={jiraSelectedEmails.has(a.email)} onChange={() => toggleJiraAccount(a.email)} />
+                  {a.label}
+                </label>
+              ))}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+            <div className="wr-inline wr-block">
+              <span className="wr-text">
                 撈取範圍固定跟隨本週週期：
                 {weekRangeInfo
-                  ? <b style={{ color: 'var(--cr-cyan)', fontFamily: 'ui-monospace, monospace' }}>{weekRangeInfo.startLabel} — {weekRangeInfo.endLabel}</b>
+                  ? <b className="wr-mono">{weekRangeInfo.startLabel} — {weekRangeInfo.endLabel}</b>
                   : weekRangeError
-                    ? <b style={{ color: 'var(--cr-rose)' }}><WarningIcon size={11} /> {weekRangeError}</b>
-                    : <b style={{ color: '#64748b' }}>讀取中…</b>}
+                    ? <b className="wr-err"><WarningIcon size={11} /> {weekRangeError}</b>
+                    : <b className="wr-hint">讀取中…</b>}
               </span>
-              <button onClick={handleJiraRangeSearch} disabled={jiraLoading || jiraSelectedEmails.size === 0 || !weekRangeInfo}
-                style={{ padding: '7px 14px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: jiraLoading ? 'default' : 'pointer', opacity: (jiraSelectedEmails.size === 0 || !weekRangeInfo) ? .5 : 1, height: 32 }}>
+              <button type="button" className="btn-ghost wr-btn" onClick={handleJiraRangeSearch} disabled={jiraLoading || jiraSelectedEmails.size === 0 || !weekRangeInfo}>
                 {jiraLoading ? '查詢中…' : '查詢'}
               </button>
             </div>
-            {jiraSelectedEmails.size === 0 && <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginBottom: 8 }}>請至少勾選一個帳號</div>}
+            {jiraSelectedEmails.size === 0 && <div className="wr-err wr-msg">請至少勾選一個帳號</div>}
             {jiraSelectedEmails.size > 0 && !weekRangeInfo && (
-              <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginBottom: 8 }}>
+              <div className="wr-err wr-msg">
                 {weekRangeError ? '撈取範圍尚未取得，查詢按鈕暫時無法使用' : '撈取範圍讀取中，請稍候…'}
               </div>
             )}
-            {jiraMsg && <div style={{ fontSize: 11, color: jiraMsg.startsWith('已自動加入') ? 'var(--cr-cyan)' : 'var(--cr-rose)', marginBottom: 10 }}>{jiraMsg}</div>}
+            {jiraMsg && <div className={'wr-msg ' + (jiraMsg.startsWith('已自動加入') ? 'wr-ok' : 'wr-err')}>{jiraMsg}</div>}
 
-            {jiraIssues && jiraIssues.length === 0 && <div style={{ fontSize: 11.5, color: '#64748b' }}>這段時間內沒有符合條件的 Meegle 單</div>}
+            {jiraIssues && jiraIssues.length === 0 && <div className="wr-hint wr-msg">這段時間內沒有符合條件的 Meegle 單</div>}
             {jiraIssues && jiraIssues.length > 0 && (
               <>
-                <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #263345', borderRadius: 7 }}>
+                <div className="wr-list wr-list--scroll">
                   {jiraIssues.map(iss => (
-                    <label key={iss.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderTop: '1px solid #263345', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={jiraChecked.has(iss.key)} onChange={() => toggleJiraChecked(iss.key)}
-                        style={{ marginTop: 2, width: 15, height: 15, accentColor: 'var(--cr-cyan)', flexShrink: 0, cursor: 'pointer' }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#e2e8f0' }}>
-                          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, fontWeight: 700, color: 'var(--cr-cyan)', background: 'var(--cr-cyan-soft)', padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>{iss.key}</span>
+                    <label key={iss.key} className="wr-issue">
+                      <input type="checkbox" checked={jiraChecked.has(iss.key)} onChange={() => toggleJiraChecked(iss.key)} />
+                      <div className="wr-issue-main">
+                        <div className="wr-issue-title">
+                          <span className="wr-key">{iss.key}</span>
                           {iss.summary}
                         </div>
-                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{iss.status} · 來源帳號：{iss.accountLabels.join('、')}{iss.requirementName ? ` · 關聯需求：${iss.requirementName}` : iss.jiraProjectName ? ` · 標題標籤：${iss.jiraProjectName}` : ''}</div>
+                        <div className="wr-hint wr-issue-sub">{iss.status} · 來源帳號：{iss.accountLabels.join('、')}{iss.requirementName ? ` · 關聯需求：${iss.requirementName}` : iss.jiraProjectName ? ` · 標題標籤：${iss.jiraProjectName}` : ''}</div>
                       </div>
                     </label>
                   ))}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                  <button onClick={applyJiraAuto} disabled={jiraChecked.size === 0}
-                    style={{ padding: '7px 14px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--xx-jade-solid)', color: '#fff', border: 'none', cursor: jiraChecked.size === 0 ? 'default' : 'pointer', opacity: jiraChecked.size === 0 ? .5 : 1 }}>
+                <div className="wr-inline wr-msg">
+                  <button type="button" className="submit-btn wr-btn" onClick={applyJiraAuto} disabled={jiraChecked.size === 0}>
                     自動套用（依帳號建立項目）
                   </button>
-                  <span style={{ fontSize: 10.5, color: '#64748b' }}>對不上成員名單的會自動擋下，保留在上面清單裡</span>
+                  <span className="wr-hint">對不上成員名單的會自動擋下，保留在上面清單裡</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap', paddingTop: 8, borderTop: '1px dashed #263345' }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>或手動指定加入到哪個人：</span>
-                  <SearchableSelect value={jiraTargetPerson} onChange={setJiraTargetPerson}
-                    options={parsed.members} placeholder="選擇成員..." />
-                  <button onClick={applyJiraToPerson} disabled={!jiraTargetPerson.trim() || jiraChecked.size === 0}
-                    style={{ padding: '7px 14px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: (!jiraTargetPerson.trim() || jiraChecked.size === 0) ? 'default' : 'pointer', opacity: (!jiraTargetPerson.trim() || jiraChecked.size === 0) ? .5 : 1 }}>
+                <div className="wr-inline wr-subsec">
+                  <span className="wr-text">或手動指定加入到哪個人：</span>
+                  <div className="wr-w240">
+                    <SearchableSelect value={jiraTargetPerson} onChange={setJiraTargetPerson}
+                      options={parsed.members} placeholder="選擇成員..." />
+                  </div>
+                  <button type="button" className="btn-ghost wr-btn" onClick={applyJiraToPerson} disabled={!jiraTargetPerson.trim() || jiraChecked.size === 0}>
                     套用（新增一個項目）
                   </button>
                 </div>
@@ -1473,51 +1454,52 @@ function BatchScanSection({
             )}
           </div>
         )}
-      </div>
+      </section>
 
       {/* 頁籤日期式報表（2026-08-17）：文件寫死在後端，沒有填寫人欄位，命中的頁籤標題整串當內容，
           全部手動指派給一或多個成員 */}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-        <button onClick={openTabDatePanel} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 700, borderRadius: 7, background: tabDateOpen ? 'var(--cr-cyan-soft)' : 'transparent', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: 'pointer' }}>
-          查探頁籤日期式報表
+      <section className={'section-card wr-panel' + (tabDateOpen ? '' : ' wr-panel--closed')}>
+        <button type="button" className="section-title wr-collapse" aria-expanded={tabDateOpen} onClick={openTabDatePanel}>
+          <Chevron open={tabDateOpen} />
+          <span>查探頁籤日期式報表</span>
         </button>
         {tabDateOpen && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>來源文件固定，只掃描頁籤標題開頭是本週日期的頁籤，命中的頁籤整個標題文字當一個項目；沒有填寫人欄位，全部手動勾選要歸給誰（可複選）</div>
-            <button onClick={handleTabDateScan} disabled={tabDateLoading}
-              style={{ padding: '7px 14px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: tabDateLoading ? 'default' : 'pointer', opacity: tabDateLoading ? .6 : 1, marginBottom: 10 }}>
-              {tabDateLoading ? '查探中…' : '開始查探'}
-            </button>
-            {tabDateMsg && <div style={{ fontSize: 11, color: 'var(--cr-rose)', marginBottom: 10 }}>{tabDateMsg}</div>}
+          <div className="wr-body">
+            <div className="wr-inline wr-block">
+              <span className="wr-hint wr-grow">來源文件固定，只掃描頁籤標題開頭是本週日期的頁籤，命中的頁籤整個標題文字當一個項目；沒有填寫人欄位，全部手動勾選要歸給誰（可複選）</span>
+              <button type="button" className="btn-ghost wr-btn" onClick={handleTabDateScan} disabled={tabDateLoading}>
+                {tabDateLoading ? '查探中…' : '開始查探'}
+              </button>
+            </div>
+            {tabDateMsg && <div className="wr-err wr-msg">{tabDateMsg}</div>}
 
             {tabDateSourceErrors.length > 0 && (
-              <div style={{ padding: '9px 12px', background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', border: '1px solid rgba(223,118,94,.4)', borderRadius: 7, fontSize: 11, color: 'var(--cr-rose)', marginBottom: 10 }}>
+              <div className="wr-notice wr-notice--fail wr-block">
                 {tabDateSourceErrors.map(e => <div key={e.key}><WarningIcon size={11} /> {e.label}：{e.message}</div>)}
               </div>
             )}
 
             {tabDateSources && tabDateSources.every(s => s.matchedTabs.length === 0) && tabDateSourceErrors.length === 0 && (
-              <div style={{ fontSize: 11.5, color: '#64748b' }}>本週範圍內沒有符合日期的頁籤</div>
+              <div className="wr-hint">本週範圍內沒有符合日期的頁籤</div>
             )}
 
             {tabDateSources && tabDateSources.map(src => src.matchedTabs.length === 0 ? null : (
               // 這層原本用 overflow:'hidden' 讓標題背景色跟著外框圓角裁切，但這樣連帶把下面
               // SearchableMultiSelect 往下展開的下拉選單也切掉（2026-08-17 使用者截圖回報「看不到
               // 人員名單」）——改成只在標題那格自己套圓角，外層不再需要 overflow:hidden 裁切
-              <div key={src.key} style={{ border: '1px solid #263345', borderRadius: 8, marginBottom: 10 }}>
-                <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,.03)', fontSize: 12, fontWeight: 700, borderRadius: '8px 8px 0 0' }}>{src.label}</div>
+              <div key={src.key} className="wr-list wr-block">
+                <div className="wr-list-h">{src.label}</div>
                 {src.matchedTabs.map(tab => {
                   const tabKey = `${src.key}:${tab.sheetId}`
                   const selected = tabDateSelectedMembers[tabKey] ?? new Set<string>()
                   return (
-                    <div key={tab.sheetId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: '1px solid #263345', flexWrap: 'wrap' }}>
-                      <span style={{ flex: 1, minWidth: 160, fontSize: 12, fontFamily: 'ui-monospace, monospace', color: '#e2e8f0' }}>{tab.title}</span>
-                      <div style={{ width: 220, flexShrink: 0 }}>
+                    <div key={tab.sheetId} className="wr-list-row">
+                      <span className="wr-grow wr-mono wr-text-fg">{tab.title}</span>
+                      <div className="wr-w220">
                         <SearchableMultiSelect selected={[...selected]} onChange={names => setTabDateMembersFor(tabKey, names)}
                           options={parsed.members} placeholder="選擇成員（可複選）..." />
                       </div>
-                      <button onClick={() => applyTabDateItem(src.key, tab.sheetId, tab.title)} disabled={selected.size === 0}
-                        style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: selected.size === 0 ? 'default' : 'pointer', opacity: selected.size === 0 ? .5 : 1 }}>
+                      <button type="button" className="btn-ghost wr-btn wr-btn--sm" onClick={() => applyTabDateItem(src.key, tab.sheetId, tab.title)} disabled={selected.size === 0}>
                         套用（{selected.size || 0} 人）
                       </button>
                     </div>
@@ -1527,132 +1509,118 @@ function BatchScanSection({
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* 來源 Sheet + 欄位對應 */}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>來源 Sheet</div>
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>不同 Sheet 欄位可能長得不一樣，讀取表頭後自己選哪一欄是日期／填寫人／內容，設定一次即可，之後重新讀取同一份不用重選</div>
+      {/* 來源 Sheet + 欄位對應（原型 v7：標籤在左的表單，開始掃描靠右下） */}
+      <section className="section-card wr-panel">
+        <h3 className="section-title">來源 Sheet</h3>
+        <div className="wr-hint wr-block">不同 Sheet 欄位可能長得不一樣，讀取表頭後自己選哪一欄是日期／填寫人／內容，設定一次即可，之後重新讀取同一份不用重選</div>
 
         {scanSheets.map((s, idx) => (
-          <div key={idx} style={{ border: '1px solid #263345', borderRadius: 8, padding: '12px 14px', marginBottom: 10, background: '#0b1322' }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <input type="text" value={s.url} onChange={e => updateScanSheet(idx, { url: e.target.value })}
-                placeholder="https://.../sheets/{token} 或 /wiki/{token}"
-                style={{ flex: 1, padding: '7px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 12, fontFamily: 'inherit' }} />
-              <button onClick={() => handleLoadSheetHeaders(idx)} disabled={scanHeadersLoading === idx || !s.url.trim()}
-                style={{ padding: '6px 12px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: scanHeadersLoading === idx ? 'default' : 'pointer', opacity: scanHeadersLoading === idx ? .6 : 1, whiteSpace: 'nowrap' }}>
+          <div key={idx} className="wr-form wr-sheet">
+            <label className="wr-l">{scanSheets.length > 1 ? `Sheet ${idx + 1} URL` : 'Sheet URL'}</label>
+            <div className="wr-inline">
+              <input type="text" className="wr-field wr-grow" value={s.url} onChange={e => updateScanSheet(idx, { url: e.target.value })}
+                placeholder="https://.../sheets/{token} 或 /wiki/{token}" />
+              <button type="button" className="btn-ghost wr-btn" onClick={() => handleLoadSheetHeaders(idx)} disabled={scanHeadersLoading === idx || !s.url.trim()}>
                 {scanHeadersLoading === idx ? '讀取中…' : '讀取表頭'}
               </button>
               {scanSheets.length > 1 && (
-                <button onClick={() => removeScanSheet(idx)}
-                  style={{ padding: '6px 10px', fontSize: 11.5, borderRadius: 7, background: 'transparent', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
+                <button type="button" className="btn-ghost wr-btn" onClick={() => removeScanSheet(idx)}>
                   移除
                 </button>
               )}
             </div>
-            {s.headersMsg && <div style={{ fontSize: 10.5, color: s.headers.length ? '#64748b' : 'var(--cr-rose)', marginBottom: 8 }}>{s.headersMsg}</div>}
+            {s.headersMsg && <div className={'wr-c2 ' + (s.headers.length ? 'wr-hint' : 'wr-err')}>{s.headersMsg}</div>}
 
             {/* 只用表單名稱：這份表加進來只是要記「這週有處理它」，內容逐列展開反而是雜訊。
                 勾了就不掃列，改成一個項目、內容就是表單名稱。**逐份獨立，不影響其他份**。
                 讀到表頭才顯示——沒讀之前不知道表單叫什麼，勾了也沒東西可用。 */}
             {!!s.tabName && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+              <label className="wr-chk wr-c2">
                 <input type="checkbox" checked={s.nameOnly}
                   onChange={e => updateScanSheet(idx, { nameOnly: e.target.checked })} />
                 <span>
                   只用表單名稱，不讀裡面的內容
-                  <b style={{ color: 'var(--cr-cyan)', marginLeft: 6 }}>{s.tabName}</b>
+                  <b className="wr-accent wr-gap-l">{s.tabName}</b>
                 </span>
               </label>
             )}
 
             {s.nameOnly ? (
-              <div style={{ padding: '9px 11px', borderRadius: 7, background: '#0f1a2e', border: '1px dashed #2d3f55' }}>
-                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, marginBottom: 8 }}>
+              <div className="wr-c2 wr-nameonly">
+                <div className="wr-hint wr-block">
                   這份表不會逐列掃描，也沒有填寫人欄位可以自動分類——直接勾要記給誰，
-                  每個人各拿到一筆內容為「<b style={{ color: 'var(--cr-cyan)' }}>{s.tabName}</b>」的項目。
+                  每個人各拿到一筆內容為「<b className="wr-accent">{s.tabName}</b>」的項目。
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ width: 240, flexShrink: 0 }}>
+                <div className="wr-inline">
+                  <div className="wr-w240">
                     <SearchableMultiSelect selected={[...(nameOnlyMembers[s.url] ?? [])]}
                       onChange={names => setNameOnlyMembersFor(s.url, names)}
                       options={parsed.members} placeholder="選擇成員（可複選）..." />
                   </div>
-                  <button onClick={() => applyNameOnlySheet(s.url, s.tabName)}
-                    disabled={(nameOnlyMembers[s.url]?.size ?? 0) === 0}
-                    style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: (nameOnlyMembers[s.url]?.size ?? 0) === 0 ? 'default' : 'pointer', opacity: (nameOnlyMembers[s.url]?.size ?? 0) === 0 ? .5 : 1 }}>
+                  <button type="button" className="btn-ghost wr-btn" onClick={() => applyNameOnlySheet(s.url, s.tabName)}
+                    disabled={(nameOnlyMembers[s.url]?.size ?? 0) === 0}>
                     套用（{nameOnlyMembers[s.url]?.size ?? 0} 人）
                   </button>
                 </div>
               </div>
             ) : s.headers.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 10.5, color: '#94a3b8', marginBottom: 4 }}>日期欄位 <span style={{ color: 'var(--cr-rose)' }}>必選</span></label>
-                    <select value={s.dateColumn} onChange={e => updateScanSheet(idx, { dateColumn: e.target.value })}
-                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12, width: 240, maxWidth: '100%' }}>
-                      <option value="">請選擇...</option>
-                      {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 10.5, color: '#94a3b8', marginBottom: 4 }}>填寫人欄位 <span style={{ color: 'var(--cr-rose)' }}>必選</span></label>
-                    <select value={s.personColumn} onChange={e => updateScanSheet(idx, { personColumn: e.target.value })}
-                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12, width: 240, maxWidth: '100%' }}>
-                      <option value="">請選擇...</option>
-                      {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                </div>
+              <>
+                <label className="wr-l">日期欄位 <span className="wr-req">*</span></label>
+                <select className="wr-field" value={s.dateColumn} onChange={e => updateScanSheet(idx, { dateColumn: e.target.value })}>
+                  <option value="">請選擇...</option>
+                  {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <label className="wr-l">填寫人欄位 <span className="wr-req">*</span></label>
+                <select className="wr-field" value={s.personColumn} onChange={e => updateScanSheet(idx, { personColumn: e.target.value })}>
+                  <option value="">請選擇...</option>
+                  {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <label className="wr-l wr-l--top">內容欄位</label>
                 <div>
-                  <label style={{ display: 'block', fontSize: 10.5, color: '#94a3b8', marginBottom: 4 }}>內容欄位（可複選，依勾選順序組合成備註）</label>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {s.headers.map(h => {
-                      const checked = s.contentColumns.includes(h)
-                      return (
-                        <label key={h} title={h} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '3px 9px', borderRadius: 999, border: `1px solid ${checked ? 'var(--cr-cyan-border)' : '#2d3f55'}`, background: checked ? 'var(--cr-cyan-soft)' : 'transparent', color: checked ? 'var(--cr-cyan)' : '#94a3b8', cursor: 'pointer', maxWidth: 340 }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleScanContentColumn(idx, h)} style={{ accentColor: 'var(--cr-cyan)', flexShrink: 0 }} />
-                          {/* 這份 Sheet 有欄名長達兩百多字元（整串熱更新版本清單），不截斷的話一個 chip
-                              就佔滿一整排，其他欄位被擠到看不見。title 保留完整欄名，滑鼠移上去看得到 */}
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</span>
-                        </label>
-                      )
-                    })}
+                  <div className="wr-checks">
+                    {s.headers.map(h => (
+                      <label key={h} title={h} className="wr-chk wr-chk--clip">
+                        <input type="checkbox" checked={s.contentColumns.includes(h)} onChange={() => toggleScanContentColumn(idx, h)} />
+                        {/* 這份 Sheet 有欄名長達兩百多字元（整串熱更新版本清單），不截斷的話一個 chip
+                            就佔滿一整排，其他欄位被擠到看不見。title 保留完整欄名，滑鼠移上去看得到 */}
+                        <span>{h}</span>
+                      </label>
+                    ))}
                   </div>
+                  <div className="wr-hint wr-msg">可複選，依勾選順序組合成備註</div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         ))}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="wr-actions">
+          {!scanReady && <span className="wr-hint">每個 Sheet 都要選好日期／填寫人／至少一個內容欄位才能掃描</span>}
           {scanSheets.length < 3 && (
-            <button onClick={addScanSheet} style={{ padding: '6px 12px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: '1px dashed #2d3f55', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+            <button type="button" className="btn-ghost wr-btn" onClick={addScanSheet}>
               ＋ 新增 Sheet
             </button>
           )}
-          <button onClick={handleRunScan} disabled={!scanReady || scanLoading}
-            style={{ padding: '7px 16px', fontSize: 12, fontWeight: 700, borderRadius: 7, background: (!scanReady || scanLoading) ? '#334155' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', cursor: (!scanReady || scanLoading) ? 'default' : 'pointer' }}>
+          <button type="button" className="submit-btn wr-btn" onClick={handleRunScan} disabled={!scanReady || scanLoading}>
             {scanLoading ? '掃描中…' : '開始掃描'}
           </button>
-          {!scanReady && <span style={{ fontSize: 10.5, color: '#64748b' }}>每個 Sheet 都要選好日期／填寫人／至少一個內容欄位才能掃描</span>}
         </div>
-        {scanMsg && <div style={{ fontSize: 11, color: 'var(--cr-rose)', marginTop: 8 }}>{scanMsg}</div>}
-      </div>
+        {scanMsg && <div className="wr-err wr-msg">{scanMsg}</div>}
+      </section>
 
       {scanResult && (
         <>
-          {/* 今天/撈取範圍已經在頁首常駐 banner 顯示，這裡只保留排除筆數警示（沒有排除筆數就不渲染） */}
+          {/* 今天/撈取範圍已經在頁首右側顯示，這裡只保留排除筆數警示（沒有排除筆數就不渲染） */}
           {(scanResult.stats.excludedOutOfRange + scanResult.stats.excludedUnparsableDate) > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '9px 14px', background: 'var(--warn-soft, rgba(224,180,95,.12))', border: '1px solid rgba(224,180,95,.4)', borderRadius: 10, fontSize: 11.5, color: '#e0b45f' }}>
+            <div className="wr-notice wr-notice--warn">
               <WarningIcon /> 已排除範圍外 {scanResult.stats.excludedOutOfRange} 筆{scanResult.stats.excludedUnparsableDate > 0 ? `、日期無法解析 ${scanResult.stats.excludedUnparsableDate} 筆` : ''}
             </div>
           )}
 
           {scanResult.sourceErrors.length > 0 && (
-            <div style={{ padding: '10px 14px', background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', border: '1px solid rgba(223,118,94,.4)', borderRadius: 10, fontSize: 11.5, color: 'var(--cr-rose)', lineHeight: 1.7 }}>
+            <div className="wr-notice wr-notice--fail">
               <WarningIcon /> {scanResult.sourceErrors.length} 個來源讀取失敗，掃描結果不完整（不是全部 Sheet 都掃到了）：
               {scanResult.sourceErrors.map((e, i) => (
                 <div key={i}>Sheet {e.sheetIndex + 1}：{e.message}</div>
@@ -1660,17 +1628,17 @@ function BatchScanSection({
             </div>
           )}
 
-          {/* 統計 */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* 統計（原型 v7 數字磚：綠／藍／黃／紅；待補與未識別是 0 時數字轉灰） */}
+          <div className="wr-stats">
             {[
-              { val: scanResult.stats.peopleCount, lbl: '識別到的人員' },
-              { val: totalItemCount, lbl: '草稿項目' },
-              { val: missingProjectTotal, lbl: '缺專案待補', warn: missingProjectTotal > 0 },
-              { val: unresolvedUnidentifiedCount, lbl: '未識別人員', warn: unresolvedUnidentifiedCount > 0 },
+              { val: scanResult.stats.peopleCount, lbl: '識別到的人員', tone: 'pass', dim: false },
+              { val: totalItemCount, lbl: '草稿項目', tone: 'run', dim: false },
+              { val: missingProjectTotal, lbl: '缺專案待補', tone: 'warn', dim: missingProjectTotal === 0 },
+              { val: unresolvedUnidentifiedCount, lbl: '未識別人員', tone: 'fail', dim: unresolvedUnidentifiedCount === 0 },
             ].map((c, i) => (
-              <div key={i} style={{ padding: '8px 14px', borderRadius: 8, background: '#0b1322', border: `1px solid ${c.warn ? 'var(--cr-rose)' : '#2d3f55'}`, minWidth: 96 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: c.warn ? 'var(--cr-rose)' : '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{c.val}</div>
-                <div style={{ fontSize: 10, color: '#64748b' }}>{c.lbl}</div>
+              <div key={i} className={`wr-stat wr-stat--${c.tone}` + (c.dim ? ' wr-stat--dim' : '')}>
+                <span className="wr-stat-k">{c.lbl}</span>
+                <span className="wr-stat-v">{c.val}</span>
               </div>
             ))}
           </div>
@@ -1682,150 +1650,138 @@ function BatchScanSection({
 
       {/* 依人員分組草稿 */}
       {peopleList.length > 0 && (
-            <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700 }}>依人員分組草稿</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={mergeJiraTags} onChange={e => toggleMergeJiraTags(e.target.checked)} />
-                    <span>Meegle 單依標題中括號標籤歸集（[OSM][GM] + [OSM][後端] → OSM相關需求測試）</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
-                    <span>{MERGE_PROJECT_NAME} 每人各自合併成一條（補充說明寫「{MERGE_CONTENT}」）</span>
-                  </label>
-                </div>
-              </div>
-              {mergeJiraTags && jiraTagAffected > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
-                  已開啟 Jira 標籤歸集：{jiraTagAffected} 個 Jira 項目會依標題標籤改寫成描述（同標籤的併成一條、不同標籤的各自拆成一條）。下面清單仍顯示原本的單號，關掉開關就恢復。
-                </div>
-              )}
-              {mergeOsm && mergeableCount > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 12, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
-                  {/* ⚠️ 原本寫「下面清單仍顯示原始逐筆，可繼續編輯」——那句對**已被合併**的項目
-                      是錯的：編輯完全不影響送出的內容，一律變成「OSM需求」。使用者實際踩到
-                      （2026-09-03：手動打了「熱更新測試」，預覽變成「OSM需求」，以為資料掉了）。
-                      文案往「以為有效」的方向錯，比沒寫更糟。 */}
-                  已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條，補充說明統一顯示為「{MERGE_CONTENT}」——<b>被合併的項目在這裡編輯不會改變送出的內容</b>。<b>手動新增的項目不參與合併</b>，會單獨保留。關掉開關就恢復逐筆。實際會寫進 Lark 的內容以下方「預期結果」為準。
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                {peopleList.map(p => (
-                  <button key={p} onClick={() => setActivePerson(p)}
-                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 999, border: `1px solid ${p === activePerson ? 'var(--cr-cyan-border)' : '#2d3f55'}`, background: p === activePerson ? 'var(--cr-cyan-soft)' : 'transparent', color: p === activePerson ? 'var(--cr-cyan)' : '#94a3b8', cursor: 'pointer' }}>
-                    {p} <span style={{ fontSize: 10, opacity: .7 }}>{draftEdits[p]?.length ?? 0}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {activeItems.map((item, i) => (
-                  <div key={i} style={{ border: '1px solid #263345', borderRadius: 8, background: '#0b1322', padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ width: 200, flexShrink: 0 }}>
-                      <SearchableSelect value={item.projectName}
-                        onChange={v => updateDraftItem(activePerson, i, { projectName: v, projectId: parsed.projects.find(p => p.name === v)?.id ?? '' })}
-                        options={parsed.projects} placeholder="選擇專案..." invalid={!item.projectName} />
-                    </div>
-                    <input type="text" value={item.content} onChange={e => updateDraftItem(activePerson, i, { content: e.target.value })}
-                      style={{ flex: 1, minWidth: 160, padding: '7px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12 }} />
-                    <span style={{ fontSize: 9.5, color: '#64748b', fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>{item.sourceRowId}</span>
-                    <button onClick={() => removeDraftItem(activePerson, i)}
-                      style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid #2d3f55', background: 'transparent', color: '#94a3b8', cursor: 'pointer', flexShrink: 0 }}>✕</button>
-                  </div>
-                ))}
-                {activePerson && (
-                  <button onClick={() => addDraftItem(activePerson)}
-                    style={{ alignSelf: 'flex-start', padding: '6px 12px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: '1px dashed #2d3f55', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
-                    ＋ 新增項目
-                  </button>
-                )}
-              </div>
+        <section className="section-card wr-panel">
+          <h3 className="section-title">依人員分組草稿</h3>
+          <div className="wr-checks wr-checks--col wr-block">
+            <label className="wr-chk wr-chk--wrap">
+              <input type="checkbox" checked={mergeJiraTags} onChange={e => toggleMergeJiraTags(e.target.checked)} />
+              <span>Meegle 單依標題中括號標籤歸集（[OSM][GM] + [OSM][後端] → OSM相關需求測試）</span>
+            </label>
+            <label className="wr-chk wr-chk--wrap">
+              <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
+              <span>{MERGE_PROJECT_NAME} 每人各自合併成一條（補充說明寫「{MERGE_CONTENT}」）</span>
+            </label>
+          </div>
+          {mergeJiraTags && jiraTagAffected > 0 && (
+            <div className="wr-notice wr-notice--info wr-block">
+              已開啟 Jira 標籤歸集：{jiraTagAffected} 個 Jira 項目會依標題標籤改寫成描述（同標籤的併成一條、不同標籤的各自拆成一條）。下面清單仍顯示原本的單號，關掉開關就恢復。
             </div>
           )}
+          {mergeOsm && mergeableCount > 0 && (
+            <div className="wr-notice wr-notice--info wr-block">
+              {/* 原本寫「下面清單仍顯示原始逐筆，可繼續編輯」——那句對**已被合併**的項目
+                  是錯的：編輯完全不影響送出的內容，一律變成「OSM需求」。使用者實際踩到
+                  （2026-09-03：手動打了「熱更新測試」，預覽變成「OSM需求」，以為資料掉了）。
+                  文案往「以為有效」的方向錯，比沒寫更糟。 */}
+              已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條，補充說明統一顯示為「{MERGE_CONTENT}」——<b>被合併的項目在這裡編輯不會改變送出的內容</b>。<b>手動新增的項目不參與合併</b>，會單獨保留。關掉開關就恢復逐筆。實際會寫進 Lark 的內容以下方「預期結果」為準。
+            </div>
+          )}
+          <div className="rd-tabs wr-people wr-block" role="tablist">
+            {peopleList.map(p => (
+              <button key={p} type="button" role="tab" aria-selected={p === activePerson} className="rd-tab" onClick={() => setActivePerson(p)}>
+                {p} <span className="wr-count">{draftEdits[p]?.length ?? 0}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="wr-items">
+            {activeItems.map((item, i) => (
+              <div key={i} className="wr-item">
+                <div className="wr-w200">
+                  <SearchableSelect value={item.projectName}
+                    onChange={v => updateDraftItem(activePerson, i, { projectName: v, projectId: parsed.projects.find(p => p.name === v)?.id ?? '' })}
+                    options={parsed.projects} placeholder="選擇專案..." invalid={!item.projectName} />
+                </div>
+                <input type="text" className="wr-field wr-grow" value={item.content} onChange={e => updateDraftItem(activePerson, i, { content: e.target.value })} />
+                <span className="wr-hint wr-mono wr-src">{item.sourceRowId}</span>
+                <button type="button" className="btn-ghost wr-icon-btn" onClick={() => removeDraftItem(activePerson, i)}>✕</button>
+              </div>
+            ))}
+            {activePerson && (
+              <button type="button" className="btn-ghost wr-btn wr-self-start" onClick={() => addDraftItem(activePerson)}>
+                ＋ 新增項目
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* 未識別人員 */}
       {scanResult && scanResult.unidentified.length > 0 && unresolvedUnidentifiedCount > 0 && (
-            <div style={{ border: '1px solid rgba(224,180,95,.4)', borderRadius: 10, background: 'rgba(224,180,95,.06)', padding: '18px 20px' }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4, color: '#e0b45f', display: 'flex', alignItems: 'center', gap: 6 }}><WarningIcon /> 未識別人員（不會被吞掉，需手動處理）</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>「填寫人」欄位有值，但比對不到現有成員名單裡的任何一個，決定要不要手動指派</div>
-              {scanResult.unidentified.map((u, i) => unidentifiedResolved.has(i) ? null : (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 7, background: 'rgba(0,0,0,.15)', marginBottom: 6, fontSize: 12 }}>
-                  <span style={{ fontWeight: 700, color: '#e0b45f', fontFamily: 'ui-monospace, monospace' }}>"{u.rawName}"</span>
-                  <span style={{ flex: 1, color: '#94a3b8' }}>{u.content}</span>
-                  <select onChange={e => { if (e.target.value) assignUnidentified(i, e.target.value) }} defaultValue=""
-                    style={{ padding: '5px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 11.5 }}>
-                    <option value="">指派給...</option>
-                    {parsed.members.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-                    <option value="__ignore__">忽略這筆</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          )}
+        <section className="section-card wr-panel wr-panel--warn">
+          <h3 className="section-title">未識別人員（不會被吞掉，需手動處理）</h3>
+          <div className="wr-hint wr-block">「填寫人」欄位有值，但比對不到現有成員名單裡的任何一個，決定要不要手動指派</div>
+          <div className="wr-list">
+            {scanResult.unidentified.map((u, i) => unidentifiedResolved.has(i) ? null : (
+              <div key={i} className="wr-list-row">
+                <span className="wr-warn wr-mono wr-strong">"{u.rawName}"</span>
+                <span className="wr-grow wr-text">{u.content}</span>
+                <select className="wr-field wr-w200" onChange={e => { if (e.target.value) assignUnidentified(i, e.target.value) }} defaultValue="">
+                  <option value="">指派給...</option>
+                  {parsed.members.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  <option value="__ignore__">忽略這筆</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 預期結果預覽（唯讀，跟實際會寫進 Lark 的列一模一樣）——常態顯示，不用等有項目才出現，
-          有項目就即時同步，沒有項目顯示空狀態，不管是來自 Sheet 掃描還是 Jira 撈單都一樣會反映在這裡 */}
-      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>預期結果（唯讀）</div>
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>跟實際會寫進 Lark 的列一模一樣，編輯上面的清單、或用 Meegle 撈單套用後這裡會即時同步</div>
+          有項目就即時同步，沒有項目顯示空狀態，不管是來自 Sheet 掃描還是 Jira 撈單都一樣會反映在這裡。
+          確認送出（常態顯示，沒有項目時鎖住按鈕）放在同一個面板的底部（原型 v7） */}
+      <section className="section-card wr-panel">
+        <h3 className="section-title">預期結果（唯讀）</h3>
+        <div className="wr-hint wr-block">跟實際會寫進 Lark 的列一模一樣，編輯上面的清單、或用 Meegle 撈單套用後這裡會即時同步</div>
         {flatPreviewItems.length === 0 ? (
-          <div style={{ fontSize: 11.5, color: '#64748b', padding: '10px 0' }}>尚無草稿項目——執行 Sheet 掃描或用上方「依時間範圍撈 Meegle 單」加入項目後，這裡會即時顯示</div>
+          <div className="wr-hint wr-empty-row">尚無草稿項目——執行 Sheet 掃描或用上方「依時間範圍撈 Meegle 單」加入項目後，這裡會即時顯示</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <div className="table-wrap wr-table">
+            <table className="version-table">
               <thead>
                 <tr>
-                  {['No', '專案', '成員', '補充說明'].map(h => (
-                    <th key={h} style={{ padding: '7px 10px', textAlign: 'left', background: '#0b1322', fontSize: 10.5, fontWeight: 700, color: '#64748b', borderBottom: '1px solid #2d3f55', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                  {['No', '專案', '成員', '補充說明'].map(h => <th key={h}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {flatPreviewItems.map(({ person, item }, i) => (
                   <tr key={i}>
-                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #263345', color: '#64748b', whiteSpace: 'nowrap' }}>{i + 1}</td>
-                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #263345', whiteSpace: 'nowrap' }}>
+                    <td className="wr-num">{i + 1}</td>
+                    <td className="wr-nowrap">
                       {item.projectName
-                        ? <span style={{ padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: 'rgba(96,165,250,.14)', color: '#60a5fa' }}>{item.projectName}</span>
-                        : <span style={{ padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', color: 'var(--cr-rose)', border: '1px solid rgba(223,118,94,.4)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><WarningIcon size={11} /> 未選專案</span>}
+                        ? item.projectName
+                        : <span className="wr-pill wr-pill--warn">未選專案</span>}
                     </td>
-                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #263345', whiteSpace: 'nowrap' }}>
-                      <span style={{ padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: '#1a2436', color: '#e2e8f0' }}>{person}</span>
-                    </td>
-                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #263345', color: '#e2e8f0' }}>{item.content}</td>
+                    <td className="wr-nowrap">{person}</td>
+                    <td>{item.content}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </div>
 
-      {/* 確認送出——常態顯示，沒有項目時鎖住按鈕 */}
-      <div style={{ border: '1px solid var(--cr-cyan-border)', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-        <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 12, lineHeight: 1.8 }}>
-          {totalItemCount === 0 ? '尚無草稿項目可送出' : (
-            <>
-              將為 <b style={{ color: '#e2e8f0' }}>{peopleList.length}</b> 位成員建立共 <b style={{ color: '#e2e8f0' }}>{totalItemCount}</b> 筆記錄
-              {unresolvedUnidentifiedCount > 0 && <>；還有 <b style={{ color: '#e0b45f' }}>{unresolvedUnidentifiedCount}</b> 筆未識別人員尚未處理（不影響送出，只是那幾筆不會被建立）</>}
-              {missingProjectTotal > 0 && <><br />其中 <b style={{ color: 'var(--cr-rose)' }}>{missingProjectTotal}</b> 筆尚未選專案，送出前必須補齊</>}
-            </>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={handleBatchSubmit} disabled={batchSubmitting || missingProjectTotal > 0 || totalItemCount === 0}
-            style={{ padding: '8px 18px', fontSize: 12.5, fontWeight: 700, borderRadius: 7, background: (batchSubmitting || missingProjectTotal > 0 || totalItemCount === 0) ? '#334155' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', cursor: (batchSubmitting || missingProjectTotal > 0 || totalItemCount === 0) ? 'default' : 'pointer' }}>
+        <div className="wr-submit">
+          <div className="wr-submit-sum">
+            {totalItemCount === 0 ? '尚無草稿項目可送出' : (
+              <>
+                將為 <b>{peopleList.length}</b> 位成員建立共 <b>{totalItemCount}</b> 筆記錄
+                {unresolvedUnidentifiedCount > 0 && <>；還有 <b className="wr-warn">{unresolvedUnidentifiedCount}</b> 筆未識別人員尚未處理（不影響送出，只是那幾筆不會被建立）</>}
+                {missingProjectTotal > 0 && <><br />其中 <b className="wr-err">{missingProjectTotal}</b> 筆尚未選專案，送出前必須補齊</>}
+              </>
+            )}
+          </div>
+          <button type="button" className="submit-btn wr-btn" onClick={handleBatchSubmit} disabled={batchSubmitting || missingProjectTotal > 0 || totalItemCount === 0}>
             {batchSubmitting ? '送出中…' : missingProjectTotal > 0 ? `呈報宗門（尚有 ${missingProjectTotal} 筆缺專案，無法送出）` : '呈報宗門'}
           </button>
-          {batchSubmitMsg && <span style={{ fontSize: 12, color: batchSubmitMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{batchSubmitMsg}</span>}
         </div>
+        {batchSubmitMsg && <div className={'wr-msg wr-right ' + (batchSubmitMsg.startsWith(BATCH_SUBMIT_OK_MSG) ? 'wr-ok' : 'wr-err')}>{batchSubmitMsg}</div>}
         {batchSubmitResult && (
-          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>
-            上次送出：已建立 <b style={{ color: '#16a34a' }}>{batchSubmitResult.successCount}</b> 筆，失敗 <b style={{ color: batchSubmitResult.failCount ? 'var(--cr-rose)' : '#64748b' }}>{batchSubmitResult.failCount}</b> 筆
+          <div className="wr-hint wr-msg wr-right">
+            上次送出：已建立 <b className="wr-ok">{batchSubmitResult.successCount}</b> 筆，失敗 <b className={batchSubmitResult.failCount ? 'wr-err' : ''}>{batchSubmitResult.failCount}</b> 筆
           </div>
         )}
-      </div>
-    </div>
+      </section>
+    </>
   )
 }

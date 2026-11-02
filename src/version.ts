@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.2'
+export const APP_VERSION = '5.73.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.3', date: '2026-11-02', changes: ["style(新版排版 週報彙整)：CodeX 對照設計圖 3 輪判定一致（±2px）——抓取範圍＋現在時間搬到頁首右側、每塊改面板標題帶、Step 1 網址＋重新讀取同列＋已讀取膠囊、來源 Sheet 標籤在左、四格數字磚、預期結果原型表格（11：29：27：33、直接接標題帶）、送出併進預期結果面板底部。真實功能（Meegle 撈單、頁籤日期式報表、依人員分組草稿）與順序保留。「通過 全部送出成功」改成不靠文字前綴判顏色（共用常數）"] },
   { version: '5.73.2', date: '2026-11-02', changes: ["style(新版排版 圖片刪除驗證)：CodeX 對照設計圖 4 輪判定一致（±2px）——輸入／結果 7：3、標籤欄 96px、貼上區與路徑框跨滿面板、URL 34px、按鈕 36px。結果畫面要真的跑一次偵測才出現，這次只比到輸入狀態"] },
   { version: '5.73.1', date: '2026-11-02', changes: ["style(新版排版 OSM 版號同步、TestCase 生成)：CodeX 用真資料截圖對照設計圖比對 8 輪，判定一致（剩 ±2px 量測誤差）——標題列次要操作改文字、全部同步移到統計列右側、統計列方正細框、渠道改直向資訊卡（渠道名大字、機台｜N 台）、下方雙欄 1：1、ImageRecon 表格縮緊＋伺服器名省略；TestCase 模式切換器尺寸、來源下拉與網址等寬、欄位 34px、標籤一般字重、列距逐列對齊。另修好 codex-ask 帶圖時 -i 吃掉 prompt 的問題（osm-qa-agent 共用工具）"] },
   { version: '5.73.0', date: '2026-11-02', changes: ["change(新版排版：照原型原始碼對齊共用零件)：使用者 1102「做出來的畫面和設計圖不同，做完後讓 codex 檢查」——改用原型 CSS 原始碼的數值：分頁 .rd-tabs 改成內凹底座＋選中填色（之前憑印象做成底線，是錯的；Meegle／TestCase／Log／Game Show 一起變）、面板標題帶＋分隔線、頁首拿掉說明行、按鈕 36px／圓角 7、表單標籤欄 96px、欄位 34px。OSM 版號同步用真資料重看：元件版本卡片改表格、總覽四格數字磚、狀態膠囊圓點描邊（未達標紅）、拿掉「通過 達標」怪前綴、ImageRecon 面板內捲動不換行、右欄加寬、全部同步移到統計列右側、渠道改橫向卡片、系統標籤拿掉淺色主題粉彩底。TestCase：操作類型改頁頂分頁、標籤在左、來源改下拉與網址同列、選項同列、流程說明收成可展開。CodeX 已比對兩輪（不一致→已改），第三輪因 CodeX 用量上限待重送"] },
