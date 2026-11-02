@@ -218,255 +218,240 @@ export function UrlPoolPage({ currentAccount }: Props) {
   const myCount = Object.values(claims).filter(c => c.claimedBy === myLabel).length
 
   return (
-    <div style={{ padding: '0 0 24px' }}>
-      {/* ── Header stats ─────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        {/* ⚠️ 兩個環境是**完全獨立的帳號池**（網域不同、號段不同），不是同一批資料的篩選。
-            所以做成分頁而不是篩選鈕——放在篩選鈕旁邊會讓人以為可以「同時看兩邊」。 */}
-        <div style={{ display: 'flex', gap: 4, padding: 3, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 8 }}>
-          {(['qat', 'uat', 'prodsim'] as const).map(e => (
-            <button
-              key={e} type="button" onClick={() => setTab(e)}
-              /* ⚠️ 給穩定識別：側邊欄有「總網試煉 UAT 整合測試」，
-                 只靠文字找 UAT 會抓到那一個（驗證腳本第一版就是這樣點錯的）*/
-              data-testid={`url-pool-env-${e}`}
-              style={{
-                padding: '5px 16px', borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                border: 'none', background: tab === e ? '#2563eb' : 'transparent',
-                color: tab === e ? '#fff' : '#94a3b8',
-              }}
-            >
-              {e === 'prodsim' ? '模擬正式' : POOL_LABEL[e]}
-              {/* 模擬正式沒有帳號數可以顯示（它不是帳號池），所以只有兩個環境有數字 */}
-              {e !== 'prodsim' && (
-                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, opacity: .75 }}>{POOL_SOURCE[e].length}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* 統計與篩選只屬於帳號池；模擬正式分頁沒有清單可以統計／篩選 */}
-        {tab !== 'prodsim' && (<>
-        {/* ⚠️ 版本跟環境是**不同維度**：環境換的是「哪一批帳號」，版本換的是「同一個帳號進哪一版」。
-            所以樣式刻意跟 QAT/UAT 那組分頁不同（這是開關不是分頁），避免被當成第三個帳號池。 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#64748b' }}>版本</span>
-          <div style={{ display: 'flex', gap: 2, padding: 2, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 7 }}>
-            {POOL_DEVICES.map(d => (
-              <button
-                key={d} type="button" onClick={() => switchAllDevices(d)}
-                data-testid={`url-pool-device-${d}`}
-                title={d === 'h5'
-                  ? 'H5（手機版）：帳號池原始的 Token URL'
-                  : 'PC（Cocos 版）：同一個 token，只把 platform 換成 50、device 換成 pc'}
-                style={{
-                  padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: 'none', background: device === d ? '#0891b2' : 'transparent',
-                  color: device === d ? '#fff' : '#94a3b8',
-                }}
-              >{POOL_DEVICE_LABEL[d]}</button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <StatBadge label="總計" value={localData.length} color="#6b7280" />
-          <StatBadge label="可用" value={totalAvail} color="#16a34a" />
-          <StatBadge label="使用中" value={totalInUse} color={totalInUse > 0 ? '#dc2626' : '#6b7280'} />
-          {/* ⚠️ 「已設定」跟「使用中」要分開（CodeX review）：前者是某台機台的設定綁著這個帳號，
-              可能沒在跑；後者是有人主動按了中轉。混成一個會讓人不知道能不能搶。 */}
-          <StatBadge label="已設定" value={totalAssigned} color={totalAssigned > 0 ? '#d97706' : '#6b7280'} />
-          {totalNoUrl > 0 && <StatBadge label="無 URL" value={totalNoUrl} color="#eab308" />}
-          {myLabel && <StatBadge label="我的" value={myCount} color="#2563eb" />}
-        </div>
-
-        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {(['all', 'available', 'in-use', 'mine'] as const).map(f => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid',
-                background: filter === f ? '#2563eb' : '#1e293b',
-                color: filter === f ? '#fff' : '#94a3b8',
-                borderColor: filter === f ? '#2563eb' : '#2d3f55',
-              }}
-            >
-              {f === 'all' ? '全部' : f === 'available' ? '可用' : f === 'in-use' ? '使用中' : '我的'}
-            </button>
-          ))}
-          <input
-            type="text"
-            placeholder="搜尋帳號/用戶名稱..."
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 12, width: 160 }}
-          />
-        </div>
-        </>)}
+    <div className="lst-pool">
+      {/* 新版（原型 v7）：環境分頁自己一列 → 一個面板裝 H5/PC、統計、篩選、搜尋、表格。版面樣式在 redesign/pages/lists.css */}
+      {/* ⚠️ 兩個環境是**完全獨立的帳號池**（網域不同、號段不同），不是同一批資料的篩選。
+          所以做成分頁而不是篩選鈕——放在篩選鈕旁邊會讓人以為可以「同時看兩邊」。 */}
+      <div className="rd-tabs lst-pool-env" role="tablist">
+        {(['qat', 'uat', 'prodsim'] as const).map(e => (
+          <button
+            key={e} type="button" onClick={() => setTab(e)}
+            role="tab" aria-selected={tab === e}
+            className="rd-tab"
+            /* ⚠️ 給穩定識別：側邊欄有「總網試煉 UAT 整合測試」，
+               只靠文字找 UAT 會抓到那一個（驗證腳本第一版就是這樣點錯的）*/
+            data-testid={`url-pool-env-${e}`}
+          >
+            {e === 'prodsim' ? '模擬正式' : POOL_LABEL[e]}
+            {/* 模擬正式沒有帳號數可以顯示（它不是帳號池），所以只有兩個環境有數字 */}
+            {e !== 'prodsim' && (
+              <span className="lst-pool-env-n">{POOL_SOURCE[e].length}</span>
+            )}
+          </button>
+        ))}
       </div>
 
       {tab === 'prodsim' ? <ProdSimPanel /> : (<>
 
-      {!currentAccount && (
-        <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 13, color: '#fbbf24' }}>
-          請先在右上角選擇帳號才能複製使用 URL
+      <section className="section-card lst-panel lst-pool-panel">
+        {/* 統計與篩選只屬於帳號池；模擬正式分頁沒有清單可以統計／篩選 */}
+        <div className="lst-toolbar">
+          {/* ⚠️ 版本跟環境是**不同維度**：環境換的是「哪一批帳號」，版本換的是「同一個帳號進哪一版」。
+              所以加上「版本」字樣、放在面板裡，跟上面 QAT/UAT 那組分頁分開（這是開關不是分頁），避免被當成第三個帳號池。 */}
+          <div className="lst-pool-device">
+            <span className="lst-dim">版本</span>
+            <div className="rd-tabs">
+              {POOL_DEVICES.map(d => (
+                <button
+                  key={d} type="button" onClick={() => switchAllDevices(d)}
+                  data-testid={`url-pool-device-${d}`}
+                  className="rd-tab" aria-pressed={device === d}
+                  title={d === 'h5'
+                    ? 'H5（手機版）：帳號池原始的 Token URL'
+                    : 'PC（Cocos 版）：同一個 token，只把 platform 換成 50、device 換成 pc'}
+                >{POOL_DEVICE_LABEL[d]}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lst-tags">
+            <StatBadge label="總計" value={localData.length} color="#94a3b8" />
+            <StatBadge label="可用" value={totalAvail} color="#34d399" />
+            <StatBadge label="使用中" value={totalInUse} color={totalInUse > 0 ? '#f87171' : '#94a3b8'} />
+            {/* ⚠️ 「已設定」跟「使用中」要分開（CodeX review）：前者是某台機台的設定綁著這個帳號，
+                可能沒在跑；後者是有人主動按了中轉。混成一個會讓人不知道能不能搶。 */}
+            <StatBadge label="已設定" value={totalAssigned} color={totalAssigned > 0 ? '#fb923c' : '#94a3b8'} />
+            {totalNoUrl > 0 && <StatBadge label="無 URL" value={totalNoUrl} color="#fbbf24" />}
+            {myLabel && <StatBadge label="我的" value={myCount} color="#60a5fa" />}
+          </div>
+
+          <span className="lst-spacer" />
+
+          <div className="lst-chips">
+            {(['all', 'available', 'in-use', 'mine'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className="lst-chip"
+                aria-pressed={filter === f}
+              >
+                {f === 'all' ? '全部' : f === 'available' ? '可用' : f === 'in-use' ? '使用中' : '我的'}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            className="lst-field lst-pool-search"
+            placeholder="搜尋帳號/用戶名稱..."
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+          />
         </div>
-      )}
 
-      {/* ⚠️ 讀不到「已設定」時一定要講。靜默的話畫面會顯示「已設定 0」，
-          看起來像「沒有人綁著」——那正是這個功能要修的誤導。 */}
-      {assignedFailed && (
-        <div style={{ padding: '8px 12px', background: 'rgba(234,179,8,.08)', border: '1px solid rgba(234,179,8,.35)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#eab308' }}>
-          <b>讀不到「已設定」狀態</b>——下面的「可用」可能包含其實已經被某台機台設定綁住的帳號，拿走會撞帳號。重新整理再試一次。
+        <div className="lst-notes">
+          {!currentAccount && (
+            <div className="lst-note lst-note--warn">
+              請先在右上角選擇帳號才能複製使用 URL
+            </div>
+          )}
+
+          {/* ⚠️ 讀不到「已設定」時一定要講。靜默的話畫面會顯示「已設定 0」，
+              看起來像「沒有人綁著」——那正是這個功能要修的誤導。 */}
+          {assignedFailed && (
+            <div className="lst-note lst-note--warn">
+              <b>讀不到「已設定」狀態</b>——下面的「可用」可能包含其實已經被某台機台設定綁住的帳號，拿走會撞帳號。重新整理再試一次。
+            </div>
+          )}
+
+          <div className="lst-note lst-note--info">
+            「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
+            <div className="lst-note-sub">
+              「版本」切 PC 只是把同一條 URL 的 <code>platform</code> 換成 <code>50</code>、<code>device</code> 換成 <code>pc</code>——
+              帳號、token、遊戲都不變，所以 H5 / PC 共用同一份認領狀態（同一個帳號同時只能在一邊玩）。
+            </div>
+          </div>
         </div>
-      )}
 
-      <div style={{ padding: '8px 12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#60a5fa' }}>
-        悟 「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
-        <div style={{ marginTop: 4, color: '#94a3b8' }}>
-          「版本」切 PC 只是把同一條 URL 的 <code>platform</code> 換成 <code>50</code>、<code>device</code> 換成 <code>pc</code>——
-          帳號、token、遊戲都不變，所以 H5 / PC 共用同一份認領狀態（同一個帳號同時只能在一邊玩）。
-        </div>
-      </div>
+        {/* ── Table ─────────────────────────────────────────────────────────────── */}
+        <div className="table-wrap lst-tbl">
+          <table className="version-table lst-pool-table">
+            <thead>
+              <tr>
+                <th>帳號</th>
+                <th>用戶名稱</th>
+                <th>Token URL</th>
+                <th>版本</th>
+                <th>狀態</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => {
+                const claim = claims[row.account]
+                const isClaimedByMe = claim?.claimedBy === myLabel
+                const isEditing = editingRow === row.account
+                const isLoading = loadingAccount === row.account
+                const isCopied = copiedAccount === row.account
+                const rowDev = deviceOf(row.account)
+                /** 這一列實際要用的 URL。⚠️ 永遠從 `row.url`（原始 H5）算，不要接著上一次的結果轉。 */
+                const effUrl = toDeviceUrl(row.url, rowDev)
 
-      {/* ── Table ─────────────────────────────────────────────────────────────── */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: '#162032', borderBottom: '2px solid #2d3f55' }}>
-              <th style={th}>帳號</th>
-              <th style={th}>用戶名稱</th>
-              <th style={th}>Token URL</th>
-              <th style={th}>版本</th>
-              <th style={th}>狀態</th>
-              <th style={th}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(row => {
-              const claim = claims[row.account]
-              const isClaimedByMe = claim?.claimedBy === myLabel
-              const isEditing = editingRow === row.account
-              const isLoading = loadingAccount === row.account
-              const isCopied = copiedAccount === row.account
-              const rowDev = deviceOf(row.account)
-              /** 這一列實際要用的 URL。⚠️ 永遠從 `row.url`（原始 H5）算，不要接著上一次的結果轉。 */
-              const effUrl = toDeviceUrl(row.url, rowDev)
-
-              return (
-                <tr key={row.account} style={{ borderBottom: '1px solid #f1f5f9', background: isClaimedByMe ? '#eff6ff' : claim ? '#fef2f2' : undefined }}>
-                  <td style={td}>{row.account}</td>
-                  <td style={td}>{row.username}</td>
-                  <td style={{ ...td, maxWidth: 360 }}>
-                    {isEditing ? (
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <input
-                          value={editUrl}
-                          onChange={e => setEditUrl(e.target.value)}
-                          style={{ flex: 1, fontSize: 11, padding: '2px 6px', border: '1px solid #93c5fd', borderRadius: 4 }}
-                        />
-                        <button type="button" onClick={() => saveEdit(row.account)} disabled={savingEdit} style={btnSm('#16a34a')}>{savingEdit ? '...' : '儲存'}</button>
-                        <button type="button" onClick={() => setEditingRow(null)} disabled={savingEdit} style={btnSm('#6b7280')}>取消</button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }} title={effUrl}>
-                          {effUrl}
-                        </span>
-                        <button type="button" onClick={() => setViewingUrl(effUrl)} style={btnSm('#6b7280', true)}>查看</button>
-                        {/* ⚠️ 「編輯」動的一律是**原始（H5）URL**，不是畫面上那條轉換後的。
-                            PC 版是算出來的，存回去會把轉換結果變成資料本身，下次再轉就疊上去了。 */}
-                        {isAdmin && (
-                          <button
-                            type="button" onClick={() => startEdit(row)} style={btnSm('#6b7280', true)}
-                            title={rowDev === 'pc' ? '編輯原始（H5）Token URL——PC 版是由它換算出來的，不另外儲存' : undefined}
-                          >編輯</button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  {/* ── 版本切換（單列覆寫整頁預設）───────────────────────────── */}
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => toggleRowDevice(row.account)}
-                      disabled={!row.url}
-                      data-testid={`url-pool-row-device-${row.account}`}
-                      title={row.url
-                        ? (rowDev === 'h5' ? '目前是 H5，點一下改用 PC（Cocos）版' : '目前是 PC（Cocos），點一下改回 H5')
-                        : '這個帳號沒有 URL，沒有東西可以切換'}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px',
-                        borderRadius: 999, fontSize: 11, fontWeight: 700, flexShrink: 0,
-                        cursor: row.url ? 'pointer' : 'not-allowed',
-                        opacity: row.url ? 1 : .45,
-                        border: `1px solid ${rowDev === 'pc' ? '#0891b2' : '#2d3f55'}`,
-                        background: rowDev === 'pc' ? 'rgba(8,145,178,.15)' : '#1e293b',
-                        color: rowDev === 'pc' ? '#22d3ee' : '#94a3b8',
-                      }}
-                    >
-                      {POOL_DEVICE_LABEL[rowDev]}
-                      <span style={{ fontSize: 10, fontWeight: 400, opacity: .7 }}>⇄</span>
-                    </button>
-                  </td>
-                  <td style={td}>
-                    {claim ? (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: isClaimedByMe ? '#dbeafe' : '#fee2e2', color: isClaimedByMe ? '#1d4ed8' : '#dc2626' }}>
-                        {isClaimedByMe ? '我' : claim.claimedBy}
-                      </span>
-                    ) : (
-                      /* ⚠️ 有帳號但沒有 URL 的不能標成「可用」——點下去會產生一個空的中轉連結。
-                            這 27 筆是產 token 的腳本沒跑出來的，刻意保留在清單上（過濾掉的話
-                            沒有人會知道它們存在），但要標清楚而且擋住複製。 */
-                      !row.url
-                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(234,179,8,.15)', color: '#eab308' }} title="這個帳號存在，但來源表上沒有 URL。用「編輯」補上就能使用。">無 URL</span>
-                        : assigned[row.username]
-                        ? <span
-                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(217,119,6,.15)', color: '#d97706' }}
-                            title={`${assigned[row.username].by} 的「${assigned[row.username].machineType}」設定裡填著這個帳號。可能沒在跑，但拿走的話那台下次啟動會撞帳號。`}
-                          >已設定 · {assigned[row.username].machineType}</span>
-                        : <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#dcfce7', color: '#16a34a' }}>可用</span>
-
-                    )}
-                  </td>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {/* 複製使用 URL — available to anyone with account, triggers auto-claim on use */}
+                return (
+                  <tr key={row.account} className={isClaimedByMe ? 'is-mine' : claim ? 'is-claimed' : undefined}>
+                    <td>{row.account}</td>
+                    <td>{row.username}</td>
+                    <td className="lst-pool-url-cell">
+                      {isEditing ? (
+                        <div className="lst-pool-url">
+                          <input
+                            value={editUrl}
+                            onChange={e => setEditUrl(e.target.value)}
+                            className="lst-field lst-field--sm"
+                          />
+                          <button type="button" onClick={() => saveEdit(row.account)} disabled={savingEdit} className="lst-sbtn lst-sbtn--ok">{savingEdit ? '...' : '儲存'}</button>
+                          <button type="button" onClick={() => setEditingRow(null)} disabled={savingEdit} className="lst-sbtn">取消</button>
+                        </div>
+                      ) : (
+                        <div className="lst-pool-url">
+                          <span className="lst-pool-url-text" title={effUrl}>
+                            {effUrl}
+                          </span>
+                          <button type="button" onClick={() => setViewingUrl(effUrl)} className="lst-link">查看</button>
+                          {/* ⚠️ 「編輯」動的一律是**原始（H5）URL**，不是畫面上那條轉換後的。
+                              PC 版是算出來的，存回去會把轉換結果變成資料本身，下次再轉就疊上去了。 */}
+                          {isAdmin && (
+                            <button
+                              type="button" onClick={() => startEdit(row)} className="lst-link"
+                              title={rowDev === 'pc' ? '編輯原始（H5）Token URL——PC 版是由它換算出來的，不另外儲存' : undefined}
+                            >編輯</button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    {/* ── 版本切換（單列覆寫整頁預設）───────────────────────────── */}
+                    <td className="lst-nowrap">
                       <button
                         type="button"
-                        disabled={!currentAccount || isLoading || !row.url}
-                        onClick={() => handleCopyProxyUrl(row, effUrl)}
-                        style={btnSm(isCopied ? '#16a34a' : '#2563eb')}
+                        onClick={() => toggleRowDevice(row.account)}
+                        disabled={!row.url}
+                        data-testid={`url-pool-row-device-${row.account}`}
                         title={row.url
-                          ? `複製中轉 URL（${POOL_DEVICE_LABEL[rowDev]} 版），貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領`
-                          : '這個帳號沒有 URL，請先用「編輯」補上'}
+                          ? (rowDev === 'h5' ? '目前是 H5，點一下改用 PC（Cocos）版' : '目前是 PC（Cocos），點一下改回 H5')
+                          : '這個帳號沒有 URL，沒有東西可以切換'}
+                        className={`lst-dev${rowDev === 'pc' ? ' is-pc' : ''}`}
                       >
-                        {isCopied ? '已複製！' : `複製使用 URL${rowDev === 'pc' ? '（PC）' : ''}`}
+                        {POOL_DEVICE_LABEL[rowDev]}
+                        <span className="lst-dev-ic">⇄</span>
                       </button>
-                      {/* 釋放 — only for rows claimed by me */}
-                      {isClaimedByMe && (
+                    </td>
+                    <td>
+                      {claim ? (
+                        <span className={`lst-pill ${isClaimedByMe ? 'lst-pill--run' : 'lst-pill--fail'}`} title={isClaimedByMe ? undefined : claim.claimedBy}>
+                          <span className="lst-pill-t">{isClaimedByMe ? '我' : claim.claimedBy}</span>
+                        </span>
+                      ) : (
+                        /* ⚠️ 有帳號但沒有 URL 的不能標成「可用」——點下去會產生一個空的中轉連結。
+                              這 27 筆是產 token 的腳本沒跑出來的，刻意保留在清單上（過濾掉的話
+                              沒有人會知道它們存在），但要標清楚而且擋住複製。 */
+                        !row.url
+                          ? <span className="lst-pill lst-pill--warn" title="這個帳號存在，但來源表上沒有 URL。用「編輯」補上就能使用。">無 URL</span>
+                          : assigned[row.username]
+                          ? <span
+                              className="lst-pill lst-pill--set"
+                              title={`${assigned[row.username].by} 的「${assigned[row.username].machineType}」設定裡填著這個帳號。可能沒在跑，但拿走的話那台下次啟動會撞帳號。`}
+                            ><span className="lst-pill-t">已設定 · {assigned[row.username].machineType}</span></span>
+                          : <span className="lst-pill lst-pill--pass">可用</span>
+
+                      )}
+                    </td>
+                    <td className="lst-nowrap">
+                      <div className="lst-row-actions">
+                        {/* 複製使用 URL — available to anyone with account, triggers auto-claim on use */}
                         <button
                           type="button"
-                          disabled={isLoading}
-                          onClick={() => handleRelease(row.account)}
-                          style={btnSm('#dc2626')}
+                          disabled={!currentAccount || isLoading || !row.url}
+                          onClick={() => handleCopyProxyUrl(row, effUrl)}
+                          className={`btn-ghost lst-btn lst-btn--sm${isCopied ? ' is-done' : ''}`}
+                          title={row.url
+                            ? `複製中轉 URL（${POOL_DEVICE_LABEL[rowDev]} 版），貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領`
+                            : '這個帳號沒有 URL，請先用「編輯」補上'}
                         >
-                          {isLoading ? '...' : '釋放'}
+                          {isCopied ? '已複製！' : `複製使用 URL${rowDev === 'pc' ? '（PC）' : ''}`}
                         </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: 13 }}>沒有符合條件的項目</div>
-        )}
-      </div>
+                        {/* 釋放 — only for rows claimed by me */}
+                        {isClaimedByMe && (
+                          <button
+                            type="button"
+                            disabled={isLoading}
+                            onClick={() => handleRelease(row.account)}
+                            className="btn-ghost lst-btn lst-btn--sm"
+                          >
+                            {isLoading ? '...' : '釋放'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="lst-empty">沒有符合條件的項目</div>
+          )}
+        </div>
+      </section>
 
       {/* ── View URL modal ───────────────────────────────────────────────────── */}
       {viewingUrl && (
@@ -524,19 +509,12 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#162032', border: `1px solid ${color}22`, borderRadius: 8, fontSize: 12 }}>
-      <span style={{ color: '#94a3b8' }}>{label}</span>
-      <strong style={{ color }}>{value}</strong>
-    </div>
+    <span className="lst-tag" style={{ '--c': color } as React.CSSProperties}>
+      <span>{label}</span> <strong>{value}</strong>
+    </span>
   )
 }
 
-const th: React.CSSProperties = {
-  padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#cbd5e1', fontSize: 12,
-}
-const td: React.CSSProperties = {
-  padding: '6px 10px', verticalAlign: 'middle',
-}
 function btnSm(color: string, ghost = false): React.CSSProperties {
   return {
     padding: '2px 8px', borderRadius: 4, fontSize: 11, cursor: 'pointer', border: `1px solid ${color}`,

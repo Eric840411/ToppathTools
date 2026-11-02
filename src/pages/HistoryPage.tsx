@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { PageActions } from '../redesign/PageActions'
 
 
 type CsvColumn = { header: string; key: string; aliases?: string[] }
@@ -209,229 +210,206 @@ export function HistoryPage() {
   }, {})
 
   return (
-    <div style={{ width: '100%' }}>
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
-        {/* Days */}
-        <div style={{ display: 'flex', gap: 4 }}>
+    <div className="lst-hist">
+      {/* 新版（原型 v7）：重新整理放頁首右側；時間範圍＋功能篩選同一個面板同一列（功能多，面板內換行）。版面樣式在 redesign/pages/lists.css */}
+      <PageActions>
+        <button
+          type="button"
+          className="btn-ghost lst-btn"
+          onClick={fetchRecords}
+          disabled={loading}
+        >
+          {loading ? '載入中...' : '重新整理'}
+        </button>
+      </PageActions>
+
+      <section className="section-card lst-panel lst-hist-panel">
+        {/* Filters */}
+        <div className="lst-toolbar lst-hist-filters">
+          {/* Days */}
           {([1, 3, 7] as DaysFilter[]).map(d => (
             <button
               key={d}
+              type="button"
               onClick={() => setDays(d)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 6,
-                border: days === d ? '1.5px solid #6366f1' : '1.5px solid #2d3f55',
-                background: days === d ? '#6366f1' : '#1e293b',
-                color: days === d ? '#fff' : '#94a3b8',
-                fontWeight: days === d ? 700 : 400,
-                cursor: 'pointer',
-                fontSize: 13,
-              }}
+              className="lst-chip"
+              aria-pressed={days === d}
             >
               {d === 1 ? '今日' : `${d} 天`}
             </button>
           ))}
-        </div>
 
-        <div style={{ width: 1, height: 24, background: '#2d3f55' }} />
+          <span className="lst-sep" aria-hidden="true" />
 
-        {/* Feature */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {/* Feature */}
           {(['all', ...Object.keys(FEATURE_LABELS)] as FeatureFilter[]).map(f => (
             <button
               key={f}
+              type="button"
               onClick={() => setFeature(f)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: feature === f ? `1.5px solid ${f === 'all' ? '#6366f1' : (FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)}` : '1.5px solid #2d3f55',
-                background: feature === f ? (f === 'all' ? 'rgba(99,102,241,0.15)' : `${(FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)}28`) : '#1e293b',
-                color: feature === f ? (f === 'all' ? '#a5b4fc' : (FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR)) : '#94a3b8',
-                fontWeight: feature === f ? 700 : 400,
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
+              className="lst-chip"
+              aria-pressed={feature === f}
             >
               {f === 'all' ? '全部' : FEATURE_LABELS[f]}
             </button>
           ))}
         </div>
 
-        <button
-          onClick={fetchRecords}
-          disabled={loading}
-          style={{ marginLeft: 'auto', padding: '6px 14px', background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#cbd5e1' }}
-        >
-          {loading ? '載入中...' : '更新 重新整理'}
-        </button>
-      </div>
+        <div className="lst-hist-body">
+          {loading && <p className="lst-dim">載入中...</p>}
 
-      {loading && <p style={{ color: '#64748b', fontSize: 14 }}>載入中...</p>}
+          {!loading && records.length === 0 && (
+            <div className="lst-empty">
+              此時間範圍內沒有操作紀錄
+            </div>
+          )}
 
-      {!loading && records.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#64748b', fontSize: 14 }}>
-          此時間範圍內沒有操作紀錄
-        </div>
-      )}
+          {!loading && records.length > 0 && (
+            <div className="lst-mono-sm lst-hist-count">
+              共 {records.length} 筆，第 {page} / {totalPages} 頁
+            </div>
+          )}
 
-      {!loading && records.length > 0 && (
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-          共 {records.length} 筆，第 {page} / {totalPages} 頁
-        </div>
-      )}
+          {Object.entries(grouped).map(([date, recs]) => (
+            <div key={date} className="lst-hist-day">
+              <div className="lst-mono-sm lst-hist-date">
+                {date} · {recs.length} 筆
+              </div>
+              <div className="lst-hist-list">
+                {recs.map(rec => {
+                  const isExpanded = expandedId === rec.id
+                  const featureColor = FEATURE_COLORS[rec.feature] ?? DEFAULT_FEATURE_COLOR
+                  let detail: Record<string, unknown> = {}
+                  try { detail = JSON.parse(rec.detail) as Record<string, unknown> } catch { detail = { raw: rec.detail } }
 
-      {Object.entries(grouped).map(([date, recs]) => (
-        <div key={date} style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #1e293b' }}>
-            {date} · {recs.length} 筆
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {recs.map(rec => {
-              const isExpanded = expandedId === rec.id
-              const featureColor = FEATURE_COLORS[rec.feature] ?? '#6b7280'
-              let detail: Record<string, unknown> = {}
-              try { detail = JSON.parse(rec.detail) as Record<string, unknown> } catch { detail = { raw: rec.detail } }
+                  const cases = Array.isArray(detail.cases) ? detail.cases : null
+                  const bitableUrl = typeof detail.bitableUrl === 'string' ? detail.bitableUrl : null
 
-              const cases = Array.isArray(detail.cases) ? detail.cases : null
-              const bitableUrl = typeof detail.bitableUrl === 'string' ? detail.bitableUrl : null
+                  const handleDownload = (e: React.MouseEvent) => {
+                    e.stopPropagation()
+                    const blob = new Blob([JSON.stringify(cases, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `testcase_${new Date(rec.created_at).toISOString().slice(0, 16).replace('T', '_')}.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }
+                  const handleCsvDownload = (e: React.MouseEvent) => {
+                    e.stopPropagation()
+                    if (!cases) return
+                    const stamp = new Date(rec.created_at).toISOString().slice(0, 16).replace('T', '_')
+                    downloadTextFile(testcaseHistoryToCsv(cases, detail), `testcase_${stamp}.csv`)
+                  }
 
-              const handleDownload = (e: React.MouseEvent) => {
-                e.stopPropagation()
-                const blob = new Blob([JSON.stringify(cases, null, 2)], { type: 'application/json' })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = `testcase_${new Date(rec.created_at).toISOString().slice(0, 16).replace('T', '_')}.json`
-                a.click()
-                URL.revokeObjectURL(url)
-              }
-              const handleCsvDownload = (e: React.MouseEvent) => {
-                e.stopPropagation()
-                if (!cases) return
-                const stamp = new Date(rec.created_at).toISOString().slice(0, 16).replace('T', '_')
-                downloadTextFile(testcaseHistoryToCsv(cases, detail), `testcase_${stamp}.csv`)
-              }
-
-              return (
-                <div
-                  key={rec.id}
-                  style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', background: '#10182a' }}
-                >
-                  <div
-                    onClick={() => setExpandedId(isExpanded ? null : rec.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer', userSelect: 'none' }}
-                  >
-                    <span style={{
-                      flex: '0 0 auto',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      background: `${featureColor}18`,
-                      color: featureColor,
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {FEATURE_LABELS[rec.feature] ?? rec.feature}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rec.title}
+                  return (
+                    <div
+                      key={rec.id}
+                      className={`lst-hist-row${isExpanded ? ' is-open' : ''}`}
+                    >
+                      <div
+                        onClick={() => setExpandedId(isExpanded ? null : rec.id)}
+                        className="lst-hist-head"
+                      >
+                        <div className="lst-hist-main">
+                          <div className="lst-hist-line1">
+                            <span className="lst-pill" style={{ '--c': featureColor } as React.CSSProperties}>
+                              {FEATURE_LABELS[rec.feature] ?? rec.feature}
+                            </span>
+                            <span className="lst-hist-title">{rec.title}</span>
+                          </div>
+                          <div className="lst-hist-summary">{rec.summary}</div>
+                          <div className="lst-mono-sm lst-hist-op">
+                            操作者：{rec.operator_name || rec.operator_key || '未記錄'}
+                          </div>
+                        </div>
+                        {cases && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleDownload}
+                              title="下載 TestCase JSON"
+                              className="lst-sbtn lst-sbtn--ok"
+                            >
+                              JSON
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCsvDownload}
+                              title="由歷史 JSON 轉出 CSV"
+                              className="lst-sbtn lst-sbtn--info"
+                            >
+                              CSV
+                            </button>
+                          </>
+                        )}
+                        <div className="lst-hist-time">
+                          <div className="lst-dim">{timeAgo(rec.created_at)}</div>
+                          <div className="lst-mono-sm">{formatDate(rec.created_at)}</div>
+                        </div>
+                        <span className="lst-hist-caret">{isExpanded ? '▲' : '▼'}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{rec.summary}</div>
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                        操作者：{rec.operator_name || rec.operator_key || '未記錄'}
-                      </div>
-                    </div>
-                    {cases && (
-                      <>
-                        <button
-                          onClick={handleDownload}
-                          title="下載 TestCase JSON"
-                          style={{ flex: '0 0 auto', padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
-                        >
-                          JSON
-                        </button>
-                        <button
-                          onClick={handleCsvDownload}
-                          title="由歷史 JSON 轉出 CSV"
-                          style={{ flex: '0 0 auto', padding: '4px 10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #93c5fd', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
-                        >
-                          CSV
-                        </button>
-                      </>
-                    )}
-                    <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>{timeAgo(rec.created_at)}</div>
-                      <div style={{ fontSize: 11, color: '#d1d5db' }}>{formatDate(rec.created_at)}</div>
-                    </div>
-                    <span style={{ color: '#64748b', fontSize: 12 }}>{isExpanded ? '▲' : '▼'}</span>
-                  </div>
-                  {isExpanded && (
-                    <div style={{ borderTop: '1px solid #f3f4f6', padding: '12px 16px', background: '#162032' }}>
-                      {bitableUrl && (
-                        <div style={{ marginBottom: 10 }}>
-                          <a href={bitableUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>
-                            前往 Lark Bitable
-                          </a>
+                      {isExpanded && (
+                        <div className="lst-hist-detail">
+                          {bitableUrl && (
+                            <div style={{ marginBottom: 10 }}>
+                              <a href={bitableUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#818cf8', fontWeight: 600 }}>
+                                前往 Lark Bitable
+                              </a>
+                            </div>
+                          )}
+                          {rec.feature === 'meegle-batch-create' && Array.isArray(detail.rows)
+                            ? <MeegleBatchHistory detail={detail} />
+                            : rec.feature === 'meegle-batch-comment' && Array.isArray(detail.rows)
+                            ? <MeegleCommentHistory detail={detail} />
+                            : (
+                              <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
+                                {JSON.stringify(detail, null, 2)}
+                              </pre>
+                            )}
                         </div>
                       )}
-                      {rec.feature === 'meegle-batch-create' && Array.isArray(detail.rows)
-                        ? <MeegleBatchHistory detail={detail} />
-                        : rec.feature === 'meegle-batch-comment' && Array.isArray(detail.rows)
-                        ? <MeegleCommentHistory detail={detail} />
-                        : (
-                          <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
-                            {JSON.stringify(detail, null, 2)}
-                          </pre>
-                        )}
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 24, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #2d3f55', background: page === 1 ? '#f9fafb' : '#fff', color: page === 1 ? '#d1d5db' : '#374151', cursor: page === 1 ? 'default' : 'pointer', fontSize: 13 }}
-          >
-            ← 上一頁
-          </button>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-            <button
-              key={p}
-              onClick={() => setPage(p)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: p === page ? '1.5px solid #6366f1' : '1px solid #e5e7eb',
-                background: p === page ? '#6366f1' : '#fff',
-                color: p === page ? '#fff' : '#374151',
-                fontWeight: p === page ? 700 : 400,
-                cursor: 'pointer',
-                fontSize: 13,
-                minWidth: 36,
-              }}
-            >
-              {p}
-            </button>
+                  )
+                })}
+              </div>
+            </div>
           ))}
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #2d3f55', background: page === totalPages ? '#f9fafb' : '#fff', color: page === totalPages ? '#d1d5db' : '#374151', cursor: page === totalPages ? 'default' : 'pointer', fontSize: 13 }}
-          >
-            下一頁 →
-          </button>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="lst-pager">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="btn-ghost lst-btn lst-btn--sm"
+              >
+                ← 上一頁
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  className={`btn-ghost lst-btn lst-btn--sm lst-page${p === page ? ' is-on' : ''}`}
+                  aria-current={p === page ? 'page' : undefined}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="btn-ghost lst-btn lst-btn--sm"
+              >
+                下一頁 →
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </section>
     </div>
   )
 }

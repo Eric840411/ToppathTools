@@ -11,6 +11,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { validateRelease, extractTickets, type ComponentState, type ReleaseInput } from '../../shared/osm-release-rules'
+import { PageActions } from '../redesign/PageActions'
 import './OsmReleasesPage.css'
 
 type Tab = { id: string; name: string; sort: number; showComponents: boolean; showSql: boolean; showResult: boolean; active: boolean }
@@ -201,18 +202,19 @@ export function OsmReleasesPage() {
 
   return (
     <div className="orl-page">
-      <div className="orl-head">
+      {/* 新版（原型 v7）：最後更新／設定／新增更新放在頁首右側（PageActions）；版面樣式在 redesign/pages/lists.css */}
+      <PageActions className="orl-head">
         <div className="orl-head-meta">
           {meta.lastUpdated ? <>最後更新 {fmtTime(meta.lastUpdated.at)}・由 {meta.lastUpdated.by}</> : '還沒有任何紀錄'}
           {!perms.edit && <span className="orl-ro">唯讀</span>}
         </div>
         <div className="orl-head-actions">
-          {perms.manage && <button className="orl-btn" onClick={() => setScreen('settings')}>設定</button>}
+          {perms.manage && <button className="orl-btn btn-ghost lst-btn" onClick={() => setScreen('settings')}>設定</button>}
           <span title={perms.edit ? '' : '需要「編輯紀錄」權限，請洽管理員'}>
-            <button className="orl-btn orl-btn--primary" disabled={!perms.edit || !tab?.active} onClick={() => setEditor({ release: null })}>＋ 新增更新</button>
+            <button className="orl-btn orl-btn--primary submit-btn lst-btn" disabled={!perms.edit || !tab?.active} onClick={() => setEditor({ release: null })}>＋ 新增更新</button>
           </span>
         </div>
-      </div>
+      </PageActions>
 
       {flash && <div className={`orl-flash ${flash.ok ? 'orl-flash--ok' : 'orl-flash--bad'}`} onClick={() => setFlash(null)}>{flash.text}</div>}
 
@@ -222,14 +224,15 @@ export function OsmReleasesPage() {
         </div>
       ) : (
         <>
-          <div className="orl-tabs">
+          <div className="orl-tabs rd-tabs" role="tablist">
             {meta.tabs.filter(t => t.active || meta.counts[t.id]).map(t => (
-              <button key={t.id} className={`orl-tab${t.id === filters.tabId ? ' is-on' : ''}`} onClick={() => setFilters(f => ({ ...emptyFilters(t.id), mode: f.mode }))}>
+              <button key={t.id} role="tab" aria-selected={t.id === filters.tabId} className={`orl-tab rd-tab${t.id === filters.tabId ? ' is-on' : ''}`} onClick={() => setFilters(f => ({ ...emptyFilters(t.id), mode: f.mode }))}>
                 {t.name}<b>{meta.counts[t.id] ?? 0}</b>{!t.active && <i>已停用</i>}
               </button>
             ))}
           </div>
 
+          <section className="section-card orl-filter-panel">
           <div className="orl-filters">
             <input className="orl-input orl-search" placeholder="搜尋單號、內容或版號…（例 P5MA-3060）" value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} />
             <label className="orl-range">日期
@@ -259,9 +262,9 @@ export function OsmReleasesPage() {
             </select>
             {filterActive && <button className="orl-link" onClick={() => setFilters(f => ({ ...emptyFilters(f.tabId), mode: f.mode }))}>清除篩選</button>}
             <div className="orl-grow" />
-            <div className="orl-seg">
-              <button className={filters.mode === 'timeline' ? 'is-on' : ''} onClick={() => setFilters(f => ({ ...f, mode: 'timeline' }))}>時間軸</button>
-              <button className={filters.mode === 'matrix' ? 'is-on' : ''} disabled={!tab?.showComponents} title={tab?.showComponents ? '' : '這個分頁沒有元件欄'} onClick={() => setFilters(f => ({ ...f, mode: 'matrix' }))}>矩陣</button>
+            <div className="orl-seg rd-tabs">
+              <button className={`rd-tab${filters.mode === 'timeline' ? ' is-on' : ''}`} aria-pressed={filters.mode === 'timeline'} onClick={() => setFilters(f => ({ ...f, mode: 'timeline' }))}>時間軸</button>
+              <button className={`rd-tab${filters.mode === 'matrix' ? ' is-on' : ''}`} aria-pressed={filters.mode === 'matrix'} disabled={!tab?.showComponents} title={tab?.showComponents ? '' : '這個分頁沒有元件欄'} onClick={() => setFilters(f => ({ ...f, mode: 'matrix' }))}>矩陣</button>
             </div>
           </div>
 
@@ -287,6 +290,7 @@ export function OsmReleasesPage() {
               )}
             </div>
           )}
+          </section>
 
           {listLoading ? <div className="orl-muted">讀取中…</div> : filtered.length === 0 ? (
             <div className="orl-card orl-empty">{releases.length ? '沒有符合篩選的紀錄' : '這個分頁還沒有紀錄'}</div>
@@ -297,8 +301,8 @@ export function OsmReleasesPage() {
             <div className="orl-main">
               <div className="orl-timeline">
                 {months.map(m => (
-                  <div key={m.key}>
-                    <div className="orl-month">{m.key.length === 7 ? `${m.key.slice(0, 4)} 年 ${Number(m.key.slice(5))} 月` : m.key}</div>
+                  <section key={m.key} className="section-card orl-month-panel">
+                    <h3 className="section-title orl-month">{m.key.length === 7 ? `${m.key.slice(0, 4)} 年 ${Number(m.key.slice(5))} 月` : m.key}</h3>
                     {m.items.map(r => {
                       const ups = r.values.filter(v => v.state === 'updated')
                       const lines = r.content.split('\n').filter(l => l.trim())
@@ -321,7 +325,7 @@ export function OsmReleasesPage() {
                         </button>
                       )
                     })}
-                  </div>
+                  </section>
                 ))}
               </div>
               {selected && (
@@ -356,9 +360,9 @@ function Detail({ release: r, tab, comps, statusById, perms, live, onEdit, onRev
   const naCount = comps.filter(c => valueOf.get(c.id)?.state === 'na').length
   const tickets = extractTickets(r.content)
   return (
-    <div className="orl-card orl-detail">
-      <div className="orl-muted">{tab?.name}・{status?.name ?? '未填狀態'}</div>
-      <h3>{r.releaseDate ? `${md(r.releaseDate)} 上線` : `${md(r.testDate)} 測試`}</h3>
+    <section className="orl-card section-card orl-detail">
+      <h3 className="section-title orl-detail-title">{tab?.name}・{status?.name ?? '未填狀態'}</h3>
+      <div className="orl-detail-date">{r.releaseDate ? `${md(r.releaseDate)} 上線` : `${md(r.testDate)} 測試`}</div>
       <div className="orl-kv">
         <span>測試日期</span><span>{r.testDate ? ymd(r.testDate) : '—'}</span>
         <span>上線日期</span><span>{r.releaseDate ? ymd(r.releaseDate) : '—'}</span>
@@ -370,12 +374,12 @@ function Detail({ release: r, tab, comps, statusById, perms, live, onEdit, onRev
         <>
           <div className="orl-hd">元件版號</div>
           {shown.length ? (
-            <table className="orl-vtable"><tbody>
+            <div className="table-wrap orl-vtable-wrap"><table className="orl-vtable version-table"><thead><tr><th>元件</th><th>版號</th></tr></thead><tbody>
               {shown.map(c => {
                 const v = valueOf.get(c.id)!
                 return <tr key={c.id}><td>{c.name}</td>{v.state === 'updated' ? <td className="orl-v">{v.version}</td> : <td className="orl-na">未異動</td>}</tr>
               })}
-            </tbody></table>
+            </tbody></table></div>
           ) : <div className="orl-muted">沒有元件資料</div>}
           {naCount > 0 && <div className="orl-muted orl-small">另有 {naCount} 個元件未提供</div>}
         </>
@@ -396,11 +400,11 @@ function Detail({ release: r, tab, comps, statusById, perms, live, onEdit, onRev
         </div>
       )}
       <div className="orl-detail-actions">
-        {perms.edit && <button className="orl-btn" onClick={onEdit}>編輯</button>}
-        <button className="orl-btn" onClick={onRevisions}>修改履歷（{r.rev}）</button>
-        {perms.manage && <button className="orl-btn orl-btn--danger" onClick={onDelete}>刪除</button>}
+        {perms.edit && <button className="orl-btn btn-ghost lst-btn" onClick={onEdit}>編輯</button>}
+        <button className="orl-btn btn-ghost lst-btn" onClick={onRevisions}>修改履歷（{r.rev}）</button>
+        {perms.manage && <button className="orl-btn orl-btn--danger btn-ghost lst-btn" onClick={onDelete}>刪除</button>}
       </div>
-    </div>
+    </section>
   )
 }
 
