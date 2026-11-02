@@ -144,14 +144,11 @@ export function OsmConfigComparePage() {
   return (
     <div style={{ display: 'flex', gap: 16, height: '100%', minHeight: 0 }}>
 
-      {/* ── Left panel: templates ── */}
-      <div style={{ flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 8, borderRight: '1px solid #2d3f55', paddingRight: 16 }}>
+      {/* ── Left panel: templates ── 新版：照原型 v7 放進「模板管理」浮起面板（原本只有一條右邊框） */}
+      <section className="section-card" style={{ flex: '0 0 240px', display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'flex-start', marginBottom: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: 600, fontSize: 13, color: '#cbd5e1' }}>模板管理</span>
-          <button
-            onClick={() => setShowAddModal(true)}
-            style={{ padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
-          >+ 新增</button>
+          <h2 className="section-title" style={{ margin: 0 }}>模板管理</h2>
+          <button type="button" className="submit-btn submit-btn--sm" onClick={() => setShowAddModal(true)}>+ 新增</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {templates.length === 0 && <p style={{ color: '#64748b', fontSize: 12 }}>尚無模板</p>}
@@ -181,13 +178,13 @@ export function OsmConfigComparePage() {
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* ── Right panel: compare + results ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
-        {/* Input row */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Input row 新版：放進面板（原型 v7） */}
+        <div className="section-card" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 0 }}>
           <input
             value={url} onChange={e => setUrl(e.target.value)}
             placeholder="貼上 OSM URL（含 token），例如：https://osm-redirect.osmslot.org/?token=..."
