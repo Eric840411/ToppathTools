@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.68.3'
+export const APP_VERSION = '5.69.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.69.0', date: '2026-11-02', changes: ["feat(新版外框，ui-redesign 分支第一批)：使用者 1102 要求把原型 v7 做成新版前端，架構與 CodeX 討論定案（沿用元件、加一層 src/redesign/、範圍限 html[data-ui=redesign]、變數 --rd-*）。頂列放版本切換（玻璃分段控制：按住變透鏡、切換時回彈＋反光）與動畫開關（iOS 液態玻璃開關，關掉＝全站裝飾動畫停、仙俠靈氣條換靜態圖、影片暫停，也跟著系統減少動態）；側欄玻璃板＋選中項立體、3D Logo；普通版背景透視網格；面板浮起、輸入框凹槽、主按鈕實體按鍵、換頁進場。仙俠版保留原本的境界背景與素材，只補立體陰影。手機寬頂列收掉狀態字。逐頁換 token 是第二批"] },
   { version: '5.68.3', date: '2026-11-02', changes: ["fix(文書工具)：使用者 1102 本機開文書工具看到「讀取工具清單失敗（HTTP 200）」——前端已是新版、toppath-server 還是 10/22 的舊程式（build 後沒重啟），/api/office/apps 落到 SPA fallback 回首頁 HTML。回 200 但不是 JSON 時改成直接說「伺服器還沒更新，請重啟 toppath-server」；本機已重啟並裝上 Eric Office"] },
   { version: '5.68.2', date: '2026-11-02', changes: ["fix(文書工具)：CodeX 複審 38f09fb 再抓兩個，都實際重現——[P1] sw.js 比對的是解碼前的字串，%73w.js 照樣送出 Effect 原本的 SW：改成比對解碼後的最後一段，並且在檢查版本存不存在之前；[P1] 工作區容器放在會被 Game Show 圖片比對／Bonus V2 整個換掉的 <main> 裡，切到那兩頁 iframe 仍被卸載：移到三元判斷外面，用 display:none 隱藏。單元 36 條；冒煙＋6 種注入都紅；瀏覽器實測切 Dashboard／圖片比對／Bonus V2 回來 iframe 都還是同一個"] },
   { version: '5.68.1', date: '2026-11-02', changes: ["fix(文書工具)：CodeX 審 5f7c6d0 抓到三個問題，都實際重現過——[P1] Effect 自帶 cache-first Service Worker，登出後瀏覽器重開仍由快取開頁面：/office 底下的 sw.js 一律回退役版（清快取、註銷自己，不驗登入才換得掉舊的），前端進頁面與登出時也註銷；[P1] 切到 Dashboard 會卸載所有 iframe、未存內容直接不見：改成進過一次就保持掛載，關分頁／重新整理／登出前確認；[P2] 部署切版會混版（每個請求重讀 CURRENT）：網址改綁版本 /office/v/<版本>/<app>/，安裝腳本換下來未滿一天的版本不刪。單元 33 條、真 server 冒煙含切版；注入 5 種都紅（忽略網址版本那個要第二版沒有同一份 word 才驗得出來）"] },

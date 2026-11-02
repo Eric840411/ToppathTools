@@ -1,0 +1,244 @@
+/* ══════════════════════════════════════════════════════════════════
+   新版外框（ui-redesign 分支，原型 v7 定稿；使用者 1102 要求做成新版前端）
+
+   範圍：只在 html[data-ui="redesign"] 底下生效，變數一律 --rd-*（CodeX 1102：新版外框要有明確的樣式主導權，
+   不能讓舊仙俠 CSS「有寫就照它」——它對側欄／頂列／背景用了 !important，會把新版蓋回去）。
+   只對確認過的舊規則做集中覆寫，不在全站堆 !important。
+
+   第一批：外框（側欄、頂列、背景、版本切換／動畫開關、立體感、Logo）。
+   逐頁換 token 是第二批，不在這裡一次掃。
+   ══════════════════════════════════════════════════════════════════ */
+
+:root[data-ui="redesign"] {
+  --rd-bg: #070d18;
+  --rd-bg-2: #0b1424;
+  --rd-panel: #0e1a2e;
+  --rd-panel-2: #12213a;
+  --rd-line: #1d3050;
+  --rd-line-2: #284369;
+  --rd-fg: #e3ebf7;
+  --rd-fg-2: #9fb0c8;
+  --rd-fg-3: #6b7f9c;
+  --rd-accent: #4c8dff;
+  --rd-accent-2: #7fb0ff;
+  --rd-glow: rgba(76, 141, 255, .35);
+  --rd-ornament: transparent;
+  --rd-ease: cubic-bezier(.2, .8, .2, 1);
+  --rd-hi: rgba(255, 255, 255, .10);
+  --rd-hi-2: rgba(255, 255, 255, .22);
+  --rd-elev-1: 0 1px 0 var(--rd-hi) inset, 0 -1px 0 rgba(0, 0, 0, .4) inset, 0 2px 4px rgba(0, 0, 0, .35), 0 10px 24px -6px rgba(0, 0, 0, .55);
+  --rd-elev-2: 0 1px 0 var(--rd-hi-2) inset, 0 -1px 0 rgba(0, 0, 0, .45) inset, 0 6px 12px rgba(0, 0, 0, .35), 0 24px 48px -12px rgba(0, 0, 0, .7);
+  --rd-well: inset 0 2px 6px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 0 var(--rd-hi);
+  --rd-ios-on: #34c759;
+}
+
+/* 仙俠：只換配色（玉／金），丹砂只給異常 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] {
+  --rd-bg: #03070c;
+  --rd-bg-2: #07101a;
+  --rd-panel: #0b1722;
+  --rd-panel-2: #102231;
+  --rd-line: rgba(214, 183, 112, .16);
+  --rd-line-2: rgba(214, 183, 112, .28);
+  --rd-fg: #e6efe8;
+  --rd-fg-2: #a7bdb2;
+  --rd-fg-3: #6f8a7e;
+  --rd-accent: #78d5c8;
+  --rd-accent-2: #a9ece2;
+  --rd-glow: rgba(120, 213, 200, .3);
+  --rd-ornament: #d6b770;
+  --rd-hi: rgba(240, 216, 156, .10);
+  --rd-hi-2: rgba(240, 216, 156, .22);
+  --rd-ios-on: #3da999;
+}
+
+/* ── 背景：透視網格地板＋一顆光球（只在普通版；仙俠版保留原本的境界背景） ── */
+:root[data-ui="redesign"] body { background: var(--rd-bg); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app,
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-main { background: transparent; }
+.rd-ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; perspective: 900px; }
+:root[data-theme-mode="xianxia"] .rd-ambient { display: none; }
+.rd-floor {
+  position: absolute; left: -40%; right: -40%; bottom: -10%; height: 70%;
+  transform-origin: 50% 100%; transform: rotateX(68deg);
+  background-image: linear-gradient(var(--rd-line) 1px, transparent 1px), linear-gradient(90deg, var(--rd-line) 1px, transparent 1px);
+  background-size: 56px 56px; opacity: .3;
+  mask-image: linear-gradient(to top, #000 0, transparent 85%);
+  -webkit-mask-image: linear-gradient(to top, #000 0, transparent 85%);
+  animation: rd-floor 6s linear infinite;
+}
+.rd-orb {
+  position: absolute; width: 60vmax; height: 60vmax; top: -25vmax; right: -15vmax; border-radius: 50%;
+  background: radial-gradient(circle, var(--rd-accent) 0, transparent 60%); filter: blur(80px); opacity: .18;
+  animation: rd-drift 26s ease-in-out infinite alternate;
+}
+@keyframes rd-floor { to { background-position: 0 56px; } }
+@keyframes rd-drift { to { transform: translate(-12vmax, 10vmax); } }
+/* 普通版：主內容原本有一層滿版深色漸層（.main-content::before），會把背景網格整片蓋掉，新版拿掉 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content::before { background: none; }
+/* 內容一定要在背景上面、背景不擋點擊（CodeX：背景不可攔點擊或覆蓋表格） */
+:root[data-ui="redesign"] .app-main { position: relative; z-index: 1; }
+/* 側欄要比主內容高一層：app-main 有自己的疊層之後，裡面 .main-content::before（position:fixed 滿版底色）
+   會被算在 app-main 這層、蓋到側欄上（實測側欄整片變暗） */
+:root[data-ui="redesign"] .app-sidebar { position: fixed; z-index: 2; }
+
+/* ── 側欄：玻璃板＋亮邊 ── */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-sidebar {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 70%, transparent), color-mix(in srgb, var(--rd-bg) 88%, transparent));
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  border-right: 1px solid var(--rd-line);
+  box-shadow: inset -1px 0 0 var(--rd-hi), 8px 0 30px -10px rgba(0, 0, 0, .7);
+}
+:root[data-ui="redesign"] .sidebar-nav-item { border-radius: 7px; transition: background .14s ease, color .14s ease, box-shadow .14s ease; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active {
+  position: relative;
+  color: var(--rd-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 26%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 10%, var(--rd-panel)));
+  box-shadow: var(--rd-elev-1), 0 0 18px -4px var(--rd-glow);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active::before {
+  content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--rd-accent); box-shadow: 0 0 10px var(--rd-accent);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item--active {
+  color: var(--rd-accent-2); background: var(--rd-panel-2); box-shadow: var(--rd-elev-1);
+}
+
+/* Logo：3D 圖取代脈動小圓點 */
+.rd-brand-mark { flex: none; width: 30px; height: 30px; object-fit: contain; filter: drop-shadow(0 0 8px var(--rd-glow)); }
+:root[data-ui="redesign"] .sidebar-logo-inner .brand-dot { display: none; }
+.app--sb-collapsed .rd-brand-mark { width: 28px; height: 28px; }
+
+/* ── 頂列：半透明＋模糊（底下是捲動的內容，不是會刷新的表格，成本可接受） ── */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-topbar {
+  background: color-mix(in srgb, var(--rd-bg) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rd-line);
+}
+.rd-top-controls { display: flex; align-items: center; gap: 12px; flex: none; }
+
+/* 版本切換：玻璃分段控制 */
+.rd-seg {
+  position: relative; display: flex; padding: 3px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, .02));
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 6px 18px -8px rgba(0, 0, 0, .6);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+.rd-seg::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .22) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
+  background-position: 100% 0;
+}
+.rd-seg.is-sweep::after { animation: rd-sweep .7s var(--rd-ease); }
+.rd-seg button {
+  position: relative; z-index: 1; border: 0; background: none; padding: 5px 14px; border-radius: 999px;
+  color: var(--rd-fg-2); font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.rd-seg button[aria-pressed="true"] { color: var(--rd-fg); font-weight: 700; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
+.rd-seg-thumb {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .06) 55%, rgba(255, 255, 255, .14)), color-mix(in srgb, var(--rd-accent) 34%, transparent);
+  border: 1px solid rgba(255, 255, 255, .38);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .75), inset 0 -3px 6px rgba(0, 0, 0, .22), 0 4px 12px rgba(0, 0, 0, .4), 0 0 16px var(--rd-glow);
+  transition: transform .42s cubic-bezier(.34, 1.45, .5, 1), width .42s cubic-bezier(.34, 1.45, .5, 1), scale .32s cubic-bezier(.3, 1.5, .5, 1), background .2s;
+}
+.rd-seg-thumb::before {
+  content: ""; position: absolute; left: 18%; right: 18%; top: 2px; height: 38%; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0)); pointer-events: none;
+}
+.rd-seg-thumb.is-squish { animation: rd-squish .24s cubic-bezier(.3, .7, .3, 1); }
+/* 按住：變成透明透鏡，放大底下的字 */
+.rd-seg-thumb.is-lens {
+  background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .75);
+  backdrop-filter: blur(1px) saturate(200%) brightness(1.2);
+  -webkit-backdrop-filter: blur(1px) saturate(200%) brightness(1.2);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .95), inset 0 -2px 5px rgba(255, 255, 255, .22), inset 0 0 10px rgba(255, 255, 255, .3), 0 8px 22px rgba(0, 0, 0, .35);
+  scale: 1.1 1.28;
+}
+@keyframes rd-squish { 0% { scale: 1 1; } 30% { scale: 1.22 .82; } 60% { scale: .94 1.06; } 100% { scale: 1 1; } }
+@keyframes rd-sweep { from { background-position: 100% 0; opacity: 1; } to { background-position: 0 0; opacity: 1; } }
+
+/* 動畫開關：iOS 26 液態玻璃開關（按住時滑塊脹成透鏡） */
+.rd-switch { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--rd-fg-2); cursor: pointer; white-space: nowrap; }
+/* ⚠️ 選擇器要比仙俠版的 input[type="checkbox"]（全站改成 15px）更具體，否則開關被縮成小方塊 */
+.rd-top-controls .rd-switch input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; margin: 0; position: relative; flex: none; cursor: pointer;
+  box-sizing: border-box; width: 46px; height: 28px; border-radius: 14px;
+  background: rgba(120, 120, 128, .32); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); transition: background .25s ease;
+}
+.rd-top-controls .rd-switch input[type="checkbox"]:checked { background: var(--rd-ios-on); }
+.rd-switch input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px;
+  background: #fff; border: 1px solid transparent; box-shadow: 0 3px 8px rgba(0, 0, 0, .28), 0 1px 1px rgba(0, 0, 0, .16);
+  transition: transform .42s cubic-bezier(.3, 1.5, .5, 1), width .28s cubic-bezier(.3, 1.4, .5, 1), left .28s cubic-bezier(.3, 1.4, .5, 1), background .2s, box-shadow .2s, border-color .2s;
+}
+.rd-switch input:checked::after { transform: translateX(18px); }
+.rd-switch input:active::after {
+  width: 32px; left: -2px; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .75);
+  backdrop-filter: blur(1.5px) saturate(130%) brightness(1.12);
+  -webkit-backdrop-filter: blur(1.5px) saturate(130%) brightness(1.12);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 -2px 4px rgba(255, 255, 255, .25), inset 0 0 6px rgba(255, 255, 255, .35), 0 6px 16px rgba(0, 0, 0, .3);
+  transform: scale(1.18, 1.3);
+}
+.rd-switch input:checked:active::after { transform: translateX(14px) scale(1.18, 1.3); }
+.rd-switch input:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: 2px; }
+
+/* ── 內容區：浮起的面板（普通版；仙俠版有自己的卷軸框，只補立體陰影） ── */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) :is(.section-card, .mb-pane, .uat-panel, .osm-section, .dashboard-panel) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
+  box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .mb-pane, .uat-panel, .osm-section, .dashboard-panel) {
+  box-shadow: var(--rd-elev-2) !important;
+}
+
+/* 輸入框：凹槽。⚠️ 只選真的輸入元素：.field 在有些頁面是外層 div，套上去整列都被框起來（實測機台測試頁） */
+:root[data-ui="redesign"] .main-content :is(input[type="text"], input[type="search"], input[type="url"], input[type="number"], input[type="password"], input:not([type]), select, textarea) {
+  box-shadow: var(--rd-well);
+}
+
+/* 主按鈕：實體按鍵（上緣打光、下緣陰影、按下沉） */
+:root[data-ui="redesign"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary) {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 -2px 0 rgba(0, 0, 0, .25) inset, 0 3px 0 rgba(0, 0, 0, .35), 0 6px 14px -4px var(--rd-glow);
+  transition: transform .08s ease, box-shadow .08s ease, filter .14s ease;
+}
+:root[data-ui="redesign"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary):hover:not(:disabled) { filter: brightness(1.08); }
+:root[data-ui="redesign"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary):active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .2) inset, 0 1px 0 rgba(0, 0, 0, .35), 0 2px 6px -2px var(--rd-glow);
+}
+
+/* 換頁進場（只動外層，不重掛內容）。
+   ⚠️ fill 用 backwards 不用 both：both 會讓 transform 一直掛著，裡面沒走 createPortal 的 position:fixed 彈窗會被困在這一層 */
+:root[data-ui="redesign"] .main-content > * { animation: rd-enter .42s var(--rd-ease) backwards; }
+@keyframes rd-enter { from { opacity: .25; transform: translateY(10px); } }
+
+/* ── 動畫關掉／系統減少動態：全部停，含烘在 WebP 裡的靈氣條（CSS 停不掉，換成靜態圖） ── */
+:root.rd-no-motion *,
+:root.rd-no-motion *::before,
+:root.rd-no-motion *::after { animation: none !important; transition: none !important; }
+:root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill { background-image: url('/themes/xianxia/qi-tiles/qi-mid-static.png') !important; }
+:root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::before,
+:root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::after { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .rd-floor, .rd-orb, .rd-seg::after, .rd-seg-thumb, .rd-switch input::after, :root[data-ui="redesign"] .main-content > * { animation: none !important; transition: none !important; }
+}
+
+/* ── 手機：頂列放不下全部，狀態字收掉、開關縮小 ── */
+@media (max-width: 760px) {
+  .rd-switch span { display: none; }
+  .rd-top-controls { gap: 8px; }
+  .rd-seg button { padding: 6px 9px; font-size: 12px; }
+  :root[data-ui="redesign"] .app-topbar { gap: 8px; padding-left: 12px; padding-right: 12px; }
+  :root[data-ui="redesign"] .app-topbar-status,
+  :root[data-ui="redesign"] .app-topbar-seal { display: none; }
+  .rd-top-controls .rd-switch input[type="checkbox"] { width: 40px; height: 24px; }
+  .rd-top-controls .rd-switch input[type="checkbox"]::after { width: 20px; height: 20px; }
+  .rd-top-controls .rd-switch input[type="checkbox"]:checked::after { transform: translateX(16px); }
+}

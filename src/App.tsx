@@ -46,6 +46,9 @@ import { APP_VERSION } from './version'
 import { retireOfficeServiceWorkers } from './officeServiceWorker'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
 import './App.css'
+// 新版外框（ui-redesign）：要在 App.css 之後載入；範圍限 html[data-ui="redesign"]
+import './redesign/redesign.css'
+import { TopControls } from './redesign/TopControls'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
 // applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」
 // 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
@@ -413,6 +416,15 @@ function App() {
   const [navQuery, setNavQuery] = useState('')
   const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
   const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'xianxia' ? 'xianxia' : 'classic')
+  // 新版外框的動畫開關：關掉＝全站裝飾動畫停（CSS 的 .rd-no-motion），影片也暫停
+  const [motionOn, setMotionOn] = useState(() => { try { return localStorage.getItem('toppath-motion') !== 'off' } catch { return true } })
+  useEffect(() => { document.documentElement.dataset.ui = 'redesign' }, [])
+  useEffect(() => {
+    document.documentElement.classList.toggle('rd-no-motion', !motionOn)
+    try { localStorage.setItem('toppath-motion', motionOn ? 'on' : 'off') } catch { /* 無痕模式寫不進去就算了 */ }
+    // CSS 停不掉影片（仙俠背景的修行影片），直接暫停／恢復
+    document.querySelectorAll('video').forEach(v => { if (motionOn) void v.play().catch(() => {}); else v.pause() })
+  }, [motionOn])
   const [systemHealthy, setSystemHealthy] = useState(true)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
@@ -715,12 +727,14 @@ function App() {
 
   return (
     <div className={`app${sbRail ? ' app--sb-collapsed' : ''}`}>
+      <div className="rd-ambient" aria-hidden="true"><div className="rd-floor" /><div className="rd-orb" /></div>
       {/* ── Sidebar ── */}
       <nav className="app-sidebar" ref={sidebarRef}>
         {/* Logo */}
         <div className="sidebar-logo">
           <div className="sidebar-logo-inner">
             <span className="brand-dot" />
+            <img className="rd-brand-mark" src={themeMode === 'classic' ? '/brand/toppath-classic-3d.png' : '/brand/toppath-xianxia-3d.png'} alt="" aria-hidden="true" draggable={false} />
             <div className="sidebar-logo-text">
               <span className="sidebar-brand-name">{themeMode === 'classic' ? 'Toppath Tools' : '太玄道樞'}</span>
             </div>
@@ -901,13 +915,6 @@ function App() {
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M10 3.5L5.5 8 10 12.5" /></svg>
             <span className="sidebar-nav-label">{sbCollapsed ? '展開側欄' : '收起側欄'}</span>
           </button>}
-          <div className="sidebar-realm-switch" aria-label="版面模式">
-            <span>版面模式</span>
-            <div>
-              <button type="button" className={themeMode === 'classic' ? 'is-active' : ''} onClick={() => setThemeMode('classic')}>普通版</button>
-              <button type="button" className={themeMode === 'xianxia' ? 'is-active' : ''} onClick={() => setThemeMode('xianxia')}>修仙版</button>
-            </div>
-          </div>
           {themeMode === 'xianxia' && (
             <div className="sidebar-realm-switch" aria-label="背景境界">
               <span>背景境界</span>
@@ -1073,6 +1080,7 @@ function App() {
               ? (themeMode === 'xianxia' ? '靈脈穩定' : '系統正常')
               : (themeMode === 'xianxia' ? '靈脈紊亂' : '連線異常')}
           </div>
+          <TopControls themeMode={themeMode} onThemeChange={setThemeMode} motionOn={motionOn} onMotionChange={setMotionOn} />
           {themeMode === 'xianxia' && <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>}
         </div>
 
