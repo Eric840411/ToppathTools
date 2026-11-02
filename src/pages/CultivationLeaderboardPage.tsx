@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import { useMotionReduced } from '../redesign/motion'
 
 type LeaderboardEntry = {
   email: string
@@ -45,6 +46,8 @@ function initials(label: string) {
 
 function RealmArt({ realm, compact = false }: { realm: Realm; compact?: boolean }) {
   const realmIndex = REALMS.indexOf(realm)
+  // 動畫開關關掉時也要換靜態圖：<source media> 只認系統設定，不認頂列開關
+  const reduced = useMotionReduced()
   return (
     <span
       className={`realm-art${compact ? ' realm-art--compact' : ''}`}
@@ -52,11 +55,13 @@ function RealmArt({ realm, compact = false }: { realm: Realm; compact?: boolean 
       aria-hidden="true"
     >
       <picture>
-        <source
-          media="(prefers-reduced-motion: no-preference)"
-          srcSet={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`}
-          type="image/webp"
-        />
+        {!reduced && (
+          <source
+            media="(prefers-reduced-motion: no-preference)"
+            srcSet={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`}
+            type="image/webp"
+          />
+        )}
         <img src={`/themes/xianxia/realms-v1/${realm.slug}.png`} alt="" loading="lazy" />
       </picture>
     </span>

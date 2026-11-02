@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import './CultivationBreakthroughOverlay.css'
+import { useMotionReduced } from '../redesign/motion'
 
 type MotionMode = 'breath' | 'pillars' | 'corona' | 'soul' | 'ascend' | 'rift' | 'dual' | 'wheel' | 'lightning'
 
@@ -194,6 +195,8 @@ function drawParticles(
 export function CultivationBreakthroughOverlay({ level, onComplete, hold = false }: { level: string; onComplete: () => void; hold?: boolean }) {
   const realm = getBreakthroughRealm(level)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // 頂列動畫開關或系統減少動態：粒子不跑、境界圖換靜態（原本只看系統設定）
+  const reduced = useMotionReduced()
 
   useEffect(() => {
     if (!realm) return
@@ -212,7 +215,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete, hold = false
   }, [hold, onComplete, realm])
 
   useEffect(() => {
-    if (!realm || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (!realm || reduced) return
     const canvas = canvasRef.current
     const context = canvas?.getContext('2d', { alpha: true })
     if (!canvas || !context) return
@@ -261,7 +264,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete, hold = false
       window.cancelAnimationFrame(animationFrame)
       window.removeEventListener('resize', resize)
     }
-  }, [realm])
+  }, [realm, reduced])
 
   if (!realm) return null
 
@@ -298,7 +301,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete, hold = false
           </>
         )}
         <div className="breakthrough__emblem">
-          <img src={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`} alt="" />
+          <img src={reduced ? `/themes/xianxia/realms-v1/${realm.slug}.png` : `/themes/xianxia/realms-animated-v2/${realm.slug}.webp`} alt="" />
         </div>
         <div className="breakthrough__copy">
           <div className="breakthrough__seal" aria-hidden="true"><span>破</span><span>境</span></div>

@@ -56,7 +56,7 @@
 :root[data-ui="redesign"] body { background: var(--rd-bg); }
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app,
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-main { background: transparent; }
-.rd-ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; perspective: 900px; }
+.rd-ambient { position: fixed; inset: 0; z-index: -3; pointer-events: none; overflow: hidden; perspective: 900px; }
 :root[data-theme-mode="xianxia"] .rd-ambient { display: none; }
 .rd-floor {
   position: absolute; left: -40%; right: -40%; bottom: -10%; height: 70%;
@@ -74,13 +74,18 @@
 }
 @keyframes rd-floor { to { background-position: 0 56px; } }
 @keyframes rd-drift { to { transform: translate(-12vmax, 10vmax); } }
+/* 仙俠版舊 CSS 有 `.app-main > * { position: relative; z-index: 1 }`，主內容自成一層——
+   頁面裡沒走 createPortal 的彈窗遮罩一樣跨不出去、蓋不住側欄（main 上原本就有的問題，新版一起修）。
+   z-index 拿掉就好：app-main::before 的底色（z-index:0）排在前面，內容照樣在它上面 */
+:root[data-ui="redesign"] .app-main > .main-content { z-index: auto; }
+
 /* 普通版：主內容原本有一層滿版深色漸層（.main-content::before），會把背景網格整片蓋掉，新版拿掉 */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content::before { background: none; }
 /* 內容一定要在背景上面、背景不擋點擊（CodeX：背景不可攔點擊或覆蓋表格） */
-:root[data-ui="redesign"] .app-main { position: relative; z-index: 1; }
-/* 側欄要比主內容高一層：app-main 有自己的疊層之後，裡面 .main-content::before（position:fixed 滿版底色）
-   會被算在 app-main 這層、蓋到側欄上（實測側欄整片變暗） */
-:root[data-ui="redesign"] .app-sidebar { position: fixed; z-index: 2; }
+/* ⚠️ 不要替 .app-main／.app-sidebar 另開疊層（z-index）。開了之後：
+   ① .main-content::before（position:fixed 滿版底色）被算進 app-main 那層，蓋到側欄上（實測側欄整片變暗）
+   ② 頁面裡沒走 createPortal 的彈窗，z-index:9999 也跨不出 app-main，遮罩開著還能點側欄切頁、編輯中的內容直接丟掉（CodeX 審 ea86844 [P2] 重現）
+   背景改放負的 z-index：在根疊層裡排在一般內容底下，不需要動內容的疊層 */
 
 /* ── 側欄：玻璃板＋亮邊 ── */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-sidebar {
@@ -219,10 +224,18 @@
 :root[data-ui="redesign"] .main-content > * { animation: rd-enter .42s var(--rd-ease) backwards; }
 @keyframes rd-enter { from { opacity: .25; transform: translateY(10px); } }
 
-/* ── 動畫關掉／系統減少動態：全部停，含烘在 WebP 裡的靈氣條（CSS 停不掉，換成靜態圖） ── */
+/* ── 動畫關掉／系統減少動態：全部停，含烘在 WebP 裡的靈氣條（CSS 停不掉，換成靜態圖） ──
+   ⚠️ 不能用 animation:none：Dashboard 事件、仙俠逐字標題這類「從 opacity:0 播進場」的元素會停在看不見的初始狀態
+   （CodeX 審 ea86844 [P1] 重現）。改成時間歸零、只播一次——有 forwards 的直接跳到結束狀態（看得見），循環的停在一輪結束 */
 :root.rd-no-motion *,
 :root.rd-no-motion *::before,
-:root.rd-no-motion *::after { animation: none !important; transition: none !important; }
+:root.rd-no-motion *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill { background-image: url('/themes/xianxia/qi-tiles/qi-mid-static.png') !important; }
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::before,
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::after { display: none !important; }
