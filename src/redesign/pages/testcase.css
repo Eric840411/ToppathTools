@@ -107,3 +107,25 @@
 :root[data-ui="redesign"] .tc-input-card .form-stack { gap: 10px; margin-bottom: 10px; }
 :root[data-ui="redesign"] .tc-pm-row { gap: 10px !important; margin: 0 0 10px !important; }
 :root[data-ui="redesign"] .tc-options { margin: 0 0 12px; }
+
+/* ══ 第三輪（CodeX 對照設計圖）══ 標籤字重回一般（原型 .form label.l）；列距放回原型的 12px 左右 */
+:root[data-ui="redesign"] :is(.tc-label, .tc-input-card .src-card-label, .tc-pm-row > .field > span) { font-weight: 400; font-size: 13px; }
+:root[data-ui="redesign"] .tc-input-card .form-stack { gap: 14px; margin-bottom: 14px; }
+:root[data-ui="redesign"] .tc-input-card .form-stack > div { gap: 14px !important; }
+:root[data-ui="redesign"] .tc-pm-row { gap: 14px !important; margin: 0 0 14px !important; }
+:root[data-ui="redesign"] .tc-options { margin: 0 0 16px; }
+/* 第四輪：模式切換器約 217×44（原型）、新增規格書寬一點、開始生成往上靠 */
+:root[data-ui="redesign"] .tc-input-card .seg-control { padding: 4px; }
+:root[data-ui="redesign"] .tc-input-card .seg-btn { padding: 9px 18px; }
+:root[data-ui="redesign"] .tc-input-card .add-src-btn { padding: 0 20px; }
+:root[data-ui="redesign"] .tc-options { margin: 0 0 8px; }
+/* 第五輪：模式切換器放大後，下面各列往回收 2px 的列距（規格書 −4、模板 −6、模型 −8、選項／開始生成 −10 對齊原型） */
+:root[data-ui="redesign"] .tc-input-card .form-stack > div { gap: 10px !important; }
+:root[data-ui="redesign"] .tc-input-card .form-stack { gap: 10px; margin-bottom: 12px; }
+:root[data-ui="redesign"] .tc-pm-row { gap: 12px !important; margin: 0 0 12px !important; }
+/* 第六輪：規格書以下補回 2～4px（新增規格書 +2、模板／模型／選項 +4、開始生成 +3） */
+:root[data-ui="redesign"] .tc-input-card .form-stack > div { gap: 12px !important; }
+:root[data-ui="redesign"] .tc-input-card .form-stack { margin-bottom: 14px; }
+/* 第七輪：規格書以下整段上移 2px */
+:root[data-ui="redesign"] .tc-input-card .form-stack > div > .src-card:first-of-type { margin-top: -2px; }
+:root[data-ui="redesign"] .tc-input-card > .submit-btn { margin-top: -1px; }
