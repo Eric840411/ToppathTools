@@ -793,17 +793,19 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
       {tab === 'configs' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={() => { setForm(EMPTY_CONFIG); setEditingType(null); setConfigMsg(''); setShowForm(true) }}
-              style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            <button type="button" className="submit-btn submit-btn--sm" onClick={() => { setForm(EMPTY_CONFIG); setEditingType(null); setConfigMsg(''); setShowForm(true) }}>
               + 新增機台
             </button>
           </div>
 
           {configs.length === 0 && <p style={{ color: '#64748b', fontSize: 13 }}>尚未設定任何機台。請點「+ 新增機台」。</p>}
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          {/* 新版：表格放進浮起的面板、表格本身凹進去（原型 v7）；原本直接攤在背景上 */}
+          <section className="section-card rd-table-panel">
+          <div className="table-wrap">
+          <table className="version-table" style={{ fontSize: 12 }}>
             <thead>
-              <tr style={{ background: '#162032', textAlign: 'left' }}>
+              <tr style={{ textAlign: 'left' }}>
                 {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '隨機下注', '隨機離開', '啟用', '操作'].map(h => (
                   <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', whiteSpace: 'nowrap' }}
                     title={h === '隨機下注' ? '這裡只是開關，實際點擊用的 XPath 清單改到「機台自動化測試」的機種設定檔（ideck_xpaths）配置，跟 iDeck 測試共用同一份' : undefined}>
@@ -841,6 +843,8 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
               ))}
             </tbody>
           </table>
+          </div>
+          </section>
 
           {/* Add/Edit modal */}
           {showForm && (

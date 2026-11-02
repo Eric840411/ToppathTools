@@ -28,13 +28,17 @@ async function open(width, height, theme) {
 }
 
 async function goPage(p, name) {
+  // 先找名稱完全相同的（「AutoSpin」不要點到「AutoSpin 通知」），找不到才用包含
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const exact = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
   // 有子頁的要先展開群組（OSM Tools）
-  const direct = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: name }).first()
-  if (!(await direct.count())) {
+  // 完全相同的找不到才展開 OSM Tools 再找（子頁要展開才存在）；不能先退回「包含」——會點到同名開頭的別頁
+  if (!(await exact.count())) {
     await p.locator('.sidebar-nav-item').filter({ hasText: /OSM Tools|靈機巡檢/ }).first().click()
     await p.waitForTimeout(300)
   }
-  await p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: name }).first().click()
+  const again = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
+  await ((await again.count()) ? again.first() : p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: name }).first()).click()
   await p.waitForTimeout(1500)
 }
 

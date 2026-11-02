@@ -78,18 +78,16 @@ export function MeegleToolsPage({ isAdmin = false, permissions = [], onGoBind }:
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   return (
     <div className="page-layout">
-      <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
+      {/* 新版：原型 v7 的分頁列（底線＋光暈），樣式在 redesign/pages/kit.css 的 .rd-tabs；原本是寫死的行內藍色 */}
+      <div className="rd-tabs" role="tablist" aria-label="Meegle 工具">
         {TABS.map(t => (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            className="rd-tab"
+            aria-selected={tab === t.key}
             onClick={() => pick(t.key)}
-            style={{
-              padding: '5px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              border: `1px solid ${tab === t.key ? '#3b82f6' : '#2d3f55'}`,
-              background: tab === t.key ? '#1e3a5f' : 'transparent',
-              color: tab === t.key ? '#93c5fd' : '#64748b',
-            }}
           >{t.label}</button>
         ))}
       </div>

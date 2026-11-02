@@ -65,5 +65,27 @@
 /* 欄位說明 */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .field-hint { color: var(--rd-fg-3) !important; }
 
+/* 分頁列（原型 v7 .tabs）：底線＋選中那頁發光，兩版共用（仙俠版底線用鎏金） */
+:root[data-ui="redesign"] .rd-tabs {
+  display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--rd-line); padding: 4px 0 0;
+}
+:root[data-ui="redesign"] .rd-tab {
+  position: relative; height: 38px; padding: 0 16px; border: 0; background: none; cursor: pointer;
+  color: var(--rd-fg-2); font-size: 13.5px; font-weight: 600; border-radius: 6px 6px 0 0;
+  transition: color .14s ease, background .14s ease;
+}
+:root[data-ui="redesign"] .rd-tab:hover { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-panel) 70%, transparent); }
+:root[data-ui="redesign"] .rd-tab[aria-selected="true"] { color: var(--rd-fg); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--rd-accent) 12%, transparent)); }
+:root[data-ui="redesign"] .rd-tab[aria-selected="true"]::after {
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 10px var(--rd-accent);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab[aria-selected="true"]::after { background: var(--rd-ornament); box-shadow: 0 0 10px rgba(214, 183, 112, .6); }
+:root[data-ui="redesign"] .rd-tab:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: -2px; }
+
 /* 仙俠版：只補凹槽與立體感，配色交給原本的仙俠樣式 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .table-wrap { box-shadow: var(--rd-well); }
+
+/* 表格面板：面板本身不留內距，表格貼齊面板邊（原型 v7 的 raw panel） */
+:root[data-ui="redesign"] .rd-table-panel { padding: 0; overflow: hidden; }
+:root[data-ui="redesign"] .rd-table-panel > .table-wrap { border-radius: 0; }
