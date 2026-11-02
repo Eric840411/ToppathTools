@@ -1,0 +1,63 @@
+/* ══════════════════════════════════════════════════════════════════
+   Game Show／Log 攔截工具（原型 v7）：分頁列 → 使用步驟橫向步進條 → 注入腳本面板。
+   步驟是「說明順序」的靜態編號，產品不追蹤使用者做到哪一步，所以沒有打勾／目前步驟。
+   舊版外框（沒有 data-ui=redesign）也會用到這些 class，所以基本樣式不加範圍、顏色走 var(--rd-*, 舊色)。
+   ══════════════════════════════════════════════════════════════════ */
+
+.gl-page { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.gl-page > .section-card { margin-bottom: 0; }
+
+/* 步進條：六格等寬，圓點之間一條連接線 */
+.gl-steps { list-style: none; margin: 0; padding: 4px 0 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.gl-step { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 6px; }
+.gl-step + .gl-step::before {
+  content: ""; position: absolute; top: 14px; right: calc(50% + 18px); left: calc(-50% + 18px); height: 2px; border-radius: 2px;
+  background: var(--rd-line-2, #2d3f55);
+}
+.gl-step-n {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-size: 12px; font-weight: 800; color: var(--rd-fg, #e2e8f0);
+  background: color-mix(in srgb, var(--rd-accent, #6366f1) 22%, var(--rd-panel-2, #1e293b));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent, #6366f1) 55%, transparent);
+}
+.gl-step-title { margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--rd-fg, #e2e8f0); }
+.gl-step-desc { margin-top: 3px; font-size: 11.5px; line-height: 1.5; color: var(--rd-fg-3, #94a3b8); }
+
+/* 注入腳本 */
+.gl-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.gl-btn-primary {
+  height: 34px; padding: 0 18px; border: 0; border-radius: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: #fff;
+  background: var(--rd-accent, #4f46e5);
+  transition: background .15s, filter .15s;
+}
+.gl-btn-primary:hover:not(:disabled) { filter: brightness(1.12); }
+.gl-btn-primary:disabled { opacity: .5; cursor: default; }
+.gl-btn-primary.is-done { background: #16a34a; }
+.gl-actions .btn-ghost { height: 34px; }
+.gl-lines {
+  font-size: 11.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+  color: var(--rd-fg-2, #94a3b8); border: 1px solid var(--rd-line-2, #2d3f55);
+}
+.gl-note {
+  border: 1px solid rgba(251, 191, 36, .3); background: rgba(251, 191, 36, .07); border-radius: 8px;
+  padding: 9px 12px; margin-bottom: 12px; font-size: 12px; line-height: 1.6; color: #fbbf24;
+}
+.gl-note ul { margin: 2px 0 0; padding-left: 1.2em; }
+.gl-code {
+  margin: 0; padding: 14px 16px; border-radius: 8px; max-height: 420px; overflow: auto;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg, #e2e8f0);
+  background: var(--rd-bg, #0f172a);
+}
+:root[data-ui="redesign"] .gl-code { box-shadow: var(--rd-well); }
+.gl-code-state { padding: 18px; text-align: center; font-size: 13px; color: var(--rd-fg-3, #94a3b8); }
+.gl-code-state.is-error { color: #f87171; }
+
+/* 仙俠版：編號圈改鎏金細框，跟通知設定的編號一致 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .gl-step-n { background: transparent; color: var(--rd-ornament); box-shadow: 0 0 0 1px var(--rd-ornament); }
+
+/* 窄螢幕：步進條改成兩欄、拿掉連接線 */
+@media (max-width: 900px) {
+  .gl-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; }
+  .gl-step + .gl-step::before { display: none; }
+}

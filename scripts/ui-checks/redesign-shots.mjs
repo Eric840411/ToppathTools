@@ -33,8 +33,10 @@ async function goPage(p, name) {
   const exact = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
   // 有子頁的要先展開群組（OSM Tools）
   // 完全相同的找不到才展開 OSM Tools 再找（子頁要展開才存在）；不能先退回「包含」——會點到同名開頭的別頁
-  if (!(await exact.count())) {
-    await p.locator('.sidebar-nav-item').filter({ hasText: /OSM Tools|靈機巡檢/ }).first().click()
+  // 子頁在 OSM Tools 或 Game Show 底下：依序展開，找到就停
+  for (const group of [/OSM Tools|靈機巡檢/, /Game Show|幻境試煉/]) {
+    if (await exact.count()) break
+    await p.locator('.sidebar-nav-item').filter({ hasText: group }).first().click()
     await p.waitForTimeout(300)
   }
   const again = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
