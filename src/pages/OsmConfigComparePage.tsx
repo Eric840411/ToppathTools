@@ -144,39 +144,32 @@ export function OsmConfigComparePage() {
   return (
     <div style={{ display: 'flex', gap: 16, height: '100%', minHeight: 0 }}>
 
-      {/* ── Left panel: templates ── 新版：照原型 v7 放進「模板管理」浮起面板（原本只有一條右邊框） */}
-      <section className="section-card" style={{ flex: '0 0 240px', display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'flex-start', marginBottom: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 className="section-title" style={{ margin: 0 }}>模板管理</h2>
-          <button type="button" className="submit-btn submit-btn--sm" onClick={() => setShowAddModal(true)}>+ 新增</button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {templates.length === 0 && <p style={{ color: '#64748b', fontSize: 12 }}>尚無模板</p>}
+      {/* ── Left panel: templates ── 新版（原型 v7）：300px「模板管理」面板，標題帶滿版；卡片＝名稱＋版本籤、底下靠左兩顆一般尺寸按鈕；「+ 新增」放清單最下面。樣式在 redesign/pages/osm.css 的 .cfg-* */}
+      <section className="section-card cfg-tpl-panel">
+        <h2 className="section-title">模板管理</h2>
+        <div className="cfg-tpl-list">
+          {templates.length === 0 && <p className="cfg-tpl-empty">尚無模板</p>}
           {templates.map(t => (
             <div
               key={t.id}
+              className={selectedId === t.id ? 'cfg-tpl is-on' : 'cfg-tpl'}
               onClick={() => setSelectedId(t.id)}
-              style={{
-                padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
-                border: `1px solid ${selectedId === t.id ? '#2563eb' : '#2d3f55'}`,
-                background: selectedId === t.id ? 'rgba(37,99,235,0.15)' : '#1e293b',
-                color: selectedId === t.id ? '#60a5fa' : '#cbd5e1',
-              }}
             >
-              <div style={{ fontWeight: 600 }}>{t.name}</div>
-              {t.version && <div style={{ color: '#94a3b8', fontSize: 11 }}>v{t.version}</div>}
-              <div style={{ marginTop: 4, display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                <button
+              <div className="cfg-tpl-head">
+                <span className="cfg-tpl-name">{t.name}</span>
+                {t.version && <span className="cfg-tpl-ver">v{t.version}</span>}
+              </div>
+              <div className="cfg-tpl-actions">
+                <button type="button" className="btn-ghost cfg-btn"
                   onClick={e => { e.stopPropagation(); handleEdit(t) }}
-                  style={{ padding: '1px 8px', background: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
                 >編輯</button>
-                <button
+                <button type="button" className="btn-ghost cfg-btn cfg-btn--danger"
                   onClick={e => { e.stopPropagation(); handleDelete(t.id, t.name) }}
-                  style={{ padding: '1px 8px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
                 >刪除</button>
               </div>
             </div>
           ))}
+          <button type="button" className="btn-ghost cfg-btn cfg-add" onClick={() => setShowAddModal(true)}>+ 新增</button>
         </div>
       </section>
 
@@ -194,7 +187,7 @@ export function OsmConfigComparePage() {
             <input type="checkbox" checked={useGemini} onChange={e => setUseGemini(e.target.checked)} />
             Gemini 分析
           </label>
-          <button
+          <button className="cfg-run"
             onClick={handleCompare} disabled={loading}
             style={{ padding: '7px 18px', background: loading ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: loading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
@@ -233,7 +226,7 @@ export function OsmConfigComparePage() {
                   const active = filterType === f
                   const count = f === 'all' ? result.diffs.length : counts![f]
                   return (
-                    <button key={f} onClick={() => setFilterType(f)}
+                    <button key={f} className={active ? 'cfg-filter is-on' : 'cfg-filter'} onClick={() => setFilterType(f)}
                       style={{ padding: '4px 12px', border: `1px solid ${active ? '#2563eb' : '#2d3f55'}`, borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400, background: active ? 'rgba(37,99,235,0.15)' : '#1e293b', color: active ? '#60a5fa' : '#94a3b8', cursor: 'pointer' }}>
                       {f === 'all' ? `全部 (${count})` : `${TYPE_LABEL[f]} (${count})`}
                     </button>
@@ -257,7 +250,7 @@ export function OsmConfigComparePage() {
                   {filtered.map((d, i) => {
                     const c = TYPE_COLOR[d.type]
                     return (
-                      <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                      <tr key={i} className="cfg-diff-row" style={{ borderBottom: '1px solid #1e293b' }}>
                         <td style={{ padding: '6px 10px' }}>
                           <span style={{ padding: '2px 8px', background: c.bg, color: c.text, border: `1px solid ${c.border}`, borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
                             {TYPE_LABEL[d.type]}

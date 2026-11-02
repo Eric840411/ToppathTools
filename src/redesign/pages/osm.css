@@ -189,3 +189,29 @@
 :root[data-ui="redesign"] .ic-page input.ic-input { height: 34px; padding-top: 0; padding-bottom: 0; }
 :root[data-ui="redesign"] .ic-page .ic-tools .btn-ghost { font-size: 13.5px; font-weight: 600; padding: 0 20px; }
 :root[data-ui="redesign"] .ic-page .ic-paste { margin-bottom: 3px; }
+
+/* ══ Config 比對（原型 v7）：模板管理 300px 面板、標題帶滿版；卡片＝原型 .card（名稱＋版本籤，底下靠左一般按鈕）；「+ 新增」在清單最後 ══ */
+:root[data-ui="redesign"] .main-content .section-card.cfg-tpl-panel { flex: 0 0 300px; align-self: flex-start; margin-bottom: 0; min-width: 0; }
+:root[data-ui="redesign"] .cfg-tpl-list { display: flex; flex-direction: column; gap: 10px; }
+:root[data-ui="redesign"] .cfg-tpl-empty { margin: 0; color: var(--rd-fg-3); font-size: 12.5px; }
+:root[data-ui="redesign"] .cfg-tpl {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 9px; cursor: pointer; min-width: 0;
+  background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel)); border: 1px solid var(--rd-line-2); box-shadow: var(--rd-elev-1);
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+:root[data-ui="redesign"] .cfg-tpl:hover { border-color: color-mix(in srgb, var(--rd-accent) 55%, var(--rd-line-2)); }
+:root[data-ui="redesign"] .cfg-tpl.is-on { border-color: var(--rd-accent); box-shadow: var(--rd-elev-1), 0 0 0 3px var(--rd-glow); }
+:root[data-ui="redesign"] .cfg-tpl-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+:root[data-ui="redesign"] .cfg-tpl-name { font-size: 14.5px; font-weight: 700; color: var(--rd-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-ui="redesign"] .cfg-tpl-ver {
+  flex: none; padding: 1px 8px; border-radius: 5px; font-size: 12px; white-space: nowrap;
+  background: var(--rd-panel-2); border: 1px solid var(--rd-line-2); color: var(--rd-fg-2);
+}
+:root[data-ui="redesign"] .cfg-tpl-actions { display: flex; gap: 10px; justify-content: flex-start; }
+:root[data-ui="redesign"] .main-content .cfg-btn {
+  width: auto; height: 36px; padding: 0 18px; margin: 0; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13.5px; font-weight: 700; color: var(--rd-fg); white-space: nowrap; cursor: pointer;
+}
+:root[data-ui="redesign"] .main-content .btn-ghost.cfg-btn--danger { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
+:root[data-ui="redesign"] .main-content .btn-ghost.cfg-btn--danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
+:root[data-ui="redesign"] .main-content .cfg-btn.cfg-add { width: 100%; justify-content: flex-start; }

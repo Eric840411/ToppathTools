@@ -18,8 +18,10 @@ const MODE = process.env.THEME_MODE || 'classic'
 await ctx.addInitScript((MODE) => { try { localStorage.setItem('toppath-theme-mode', MODE) } catch { /* */ } }, MODE)
 const p = await ctx.newPage()
 await p.goto(H + '/', { waitUntil: 'networkidle' })
-const sub = () => p.locator('.sidebar-subtab-item').filter({ hasText: name })
-const top = () => p.locator('.sidebar-nav-item').filter({ hasText: name }).filter({ visible: true })
+// 名稱要在項目文字的結尾（「AutoSpin」不要點到「AutoSpin 通知」）
+const nameRe = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$')
+const sub = () => p.locator('.sidebar-subtab-item').filter({ hasText: nameRe })
+const top = () => p.locator('.sidebar-nav-item').filter({ hasText: nameRe }).filter({ visible: true })
 for (const g of [null, /OSM Tools/, /Game Show/]) {
   if (g) { if (await sub().count()) break; await p.locator('.sidebar-nav-item').filter({ hasText: g }).first().click(); await p.waitForTimeout(400) }
   if (await sub().count() || await top().count()) break

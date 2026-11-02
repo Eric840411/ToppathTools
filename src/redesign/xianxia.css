@@ -369,3 +369,76 @@
   left: 14px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
   background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   第三批：Config 比對、OSM 版本更新紀錄、AutoSpin、URL 帳號池、腳本化投注紀錄、Jackpot 監控
+   版面這幾頁的 redesign CSS 已不再排除仙俠（lists／runner／ops）；這裡只換行內寫死的藍灰配色。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Config 比對：模板卡版面兩版共用（osm.css .cfg-*）；這裡只換開始比對（行內藍）、結果篩選膠囊與列分隔線 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-run {
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important;
+  border: 0 !important; color: var(--rd-accent-ink) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-run:disabled { opacity: .55; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-filter { background: none !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-filter.is-on {
+  background: color-mix(in srgb, var(--rd-accent) 18%, transparent) !important; border-color: var(--rd-accent) !important; color: var(--rd-accent-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-diff-row { border-bottom-color: var(--rd-line) !important; }
+
+/* AutoSpin：目前帳號條（行內藍底）、分頁列（行內藍色底線；舊仙俠把選中分頁塗成實心玉色塊）、機台表的編輯鍵 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-account {
+  background: color-mix(in srgb, var(--rd-accent) 8%, transparent) !important;
+  border-color: color-mix(in srgb, var(--rd-accent) 28%, transparent) !important; color: var(--rd-accent-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tabs { border-bottom-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab {
+  background: none !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important;
+  box-shadow: none !important; color: var(--rd-fg-3) !important; font-weight: 400 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab:hover { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab.is-on {
+  color: var(--rd-accent-2) !important; border-bottom-color: var(--rd-accent) !important; font-weight: 700 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab::after { content: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-act--edit {
+  background: var(--rd-panel-2) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important;
+}
+
+/* URL 帳號池：說明條原本是藍字藍底，換成玉色 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-note--info {
+  color: var(--rd-accent-2); background: color-mix(in srgb, var(--rd-accent) 7%, transparent); border-color: color-mix(in srgb, var(--rd-accent) 26%, transparent);
+}
+
+/* 腳本化投注紀錄：機台配置卡（靛藍底）換成墨綠＋玉色名稱 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rn-profile { background: color-mix(in srgb, var(--rd-bg-2) 80%, transparent); border-color: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rn-profile-name { color: var(--rd-accent-2); }
+/* 帳號執行清單的自繪勾選框（App.css 寫死藍色） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .scripted-check { border-color: var(--rd-line-2); background: var(--rd-bg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .scripted-check.on { border-color: var(--rd-accent); background: var(--rd-accent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .scripted-check.on::after { border-color: var(--rd-accent-ink); }
+
+/* ── 第三批 CodeX 第二輪 ── */
+/* AutoSpin 機台表開關：原型 .switch-sm（30×18 圓膠囊，關＝line-2 墨綠槽、開＝強調色）；行內是 36×20 藍灰底，舊仙俠又把圓角壓成 4px */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch {
+  width: 30px !important; height: 18px !important; min-width: 0 !important; padding: 0 !important; vertical-align: middle;
+  border: 0 !important; border-radius: 9px !important; background: var(--rd-line-2) !important; box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on { background: var(--rd-accent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch::after { content: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch-knob {
+  top: 2px !important; left: 2px !important; width: 14px !important; height: 14px !important;
+  background: var(--rd-fg) !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .5); transition: transform .14s ease !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on .as-switch-knob { transform: translateX(12px); }
+/* 腳本化投注：流程狀態日誌（舊仙俠塗成藍黑 rgba(2,7,12,.92)）→ 原型 .log 墨綠凹槽；狀態籤（舊仙俠圓角 3px）→ 膠囊 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .rn-log {
+  background: color-mix(in srgb, var(--rd-bg) 75%, transparent) !important; border: 0 !important; box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .rn-page .badge { border-radius: 999px !important; }
+/* Config 比對：模板卡刪除鍵（上面全站次要按鈕那條 !important 把字色壓成白） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.cfg-btn--danger { color: #f87171 !important; border-color: color-mix(in srgb, #f87171 55%, transparent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.cfg-btn--danger:hover:not(:disabled) { color: #fca5a5 !important; border-color: #f87171 !important; }

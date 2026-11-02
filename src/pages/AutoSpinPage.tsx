@@ -129,6 +129,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
       onClick={onToggle}
       disabled={disabled}
       title={checked ? '點擊停用' : '點擊啟用'}
+      className={checked ? 'as-switch is-on' : 'as-switch'}
       style={{
         width: 36, height: 20, borderRadius: 10, padding: 0, flexShrink: 0,
         background: checked ? 'var(--xx-jade, #75d7cf)' : '#1e2733',
@@ -140,7 +141,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
         transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
       }}
     >
-      <span style={{
+      <span className="as-switch-knob" style={{
         position: 'absolute', top: 1, left: checked ? 17 : 1, width: 16, height: 16, borderRadius: '50%',
         background: '#fff', transition: 'left 0.2s ease',
       }} />
@@ -757,6 +758,8 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
     background: 'none', fontWeight: tab === t ? 700 : 400, color: tab === t ? '#2563eb' : '#6b7280',
     cursor: 'pointer', fontSize: 13,
   })
+  // 新版仙俠皮靠 class 換色（redesign/xianxia.css）；普通版仍吃行內樣式
+  const tabCls = (t: string) => (tab === t ? 'as-tab is-on' : 'as-tab')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
@@ -768,19 +771,19 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
         </div>
       )}
       {userLabel && (
-        <div style={{ padding: '6px 12px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#93c5fd' }}>
+        <div className="as-account" style={{ padding: '6px 12px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#93c5fd' }}>
           目前帳號：{userLabel}
         </div>
       )}
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #2d3f55', marginBottom: 16 }}>
-        <button style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
-        <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
-        <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
-        <button style={tabStyle('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
-        <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
+      <div className="as-tabs" style={{ display: 'flex', borderBottom: '1px solid #2d3f55', marginBottom: 16 }}>
+        <button className={tabCls('configs')} style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
+        <button className={tabCls('templates')} style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
+        <button className={tabCls('history')} style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
+        <button className={tabCls('ledger')} style={tabStyle('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
+        <button className={tabCls('jpgroups')} style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
+        <button className={tabCls('run')} style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
       </div>
 
       {/* ── 對帳台（Live Ledger）───────────────────────────────────────────────
@@ -831,11 +834,11 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                   </td>
                   <td style={{ padding: '7px 10px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => handleEditConfig(c)}
+                      <button className="as-act as-act--edit" onClick={() => handleEditConfig(c)}
                         style={{ padding: '2px 8px', background: 'rgba(59,130,246,.14)', color: '#93c5fd', border: '1px solid rgba(59,130,246,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
-                      <button onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點"
+                      <button className="as-act as-act--copy" onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點"
                         style={{ padding: '2px 8px', background: 'rgba(117,215,207,.14)', color: 'var(--cr-emerald)', border: '1px solid rgba(117,215,207,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>複製配置</button>
-                      <button onClick={() => handleDeleteConfig(c.machineType)}
+                      <button className="as-act as-act--del" onClick={() => handleDeleteConfig(c.machineType)}
                         style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                     </div>
                   </td>

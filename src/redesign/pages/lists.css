@@ -220,32 +220,32 @@
 :root[data-ui="redesign"] .orl-detail-actions { gap: 8px; margin-top: 16px; }
 
 /* ── 普通版配色 ── */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page {
+:root[data-ui="redesign"] .orl-page {
   --orl-card: var(--rd-panel); --orl-card2: var(--rd-bg-2); --orl-border: var(--rd-line-2); --orl-input: var(--rd-bg-2); --orl-input-border: var(--rd-line-2);
   --orl-text: var(--rd-fg); --orl-muted: var(--rd-fg-2); --orl-primary: var(--rd-accent-2); --orl-chip: var(--rd-panel-2); --orl-head-row: var(--rd-bg-2);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-card:not(.orl-rcard) {
+:root[data-ui="redesign"] .orl-page .orl-card:not(.orl-rcard) {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
   box-shadow: var(--rd-elev-2);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-rcard {
+:root[data-ui="redesign"] .orl-page .orl-rcard {
   background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel));
   border-color: var(--rd-line-2); box-shadow: var(--rd-elev-1);
   transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-rcard:hover { border-color: color-mix(in srgb, var(--rd-accent) 55%, var(--rd-line-2)); transform: translateY(-2px); box-shadow: var(--rd-elev-2); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-rcard.is-sel { border-color: var(--rd-accent); box-shadow: var(--rd-elev-1), 0 0 0 1px var(--rd-accent) inset; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-comp { background: var(--rd-panel-2); border-color: var(--rd-line-2); color: var(--rd-fg-2); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-comp em { color: var(--rd-fg); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-input { border-color: var(--rd-line-2); background: var(--rd-bg-2); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-input:focus { border-color: var(--rd-accent); box-shadow: 0 0 0 3px var(--rd-glow); }
+:root[data-ui="redesign"] .orl-page .orl-rcard:hover { border-color: color-mix(in srgb, var(--rd-accent) 55%, var(--rd-line-2)); transform: translateY(-2px); box-shadow: var(--rd-elev-2); }
+:root[data-ui="redesign"] .orl-page .orl-rcard.is-sel { border-color: var(--rd-accent); box-shadow: var(--rd-elev-1), 0 0 0 1px var(--rd-accent) inset; }
+:root[data-ui="redesign"] .orl-page .orl-comp { background: var(--rd-panel-2); border-color: var(--rd-line-2); color: var(--rd-fg-2); }
+:root[data-ui="redesign"] .orl-page .orl-comp em { color: var(--rd-fg); }
+:root[data-ui="redesign"] .orl-page .orl-input { border-color: var(--rd-line-2); background: var(--rd-bg-2); }
+:root[data-ui="redesign"] .orl-page .orl-input:focus { border-color: var(--rd-accent); box-shadow: 0 0 0 3px var(--rd-glow); }
 /* 狀態籤：原型 .pill（前面一顆發光點） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-status { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-size: 12px; font-weight: 600; box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .orl-page .orl-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; flex: none; }
+:root[data-ui="redesign"] .orl-page .orl-status { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-size: 12px; font-weight: 600; box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset; }
+:root[data-ui="redesign"] .orl-page .orl-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; flex: none; }
 /* 刪除鍵：玻璃按鍵＋紅字（原型 .btn.danger） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost.orl-btn--danger { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost.orl-btn--danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
+:root[data-ui="redesign"] .main-content .btn-ghost.orl-btn--danger { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
+:root[data-ui="redesign"] .main-content .btn-ghost.orl-btn--danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
 
 @media (max-width: 1100px) {
   :root[data-ui="redesign"] .orl-main { grid-template-columns: 1fr; }

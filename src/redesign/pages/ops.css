@@ -219,9 +219,9 @@
 
 /* ══ 第二輪（CodeX 對照設計圖）══ */
 /* 獎池數據：表格緊貼標題帶、左右內縮 10px（原型 .tbl-wrap margin 0 10px 10px） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.jp-panel--table:has(> .section-title:first-child) { padding: 0 0 10px; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.jp-panel--table > .section-title:first-child { margin: 0 0 0; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .jp-panel--table > .table-wrap { margin: 0 10px; }
+:root[data-ui="redesign"] .main-content .section-card.jp-panel--table:has(> .section-title:first-child) { padding: 0 0 10px; }
+:root[data-ui="redesign"] .main-content .section-card.jp-panel--table > .section-title:first-child { margin: 0 0 0; }
+:root[data-ui="redesign"] .main-content .jp-panel--table > .table-wrap { margin: 0 10px; }
 /* 欄寬照原型量出來的比例（Game ID 14.6／Grand 32.2／Major 15.1／Minor 12.5／Mini 11.1／Fortunate 14.5） */
 .jp-table { table-layout: fixed; }
 .jp-table th:nth-child(1) { width: 14.6%; }
