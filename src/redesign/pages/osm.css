@@ -173,3 +173,19 @@
 :root[data-ui="redesign"] .osm-channel-list .osm-card-count::before { content: "機台"; font-family: inherit; font-weight: 400; color: var(--rd-fg-2); }
 /* 第五輪：渠道卡高度對齊原型（約 176px） */
 :root[data-ui="redesign"] .osm-channel-list .osm-channel-row { min-height: 176px; }
+
+/* ══ 圖片刪除驗證 第一輪（CodeX 對照設計圖）══ 7：3、標籤欄 96px、貼上區與路徑框跨滿、尺寸照原型 */
+:root[data-ui="redesign"] .ic-grid { grid-template-columns: minmax(0, 2.33fr) minmax(0, 1fr); }
+:root[data-ui="redesign"] .ic-row { grid-template-columns: 96px minmax(0, 1fr); row-gap: 10px; }
+:root[data-ui="redesign"] .ic-label { font-weight: 400; font-size: 13px; }
+:root[data-ui="redesign"] .ic-row--top > .ic-field { display: contents; }
+:root[data-ui="redesign"] .ic-row--top > .ic-field > .ic-tools { grid-column: 2; }
+:root[data-ui="redesign"] .ic-row--top > .ic-field > :not(.ic-tools) { grid-column: 1 / -1; }
+:root[data-ui="redesign"] .ic-paste { min-height: 76px; }
+:root[data-ui="redesign"] .ic-page textarea.ic-input { height: 96px; }
+:root[data-ui="redesign"] .ic-page :is(.ic-tools .btn-ghost, .ic-actions .submit-btn, .ic-gitpaste .submit-btn) { height: 36px; padding: 0 18px; font-size: 13px; border-radius: 7px; }
+:root[data-ui="redesign"] .ic-actions .submit-btn { min-width: 94px; }
+/* 圖片刪除驗證 第二輪：URL 欄 34px（原型 .field）；工具按鈕字大一級、粗一點、內距寬一點 */
+:root[data-ui="redesign"] .ic-page input.ic-input { height: 34px; padding-top: 0; padding-bottom: 0; }
+:root[data-ui="redesign"] .ic-page .ic-tools .btn-ghost { font-size: 13.5px; font-weight: 600; padding: 0 20px; }
+:root[data-ui="redesign"] .ic-page .ic-paste { margin-bottom: 3px; }
