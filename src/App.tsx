@@ -38,7 +38,6 @@ import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
 import { XianxiaIcon, type XianxiaIconName } from './components/XianxiaIcon'
-import { XianxiaReveal } from './components/XianxiaReveal'
 import { SidebarFlyout, SidebarTooltip, useSidebarCollapsed, useTinyViewport } from './components/SidebarRail'
 import { type AccountInfo } from './accountTypes'
 import { AuthLoginModal } from './components/AuthLoginModal'
@@ -49,12 +48,14 @@ import './App.css'
 // 新版外框（ui-redesign）：要在 App.css 之後載入；範圍限 html[data-ui="redesign"]
 import './redesign/redesign.css'
 import './redesign/sidebar.css'
+import './redesign/page-head.css'
 // 逐頁重做（第二批起）：每頁一支，範圍同樣限 html[data-ui="redesign"]
 import './redesign/pages/kit.css'
 import './redesign/pages/dashboard.css'
 import './redesign/pages/machine-test.css'
 import { TopControls } from './redesign/TopControls'
 import { NavIcon } from './redesign/NavIcon'
+import { PageHead, Crumb } from './redesign/PageHead'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
 // applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」
 // 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
@@ -1078,17 +1079,11 @@ function App() {
         {/* Topbar */}
         <div className="app-topbar">
           <div className="app-topbar-left" title={currentDescription}>
-            {themeMode === 'xianxia' && <span className="app-topbar-kicker">TAIXUAN CONTROL CENTER</span>}
-            <span className="app-topbar-title">
-              {/* 修仙版：頁面標題逐字浮現。改這一個地方＝全站每一頁都有，
-                  不用逐頁加（全站只有 8 個頁內 <h1>，標題其實都在這條頂欄）。
-                  ⚠️ key 一定要帶——沒有它的話 App 每次 re-render 都會重跑進場動畫，
-                  而 Dashboard 每 30 秒輪詢一次，畫面就會一直在閃。 */}
-              {themeMode === 'xianxia'
-                ? <XianxiaReveal key={currentThemeLabel} text={currentThemeLabel} />
-                : currentThemeLabel}
-            </span>
-            {themeMode === 'xianxia' && currentThemeLabel !== currentPageLabel && <span className="app-topbar-group">{currentPageLabel}</span>}
+            {/* 新版：頂列改成麵包屑（原型 v7）；大標題與仙俠名逐字浮現移到每頁上方的 PageHead */}
+            <Crumb
+              group={currentSubtab ? (themeMode === 'xianxia' ? (currentGroup?.themeLabel ?? currentGroup?.label) : currentGroup?.label) : undefined}
+              page={currentThemeLabel}
+            />
           </div>
           <div className="app-topbar-status" title={systemHealthy ? 'API 健康檢查正常' : 'API 健康檢查失敗，可能連不上伺服器'}>
             <span style={{ background: systemHealthy ? undefined : '#dc2626' }} />
@@ -1117,6 +1112,7 @@ function App() {
           </>
         ) : currentGroup?.id === 'office' ? null : (
           <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
+            <PageHead themeMode={themeMode} label={currentPageLabel} themeLabel={currentThemeLabel} description={currentDescription} />
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {(currentGroup?.id === 'jira' || (meegleBindTrip && currentGroup?.id === 'account')) && (
               <div hidden={currentGroup?.id !== 'jira'}>
@@ -1155,6 +1151,7 @@ function App() {
             用 style 隱藏不用 hidden 屬性：.main-content 有設 display，會蓋過 [hidden] */}
         {officeAllowed && (officeKept || currentGroup?.id === 'office') && (
           <main className="main-content main-content--full" style={currentGroup?.id === 'office' ? undefined : { display: 'none' }}>
+            {currentGroup?.id === 'office' && <PageHead themeMode={themeMode} label={currentPageLabel} themeLabel={currentThemeLabel} description={currentDescription} />}
             <OfficePage themeMode={themeMode} onOpenCountChange={setOfficeOpenCount} />
           </main>
         )}

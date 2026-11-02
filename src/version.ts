@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.69.7'
+export const APP_VERSION = '5.70.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.70.0', date: '2026-11-02', changes: ["feat(新版排版：頁首＋麵包屑)：使用者 1102「排版沒有按照新設計處理嗎？只更換 ui？」——照原型 v7，每一頁上方統一加頁首（大標題、仙俠版逐字浮現的仙俠名、頁面說明、強調色漸層底線），頂列改成麵包屑「群組 / 頁面」。各頁原本自己畫的大標題（AutoSpin 通知、Local Agent、腳本化投注、UI 截圖、每日仙語、UAT、普通版 Dashboard）收掉避免兩個標題；仙俠版 Dashboard 的萬法歸樞主視覺保留。Dashboard 內容對齊頁首。逐頁面板重排接著做"] },
   { version: '5.69.7', date: '2026-11-02', changes: ["style(新版 Meegle／AutoSpin，逐頁重做第 3～4 頁)：共用分頁列 .rd-tabs（原型 v7：底線＋選中發光，仙俠版鎏金底線），Meegle 五個工具的分頁從寫死的行內藍色改用它；AutoSpin 機台設定表從直接攤在背景上改成放進浮起面板、表格凹槽、表頭底色，「＋新增機台」改共用主按鈕。UAT 整合測試本來就是同一套深色設計，吃共用零件（面板浮起、凹槽、按鍵）。只改長相"] },
   { version: '5.69.6', date: '2026-11-02', changes: ["style(新版側欄，照原型 v7)：使用者 1102 問側欄怎麼沒照設計圖——普通版彩色字母方塊換成線條圖示、收合鈕搬到 Logo 右邊、搜尋框從頂列搬到側欄（行為不變，結果在框下展開）、子項拿掉圖示改成選中圓點＋左側細線、分區標題字距。仙俠版圖示照舊用 icons-v3。實測搜尋跳頁、收合成圖示列、圖示列的子選單、展開回來都正常"] },
   { version: '5.69.5', date: '2026-11-02', changes: ["style(新版：共用零件＋機台自動化測試，逐頁重做第 2 頁)：共用零件一次套到 6～21 頁——面板標題左側色條、表格外框凹槽＋表頭底色＋列 hover、次要按鈕玻璃按鍵、狀態籤膠囊。機台自動化測試：測試項目改成膠囊（勾選亮起）、摘要數字磚依結果上色並浮起、FAIL 大於 0 才掛告警光暈（常駐動畫數＝異常數）、進度條凹槽＋流光、日誌凹槽。只改長相；JSX 只多一個依 failCount 掛的 class"] },

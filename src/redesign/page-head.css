@@ -1,0 +1,57 @@
+/* ══════════════════════════════════════════════════════════════════
+   新版頁首＋頂列麵包屑（原型 v7 .page-head／.crumb）
+   每頁上方：大標題（仙俠版旁邊是逐字浮現的仙俠名）＋說明，底下一條強調色漸層線。
+   頂列改成麵包屑「群組 / 頁面」。
+   ══════════════════════════════════════════════════════════════════ */
+
+:root[data-ui="redesign"] .rd-page-head {
+  position: relative;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 4px 0 14px; margin-bottom: 18px;
+}
+:root[data-ui="redesign"] .rd-page-head::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, var(--rd-accent), var(--rd-line) 40%, transparent);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-page-head::after {
+  background: linear-gradient(90deg, var(--rd-ornament), var(--rd-accent) 25%, var(--rd-line) 55%, transparent);
+}
+:root[data-ui="redesign"] .rd-page-head-main { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+:root[data-ui="redesign"] .rd-page-title {
+  margin: 0; font-size: 28px; font-weight: 900; letter-spacing: .02em; line-height: 1.2;
+  color: var(--rd-fg); text-wrap: balance;
+  background: none; -webkit-text-fill-color: currentColor;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-page-title { font-family: var(--xx-serif, serif); letter-spacing: .06em; }
+:root[data-ui="redesign"] .rd-page-sub {
+  color: var(--rd-accent-2); font-size: 16px; padding-left: 12px; margin-bottom: 4px;
+  border-left: 1px solid var(--rd-line-2);
+}
+:root[data-ui="redesign"] .rd-page-desc { margin: 0; color: var(--rd-fg-2); font-size: 13px; line-height: 1.6; max-width: 900px; }
+
+/* 頂列麵包屑 */
+:root[data-ui="redesign"] .rd-crumb {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--rd-fg-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+:root[data-ui="redesign"] .rd-crumb b { color: var(--rd-fg); font-weight: 600; }
+:root[data-ui="redesign"] .rd-crumb-sep { color: var(--rd-fg-3); }
+/* 仙俠版頂列原本有固定高度 74px 與大字標題，改成麵包屑之後回到一般高度 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .app-topbar { height: 56px !important; }
+
+/* 各頁原本自己畫的大標題：頁首已經有了，收掉避免兩個標題 */
+:root[data-ui="redesign"] .main-content :is(.discord-notify-title, .local-agent-title, .scripted-bet-title) { display: none; }
+:root[data-ui="redesign"] .main-content .uat-page-header h1,
+:root[data-ui="redesign"] .main-content .uat-page-header .uat-kicker { display: none; }
+/* Dashboard：普通版的「即時監控＋說明」跟頁首重複，收掉（右邊的自動更新資訊留著）；仙俠版的「萬法歸樞」是設計過的主視覺，保留 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-intro > div:first-child:not(.dashboard-intro-meta) { display: none; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-intro { justify-content: flex-end; padding-bottom: 0; margin-bottom: 12px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-intro::after { display: none; }
+
+@media (max-width: 760px) {
+  :root[data-ui="redesign"] .rd-page-title { font-size: 22px; }
+  :root[data-ui="redesign"] .rd-page-desc { font-size: 12.5px; }
+}
+
+/* 頁首由 App 統一畫之後，Dashboard 自己的 max-width／內距會讓內容比頁首縮進一截，對齊頁首 */
+:root[data-ui="redesign"] .dashboard-page { max-width: none; padding: 0; }
