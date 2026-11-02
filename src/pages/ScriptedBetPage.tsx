@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PageActions } from '../redesign/PageActions'
 import type { AccountInfo } from '../accountTypes'
 import { type UrlPoolEntry } from '../data/urlPoolData'
 import { POOL_SOURCE, POOL_LABEL, POOL_ENVS, type PoolEnv } from '../data/urlPoolEnv'
@@ -457,13 +458,13 @@ export function ScriptedBetPage({ currentAccount }: Props) {
           <h1 className="scripted-bet-title">腳本化投注紀錄</h1>
           <p className="scripted-bet-sub">依序領取 URL 帳號，進入指定機台並執行隨機 Spin，退出成功後關閉視窗並換下一個帳號。</p>
         </div>
-        <div className="scripted-bet-actions">
+        <PageActions className="scripted-bet-actions">
           <button className="btn-ghost" type="button" disabled={runState === 'running'} onClick={selectVisible}>全選目前清單</button>
           <button className="btn-ghost" type="button" disabled={runState === 'running'} onClick={clearVisible}>清除目前清單</button>
           {runState === 'running'
             ? <button className="submit-btn submit-btn--sm scripted-stop-btn" type="button" onClick={stop}>停止</button>
             : <button className="submit-btn submit-btn--sm" type="button" onClick={start}>開始測試</button>}
-        </div>
+        </PageActions>
       </div>
 
       <div className="scripted-bet-metrics">

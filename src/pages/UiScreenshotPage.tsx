@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PageActions } from '../redesign/PageActions'
 import { groupByMachineModel, poolTarget, type LobbyMachine, type MachineModelGroup } from '../../shared/ui-ss-machine-model'
 import Portal from '../components/Portal'
 
@@ -929,12 +930,12 @@ export function UiScreenshotPage() {
             從 Lark Wiki 讀取 gmid 清單，批量對 H5 遊戲進行多解析度截圖，結果回寫至 Wiki TABLE。
           </p>
         </div>
-        <div className="scripted-bet-actions">
+        <PageActions className="scripted-bet-actions">
           {running
             ? <button className="submit-btn submit-btn--sm submit-btn--stop" type="button" onClick={stop}>停止</button>
             : <button className="submit-btn submit-btn--sm" type="button" onClick={start}>開始截圖</button>
           }
-        </div>
+        </PageActions>
       </div>
 
       {/* ── Metrics ── */}

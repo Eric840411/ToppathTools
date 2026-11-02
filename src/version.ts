@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.71.2'
+export const APP_VERSION = '5.72.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.72.0', date: '2026-11-02', changes: ["feat(新版排版：共通問題第一批)：剩下 18 頁對照原型後先修每頁都有的——① 頁首右側新增「頁面操作按鈕」位置（PageActions，原型 v7 把開始測試／重新讀取等放在標題那列右邊），腳本化投注、UI 解析度截圖先搬過去，兩頁自己那行重複的說明收掉；② 普通版主按鈕顏色全站統一成強調藍（原本青色漸層、藍、Discord 紫各一種，按鈕盤點 3 頁不一致→0）；③ 普通版側欄分區標題改回「功能／維運」（原本寫死修仙用語「洞天總覽／宗門維運」）。新增 redesign-button-audit、redesign-dup-desc 兩支盤點腳本；redesign-shots 子頁定位修正"] },
   { version: '5.71.2', date: '2026-11-02', changes: ["change(Game Show 三頁)：使用者 1102「不需要 emoji，拿掉」——Log 攔截工具／Log 結構比對、圖片比對、Bonus V2 的標題、按鈕、狀態訊息、提示（含後端 JS 動態產生的文字）拿掉裝飾 emoji 共 62 處；只有 emoji 當內容的兩處改成文字（縮圖載入失敗→「無圖」）或拿掉（空狀態放大鏡）。留下有意義的文字箭頭（A版縮小 ↓／放大 ↑、配對 ↔、燈箱上一張 ←／下一張 →）、✕ 關閉鈕、▶ 展開指示。另清掉 Log 結構比對「開始比對」前的殘留控制字元。注入腳本本身（在遊戲頁顯示的浮動面板）沒動。redesign-frame-check 加 ⑧"] },
   { version: '5.71.1', date: '2026-11-02', changes: ["fix(新版 Game Show 三頁)：使用者 1102「按鈕沒有一致」——三頁操作按鈕統一一套（高 34；普通版圓角 8＋實體按鍵／玻璃按鍵，仙俠版跟全站仙俠按鈕同樣圓角 4＋翡翠／鎏金），iframe 兩頁共用 redesign-frame.css 一份；靠右的按鈕列主按鈕排最右（原型 v7），停止改玻璃按鈕＋紅字。CodeX 審查 2 個 P2：Bonus V2 偏差狀態色被新版 td 文字色蓋掉（改 :where 降權重）、iframe 裡系統減少動態沒停動畫（補媒體查詢）。redesign-frame-check 加 ⑤⑥⑦，修正前都會紅"] },
   { version: '5.71.0', date: '2026-11-02', changes: ["style(新版排版 Game Show 三頁)：使用者 1102「排版怎麼跟設計圖不一致／Game Show 三個都是」——Log 攔截工具改滿版、步驟只留標題（說明改滑過顯示）、注意事項縮成按鈕列一行；圖片比對、Bonus V2 照原型重排（標籤在左一列一欄、按鈕靠右、底線分頁、面板浮起、狀態列獨立面板），並跟著普通／仙俠切色。做法（CodeX 定案 B）：iframe 首次帶 ?ui=redesign&theme=，切模式用 postMessage（驗同源＋父視窗＋白名單），不重載 iframe 所以結果不會被清掉；沒帶參數（舊版外框、直接開網址、GameApp）長相完全不變。新增 /api/gs/redesign-frame.js／.css 兩頁共用。redesign-frame-check 驗 4 條，拿掉父視窗檢查會紅。Bonus V2 統計表是 5 欄真實資料，寬螢幕才四張並排、否則兩張"] },

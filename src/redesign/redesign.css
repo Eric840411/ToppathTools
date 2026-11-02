@@ -238,3 +238,9 @@
   :root[data-ui="redesign"] .app-topbar-status,
   :root[data-ui="redesign"] .app-topbar-seal { display: none; }
 }
+
+/* 主按鈕顏色統一（普通版）：原本 .submit-btn 是青色漸層、.osm-btn--primary 是藍、Game Show 三頁是強調藍，
+   使用者 1102「按鈕沒有一致」——跟原型 v7 一樣全部用強調色。停止／已儲存／載入中這些狀態色不動 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary, .orl-btn--primary, .discord-notify-btn--primary, .ln-btn--primary):not(.submit-btn--stop):not(.scripted-stop-btn):not(.saved):not(.loading) {
+  background: var(--rd-accent); color: #fff; border-color: transparent;
+}

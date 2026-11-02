@@ -55,3 +55,11 @@
 
 /* 頁首由 App 統一畫之後，Dashboard 自己的 max-width／內距會讓內容比頁首縮進一截，對齊頁首 */
 :root[data-ui="redesign"] .dashboard-page { max-width: none; padding: 0; }
+
+/* 頁首右側：頁面主要操作按鈕（各頁用 <PageActions> 搬進來）。沒有按鈕時不佔位 */
+:root[data-ui="redesign"] .rd-page-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+:root[data-ui="redesign"] .rd-page-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 2px; }
+:root[data-ui="redesign"] .rd-page-head-actions:empty { display: none; }
+
+/* 腳本化投注／UI 截圖：自己的頁首說明跟頁首重複（措辭略不同），按鈕已搬到頁首右側，整列收掉 */
+:root[data-ui="redesign"] .main-content .scripted-bet-head { display: none; }

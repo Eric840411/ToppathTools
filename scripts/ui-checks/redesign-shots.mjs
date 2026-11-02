@@ -28,19 +28,20 @@ async function open(width, height, theme) {
 }
 
 async function goPage(p, name) {
-  // 先找名稱完全相同的（「AutoSpin」不要點到「AutoSpin 通知」），找不到才用包含
+  // 頂層項目用名稱完全相同（「AutoSpin」不要點到「AutoSpin 通知」）；子頁的 textContent 會多出隱藏文字（仙俠名），用「包含」
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const exact = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
-  // 有子頁的要先展開群組（OSM Tools）
-  // 完全相同的找不到才展開 OSM Tools 再找（子頁要展開才存在）；不能先退回「包含」——會點到同名開頭的別頁
-  // 子頁在 OSM Tools 或 Game Show 底下：依序展開，找到就停
-  for (const group of [/OSM Tools|靈機巡檢/, /Game Show|幻境試煉/]) {
-    if (await exact.count()) break
-    await p.locator('.sidebar-nav-item').filter({ hasText: group }).first().click()
-    await p.waitForTimeout(300)
+  const top = () => p.locator('.sidebar-nav-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
+  const sub = () => p.locator('.sidebar-subtab-item').filter({ hasText: name })
+  // 子頁在 OSM Tools 或 Game Show 底下：要展開才存在。側欄一次只開一組，所以每組展開後馬上找
+  for (const group of [null, /OSM Tools|靈機巡檢/, /Game Show|幻境試煉/]) {
+    if (group) {
+      if (await sub().count()) break
+      await p.locator('.sidebar-nav-item').filter({ hasText: group }).first().click()
+      await p.waitForTimeout(400)
+    }
+    if (await sub().count() || await top().count()) break
   }
-  const again = p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) })
-  await ((await again.count()) ? again.first() : p.locator('.sidebar-nav-item, .sidebar-subtab-item').filter({ hasText: name }).first()).click()
+  await ((await sub().count()) ? sub().first() : top().first()).click()
   await p.waitForTimeout(1500)
 }
 

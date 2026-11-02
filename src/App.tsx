@@ -801,7 +801,7 @@ function App() {
           </div>
         {/* Nav items */}
         <div className="sidebar-nav">
-          <div className="sidebar-section-label">洞天總覽</div>
+          {/* 普通版用「功能／維運」（原型 v7）；修仙用語只在仙俠版 */}<div className="sidebar-section-label">{themeMode === 'xianxia' ? '洞天總覽' : '功能'}</div>
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === dashboardGroup.id ? ' sidebar-nav-item--active' : ''}`}
@@ -860,7 +860,7 @@ function App() {
           ))}
 
           <div className="sidebar-divider" />
-          <div className="sidebar-section-label">宗門維運</div>
+          <div className="sidebar-section-label">{themeMode === 'xianxia' ? '宗門維運' : '維運'}</div>
 
           {visibleSettings && (
             <button
