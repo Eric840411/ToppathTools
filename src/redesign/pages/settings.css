@@ -67,8 +67,7 @@
 
 /* ── 貼邊面板（.st-raw）：標題帶＋工具列＋表格 ── */
 :root[data-ui="redesign"] .main-content .section-card.st-raw:has(> .section-title:first-child) { padding: 0; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card.st-raw > .section-title:first-child { margin: 0; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card.st-raw > .section-title:first-child { margin: 0; padding: 14px 16px 12px; }
+:root[data-ui="redesign"] .main-content .section-card.st-raw > .section-title:first-child { margin: 0; }
 :root[data-ui="redesign"] .main-content .section-card.st-raw > .section-title + .lst-tbl { margin-top: 10px; }
 .st-raw .lst-tbl.st-tbl-gap { margin-bottom: 14px; }
 .st-raw > .lst-toolbar:last-child { border-bottom: 0; }
@@ -238,9 +237,8 @@
 .kb-tags { gap: 4px; }
 .kb-empty { padding: 48px 20px; }
 .kb-empty-t { font-size: 14px; color: var(--rd-fg-2, #94a3b8); margin-bottom: 6px; }
-/* 類型圖示欄：原型沒有；普通版收掉，仙俠版保留它的法器圖示 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .kb-table .kb-ic-col { display: none; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .kb-table .kb-ic-col { width: 40px; text-align: center; }
+/* 類型圖示欄：原型沒有（兩個皮都沒有），收掉 */
+:root[data-ui="redesign"] .kb-table .kb-ic-col { display: none; }
 
 /* ════════════════════ 個人帳號 ════════════════════ */
 :root[data-ui="redesign"] .mg-page { gap: 16px; }

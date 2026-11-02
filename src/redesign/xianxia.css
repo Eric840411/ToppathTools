@@ -442,3 +442,63 @@
 /* Config 比對：模板卡刪除鍵（上面全站次要按鈕那條 !important 把字色壓成白） */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.cfg-btn--danger { color: #f87171 !important; border-color: color-mix(in srgb, #f87171 55%, transparent) !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.cfg-btn--danger:hover:not(:disabled) { color: #fca5a5 !important; border-color: #f87171 !important; }
+
+/* ══════════════════════════════════════════════════════════════════
+   第四批：UAT 整合測試、UI 解析度截圖、Performance Meter／Egm DayCount 對帳、Local Agent、操作歷史紀錄、知識庫
+   uat.css／ops.css（Local Agent）／settings.css（貼邊面板、知識庫圖示欄）不再排除仙俠；這裡只補角飾與配色。
+   ══════════════════════════════════════════════════════════════════ */
+/* UAT：沒掛 .uat-panel 的四塊面板（執行位置列、三步驟、錄製腳本、執行設定）也是原型面板 → 同一套墨綠漸層＋鎏金角框 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings) {
+  position: relative;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important; border-radius: 3px !important; box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar.is-none, .uat-agent-bar.is-error, .uat-agent-bar.is-anon) {
+  border-color: color-mix(in srgb, var(--uat-danger) 45%, var(--rd-line-2)) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::after {
+  content: "" !important; display: block !important; position: absolute !important; z-index: 3 !important;
+  inset: auto !important; width: 14px !important; height: 14px !important; margin: 0 !important;
+  border: 2px solid var(--rd-ornament) !important; border-radius: 0 !important;
+  background: none !important; box-shadow: none !important; transform: none !important; animation: none !important;
+  opacity: .85 !important; pointer-events: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::before {
+  top: -1px !important; left: -1px !important; border-right: 0 !important; border-bottom: 0 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::after {
+  bottom: -1px !important; right: -1px !important; border-left: 0 !important; border-top: 0 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio .uat-panel { border-radius: 3px !important; }
+/* UAT 標題帶：色條換鎏金菱形；圓角跟著面板 3px；舊仙俠在標題字前多畫的一條直線收掉 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+) { border-radius: 3px 3px 0 0; border-bottom-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+)::before {
+  left: 16px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child
+)::before { top: 18px; margin-top: 0; }
+/* 標題帶裡面那層（執行設定、即時日誌）舊仙俠又畫了一條 2px 漸層直線＋10px 內距 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-backend-settings > .uat-pane-heading:first-child > div, .uat-backend-log > .uat-log-toolbar > .uat-section-title) { padding-left: 0 !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-backend-settings > .uat-pane-heading:first-child > div, .uat-backend-log > .uat-log-toolbar > .uat-section-title)::before { content: none !important; }
+/* 網路監測面板原本 position: static，角框會定位到外層去 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio .uat-net-panel { position: relative; }

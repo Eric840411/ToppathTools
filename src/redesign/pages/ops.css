@@ -149,7 +149,7 @@
   font-size: 13.5px; font-weight: 700; color: #fff; background: #2563eb; box-shadow: 0 4px 18px rgba(37, 99, 235, .35);
 }
 .la-dl:hover { filter: brightness(1.08); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-dl {
+:root[data-ui="redesign"] .la-dl {
   background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2)));
   box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 4px 18px var(--rd-glow);
 }
@@ -194,10 +194,10 @@
 .la-token .local-agent-token-meta { display: block; margin-top: 5px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .la-token .local-agent-token-meta code { display: inline; margin: 0; font: inherit; }
 .la-revoke { height: 28px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-page :is(.local-agent-token-row, .local-agent-row, .local-agent-extra-item) {
+:root[data-ui="redesign"] .la-page :is(.local-agent-token-row, .local-agent-row, .local-agent-extra-item) {
   background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel)); border-color: var(--rd-line-2); border-radius: 9px; box-shadow: var(--rd-elev-1);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .la-page .local-agent-token-row--revoked { opacity: .55; }
+:root[data-ui="redesign"] .la-page .local-agent-token-row--revoked { opacity: .55; }
 
 /* 已連線 Agent：兩欄卡（原型 .grid.g2 .card） */
 :root[data-ui="redesign"] .la-page .local-agent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
