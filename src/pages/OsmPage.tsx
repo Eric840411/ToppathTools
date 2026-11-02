@@ -778,7 +778,7 @@ function VersionDashboard({
 
   const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0 || imageReconRecords.length > 0 || !!llProto
   if (!hasAnyData) {
-    return <p className="osm-empty">尚未取得資料。按「迅 一鍵全部取得」同步所有版本。</p>
+    return <p className="osm-empty">尚未取得資料。按「一鍵全部取得」同步所有版本。</p>
   }
 
   const totalIssues = offTargetMachines.length + offTargetComps.length + protoOffTargetMachines.length
@@ -1336,6 +1336,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
 
   return (
     <div className="osm-page">
+      {/* 新版：元件版本五塊排成兩欄（原型 v7 的 OSM 元件｜ImageRecon 並排），SAS/MML/G2S 表格寬、獨佔一列；樣式在 redesign/pages/osm.css */}
 
       {/* ─── Lark 同步 & 告警設定 ─── */}
       <section className="osm-section">
@@ -1677,7 +1678,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <hr className="osm-divider" />
 
       {/* ─── OSM 元件版本 ─── */}
-      <section className="osm-section">
+      <section className="osm-section osm-section--half">
         <div className="osm-section-header">
           <div>
             <h2 className="osm-section-title">OSM 元件版本</h2>
@@ -1742,7 +1743,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <hr className="osm-divider" />
 
       {/* ─── LuckyLink 元件版本 ─── */}
-      <section className="osm-section">
+      <section className="osm-section osm-section--half">
         <div className="osm-section-header">
           <div>
             <h2 className="osm-section-title">LuckyLink 元件版本</h2>
@@ -1807,7 +1808,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <hr className="osm-divider" />
 
       {/* ─── LuckyLink SAS/MML/G2S 版本 ─── */}
-      <section className="osm-section">
+      <section className="osm-section osm-section--full">
         <div className="osm-section-header">
           <div>
             <h2 className="osm-section-title">LuckyLink SAS/MML/G2S 版本</h2>
@@ -1953,7 +1954,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <hr className="osm-divider" />
 
       {/* ─── Toppath 元件版本 ─── */}
-      <section className="osm-section">
+      <section className="osm-section osm-section--half">
         <div className="osm-section-header">
           <div>
             <h2 className="osm-section-title">Toppath 元件版本</h2>
@@ -2016,7 +2017,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <hr className="osm-divider" />
 
       {/* ─── Section 2: ImageRecon Server 版本 ─── */}
-      <section className="osm-section">
+      <section className="osm-section osm-section--half">
         <div className="osm-section-header">
           <div>
             <h2 className="osm-section-title">ImageRecon Server 版本</h2>

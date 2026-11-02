@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { PageActions } from '../redesign/PageActions'
 
 interface CheckResult {
   path: string
@@ -184,101 +185,89 @@ export function ImageCheckPage() {
   const stillLoaded = result?.results.filter(r => r.found) ?? []
   const confirmed = result?.results.filter(r => !r.found) ?? []
 
+  // 新版（原型 v7）：左「輸入」右「結果」兩個面板、欄位標籤在左；樣式在 redesign/pages/osm.css 的 .ic-*。
+  // 流程不變：輸入 → 虛擬瀏覽器 → 結果；輸入面板只在還沒開始時出現（跟原本一樣）
+  const pathCount = deletedList.split('\n').filter(l => l.trim()).length
+  const canStart = !loading && !!url.trim() && !!deletedList.trim()
   return (
-    <div style={{ width: '100%' }}>
+    <div className="ic-page">
       {/* Input section — hide when session active */}
       {!sessionId && !result && (
-        <>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
-              前端 URL（含 token）
-            </label>
-            <input
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="https://osm-redirect.osmslot.org/?token=xxx&gameid=xxx..."
-              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 13, boxSizing: 'border-box' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>已刪除圖片清單</label>
-              <button onClick={() => setShowGitPaste(v => !v)}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #6366f1', background: showGitPaste ? '#6366f1' : '#1e293b', color: showGitPaste ? '#fff' : '#818cf8', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                貼上 git diff 文字解析
-              </button>
-              <button onClick={() => fileInputRef.current?.click()}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', background: '#1e293b', color: '#7c3aed', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                上傳截圖 AI 識別
-              </button>
-              <span style={{ fontSize: 11, color: '#64748b' }}>或直接 Ctrl+V 貼上截圖</span>
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) parseScreenshot(f); e.target.value = '' }} />
+        <div className="ic-grid">
+          <section className="section-card ic-panel">
+            <h3 className="section-title">輸入</h3>
+            <div className="ic-row">
+              <label className="ic-label" htmlFor="ic-url">前端 URL（含 token）</label>
+              <input
+                id="ic-url"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                placeholder="https://osm-redirect.osmslot.org/?token=xxx&gameid=xxx..."
+                className="ic-input"
+              />
             </div>
 
-            <div onPaste={handlePaste}
-              style={{ marginBottom: 8, padding: '10px 14px', background: 'rgba(124,58,237,0.08)', border: '1px dashed rgba(167,139,250,0.4)', borderRadius: 8, fontSize: 12, color: '#a78bfa', minHeight: 36, display: 'flex', alignItems: 'center', gap: 10 }}>
-              {screenshotParsing ? <span>Gemini 識別中...</span>
-                : screenshotPreview ? <><img src={screenshotPreview} alt="" style={{ height: 40, borderRadius: 4 }} /><span>已解析，路徑已填入</span></>
-                : <span>Ctrl+V 貼上 git diff 截圖 → Gemini 自動識別</span>}
-            </div>
-
-            {showGitPaste && (
-              <div style={{ marginBottom: 10, padding: '12px 14px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8 }}>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>支援 git diff --name-status / git status / GUI 格式</div>
-                <textarea value={gitDiffText} onChange={e => setGitDiffText(e.target.value)}
-                  placeholder={'D\tassets/resources/jackpot/aruze1.png\n...'} rows={5}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 11, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button onClick={handleParseDiff} disabled={!gitDiffText.trim()}
-                    style={{ padding: '6px 16px', borderRadius: 6, background: '#6366f1', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, cursor: gitDiffText.trim() ? 'pointer' : 'default', opacity: gitDiffText.trim() ? 1 : 0.5 }}>
-                    解析並填入 ({parseGitDiff(gitDiffText).length} 個)
-                  </button>
-                  <button onClick={() => { setShowGitPaste(false); setGitDiffText('') }}
-                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#1e293b', fontSize: 12, cursor: 'pointer', color: '#94a3b8' }}>取消</button>
+            <div className="ic-row ic-row--top">
+              <span className="ic-label">已刪除圖片清單</span>
+              <div className="ic-field">
+                <div className="ic-tools">
+                  <button type="button" className={`btn-ghost${showGitPaste ? ' is-on' : ''}`} onClick={() => setShowGitPaste(v => !v)}>貼上 git diff 文字解析</button>
+                  <button type="button" className="btn-ghost" onClick={() => fileInputRef.current?.click()}>上傳截圖 AI 識別</button>
+                  <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) parseScreenshot(f); e.target.value = '' }} />
                 </div>
+
+                <div onPaste={handlePaste} className="ic-paste" tabIndex={0}>
+                  {screenshotParsing ? <span>Gemini 識別中...</span>
+                    : screenshotPreview ? <><img src={screenshotPreview} alt="" style={{ height: 40, borderRadius: 4 }} /><span>已解析，路徑已填入</span></>
+                    : <span>或直接 Ctrl+V 貼上 git diff 截圖（Gemini 自動識別）</span>}
+                </div>
+
+                {showGitPaste && (
+                  <div className="ic-gitpaste">
+                    <div className="ic-hint">支援 git diff --name-status / git status / GUI 格式</div>
+                    <textarea value={gitDiffText} onChange={e => setGitDiffText(e.target.value)}
+                      placeholder={'D\tassets/resources/jackpot/aruze1.png\n...'} rows={5} className="ic-input ic-mono" />
+                    <div className="ic-tools">
+                      <button type="button" className="submit-btn submit-btn--sm" onClick={handleParseDiff} disabled={!gitDiffText.trim()}>
+                        解析並填入 ({parseGitDiff(gitDiffText).length} 個)
+                      </button>
+                      <button type="button" className="btn-ghost" onClick={() => { setShowGitPaste(false); setGitDiffText('') }}>取消</button>
+                    </div>
+                  </div>
+                )}
+
+                <textarea value={deletedList} onChange={e => setDeletedList(e.target.value)}
+                  placeholder={'assets/resources/jackpot/aruze1.png\n...'} rows={6} className="ic-input ic-mono" />
               </div>
-            )}
-
-            <textarea value={deletedList} onChange={e => setDeletedList(e.target.value)}
-              placeholder={'assets/resources/jackpot/aruze1.png\n...'} rows={6}
-              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 12, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-              {deletedList.split('\n').filter(l => l.trim()).length} 個路徑
             </div>
-          </div>
 
-          <button onClick={handleStart} disabled={loading || !url.trim() || !deletedList.trim()}
-            style={{ padding: '10px 28px', borderRadius: 8, background: loading || !url.trim() || !deletedList.trim() ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 16 }}>
-            {loading ? '啟動中...' : '開始偵測'}
-          </button>
-        </>
-      )}
+            <div className="ic-actions">
+              <span className="ic-hint">{pathCount} 個路徑</span>
+              <button type="button" className="submit-btn submit-btn--sm" onClick={handleStart} disabled={!canStart}>
+                {loading ? '啟動中...' : '開始偵測'}
+              </button>
+            </div>
+          </section>
 
-      {error && (
-        <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#f87171', fontSize: 13, marginBottom: 16 }}>
-          {error}
+          <section className="section-card ic-panel">
+            <h3 className="section-title">結果</h3>
+            <div className="ic-empty">開始偵測、在虛擬瀏覽器操作完按「完成」後，結果會顯示在這裡</div>
+          </section>
         </div>
       )}
 
+      {error && <div className="ic-error">{error}</div>}
+
       {/* Virtual browser panel */}
       {sessionId && (
-        <div>
-          {/* Toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
-            <div style={{ padding: '8px 14px', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.3)', borderRadius: 8, fontSize: 13, color: '#4ade80', fontWeight: 600 }}>
-              已攔截 <strong>{liveCount}</strong> 個圖片請求
-            </div>
-            <button onClick={handleStop}
-              style={{ padding: '8px 20px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              通過 完成，取得結果
-            </button>
-            <span style={{ fontSize: 11, color: '#64748b' }}>可點擊畫面操作遊戲 · 滾輪捲動</span>
+        <section className="section-card ic-panel">
+          <div className="ic-toolbar">
+            <span className="ic-live">已攔截 <strong>{liveCount}</strong> 個圖片請求</span>
+            <span className="ic-hint">可點擊畫面操作遊戲 · 滾輪捲動 · 畫面每 1.5 秒自動更新</span>
+            <button type="button" className="submit-btn submit-btn--sm ic-push" onClick={handleStop}>完成，取得結果</button>
           </div>
-
-          {/* Browser screenshot */}
-          <div style={{ border: '2px solid #6366f1', borderRadius: 10, overflow: 'hidden', background: '#000', cursor: 'pointer' }}>
+          <div className="ic-browser">
             {screenshotTs > 0 ? (
               <img
                 ref={imgRef}
@@ -290,67 +279,62 @@ export function ImageCheckPage() {
                 draggable={false}
               />
             ) : (
-              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
-                載入中...
-              </div>
+              <div className="ic-empty">載入中...</div>
             )}
           </div>
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>畫面每 1.5 秒自動更新</div>
-        </div>
+        </section>
       )}
 
       {/* Results */}
       {result && (
-        <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button onClick={() => { setResult(null); setError('') }}
-              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #2d3f55', background: '#1e293b', fontSize: 12, cursor: 'pointer', color: '#cbd5e1' }}>
-              ← 重新偵測
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: stillLoaded.length > 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 10, border: `1px solid ${stillLoaded.length > 0 ? '#fecaca' : '#bbf7d0'}` }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: stillLoaded.length > 0 ? '#dc2626' : '#16a34a' }}>{stillLoaded.length}</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>失敗 仍在載入（需確認）</div>
+        <>
+          <div className="ic-stats">
+            <div className={`ic-stat ${stillLoaded.length > 0 ? 'is-bad' : 'is-ok'}`}>
+              <div className="ic-stat-label">仍在載入（需確認）</div>
+              <div className="ic-stat-value">{stillLoaded.length}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0' }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#16a34a' }}>{confirmed.length}</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>通過 已確認刪除</div>
+            <div className="ic-stat is-ok">
+              <div className="ic-stat-label">已確認刪除</div>
+              <div className="ic-stat-value">{confirmed.length}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: '#162032', borderRadius: 10, border: '1px solid #2d3f55' }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#475569' }}>{result.loadedImageCount}</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>頁面共載入圖片數</div>
+            <div className="ic-stat">
+              <div className="ic-stat-label">頁面共載入圖片數</div>
+              <div className="ic-stat-value">{result.loadedImageCount}</div>
             </div>
           </div>
 
           {stillLoaded.length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>失敗 仍被載入（{stillLoaded.length} 個）</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {stillLoaded.map(r => (
-                  <div key={r.path} style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 11, fontFamily: 'monospace' }}>
-                    <div style={{ color: '#dc2626', fontWeight: 600 }}>{r.path}</div>
-                    {r.matchedUrl && <div style={{ color: '#64748b', marginTop: 2 }}>→ {r.matchedUrl}</div>}
-                  </div>
-                ))}
+            <section className="section-card ic-panel">
+              <h3 className="section-title">仍被載入（{stillLoaded.length} 個）</h3>
+              <div className="table-wrap">
+                <table className="version-table">
+                  <thead><tr><th>路徑</th><th>對應到的請求</th></tr></thead>
+                  <tbody>
+                    {stillLoaded.map(r => (
+                      <tr key={r.path}><td className="ic-mono ic-bad">{r.path}</td><td className="ic-mono">{r.matchedUrl || '—'}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
+            </section>
           )}
 
           {confirmed.length > 0 && (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', marginBottom: 8 }}>通過 已確認刪除（{confirmed.length} 個）</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {confirmed.map(r => (
-                  <div key={r.path} style={{ padding: '6px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', color: '#166534' }}>
-                    {r.path}
-                  </div>
-                ))}
+            <section className="section-card ic-panel">
+              <h3 className="section-title">已確認刪除（{confirmed.length} 個）</h3>
+              <div className="table-wrap">
+                <table className="version-table">
+                  <thead><tr><th>路徑</th></tr></thead>
+                  <tbody>{confirmed.map(r => <tr key={r.path}><td className="ic-mono">{r.path}</td></tr>)}</tbody>
+                </table>
               </div>
-            </div>
+            </section>
           )}
-        </div>
+
+          <PageActions>
+            <button type="button" className="btn-ghost" onClick={() => { setResult(null); setError('') }}>← 重新偵測</button>
+          </PageActions>
+        </>
       )}
     </div>
   )

@@ -1,0 +1,72 @@
+/* ══════════════════════════════════════════════════════════════════
+   OSM 版號同步（原型 v7）：
+   - 元件版本那幾塊排成兩欄（原型是 OSM 元件｜ImageRecon 並排）；LuckyLink SAS/MML/G2S 表格寬、獨佔一列
+   - 區塊標題改成面板小標題＋左側色條（跟其他頁 .section-title 一致），標題下的說明行收掉（原型沒有）
+   - 區塊之間的分隔線拿掉（面板本身就分開了）
+   只改長相，按鈕與資料都不動。仙俠版沿用自己的卷軸樣式，只吃兩欄排版。
+   ══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1100px) {
+  :root[data-ui="redesign"] .osm-page {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: row dense; align-items: start;
+  }
+  :root[data-ui="redesign"] .osm-page > :not(.osm-section--half) { grid-column: 1 / -1; }
+}
+:root[data-ui="redesign"] .osm-page > .osm-divider { display: none; }
+
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%);
+  border-color: var(--rd-line); border-radius: 12px; box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"] .osm-section-header { align-items: center; margin-bottom: 14px; }
+:root[data-ui="redesign"] .osm-section-sub { display: none; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section-title {
+  position: relative; padding-left: 13px; margin: 0; font-size: 14.5px; color: var(--rd-fg);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section-title::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 15px; margin-top: -7.5px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+
+/* ══ 圖片刪除驗證（原型 v7）：左「輸入」右「結果」、欄位標籤在左；結果是三張數字磚＋表格 ══
+   基本樣式不加 redesign 範圍（這頁的 JSX 已改用這些 class，舊外框也要能看） */
+.ic-page { display: flex; flex-direction: column; gap: 16px; }
+.ic-page .section-card { margin-bottom: 0; }
+.ic-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ic-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center; margin-bottom: 12px; }
+.ic-row--top { align-items: start; }
+.ic-row--top > .ic-label { padding-top: 7px; }
+.ic-label { font-size: 12.5px; font-weight: 600; color: var(--rd-fg-2, #94a3b8); }
+.ic-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ic-input { width: 100%; box-sizing: border-box; padding: 8px 11px; border-radius: 8px; font-size: 13px; resize: vertical; }
+.ic-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.ic-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ic-tools .btn-ghost.is-on { border-color: var(--rd-accent, #6366f1); color: var(--rd-fg, #e2e8f0); }
+.ic-paste {
+  display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 10px 14px;
+  border: 1px dashed var(--rd-line-2, #2d3f55); border-radius: 8px; font-size: 12.5px; color: var(--rd-fg-2, #94a3b8);
+}
+.ic-paste:focus { outline: none; border-color: var(--rd-accent, #6366f1); }
+.ic-gitpaste { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--rd-line, #2d3f55); border-radius: 8px; }
+.ic-hint { font-size: 12px; color: var(--rd-fg-3, #64748b); }
+.ic-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.ic-actions .submit-btn, .ic-push { width: auto; }
+.ic-empty { padding: 28px 12px; text-align: center; font-size: 12.5px; color: var(--rd-fg-3, #64748b); border: 1px dashed var(--rd-line, #2d3f55); border-radius: 8px; }
+.ic-error { padding: 12px 16px; border: 1px solid rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .08); border-radius: 8px; color: #f87171; font-size: 13px; }
+.ic-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ic-push { margin-left: auto; }
+.ic-live { padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(22, 163, 74, .35); background: rgba(22, 163, 74, .1); color: #4ade80; font-size: 13px; font-weight: 600; }
+.ic-browser { border: 1px solid var(--rd-line-2, #2d3f55); border-radius: 10px; overflow: hidden; background: #000; cursor: pointer; }
+.ic-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ic-stat { padding: 12px 16px; border-radius: 10px; border: 1px solid var(--rd-line, #2d3f55); background: var(--rd-panel, #1e293b); }
+.ic-stat.is-bad { border-color: rgba(248, 113, 113, .45); background: linear-gradient(180deg, rgba(248, 113, 113, .12), transparent); }
+.ic-stat.is-ok { border-color: rgba(74, 222, 128, .35); background: linear-gradient(180deg, rgba(74, 222, 128, .1), transparent); }
+.ic-stat-label { font-size: 12px; color: var(--rd-fg-2, #94a3b8); }
+.ic-stat-value { margin-top: 4px; font-size: 24px; font-weight: 800; color: var(--rd-fg, #e2e8f0); }
+.ic-stat.is-bad .ic-stat-value { color: #f87171; }
+.ic-stat.is-ok .ic-stat-value { color: #4ade80; }
+.ic-bad { color: #f87171; }
+:root[data-ui="redesign"] .ic-stat { box-shadow: var(--rd-elev-1); }
+@media (max-width: 1000px) {
+  .ic-grid, .ic-stats { grid-template-columns: 1fr; }
+  .ic-row { grid-template-columns: 1fr; gap: 6px; }
+}
