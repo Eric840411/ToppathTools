@@ -24,7 +24,18 @@
 .office-app-tag { margin-top: -4px; font-style: normal; font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(148, 163, 184, .16); color: #cbd5e1; }
 .office-notice { margin-top: 12px; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(250, 204, 21, .4); background: rgba(250, 204, 21, .08); color: #fde68a; font-size: 13px; }
 
-.office-ws { padding: 0; overflow: hidden; }
+.office-ws { padding: 0; overflow: hidden; display: flex; flex-direction: column; margin-bottom: 0; }
+/* 頂端一列：已開分頁＋開啟工具＋放大（開了工具之後工具格收進選單，畫面留給工作區） */
+.office-bar { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid #2d3f55; }
+.office-bar .office-tabs { flex: 1; min-width: 0; border-bottom: 0; }
+.office-bar-actions { flex: none; display: flex; gap: 6px; padding: 0 10px 6px 0; }
+.office-bar-btn { height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid #2d3f55; background: #1a2638; color: #cbd5e1; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.office-bar-btn:hover { border-color: #4f7cf0; color: #fff; }
+.office-bar-btn[aria-expanded="true"] { border-color: #4f7cf0; background: rgba(79, 124, 240, .16); color: #fff; }
+.office-picker { padding: 4px 14px 12px; border-bottom: 1px solid #2d3f55; background: rgba(15, 23, 42, .5); }
+.office-apps--compact { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+.office-apps--compact .office-app { padding: 8px 6px; gap: 4px; font-size: 12px; }
+.office-notice--bar { margin: 8px 12px 0; }
 .office-tabs { display: flex; align-items: flex-end; gap: 2px; min-height: 44px; padding: 6px 8px 0; border-bottom: 1px solid #2d3f55; overflow-x: auto; scrollbar-width: none; }
 .office-tabs > .office-muted { padding: 0 6px 12px; }
 .office-tab { flex: none; display: flex; align-items: center; height: 36px; border-top: 2px solid transparent; border-radius: 6px 6px 0 0; }
@@ -33,14 +44,18 @@
 .office-tab[aria-selected="true"] .office-tab-main { color: #fff; }
 .office-tab-close { width: 28px; height: 28px; margin-right: 4px; border: 0; border-radius: 4px; background: none; color: #94a3b8; font-size: 16px; cursor: pointer; }
 .office-tab-close:hover { background: rgba(148, 163, 184, .18); color: #fff; }
-.office-area { position: relative; height: min(76vh, 820px); min-height: 380px; }
+/* 高度由 JS 算（視窗高度扣掉上緣位置），這裡只是算出來之前的預設值 */
+.office-area { position: relative; height: 70vh; min-height: 360px; }
+/* 放大：瀏覽器全螢幕時工作區吃滿；不支援全螢幕的退回 CSS 滿版（.office-ws--max） */
+.office-ws:fullscreen { border-radius: 0; border: 0; background: #0f172a; }
+.office-ws:fullscreen .office-area, .office-ws--max .office-area { flex: 1; height: auto; min-height: 0; }
+.office-ws--max:not(:fullscreen) { position: fixed; inset: 0; z-index: 2000; border-radius: 0; margin: 0; }
 .office-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; visibility: hidden; }
 .office-frame--active { visibility: visible; }
 .office-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #64748b; font-size: 13.5px; }
 
 @media (max-width: 760px) {
   .office-apps { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
-  .office-area { height: 64vh; }
 }
 @media (prefers-reduced-motion: reduce) {
   .office-app { transition: none; }

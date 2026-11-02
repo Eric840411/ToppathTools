@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { retireOfficeServiceWorkers } from '../officeServiceWorker'
 import './OfficePage.css'
 
@@ -41,6 +41,12 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
   const [open, setOpen] = useState<string[]>([])
   const [current, setCurrent] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
+  // 開了工具之後工具格收進「開啟工具」選單，工作區吃滿剩下的高度（使用者 1102「畫面好小」，版面照 CodeX 建議）
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [maximized, setMaximized] = useState(false)
+  const wsRef = useRef<HTMLElement>(null)
+  const areaRef = useRef<HTMLDivElement>(null)
+  const [areaH, setAreaH] = useState<number | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -70,6 +76,41 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
     return () => window.removeEventListener('beforeunload', warn)
   }, [open.length])
 
+  // 工作區高度＝視窗高度扣掉它上緣到頁面頂端的距離（以捲到最上面為準），不寫死 820px 上限
+  const fitArea = useCallback(() => {
+    const el = areaRef.current
+    if (!el) return
+    const top = el.getBoundingClientRect().top + window.scrollY
+    setAreaH(Math.max(360, Math.floor(window.innerHeight - top - 16)))
+  }, [])
+  useLayoutEffect(() => { fitArea() }, [fitArea, open.length, pickerOpen, notice, data])
+  useEffect(() => {
+    window.addEventListener('resize', fitArea)
+    return () => window.removeEventListener('resize', fitArea)
+  }, [fitArea])
+
+  // 放大：用瀏覽器全螢幕（最上層，不受任何疊層限制，也不會搬動或重建 iframe）；不支援的瀏覽器（iPhone Safari）退回 CSS 滿版
+  useEffect(() => {
+    const onFs = () => { if (!document.fullscreenElement) setMaximized(false) }
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+  useEffect(() => {
+    if (!maximized) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.fullscreenElement) setMaximized(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [maximized])
+  async function toggleMaximize() {
+    if (maximized) {
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+      setMaximized(false)
+      return
+    }
+    setMaximized(true)
+    try { await wsRef.current?.requestFullscreen?.() } catch { /* 不支援就用 CSS 滿版（office-ws--max） */ }
+  }
+
   const apps = data?.apps ?? []
   const groups = [...new Set(apps.map(a => a.group))]
   const byId = (id: string) => apps.find(a => a.id === id)
@@ -89,6 +130,7 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
     }
     setOpen([...open, app.id])
     setCurrent(app.id)
+    setPickerOpen(false)
   }
 
   function close(id: string) {
@@ -101,6 +143,36 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
   }
 
   const xx = themeMode === 'xianxia'
+
+  // 工具格（完整版與選單版共用）。用函式不用元件：在 render 裡定義元件會每次重建（lint static-components）
+  function renderGrid(compact = false) {
+    return (
+      <>
+        {groups.map(g => (
+          <div key={g} className="office-group">
+            <div className="office-group-label">{g}</div>
+            <div className={`office-apps${compact ? ' office-apps--compact' : ''}`}>
+              {apps.filter(a => a.group === g).map(a => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`office-app${open.includes(a.id) ? ' office-app--open' : ''}`}
+                  style={{ '--office-accent': ACCENT[a.id] ?? '#4f7cf0' } as CSSProperties}
+                  onClick={() => launch(a)}
+                  title={a.isolate ? `${a.label} 需要獨立分頁才能執行，會在新分頁開啟` : `開啟 ${a.label}`}
+                >
+                  <AppIcon id={a.id} size={compact ? 22 : 30} />
+                  <span>{a.label}</span>
+                  {a.isolate && <em className="office-app-tag">新分頁</em>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {notice && open.length === 0 && <div className="office-notice">{notice}</div>}
+      </>
+    )
+  }
 
   return (
     <div className="office-page">
@@ -115,52 +187,51 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
 
       {data?.deployed && (
         <>
-          <section className="section-card">
-            <div className="office-head">
-              <h2 className="section-title">{xx ? '文房四寶' : '工具'}</h2>
-              <span className="office-muted">檔案在瀏覽器本機處理，不會上傳到 Toppath 伺服器{data.release ? ` · 版本 ${data.release}` : ''}</span>
-            </div>
-            {groups.map(g => (
-              <div key={g} className="office-group">
-                <div className="office-group-label">{g}</div>
-                <div className="office-apps">
-                  {apps.filter(a => a.group === g).map(a => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      className={`office-app${open.includes(a.id) ? ' office-app--open' : ''}`}
-                      style={{ '--office-accent': ACCENT[a.id] ?? '#4f7cf0' } as CSSProperties}
-                      onClick={() => launch(a)}
-                      title={a.isolate ? `${a.label} 需要獨立分頁才能執行，會在新分頁開啟` : `開啟 ${a.label}`}
-                    >
-                      <AppIcon id={a.id} size={30} />
-                      <span>{a.label}</span>
-                      {a.isolate && <em className="office-app-tag">新分頁</em>}
-                    </button>
-                  ))}
-                </div>
+          {/* 還沒開任何工具：完整的工具格。開了之後收進工作區上方的「開啟工具」選單 */}
+          {open.length === 0 && (
+            <section className="section-card">
+              <div className="office-head">
+                <h2 className="section-title">{xx ? '文房四寶' : '工具'}</h2>
+                <span className="office-muted">檔案在瀏覽器本機處理，不會上傳到 Toppath 伺服器{data.release ? ` · 版本 ${data.release}` : ''}</span>
               </div>
-            ))}
-            {notice && <div className="office-notice">{notice}</div>}
-          </section>
+              {renderGrid()}
+            </section>
+          )}
 
-          <section className="section-card office-ws">
-            <div className="office-tabs" role="tablist">
-              {open.length === 0 && <span className="office-muted">點上面的工具開啟；開過的會留在這排，切換不會遺失未存的內容（最多 {MAX_OPEN} 個）</span>}
-              {open.map(id => {
-                const a = byId(id)
-                return (
-                  <div key={id} className="office-tab" role="tab" aria-selected={current === id} style={{ '--office-accent': ACCENT[id] ?? '#4f7cf0' } as CSSProperties}>
-                    <button type="button" className="office-tab-main" onClick={() => setCurrent(id)}>
-                      <AppIcon id={id} size={16} />{a?.label ?? id}
-                    </button>
-                    <button type="button" className="office-tab-close" aria-label={`關閉 ${a?.label ?? id}`} onClick={() => close(id)}>×</button>
-                  </div>
-                )
-              })}
+          <section ref={wsRef} className={`section-card office-ws${maximized ? ' office-ws--max' : ''}`}>
+            <div className="office-bar">
+              <div className="office-tabs" role="tablist">
+                {open.length === 0 && <span className="office-muted">點上面的工具開啟；開過的會留在這排，切換不會遺失未存的內容（最多 {MAX_OPEN} 個）</span>}
+                {open.map(id => {
+                  const a = byId(id)
+                  return (
+                    <div key={id} className="office-tab" role="tab" aria-selected={current === id} style={{ '--office-accent': ACCENT[id] ?? '#4f7cf0' } as CSSProperties}>
+                      <button type="button" className="office-tab-main" onClick={() => setCurrent(id)}>
+                        <AppIcon id={id} size={16} />{a?.label ?? id}
+                      </button>
+                      <button type="button" className="office-tab-close" aria-label={`關閉 ${a?.label ?? id}`} onClick={() => close(id)}>×</button>
+                    </div>
+                  )
+                })}
+              </div>
+              {open.length > 0 && (
+                <div className="office-bar-actions">
+                  <button type="button" className="office-bar-btn" aria-expanded={pickerOpen} onClick={() => setPickerOpen(v => !v)}>＋ 開啟工具</button>
+                  <button type="button" className="office-bar-btn" onClick={() => void toggleMaximize()} title={maximized ? '回到一般大小（Esc）' : '工作區放大到整個螢幕'}>
+                    {maximized ? '縮小' : '放大'}
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="office-area">
+            {open.length > 0 && pickerOpen && (
+              <div className="office-picker">
+                {renderGrid(true)}
+              </div>
+            )}
+            {notice && <div className="office-notice office-notice--bar">{notice}</div>}
+            <div className="office-area" ref={areaRef} style={!maximized && areaH ? { height: areaH } : undefined}>
               {open.length === 0 && <div className="office-placeholder">開啟的工具會顯示在這裡</div>}
+              {/* ⚠️ iframe 一律在這裡、順序固定：切版面（收工具格、放大）只改外層 class，不能讓它們被卸載或重建，否則沒存的內容會不見 */}
               {open.map(id => (
                 <iframe
                   key={id}
