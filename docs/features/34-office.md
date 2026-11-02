@@ -63,7 +63,10 @@ OFFICE_DIST_DIR（預設 <Toppath 目錄>/office-dist，不進 git）
    只留最近 3 版，但**換下來未滿一天的不刪**——已開著的頁面網址綁著舊版本，刪了它的資源就 404。
 4. 退版：`bash scripts/office/install-release.sh --rollback <版本>`。
 
-沒部署（沒有 CURRENT 或指到不存在的版本）時頁面顯示「尚未部署」，`/office/*` 回 503。畫面只列這個版本裡**實際有 index.html** 的工具。
+沒部署（沒有 CURRENT 或指到不存在的版本）時頁面顯示「尚未部署」，`/office/*` 回 503。
+
+⚠️ **build 完一定要重啟 toppath-server**（1102 本機實際遇到）：前端是新版、後端還是舊程式時，`/api/office/apps` 會落到 SPA fallback 回首頁 HTML（HTTP 200），
+畫面顯示「伺服器還沒更新到有文書工具的版本」。畫面只列這個版本裡**實際有 index.html** 的工具。
 
 ⚠️ build 的路徑都是 `./xxx` 相對路徑，所以掛在子路徑下可以直接用；少結尾斜線會 302 補上，否則相對路徑會解析到上一層。
 

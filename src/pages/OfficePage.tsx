@@ -48,7 +48,9 @@ export function OfficePage({ themeMode, onOpenCountChange }: {
       .then(async r => {
         const d = await r.json().catch(() => null) as AppsResponse | null
         if (!alive) return
-        if (!r.ok || !d?.ok) setError(d?.message || `讀取工具清單失敗（HTTP ${r.status}）`)
+        // 回 200 但不是 JSON＝後端還是舊程式，沒有這條路由、被 SPA fallback 回了首頁 HTML（1102 本機實際遇到：build 了沒重啟）
+        if (r.ok && !d) setError('伺服器還沒更新到有文書工具的版本，請重啟 toppath-server 後再試。')
+        else if (!r.ok || !d?.ok) setError(d?.message || `讀取工具清單失敗（HTTP ${r.status}）`)
         else setData(d)
       })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
