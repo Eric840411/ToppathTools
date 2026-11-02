@@ -39,3 +39,53 @@ html[data-ui="redesign"] :is(input[type="text"], input[type="number"]) {
 html[data-ui="redesign"] :is(input[type="text"], input[type="number"]):focus { border-color: var(--rd-accent); }
 html[data-ui="redesign"] table th { background: var(--rd-panel-2); color: var(--rd-fg-2); border-bottom-color: var(--rd-line-2); }
 html[data-ui="redesign"] table td { border-bottom-color: var(--rd-line); }
+/* 系統「減少動態」：外框（html.rd-no-motion）的規則穿不進 iframe，這裡自己停。
+   只停動畫不藏東西：狀態點的顏色照舊，只是不閃（CodeX 1102 P2）。外框已沒有動畫開關，所以不用另外同步 */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="redesign"] *, html[data-ui="redesign"] *::before, html[data-ui="redesign"] *::after {
+    animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important;
+  }
+}
+/* ══ 按鈕：iframe 兩頁共用一套，跟外框一致（主按鈕＝實體按鍵、次要＝玻璃按鍵、危險＝玻璃＋紅字）。
+   高 34、圓角 8、13px。外框那邊對應 .gl-btn-primary／.btn-ghost（src/redesign/pages/gs.css、kit.css） ══ */
+html[data-ui="redesign"] :is(.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger) {
+  height: 34px; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px; line-height: 1;
+}
+html[data-ui="redesign"] :is(.btn-primary, .btn-success) {
+  background: var(--rd-accent); color: #fff; border: 0;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 -2px 0 rgba(0, 0, 0, .25) inset, 0 3px 0 rgba(0, 0, 0, .35), 0 6px 14px -4px var(--rd-glow);
+  transition: transform .08s ease, box-shadow .08s ease, filter .14s ease;
+}
+html[data-ui="redesign"] :is(.btn-primary, .btn-success):hover:not(:disabled) { background: var(--rd-accent); filter: brightness(1.08); }
+html[data-ui="redesign"] :is(.btn-primary, .btn-success):active:not(:disabled) {
+  transform: translateY(2px); box-shadow: 0 1px 0 rgba(255, 255, 255, .2) inset, 0 1px 0 rgba(0, 0, 0, .35), 0 2px 6px -2px var(--rd-glow);
+}
+html[data-ui="redesign"] :is(.btn-secondary, .btn-muted, .btn-danger) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
+  border: 1px solid var(--rd-line-2); color: var(--rd-fg-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+html[data-ui="redesign"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
+  color: var(--rd-fg); border-color: var(--rd-accent); filter: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset, 0 2px 0 rgba(0, 0, 0, .35), 0 0 14px -4px var(--rd-glow);
+}
+html[data-ui="redesign"] :is(.btn-secondary, .btn-muted, .btn-danger):active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+html[data-ui="redesign"] .btn-danger:not(:disabled) { color: #f87171; }
+html[data-ui="redesign"] .btn-danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
+/* 小按鈕（圖片比對燈箱上一張／下一張等） */
+html[data-ui="redesign"] .btn-sm { height: 28px; padding: 0 12px; font-size: 12px; }
+/* 仙俠版：跟全站仙俠按鈕同一套（public/xianxia-complete.css 的 .submit-btn／.btn-ghost）：圓角 4、主按鈕翡翠漸層、次要鎏金細框 */
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger) { border-radius: 4px; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success),
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success):hover:not(:disabled) {
+  border: 1px solid rgba(117, 215, 207, .5); background: linear-gradient(145deg, #3a8d84, #245f5b); color: #f2fbf9;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .12), 0 7px 18px rgba(14, 66, 62, .2);
+}
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger),
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) {
+  border: 1px solid rgba(214, 183, 112, .24); background: rgba(15, 25, 34, .82); color: #aeb9bf; box-shadow: none;
+}
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) { border-color: rgba(214, 183, 112, .5); color: #e6efe8; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .btn-danger:not(:disabled) { color: #f2a08f; }
