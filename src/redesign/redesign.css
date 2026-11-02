@@ -236,6 +236,16 @@
   transition-duration: 0s !important;
   transition-delay: 0s !important;
 }
+/* 突破特效：「跳到結束狀態」對它不適用——它的結尾是 opacity:0＋visibility:hidden，整個畫面消失但仍鎖住捲動到計時結束
+   （CodeX 複審 b346cc1 [P2] 重現）。照它自己的 prefers-reduced-motion 靜態樣式：不播、直接顯示定格畫面 */
+:root.rd-no-motion .breakthrough,
+:root.rd-no-motion .breakthrough *,
+:root.rd-no-motion .breakthrough *::before,
+:root.rd-no-motion .breakthrough *::after { animation: none !important; }
+:root.rd-no-motion :is(.breakthrough, .breakthrough__scene, .breakthrough__moon-disc, .breakthrough__emblem, .breakthrough__copy, .breakthrough__skip) { opacity: 1; }
+:root.rd-no-motion .breakthrough__scene { filter: saturate(.86) brightness(.62) contrast(1.06); }
+:root.rd-no-motion .breakthrough__moon-disc { transform: translate(-50%, -50%); }
+
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill { background-image: url('/themes/xianxia/qi-tiles/qi-mid-static.png') !important; }
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::before,
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::after { display: none !important; }

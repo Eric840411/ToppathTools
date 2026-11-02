@@ -58,6 +58,18 @@ for (const theme of ['classic', 'xianxia']) {
     await p.waitForTimeout(1500)
     const srcs = await p.evaluate(() => [...document.querySelectorAll('.realm-art img')].map(i => i.currentSrc))
     check('排行榜境界圖是靜態 PNG', srcs.length > 0 && srcs.every(s => s.includes('/realms-v1/') && s.endsWith('.png')), srcs[0])
+    // 突破特效（非 hold）：動畫關掉時要直接顯示定格畫面，不能跳到結尾的 visibility:hidden（CodeX 複審 b346cc1 [P2]）
+    await p.goto(H + '/?breakthrough-preview=qi-refining', { waitUntil: 'networkidle' })
+    await p.waitForTimeout(1200)
+    const bt = await p.evaluate(() => {
+      const el = document.querySelector('.breakthrough')
+      if (!el) return null
+      const cs = getComputedStyle(el)
+      const img = el.querySelector('img')
+      return { opacity: cs.opacity, visibility: cs.visibility, img: img?.getAttribute('src') ?? '' }
+    })
+    check('突破預覽（非 hold）看得見', !!bt && bt.opacity === '1' && bt.visibility === 'visible', JSON.stringify(bt))
+    check('突破預覽境界圖是靜態 PNG', !!bt && bt.img.includes('/realms-v1/'), bt?.img)
   }
   await ctx.close()
 }
