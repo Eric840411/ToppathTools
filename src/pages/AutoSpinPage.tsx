@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import LiveLedgerTab from '../components/LiveLedgerTab'
 import { matchesLogFilterPre } from '../../shared/autospin-log-rules'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
+import { PageActions } from '../redesign/PageActions'
 
 /** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
  * 先前使用者只能手動選取複製，長日誌貼進 Discord 會被截斷成 message.txt
@@ -753,13 +754,8 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const tabStyle = (t: string) => ({
-    padding: '6px 16px', border: 'none', borderBottom: `2px solid ${tab === t ? '#2563eb' : 'transparent'}`,
-    background: 'none', fontWeight: tab === t ? 700 : 400, color: tab === t ? '#2563eb' : '#6b7280',
-    cursor: 'pointer', fontSize: 13,
-  })
-  // 新版仙俠皮靠 class 換色（redesign/xianxia.css）；普通版仍吃行內樣式
-  const tabCls = (t: string) => (tab === t ? 'as-tab is-on' : 'as-tab')
+  const tabCls = (t: string) => (tab === t ? 'rd-tab as-tab is-on' : 'rd-tab as-tab')
+  const tabAttr = (t: string) => ({ type: 'button' as const, role: 'tab', 'aria-selected': tab === t })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
@@ -770,20 +766,22 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
           請先在右上角選擇帳號，機台設定將會個人化儲存
         </div>
       )}
+      {/* 新版（原型 v7）：目前帳號放頁首右側小字（找不到頁首時原地顯示） */}
       {userLabel && (
-        <div className="as-account" style={{ padding: '6px 12px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#93c5fd' }}>
-          目前帳號：{userLabel}
-        </div>
+        <PageActions className="as-account">
+          <span className="as-account-text">目前帳號：{userLabel}</span>
+        </PageActions>
       )}
 
       {/* Tab bar */}
-      <div className="as-tabs" style={{ display: 'flex', borderBottom: '1px solid #2d3f55', marginBottom: 16 }}>
-        <button className={tabCls('configs')} style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
-        <button className={tabCls('templates')} style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
-        <button className={tabCls('history')} style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
-        <button className={tabCls('ledger')} style={tabStyle('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
-        <button className={tabCls('jpgroups')} style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
-        <button className={tabCls('run')} style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
+      {/* 新版（原型 v7）：分頁＝共用 .rd-tabs（內凹底座、選中填色），樣式在 redesign/pages/kit.css */}
+      <div className="rd-tabs as-tabs" role="tablist">
+        <button className={tabCls('configs')} {...tabAttr('configs')} onClick={() => setTab('configs')}>機台設定</button>
+        <button className={tabCls('templates')} {...tabAttr('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
+        <button className={tabCls('history')} {...tabAttr('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
+        <button className={tabCls('ledger')} {...tabAttr('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
+        <button className={tabCls('jpgroups')} {...tabAttr('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
+        <button className={tabCls('run')} {...tabAttr('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
       </div>
 
       {/* ── 對帳台（Live Ledger）───────────────────────────────────────────────
@@ -795,18 +793,18 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
       {tab === 'configs' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" className="submit-btn submit-btn--sm" onClick={() => { setForm(EMPTY_CONFIG); setEditingType(null); setConfigMsg(''); setShowForm(true) }}>
+          {configs.length === 0 && <p style={{ color: '#64748b', fontSize: 13 }}>尚未設定任何機台。請點「+ 新增機台」。</p>}
+
+          {/* 新版（原型 v7）：「+ 新增機台」在面板上緣的工具列右側，表格凹進面板（左右內縮 10px） */}
+          <section className="section-card rd-table-panel as-cfg-panel">
+          <div className="lst-toolbar as-cfg-toolbar">
+            <span className="lst-spacer" />
+            <button type="button" className="submit-btn lst-btn" onClick={() => { setForm(EMPTY_CONFIG); setEditingType(null); setConfigMsg(''); setShowForm(true) }}>
               + 新增機台
             </button>
           </div>
-
-          {configs.length === 0 && <p style={{ color: '#64748b', fontSize: 13 }}>尚未設定任何機台。請點「+ 新增機台」。</p>}
-
-          {/* 新版：表格放進浮起的面板、表格本身凹進去（原型 v7）；原本直接攤在背景上 */}
-          <section className="section-card rd-table-panel">
-          <div className="table-wrap">
-          <table className="version-table" style={{ fontSize: 12 }}>
+          <div className="table-wrap lst-tbl">
+          <table className="version-table as-cfg-table" style={{ fontSize: 12 }}>
             <thead>
               <tr style={{ textAlign: 'left' }}>
                 {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '隨機下注', '隨機離開', '啟用', '操作'].map(h => (
@@ -833,14 +831,14 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     <ToggleSwitch checked={c.enabled} disabled={togglingKey === `${c.machineType}:enabled`} onToggle={() => handleToggleField(c, 'enabled')} />
                   </td>
                   <td style={{ padding: '7px 10px' }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="as-act as-act--edit" onClick={() => handleEditConfig(c)}
-                        style={{ padding: '2px 8px', background: 'rgba(59,130,246,.14)', color: '#93c5fd', border: '1px solid rgba(59,130,246,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
-                      <button className="as-act as-act--copy" onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點"
-                        style={{ padding: '2px 8px', background: 'rgba(117,215,207,.14)', color: 'var(--cr-emerald)', border: '1px solid rgba(117,215,207,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>複製配置</button>
-                      <button className="as-act as-act--del" onClick={() => handleDeleteConfig(c.machineType)}
-                        style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
-                    </div>
+                    {/* 新版（原型 v7）：操作欄是文字連結「編輯・複製配置」；刪除是正式站才有的，照留、紅字 */}
+                    <span className="st-links">
+                      <button type="button" className="lst-link" onClick={() => handleEditConfig(c)}>編輯</button>
+                      <span className="st-dot">·</span>
+                      <button type="button" className="lst-link" onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點">複製配置</button>
+                      <span className="st-dot">·</span>
+                      <button type="button" className="lst-link st-link--danger" onClick={() => handleDeleteConfig(c.machineType)}>刪除</button>
+                    </span>
                   </td>
                 </tr>
               ))}

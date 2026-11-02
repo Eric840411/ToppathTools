@@ -300,3 +300,11 @@
 :root[data-ui="redesign"] .main-content .rn-table td:nth-child(6) { white-space: nowrap; text-overflow: ellipsis; }
 /* 第四輪：表格左右內距照原型 .tbl-wrap（離面板邊 10px，面板本身是 16px，所以往外推 6px） */
 :root[data-ui="redesign"] .main-content .rn-table-panel .rn-table-wrap { margin-left: -6px; margin-right: -6px; }
+
+/* 帳號執行清單的狀態籤：原型 .pill（前面一顆發光點）；舊仙俠在 badge--ok／warn 前面畫三角形，一併蓋掉 */
+:root[data-ui="redesign"] .main-content .rn-page .badge { display: inline-flex; align-items: center; gap: 6px; }
+:root[data-ui="redesign"] .main-content .rn-page .badge::before {
+  content: "" !important; display: block !important; flex: none; width: 6px !important; height: 6px !important; margin: 0 !important;
+  border: 0 !important; border-radius: 50% !important; background: currentColor !important; box-shadow: 0 0 6px currentColor !important;
+  opacity: 1 !important; filter: none !important; transform: none !important;
+}

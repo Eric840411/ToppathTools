@@ -387,26 +387,6 @@
 }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-diff-row { border-bottom-color: var(--rd-line) !important; }
 
-/* AutoSpin：目前帳號條（行內藍底）、分頁列（行內藍色底線；舊仙俠把選中分頁塗成實心玉色塊）、機台表的編輯鍵 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-account {
-  background: color-mix(in srgb, var(--rd-accent) 8%, transparent) !important;
-  border-color: color-mix(in srgb, var(--rd-accent) 28%, transparent) !important; color: var(--rd-accent-2) !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tabs { border-bottom-color: var(--rd-line-2) !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab {
-  background: none !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important;
-  box-shadow: none !important; color: var(--rd-fg-3) !important; font-weight: 400 !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab:hover { color: var(--rd-fg) !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab.is-on {
-  color: var(--rd-accent-2) !important; border-bottom-color: var(--rd-accent) !important; font-weight: 700 !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab::before,
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-tab::after { content: none !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-act--edit {
-  background: var(--rd-panel-2) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important;
-}
-
 /* URL 帳號池：說明條原本是藍字藍底，換成玉色 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-note--info {
   color: var(--rd-accent-2); background: color-mix(in srgb, var(--rd-accent) 7%, transparent); border-color: color-mix(in srgb, var(--rd-accent) 26%, transparent);
@@ -421,19 +401,7 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .scripted-check.on::after { border-color: var(--rd-accent-ink); }
 
 /* ── 第三批 CodeX 第二輪 ── */
-/* AutoSpin 機台表開關：原型 .switch-sm（30×18 圓膠囊，關＝line-2 墨綠槽、開＝強調色）；行內是 36×20 藍灰底，舊仙俠又把圓角壓成 4px */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch {
-  width: 30px !important; height: 18px !important; min-width: 0 !important; padding: 0 !important; vertical-align: middle;
-  border: 0 !important; border-radius: 9px !important; background: var(--rd-line-2) !important; box-shadow: var(--rd-well) !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on { background: var(--rd-accent) !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch::before,
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch::after { content: none !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch-knob {
-  top: 2px !important; left: 2px !important; width: 14px !important; height: 14px !important;
-  background: var(--rd-fg) !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .5); transition: transform .14s ease !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on .as-switch-knob { transform: translateX(12px); }
+/* AutoSpin 機台表開關：兩個皮同一套，規則在 redesign/pages/lists.css 的 AutoSpin 段 */
 /* 腳本化投注：流程狀態日誌（舊仙俠塗成藍黑 rgba(2,7,12,.92)）→ 原型 .log 墨綠凹槽；狀態籤（舊仙俠圓角 3px）→ 膠囊 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .rn-log {
   background: color-mix(in srgb, var(--rd-bg) 75%, transparent) !important; border: 0 !important; box-shadow: var(--rd-well) !important;
@@ -551,18 +519,21 @@
    頁首已經有「境界排行榜｜群英榜」，頁內的大標語區（群英榜＋九境印）原型沒有、內容是說明文字，收掉 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board { gap: 16px; padding-bottom: 24px; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board::before { content: none; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero { display: none; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking) {
-  position: relative; padding: 0 16px 16px; border-radius: 3px;
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero {
+  /* 使用者 11/03 拍板：大標語區保留。改成跟下面兩塊同一套墨綠面板＋鎏金角框，高度收斂，右側九境印照留 */
+  min-height: 0; gap: 24px; padding: 22px 24px; border-radius: 3px; overflow: visible;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-hero, .realm-atlas, .cultivation-ranking) {
+  position: relative; border-radius: 3px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent); box-shadow: var(--rd-elev-2);
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::before,
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::after {
-  content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; border: 2px solid var(--rd-ornament); opacity: .85; pointer-events: none;
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-hero, .realm-atlas, .cultivation-ranking)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-hero, .realm-atlas, .cultivation-ranking)::after {
+  content: ""; aspect-ratio: auto; border-radius: 0; inset: auto; position: absolute; z-index: 3; width: 14px; height: 14px; border: 2px solid var(--rd-ornament); opacity: .85; pointer-events: none;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-hero, .realm-atlas, .cultivation-ranking)::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-hero, .realm-atlas, .cultivation-ranking)::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
 /* 標題帶：英文小標收掉，右側小字當 meta；標題前鎏金菱形 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading) {
   position: relative; align-items: center; margin: 0 -16px 14px; padding: 11px 16px 11px 33px; min-height: 0;
@@ -572,7 +543,14 @@
   content: ""; position: absolute; left: 18px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
   background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board .cultivation-kicker { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading) .cultivation-kicker { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking) { padding: 0 16px 16px; }
+/* 大標語區內文：內文字型（跟全站標題一致，不用襯線）、九境印縮小 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero .cultivation-kicker { color: var(--rd-ornament); letter-spacing: .18em; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero h2 { margin: 6px 0 6px; font-family: inherit; font-size: 26px; font-weight: 800; letter-spacing: .04em; color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero p { font-size: 13px; line-height: 1.7; color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero__seal { width: 76px; border-color: color-mix(in srgb, var(--rd-ornament) 55%, transparent); color: var(--rd-ornament); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero__seal span { font-family: inherit; font-size: 17px; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading) h3 {
   margin: 0; font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: normal; color: var(--rd-fg);
 }

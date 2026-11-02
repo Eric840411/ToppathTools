@@ -275,3 +275,29 @@
 /* 帳號池：狀態膠囊不超出欄寬，文字在膠囊內截斷（兩端圓角保留），完整內容看 title */
 .lst-pool-table .lst-pill { max-width: 100%; box-sizing: border-box; vertical-align: middle; }
 .lst-pill-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ════════════════════ AutoSpin（原型 v7，兩個皮同一套結構）════════════════════
+   頁首右側小字「目前帳號」、分頁＝.rd-tabs、機台表在面板裡（工具列＋凹槽表格）、操作欄文字連結、開關＝原型 .switch-sm */
+.as-account-text { font-size: 12.5px; color: var(--rd-fg-2, #94a3b8); white-space: nowrap; }
+:root[data-ui="redesign"] .rd-tabs.as-tabs { margin-bottom: 16px; }
+:root[data-ui="redesign"] .main-content .as-cfg-panel { margin-bottom: 0; }
+:root[data-ui="redesign"] .main-content .as-cfg-toolbar { border-bottom: 0; padding: 12px 16px 10px; }
+:root[data-ui="redesign"] .main-content .as-cfg-table th { text-transform: none; letter-spacing: .02em; }
+:root[data-ui="redesign"] .main-content .as-switch {
+  width: 30px !important; height: 18px !important; min-width: 0 !important; padding: 0 !important; vertical-align: middle;
+  border: 0 !important; border-radius: 9px !important; background: var(--rd-line-2) !important; box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"] .main-content .as-switch.is-on { background: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .main-content .as-switch::before,
+:root[data-ui="redesign"] .main-content .as-switch::after { content: none !important; }
+:root[data-ui="redesign"] .main-content .as-switch-knob {
+  top: 2px !important; left: 2px !important; width: 14px !important; height: 14px !important;
+  background: var(--rd-fg) !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .5); transition: transform .14s ease !important;
+}
+:root[data-ui="redesign"] .main-content .as-switch.is-on .as-switch-knob { transform: translateX(12px); }
+
+/* 操作歷史紀錄的功能籤：原型是看得出顏色的膠囊；功能色有不少是深色（#065f46、#0052cc…），直接當字色在深底上會糊掉，這裡提亮 */
+.lst-hist-line1 .lst-pill {
+  color: color-mix(in srgb, var(--c) 62%, #fff);
+  background: color-mix(in srgb, var(--c) 18%, transparent); border-color: color-mix(in srgb, var(--c) 60%, transparent);
+}

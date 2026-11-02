@@ -156,9 +156,12 @@ const FEATURE_COLORS: Record<string, string> = {
   'image-check': '#9333ea',
   'gs-pdf-testcase': '#c026d3',
   'gs-img-compare': '#0369a1',
-  'gs-logchecker': '#475569',
+  'gs-logchecker': '#22d3ee', // 原本 #475569 在深底上幾乎看不見（新版要跟其他功能一樣是看得出顏色的膠囊）
   'gs-bonusv2': '#b45309',
   'osm-config-compare': '#065f46',
+  'meter-reconcile': '#f97316',
+  'osm-releases': '#84cc16',
+  'egm-daycount': '#eab308',
 }
 
 function timeAgo(ts: number): string {

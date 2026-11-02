@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import './LarkNotifySettingsPage.css'
+import { PageActions } from '../redesign/PageActions'
 
 type Config = { appId: string; hasSecret: boolean; secretTail: string; keyConfigured: boolean; chatId: string; toolUrl: string }
 type Feature = { key: string; label: string }
@@ -130,7 +131,10 @@ export function LarkNotifySettingsPage() {
     <div className="ln-page">
       <div className="ln-head">
         <p className="ln-sub">集中管理通知機器人、目標群組與人員對照，所有通知都發到 Lark</p>
-        <span className="ln-pill" title="工具只用 Lark 的發訊息 API，不接收事件（長連線留給 Claude 的 Lark 外掛）">僅發送通知</span>
+        {/* 新版（原型 v7）：膠囊放頁首右側（找不到頁首時原地顯示） */}
+        <PageActions>
+          <span className="ln-pill" title="工具只用 Lark 的發訊息 API，不接收事件（長連線留給 Claude 的 Lark 外掛）">僅發送通知</span>
+        </PageActions>
       </div>
 
       {/* ① 機器人憑證 */}

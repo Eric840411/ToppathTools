@@ -60,3 +60,12 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel)));
   box-shadow: var(--rd-elev-1);
 }
+
+/* 「僅發送通知」搬到頁首右側（PageActions）：原型 .pill（強調色、前面一顆發光點）；頁內那一列只剩被收掉的說明，整列收掉 */
+:root[data-ui="redesign"] .ln-page > .ln-head { display: none; }
+:root[data-ui="redesign"] .ln-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.5;
+  color: var(--rd-accent-2); background: color-mix(in srgb, var(--rd-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--rd-accent) 45%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset; white-space: nowrap;
+}
+:root[data-ui="redesign"] .ln-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; flex: none; }
