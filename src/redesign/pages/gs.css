@@ -56,8 +56,8 @@
 .gl-code-state { padding: 18px; text-align: center; font-size: 13px; color: var(--rd-fg-3, #94a3b8); }
 .gl-code-state.is-error { color: #f87171; }
 
-/* 仙俠版：編號圈改鎏金細框，跟通知設定的編號一致 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .gl-step-n { background: transparent; color: var(--rd-ornament); box-shadow: 0 0 0 1px var(--rd-ornament); }
+/* 仙俠版：編號圈用玉色（原型 [data-skin="xianxia"] 的步驟點是強調色，不是鎏金） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .gl-step-n { background: color-mix(in srgb, var(--rd-accent) 16%, var(--rd-panel-2)); color: var(--rd-accent-2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent) 70%, transparent), 0 0 10px -2px var(--rd-glow); }
 
 /* 窄螢幕：步進條改成兩欄、拿掉連接線 */
 @media (max-width: 900px) {

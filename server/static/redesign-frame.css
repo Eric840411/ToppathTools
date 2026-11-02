@@ -108,5 +108,20 @@ html[data-ui="redesign"][data-theme-mode="xianxia"] .card-title::before {
   left: 2px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
   background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
 }
+
+/* ══ 第五批 CodeX 複審（兩個皮一起；原型 v7 普通版也是這樣）══ */
+/* 面板標題 → 滿版標題帶（原型 .panel-h）：貼齊面板邊、底下分隔線；面板內容 16px */
+html[data-ui="redesign"] .card:has(> .card-title:first-child) { padding: 0 16px 16px; }
+html[data-ui="redesign"] .card > .card-title:first-child {
+  margin: 0 -16px 14px; padding: 11px 16px 11px 29px; min-height: 46px; box-sizing: border-box;
+  border-bottom: 1px solid var(--rd-line); border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent); text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
+}
+html[data-ui="redesign"] .card > .card-title:first-child::before { left: 16px; height: 16px; margin-top: -8px; }
+/* 標題帶右側的小籤（Bonus V2 的 Playwright WS 攔截）靠右，當 meta */
+html[data-ui="redesign"] .card > .card-title:first-child .badge { margin-left: auto; }
 /* 圖片比對 A／B 版欄位標籤：原型是一般次要字色（不是藍／紫） */
-html[data-ui="redesign"][data-theme-mode="xianxia"] .input-group :is(.label-a, .label-b) { color: var(--rd-fg-2); }
+html[data-ui="redesign"] .input-group :is(.label-a, .label-b) { color: var(--rd-fg-2); }
+/* 仙俠：標題帶圓角 3、菱形位置 */
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card > .card-title:first-child { border-radius: 3px 3px 0 0; padding-left: 33px; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card > .card-title:first-child::before { left: 18px; height: 7px; margin-top: -3.5px; }

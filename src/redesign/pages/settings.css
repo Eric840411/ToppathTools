@@ -264,7 +264,8 @@
   background: color-mix(in srgb, var(--rd-accent, #3b82f6) 30%, var(--rd-panel-2, #1e293b));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent, #3b82f6) 60%, transparent), 0 0 10px -2px var(--rd-glow, rgba(59, 130, 246, .35));
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .mg-steps li::before { background: transparent; color: var(--rd-ornament, #d4b26a); box-shadow: 0 0 0 1px var(--rd-ornament, #d4b26a); }
+/* 仙俠版：原型是淺玉色實心圓＋深色數字 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mg-steps li::before { background: var(--rd-accent-2); color: var(--rd-accent-ink); box-shadow: 0 0 10px -2px var(--rd-glow); }
 :root[data-ui="redesign"] .mg-notes { padding-top: 12px; border-top: 1px solid var(--rd-line, #263345); padding-left: 18px; font-size: 12px; color: var(--rd-fg-3, #64748b); }
 :root[data-ui="redesign"] .mg-notes strong { color: var(--rd-fg-2, #94a3b8); }
 

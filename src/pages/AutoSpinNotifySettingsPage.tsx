@@ -21,6 +21,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
       onClick={onToggle}
       disabled={disabled}
       title={checked ? '點擊停用' : '點擊啟用'}
+      className={checked ? 'as-switch is-on' : 'as-switch'}
       style={{
         width: 36, height: 20, borderRadius: 10, padding: 0, flexShrink: 0,
         background: checked ? 'var(--xx-jade, #75d7cf)' : '#1e2733',
@@ -32,7 +33,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
         transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
       }}
     >
-      <span style={{
+      <span className="as-switch-knob" style={{
         position: 'absolute', top: 1, left: checked ? 17 : 1, width: 16, height: 16, borderRadius: '50%',
         background: '#fff', transition: 'left 0.2s ease',
       }} />

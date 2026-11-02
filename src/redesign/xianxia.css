@@ -658,3 +658,24 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric-value:is(.local-agent-tone-ok, .local-agent-tone-blue, .local-agent-tone-warn) { color: var(--c) !important; }
 /* 知識庫「上傳文件」類型籤：原型是中性灰；黃色留給旁邊「已過期」的快取狀態 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill.kb-src--file_upload { --c: var(--rd-fg-3); }
+
+/* ── 第五批 CodeX 複審 ── */
+/* AutoSpin 通知的三個開關：跟 AutoSpin 機台表同一套（原型 .switch-sm，as-switch 規則在上面第三批） */
+/* 通知設定：標題帶的色條換鎏金菱形、圓角 3；選中分頁加鎏金細框（同 .rd-tab）；兩張表的格線（舊全站規則是藍灰 #1e293b／#2d3f55）→ 墨綠 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card > :is(.ln-card-head, .ln-card-title):first-child { border-radius: 3px 3px 0 0; border-bottom-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card .ln-card-title::after {
+  left: 17px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card .ln-card-title::before { color: var(--rd-fg); background: transparent; box-shadow: 0 0 0 1px currentColor; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page .ln-tab.is-active {
+  color: var(--rd-fg); border-bottom-color: transparent;
+  box-shadow: var(--rd-elev-1), 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 55%, transparent) inset;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-table { border-color: var(--rd-line-2); background: color-mix(in srgb, var(--rd-bg) 60%, transparent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-table :is(th, td) { border-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-table th { border-bottom-color: var(--rd-line-2) !important; }
+/* 境界排行榜：名次表的字母頭像（舊 dashboard-avatar 深藍底藍字）→ 原型淺玉色底、深色字 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-user .dashboard-avatar {
+  background: var(--rd-accent-2) !important; color: var(--rd-accent-ink) !important; border-color: transparent !important; box-shadow: none !important;
+}

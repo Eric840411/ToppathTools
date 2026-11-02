@@ -18,9 +18,6 @@
   background: color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent) 60%, transparent), 0 0 10px -2px var(--rd-glow);
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card .ln-card-title::before {
-  background: transparent; color: var(--rd-ornament); box-shadow: 0 0 0 1px var(--rd-ornament);
-}
 :root[data-ui="redesign"] .ln-card {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
@@ -30,3 +27,36 @@
 /* 頁首已經有說明，這頁自己的說明行收掉，只留右邊「僅發送通知」膠囊 */
 :root[data-ui="redesign"] .ln-head .ln-sub { display: none; }
 :root[data-ui="redesign"] .ln-head { justify-content: flex-end; }
+
+/* ══ 第五批 CodeX 複審（兩個皮一起；原型 v7 普通版也是這樣）══
+   ① 卡片標題改成滿版標題帶（原型 .panel-h）：色條／菱形＋圈號＋標題，底下分隔線；第一張卡標題帶右側是驗證狀態
+   ② 「選擇群組／手填 chat ID」改成原型 .tabs（內凹底座＋選中那格填色），不是底線分頁 */
+:root[data-ui="redesign"] .ln-page > .ln-card { padding: 0 18px 16px; }
+:root[data-ui="redesign"] .ln-page > .ln-card > :is(.ln-card-head, .ln-card-title):first-child {
+  position: relative; margin: 0 -18px 14px; padding: 11px 18px 11px 31px; min-height: 46px; box-sizing: border-box;
+  border-bottom: 1px solid var(--rd-line); border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+}
+:root[data-ui="redesign"] .ln-page > .ln-card > .ln-card-head:first-child .ln-card-title { position: static; margin: 0; }
+:root[data-ui="redesign"] .ln-page > .ln-card .ln-card-title { gap: 8px; font-size: 14px; font-weight: 700; text-shadow: 0 1px 0 rgba(0, 0, 0, .6); }
+:root[data-ui="redesign"] .ln-page > .ln-card .ln-card-title::after {
+  content: ""; position: absolute; left: 18px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"] .ln-page > .ln-card .ln-card-title::before {
+  width: 17px; height: 17px; font-size: 11px; font-weight: 700; color: var(--rd-fg);
+  background: transparent; box-shadow: 0 0 0 1px currentColor;
+}
+:root[data-ui="redesign"] .ln-tabs {
+  display: inline-flex; align-self: flex-start; width: fit-content; max-width: 100%; gap: 4px; padding: 4px; margin: 0 0 12px;
+  border: 0; border-radius: 10px; background: var(--rd-bg-2); box-shadow: var(--rd-well);
+}
+:root[data-ui="redesign"] .ln-tab {
+  margin: 0; padding: 7px 16px; border: 0; border-radius: 7px; color: var(--rd-fg-2); font-weight: 500;
+}
+:root[data-ui="redesign"] .ln-tab:hover { color: var(--rd-fg); }
+:root[data-ui="redesign"] .ln-page .ln-tab.is-active {
+  color: var(--rd-fg); border-bottom-color: transparent;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel)));
+  box-shadow: var(--rd-elev-1);
+}

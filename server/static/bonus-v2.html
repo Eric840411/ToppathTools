@@ -217,7 +217,7 @@
     html[data-ui="redesign"] .stat-card { border-color: var(--rd-line); background: color-mix(in srgb, var(--rd-bg) 55%, transparent); box-shadow: var(--rd-well); }
     html[data-ui="redesign"] .stat-card-head { background: var(--rd-panel-2); color: var(--rd-fg); border-bottom-color: var(--rd-line-2); }
     html[data-ui="redesign"] .stat-card-head span { color: var(--rd-fg-3); }
-    @media (min-width: 1500px) { html[data-ui="redesign"] .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    @media (min-width: 1000px) { html[data-ui="redesign"] .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
     /* :where 讓權重只有 td 一層，.diff-ok／warn／bad 的狀態色才蓋得過（CodeX 1102 P2） */
     :where(html[data-ui="redesign"]) td { color: var(--rd-fg); }
     html[data-ui="redesign"] .detail-scroll { border-color: var(--rd-line); box-shadow: var(--rd-well); }
