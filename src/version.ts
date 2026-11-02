@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.69.3'
+export const APP_VERSION = '5.69.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.69.4', date: '2026-11-02', changes: ["style(新版 Dashboard，逐頁重做第 1 頁)：照原型 v7——頁首漸層底線、數字磚依狀態膠囊上色（綠／藍／黃）並浮起、面板頭左側色條、表格凹進面板、進度條凹槽軌道＋高光條身、小數字格凹槽、事件光點、空狀態虛線框。只改長相，功能與輪詢不動；仙俠版保留原本設計只補陰影"] },
   { version: '5.69.3', date: '2026-11-02', changes: ["change(新版外框)：使用者 1102「動畫強制開啟，不做關閉功能」——拿掉頂列的動畫開關，清掉舊版存的 toppath-motion；只剩系統「減少動態」（無障礙設定）會讓全站停，之前修好的『內容不消失、境界圖換靜態、突破特效定格』都改由它觸發。redesign-motion-stack 改用系統減少動態跑，13 條全過"] },
   { version: '5.69.2', date: '2026-11-02', changes: ["fix(新版外框)：CodeX 複審 b346cc1——動畫關掉時突破特效「跳到結束狀態」等於 opacity:0＋visibility:hidden，整個畫面消失卻還鎖住捲動到計時結束。改套它自己的減少動態定格樣式（直接顯示、不播）。檢查加非 hold 突破預覽 2 條，把修正拿掉紅 1"] },
   { version: '5.69.1', date: '2026-11-02', changes: ["fix(新版外框)：CodeX 審 ea86844 抓到三個，都重現過——[P1] 動畫關掉用 animation:none，Dashboard 事件與仙俠逐字標題停在 opacity:0 看不見：改成時間歸零、只播一次（有 forwards 的直接到結束狀態）；[P2] 替 app-main 開疊層後，頁面裡沒走 portal 的彈窗蓋不住側欄、遮罩開著還能切頁：拿掉疊層、背景改負 z-index；仙俠舊 CSS 的 .app-main > * { z-index:1 } 也是同一個問題（main 原本就有），一起修；[P2] 動畫開關沒停到排行榜境界動態圖與突破特效：新增共用的 useMotionReduced，關掉時換 realms-v1 靜態圖、粒子不跑。redesign-motion-stack 檢查 11 條；把 animation:none 放回去紅 3、把 z-index:auto 拿掉紅 1"] },
