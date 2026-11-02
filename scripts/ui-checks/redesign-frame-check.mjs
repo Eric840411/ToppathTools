@@ -5,7 +5,7 @@
  *   ③ 沒帶參數直接開：長相跟原本一樣（不設 data-ui、底色維持 #0f172a）
  *   ④ 只接受父視窗的訊息：自己對自己 postMessage 不會改模式
  *   ⑤ Bonus V2 偏差狀態色（.diff-ok／warn／bad）沒被新版的 td 文字色蓋掉（CodeX 1102 P2）
- *   ⑦ 三頁的操作按鈕同一套規格：高 34；圓角普通版 8、仙俠版 4（跟全站仙俠按鈕一致）——使用者 1102「按鈕沒有一致」
+ *   ⑦ 三頁的操作按鈕同一套規格：高 36；圓角普通版 7（原型 .btn）、仙俠版 4（跟全站仙俠按鈕一致）——使用者 1102「按鈕沒有一致」
  *   ⑧ 三頁畫面上沒有裝飾用 emoji——使用者 1102「不需要 emoji，拿掉」（文字箭頭 ↑↓↔、✕ 關閉、▶ 展開指示不算）
  *   ⑥ 系統「減少動態」時 iframe 裡的動畫也停（狀態點不閃）；一般情況照閃，證明有在量（CodeX 1102 P2）
  * 跑在本機 server 上，但 server/static 那幾支用 worktree 的版本攔截替換（本機 server 跑的是主 repo 的 static），
@@ -93,7 +93,7 @@ for (const theme of ['classic', 'xianxia']) {
     const btns = await f.evaluate(() => [...document.querySelectorAll('.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger')]
       .filter(el => el.offsetParent && !el.classList.contains('btn-sm'))
       .map(el => `${el.textContent.trim()}=${getComputedStyle(el).height}/${getComputedStyle(el).borderTopLeftRadius}`))
-    const want = theme === 'xianxia' ? '=34px/4px' : '=34px/8px'
+    const want = theme === 'xianxia' ? '=36px/4px' : '=36px/7px'
     ok(btns.length > 0 && btns.every(x => x.endsWith(want)), `${theme} ${name}: ⑦ 按鈕${want}（${btns.join('、')}）`)
     // ④ 自己對自己送：不能改
     // 只送「另一個」模式：送跟現在一樣的值，就算沒擋也看不出來（1102 突變實測：普通版那輪原本不會紅）
@@ -134,7 +134,7 @@ for (const theme of ['classic', 'xianxia']) {
   await p.waitForTimeout(500)
   const btns = await p.evaluate(() => [...document.querySelectorAll('.gl-actions button')]
     .map(el => `${el.textContent.trim()}=${getComputedStyle(el).height}/${getComputedStyle(el).borderTopLeftRadius}`))
-  const want = theme === 'xianxia' ? '=34px/4px' : '=34px/8px'
+  const want = theme === 'xianxia' ? '=36px/4px' : '=36px/7px'
   ok(btns.length === 2 && btns.every(x => x.endsWith(want)), `${theme} Log 攔截工具: ⑦ 按鈕${want}（${btns.join('、')}）`)
   await ctx.close()
 }

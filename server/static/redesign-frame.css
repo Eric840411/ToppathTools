@@ -3,7 +3,7 @@
    配色跟外框 src/redesign/redesign.css 的 --rd-* 同一組值，兩邊改要一起改。 ══ */
 html[data-ui="redesign"] {
   color-scheme: dark;
-  --rd-bg: #070d18; --rd-panel: #0e1a2e; --rd-panel-2: #12213a;
+  --rd-bg: #070d18; --rd-bg-2: #0b1424; --rd-panel: #0e1a2e; --rd-panel-2: #12213a;
   --rd-line: #1d3050; --rd-line-2: #284369;
   --rd-fg: #e3ebf7; --rd-fg-2: #9fb0c8; --rd-fg-3: #6b7f9c;
   --rd-accent: #4c8dff; --rd-accent-2: #7fb0ff; --rd-glow: rgba(76, 141, 255, .35);
@@ -13,7 +13,7 @@ html[data-ui="redesign"] {
   --rd-well: inset 0 2px 6px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 0 var(--rd-hi);
 }
 html[data-ui="redesign"][data-theme-mode="xianxia"] {
-  --rd-bg: #03070c; --rd-panel: #0b1722; --rd-panel-2: #102231;
+  --rd-bg: #03070c; --rd-bg-2: #07101a; --rd-panel: #0b1722; --rd-panel-2: #102231;
   --rd-line: rgba(214, 183, 112, .16); --rd-line-2: rgba(214, 183, 112, .28);
   --rd-fg: #e6efe8; --rd-fg-2: #a7bdb2; --rd-fg-3: #6f8a7e;
   --rd-accent: #78d5c8; --rd-accent-2: #a9ece2; --rd-glow: rgba(120, 213, 200, .3);
@@ -47,9 +47,9 @@ html[data-ui="redesign"] table td { border-bottom-color: var(--rd-line); }
   }
 }
 /* ══ 按鈕：iframe 兩頁共用一套，跟外框一致（主按鈕＝實體按鍵、次要＝玻璃按鍵、危險＝玻璃＋紅字）。
-   高 34、圓角 8、13px。外框那邊對應 .gl-btn-primary／.btn-ghost（src/redesign/pages/gs.css、kit.css） ══ */
+   高 36、圓角 7、13px（原型 .btn）。外框那邊對應 .gl-btn-primary／.btn-ghost（src/redesign/pages/gs.css、kit.css） ══ */
 html[data-ui="redesign"] :is(.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger) {
-  height: 34px; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  height: 36px; padding: 0 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
   display: inline-flex; align-items: center; gap: 6px; line-height: 1;
 }
 html[data-ui="redesign"] :is(.btn-primary, .btn-success) {

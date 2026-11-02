@@ -196,15 +196,11 @@
        這頁的顏色是寫死的十六進位，所以逐條覆寫；行內 style 的版面不動 ══ */
     html[data-ui="redesign"] body { color: var(--rd-fg-2); }
     html[data-ui="redesign"] .page-wrap { max-width: none; padding: 0 0 24px; }
-    /* 模式切換：膠囊 → 底線分頁（跟外框 .rd-tabs 一致） */
-    html[data-ui="redesign"] .mode-tabs { display: flex; background: none; border: 0; border-bottom: 1px solid var(--rd-line); border-radius: 0; padding: 4px 0 0; gap: 2px; margin-bottom: 16px; }
-    html[data-ui="redesign"] .mode-tab { position: relative; height: 38px; padding: 0 16px; border-radius: 6px 6px 0 0; color: var(--rd-fg-2); font-weight: 600; }
-    html[data-ui="redesign"] .mode-tab:hover { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-panel) 70%, transparent); }
-    html[data-ui="redesign"] .mode-tab.active { color: var(--rd-fg); box-shadow: none; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--rd-accent) 12%, transparent)); }
-    html[data-ui="redesign"] .mode-tab.active::after {
-      content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px;
-      background: var(--rd-mark); box-shadow: 0 0 10px var(--rd-mark);
-    }
+    /* 模式切換：原型 .tabs：內凹底座、選中那格填強調色漸層（1102 CodeX 對照設計圖，之前的底線分頁是錯的） */
+    html[data-ui="redesign"] .mode-tabs { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 16px; border: 0; border-radius: 10px; background: var(--rd-bg-2, #0b1424); box-shadow: var(--rd-well); }
+    html[data-ui="redesign"] .mode-tab { padding: 7px 16px; border-radius: 7px; color: var(--rd-fg-2); font-weight: 500; box-shadow: none; }
+    html[data-ui="redesign"] .mode-tab:hover { color: var(--rd-fg); }
+    html[data-ui="redesign"] .mode-tab.active { color: var(--rd-fg); background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel))); box-shadow: var(--rd-elev); }
     /* 欄位：一列一個、標籤在左（原型 v7）；label 裡的文字節點會變成格線的第一格 */
     html[data-ui="redesign"] .card > .grid-2:has(> label.field) { grid-template-columns: 1fr; gap: 10px; }
     html[data-ui="redesign"] label.field { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: center; gap: 12px; color: var(--rd-fg-2); font-size: 12.5px; }

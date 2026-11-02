@@ -582,19 +582,24 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
           </button>
         </div>
       )}
-      <div className="section-card">
+      {/* 新版：操作類型＝頁頂底線分頁（原型 v7），樣式在 redesign/pages/testcase.css；GameApp 沒有 data-ui，長相不變 */}
+      <div className="section-card tc-action-card">
         <h2 className="section-title">操作類型</h2>
-        <div className="action-tabs">
+        <div className="action-tabs rd-tabs" role="tablist">
           <button
             type="button"
-            className={`action-tab${action === 'generate' ? ' active' : ''}`}
+            className={`action-tab rd-tab${action === 'generate' ? ' active' : ''}`}
+            role="tab"
+            aria-selected={action === 'generate'}
             onClick={() => { setAction('generate'); setStatus('idle'); setResult(null) }}
           >
             {themeMode === 'xianxia' && <XianxiaIcon name="ai" size={22} className="xianxia-action-icon" />} AI 生成 TestCase
           </button>
           <button
             type="button"
-            className={`action-tab${action === 'compare' ? ' active' : ''}`}
+            className={`action-tab rd-tab${action === 'compare' ? ' active' : ''}`}
+            role="tab"
+            aria-selected={action === 'compare'}
             onClick={() => { setAction('compare'); setStatus('idle'); setResult(null) }}
           >
             {themeMode === 'xianxia' && <XianxiaIcon name="compare" size={22} className="xianxia-action-icon" />} 人工 vs AI 比對
@@ -602,8 +607,8 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
         </div>
       </div>
 
-      <div className="two-col">
-        <div className="section-card">
+      <div className="two-col tc-two-col">
+        <div className="section-card tc-input-card">
           <h2 className="section-title">
             {action === 'generate' ? '輸入規格書網址' : action === 'secondpass' ? '輸入規格書與待補填案例' : '輸入兩份資料來源'}
           </h2>
@@ -713,6 +718,8 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
 
             {action === 'generate' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="tc-row">
+                <span className="tc-label">模式</span>
                 <div className="seg-control">
                   {([
                     { key: 'full', label: 'Full' },
@@ -729,11 +736,13 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                     </button>
                   ))}
                 </div>
+                </div>
 
                 {sources.map((src, idx) => (
                   <div key={src.id} className="src-card">
                     <div className="src-card-header">
                       <span className="src-card-label">規格書 {idx + 1}</span>
+                      {isGame ? (
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
                           { key: 'lark',  label: 'Lark Wiki', icon: 'wiki'  as const },
@@ -750,6 +759,15 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                           </button>
                         ))}
                       </div>
+                      ) : (
+                        // 新版（原型 v7）：來源用下拉，跟網址同一列；選項跟上面的按鈕同一組，選了一樣清空網址／檔案
+                        <select className="tc-src-select" value={src.type} aria-label={`規格書 ${idx + 1} 來源`}
+                          onChange={e => updateSource(src.id, { type: e.target.value as SpecSource, url: '', file: undefined })}>
+                          <option value="lark">Lark Wiki</option>
+                          <option value="file">PDF / Word</option>
+                          <option value="gdocs">Google 文檔</option>
+                        </select>
+                      )}
                       {sources.length > 1 && (
                         <button
                           type="button"
@@ -901,7 +919,7 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
           </div>
 
           {action === 'generate' && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 4 }}>
+            <div className="tc-pm-row" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 4 }}>
               <label className="field" style={{ flex: 1, margin: 0 }}>
                 <span>AI Prompt 模板</span>
                 <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}>
@@ -919,10 +937,12 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
           )}
 
           {action === 'generate' && (
-            <>
+            <div className="tc-row tc-row--top tc-options">
+              <span className="tc-label">選項</span>
+              <div className="tc-option-list">
               {/* 參考單（Meegle）卡片：Jira 停用後改讀 Meegle（2026-10-02） */}
               <div className="option-card">
-                <label>
+                <label title="AI 將同時參考 Meegle 任務項（名稱、描述、測試說明）與規格書生成 TestCase；用你自己的 Meegle 綁定讀取">
                   <input type="checkbox" checked={useRefs} onChange={e => setUseRefs(e.target.checked)} />
                   <span className="option-card-title">整合 Meegle 單號（可選）</span>
                   <span className="option-card-hint">AI 將同時參考 Meegle 任務項（名稱、描述、測試說明）與規格書生成 TestCase；用你自己的 Meegle 綁定讀取</span>
@@ -947,7 +967,7 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
 
               {/* Second Pass card */}
               <div className="option-card">
-                <label>
+                <label title="生成後自動補全空白欄位，發第二次 AI 請求">
                   <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} />
                   <span className="option-card-title">AI 補填（Second Pass）</span>
                   <span className="option-card-hint">生成後自動補全空白欄位，發第二次 AI 請求</span>
@@ -970,7 +990,8 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                   </div>
                 )}
               </div>
-            </>
+              </div>
+            </div>
           )}
 
 
@@ -990,8 +1011,8 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                   : '開始比對'}
           </button>
 
-          <div className="info-block" style={{ marginTop: 20 }}>
-            <h3>流程說明</h3>
+          <details className="info-block tc-flow" style={{ marginTop: 20 }}>
+            <summary><h3>流程說明</h3></summary>
             {action === 'generate' && testcaseMode === 'full' && (
               <ol>
                 <li>新增一份或多份規格書（Lark Wiki / PDF / Google 文檔，可混合）</li>
@@ -1033,7 +1054,7 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
               </ol>
             )}
             <p className="info-note">{themeMode === 'xianxia' && <XianxiaIcon name="settings" size={17} />} Lark API Token 設定於後端 <code>.env</code>，前端不持有任何密鑰</p>
-          </div>
+          </details>
 
         </div>
 

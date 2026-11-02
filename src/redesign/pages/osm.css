@@ -7,7 +7,7 @@
    ══════════════════════════════════════════════════════════════════ */
 @media (min-width: 1100px) {
   :root[data-ui="redesign"] .osm-page {
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: row dense; align-items: start;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); grid-auto-flow: row dense; align-items: start;
   }
   :root[data-ui="redesign"] .osm-page > :not(.osm-section--half) { grid-column: 1 / -1; }
 }
@@ -70,3 +70,81 @@
   .ic-grid, .ic-stats { grid-template-columns: 1fr; }
   .ic-row { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* 有資料時：狀態膠囊不能被窄欄擠成直排（使用者 1102 截圖：ImageRecon 半欄時「達標」一字一行） */
+:root[data-ui="redesign"] .osm-page .osm-badge { white-space: nowrap; }
+:root[data-ui="redesign"] .osm-page .version-table td { vertical-align: middle; }
+/* 半欄表格（元件版本、ImageRecon）：一格一行不換行；ImageRecon 有 40 幾台，面板內捲動、表頭固定，
+   不讓單一面板把整頁拉到幾千 px（原型是同高的兩個面板並排） */
+:root[data-ui="redesign"] .osm-section--half :is(.version-table, .osm-report-table) :is(th, td) { white-space: nowrap; }
+:root[data-ui="redesign"] .osm-section--half .osm-table-wrap { max-height: 460px; overflow: auto; border-radius: 8px; box-shadow: var(--rd-well); }
+:root[data-ui="redesign"] .osm-section--half .osm-report-table th { position: sticky; top: 0; z-index: 1; background: var(--rd-bg-2); }
+:root[data-ui="redesign"] .osm-section--half .osm-report-table :is(th, td) { padding: 7px 10px; font-size: 12px; }
+:root[data-ui="redesign"] .osm-comp-ver-table .osm-comp-ver-version { font: 600 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg); }
+:root[data-ui="redesign"] .osm-comp-ver-table .osm-comp-ver-target { font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg-2); }
+
+/* 區塊標題帶（原型 .panel-h）：標題列自己一條、底下分隔線；區塊本身 0 16px 16px */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section { padding: 0 16px 16px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section > .osm-section-header {
+  margin: 0 -16px 14px; padding: 9px 16px; border-bottom: 1px solid var(--rd-line); border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent); min-height: 46px;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .osm-section-title { font-size: 14px; }
+/* 區塊標題列上的按鈕：原型只有機台版本 Dashboard 的「全部同步」是實心主按鈕，其他（一鍵全部取得、取得元件版本…）是次要 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .osm-section-header .osm-btn--primary:not(.osm-btn--main) {
+  /* !important：要蓋過 redesign.css「全站主按鈕統一強調色」那條（:not() 疊很多層、權重比這裡高） */
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important; color: var(--rd-fg-2) !important;
+  border: 1px solid var(--rd-line-2) !important; box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .osm-section-header .osm-btn--primary:not(.osm-btn--main):hover:not(:disabled) { color: var(--rd-fg) !important; border-color: var(--rd-accent) !important; }
+/* 表格底座：原型的 .tbl-wrap 是明顯內凹的深色底 */
+:root[data-ui="redesign"] .osm-page :is(.table-wrap, .osm-table-wrap) { background: color-mix(in srgb, var(--rd-bg) 75%, transparent); box-shadow: var(--rd-well); border-radius: 6px; }
+/* 總覽四格：數字磚（原型 .stat：標籤在上、數字在下、依顏色上色） */
+:root[data-ui="redesign"] .osm-summary-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip {
+  --c: var(--rd-accent); display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 4px;
+  padding: 12px 16px; border-radius: 10px; font-weight: 400;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip--ok { --c: #34d399; }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip--warn { --c: #fbbf24; }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip--error { --c: #f87171; }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip--blue { --c: var(--rd-accent); }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip-lbl { font-size: 12.5px; color: var(--rd-fg-2); line-height: 1.3; }
+:root[data-ui="redesign"] .osm-summary-tiles .stat-chip-val { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--c); text-shadow: 0 2px 0 rgba(0, 0, 0, .45); }
+/* 狀態膠囊（原型 .pill）：前面一顆發光圓點＋描邊；未達標用紅 */
+:root[data-ui="redesign"] .osm-page .osm-badge {
+  --c: var(--rd-fg-3); display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--c); background: color-mix(in srgb, var(--c) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+}
+:root[data-ui="redesign"] .osm-page .osm-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; }
+:root[data-ui="redesign"] .osm-page .osm-badge--ok { --c: #34d399; }
+:root[data-ui="redesign"] .osm-page .osm-badge--warn { --c: #f87171; }
+:root[data-ui="redesign"] .osm-page .osm-badge--error { --c: #f87171; }
+:root[data-ui="redesign"] .osm-page .osm-badge--muted { --c: var(--rd-fg-3); }
+@media (max-width: 900px) { :root[data-ui="redesign"] .osm-summary-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ══ 第二輪（CodeX 對照設計圖）══ */
+/* 區塊標題列上的次要操作（一鍵全部取得、取得元件版本…）：原型是文字操作，不是按鈕 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .osm-section-header .osm-btn--primary:not(.osm-btn--main) {
+  background: none !important; border: 0 !important; box-shadow: none !important; padding: 4px 2px !important;
+  color: var(--rd-fg-2) !important; font-weight: 500; font-size: 12.5px;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .osm-section-header .osm-btn--primary:not(.osm-btn--main):hover:not(:disabled) { color: var(--rd-accent-2) !important; text-decoration: underline; }
+/* 機台 Dashboard 統計列：方正細框標籤「名稱 數字」，全部同步靠右 */
+:root[data-ui="redesign"] .osm-dash-stats { align-items: center; }
+:root[data-ui="redesign"] .osm-dash-stats .stat-chip {
+  flex-direction: row-reverse; gap: 6px; padding: 3px 9px; border-radius: 6px; background: none;
+  border: 1px solid var(--rd-line-2); color: var(--rd-fg-2); font-weight: 500;
+}
+:root[data-ui="redesign"] .osm-dash-stats .stat-chip-val { font-size: 12px; font-weight: 600; color: var(--rd-fg); }
+:root[data-ui="redesign"] .osm-dash-stats .stat-chip-lbl { font-size: 12px; }
+:root[data-ui="redesign"] .osm-dash-stats > .osm-btn--main { margin-left: auto; }
+/* 渠道：橫向卡片，點了在下方顯示詳情（CodeX：保留「渠道」語意、不改稱機種）；沒選時不留大片空白 */
+:root[data-ui="redesign"] .osm-master-detail { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+:root[data-ui="redesign"] .osm-channel-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: none; overflow: visible; width: 100%; }
+:root[data-ui="redesign"] .osm-master-detail > .osm-detail-placeholder { display: none; }
+/* 機種卡（有前端機台數時）：原型的機種卡樣式——大一點、浮起 */
+:root[data-ui="redesign"] .osm-gt-card { background: var(--rd-panel) !important; border-radius: 10px !important; padding: 12px 14px !important; box-shadow: var(--rd-elev-1); }

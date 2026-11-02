@@ -63,3 +63,6 @@
 
 /* 腳本化投注／UI 截圖：自己的頁首說明跟頁首重複（措辭略不同），按鈕已搬到頁首右側，整列收掉 */
 :root[data-ui="redesign"] .main-content .scripted-bet-head { display: none; }
+
+/* 原型 v7 頁首只有標題（＋仙俠名），沒有說明行——1102 CodeX 對照設計圖兩輪都指出，全站收掉 */
+:root[data-ui="redesign"] .rd-page-desc { display: none; }

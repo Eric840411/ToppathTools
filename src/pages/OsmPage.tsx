@@ -125,7 +125,7 @@ function countOnlineStates(machines: OsmMachine[]) {
 }
 
 function imageReconStatusLabel(match: boolean): string {
-  return match ? '通過 達標' : '未達標'
+  return match ? '達標' : '未達標'
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -783,32 +783,33 @@ function VersionDashboard({
 
   const totalIssues = offTargetMachines.length + offTargetComps.length + protoOffTargetMachines.length
 
-  const sysColor: Record<string, string> = { OSM: '#dbeafe', LuckyLink: '#d1fae5', Toppath: '#ede9fe', ImageRecon: '#fce7f3' }
+  // 系統標籤：深底用的半透明底＋同色字（原本是淺色主題的粉彩底配深字，在深底上很刺眼）
+  const sysColor: Record<string, string> = { OSM: '#60a5fa', LuckyLink: '#34d399', Toppath: '#a78bfa', ImageRecon: '#f472b6' }
 
   return (
     <>
       {/* Summary */}
-      <div className="osm-stat-row" style={{ marginBottom: 12 }}>
-        <div className={`stat-chip ${totalIssues === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
+      <div className="osm-stat-row osm-summary-tiles" style={{ marginBottom: 12 }}>
+        <div className={`stat-chip ${totalIssues === 0 ? 'stat-chip--ok' : 'stat-chip--warn'}`}>
           <span className="stat-chip-val">{totalIssues}</span>
           <span className="stat-chip-lbl">未達標項目</span>
         </div>
-        <div className={`stat-chip ${offTargetMachines.length === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
+        <div className={`stat-chip ${offTargetMachines.length === 0 ? 'stat-chip--ok' : 'stat-chip--error'}`}>
           <span className="stat-chip-val">{offTargetMachines.length}</span>
           <span className="stat-chip-lbl">機台（{machineGroups.length} 組）</span>
         </div>
-        <div className={`stat-chip ${offTargetComps.length === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
+        <div className={`stat-chip ${offTargetComps.length === 0 ? 'stat-chip--ok' : 'stat-chip--warn'}`}>
           <span className="stat-chip-val">{offTargetComps.length}</span>
           <span className="stat-chip-lbl">未達標元件</span>
         </div>
-        <div className={`stat-chip ${protoOffTargetMachines.length === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
+        <div className={`stat-chip ${protoOffTargetMachines.length === 0 ? 'stat-chip--ok' : 'stat-chip--blue'}`}>
           <span className="stat-chip-val">{protoOffTargetMachines.length}</span>
           <span className="stat-chip-lbl">LuckyLink 機台（{protoGroups.length} 組）</span>
         </div>
       </div>
 
       {totalIssues === 0 && (
-        <div className="osm-alert osm-alert--ok">通過 所有版本均已達標</div>
+        <div className="osm-alert osm-alert--ok">所有版本均已達標</div>
       )}
 
       {/* Machine groups — compact cards */}
@@ -894,7 +895,7 @@ function VersionDashboard({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
               <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
-                <span style={{ padding: '2px 7px', borderRadius: 4, background: sysColor[c.system] ?? '#334155', color: '#1e293b', fontSize: 11, flexShrink: 0, fontWeight: 700 }}>{c.system}</span>
+                <span style={{ padding: '2px 7px', borderRadius: 4, background: `color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 16%, transparent)`, border: `1px solid color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 40%, transparent)`, color: sysColor[c.system] ?? '#94a3b8', fontSize: 11, flexShrink: 0, fontWeight: 700 }}>{c.system}</span>
                 <span style={{ flex: 1, fontWeight: 600, color: '#f1f5f9', fontSize: 13 }}>{c.name}</span>
                 <span style={{ color: '#f87171', fontWeight: 700, fontSize: 12 }}>{c.current || '—'}</span>
                 <span style={{ color: '#64748b', fontSize: 12 }}>→</span>
@@ -1334,6 +1335,18 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
     }, {})
   ).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count)
 
+  // 「全部同步」：原型 v7 放在機台 Dashboard 統計列右側；還沒同步過（沒有統計列）時放在區塊標題列
+  const syncAllButton = (
+    <button
+      type="button"
+      className="osm-btn osm-btn--primary osm-btn--main"
+      onClick={handleSyncAll}
+      disabled={syncingAll}
+    >
+      {syncingAll ? '同步中…' : '全部同步'}
+    </button>
+  )
+
   return (
     <div className="osm-page">
       {/* 新版：元件版本五塊排成兩欄（原型 v7 的 OSM 元件｜ImageRecon 並排），SAS/MML/G2S 表格寬、獨佔一列；樣式在 redesign/pages/osm.css */}
@@ -1507,14 +1520,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             <h2 className="osm-section-title">機台版本 Dashboard</h2>
             <p className="osm-section-sub">從各渠道 OSM 後台即時取得機台版本資訊</p>
           </div>
-          <button
-            type="button"
-            className="osm-btn osm-btn--primary"
-            onClick={handleSyncAll}
-            disabled={syncingAll}
-          >
-            {syncingAll ? '同步中…' : '全部同步'}
-          </button>
+          {(neverSynced || channelResults.length === 0) && syncAllButton}
         </div>
 
         {osmError && (
@@ -1522,7 +1528,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
         )}
 
         {!neverSynced && channelResults.length > 0 && (
-          <div className="osm-stat-row">
+          <div className="osm-stat-row osm-dash-stats">
             <div className="stat-chip">
               <span className="stat-chip-val">{channelResults.length}</span>
               <span className="stat-chip-lbl">渠道數</span>
@@ -1551,6 +1557,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                 <span className="stat-chip-lbl">同步失敗</span>
               </div>
             )}
+            {syncAllButton}
           </div>
         )}
 
@@ -1572,7 +1579,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                   className="osm-btn osm-btn--primary" style={{ fontSize: 12, padding: '5px 14px', whiteSpace: 'nowrap' }}
                 >{frontendLoading ? '取得中...' : '取得前端機台數'}</button>
               </div>
-              {frontendError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 4 }}>失敗 {frontendError}</div>}
+              {frontendError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 4 }}>{frontendError}</div>}
               {!frontendError && frontendSource && (
                 <div style={{ color: '#475569', fontSize: 12, marginBottom: 4 }}>通過 已取得前端機台數</div>
               )}
@@ -1703,32 +1710,32 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             {versionHistorySyncTime && (
               <p className="osm-report-time">取得時間：{versionHistorySyncTime}</p>
             )}
-            <div className="osm-comp-ver-grid">
+            <div className="table-wrap"><table className="version-table osm-comp-ver-table">
+              <thead><tr><th>元件</th><th>版本</th><th>目標</th><th>狀態</th></tr></thead>
+              <tbody>
               {versionHistory.map(comp => {
                 // targets structure: { [machineType]: { [category]: version } }
                 // comp.name is the machineType key; category is 'OSM'
                 const target = targets[comp.name]?.['OSM']
                 const onTarget = target ? comp.version === target : null
                 return (
-                  <div key={comp.name} className={`osm-comp-ver-card${onTarget === false ? ' osm-comp-ver-card--warn' : onTarget === true ? ' osm-comp-ver-card--ok' : ''}`}>
-                    <div className="osm-comp-ver-name">{comp.name}</div>
-                    <div className="osm-comp-ver-version">{comp.version || '—'}</div>
-                    {target && (
-                      <div className="osm-comp-ver-target">目標 {target}</div>
-                    )}
-                    <div className="osm-comp-ver-status">
+                  <tr key={comp.name}>
+                    <td className="osm-comp-ver-name">{comp.name}</td>
+                    <td className="osm-comp-ver-version">{comp.version || '—'}</td>
+                    <td className="osm-comp-ver-target">{(target) ? target : '—'}</td>
+                    <td className="osm-comp-ver-status">
                       {onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">通過 達標</span>
+                        <span className="osm-badge osm-badge--ok">達標</span>
                       ) : (
                         <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 )
               })}
-            </div>
+            </tbody></table></div>
           </>
         )}
 
@@ -1768,32 +1775,32 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             {llSyncTime && (
               <p className="osm-report-time">取得時間：{llSyncTime}</p>
             )}
-            <div className="osm-comp-ver-grid">
+            <div className="table-wrap"><table className="version-table osm-comp-ver-table">
+              <thead><tr><th>元件</th><th>版本</th><th>目標</th><th>狀態</th></tr></thead>
+              <tbody>
               {llVersions.map(comp => {
                 const target = targets[comp.name]?.['LuckyLink']
                 const onTarget = comp.pending ? null : target ? comp.version === target : null
                 return (
-                  <div key={comp.name} className={`osm-comp-ver-card${onTarget === false ? ' osm-comp-ver-card--warn' : onTarget === true ? ' osm-comp-ver-card--ok' : ''}`}>
-                    <div className="osm-comp-ver-name">{comp.name}</div>
-                    <div className="osm-comp-ver-version">{comp.pending ? '待 API 支援' : comp.version || '—'}</div>
-                    {target && !comp.pending && (
-                      <div className="osm-comp-ver-target">目標 {target}</div>
-                    )}
-                    <div className="osm-comp-ver-status">
+                  <tr key={comp.name}>
+                    <td className="osm-comp-ver-name">{comp.name}</td>
+                    <td className="osm-comp-ver-version">{comp.pending ? '待 API 支援' : comp.version || '—'}</td>
+                    <td className="osm-comp-ver-target">{(target && !comp.pending) ? target : '—'}</td>
+                    <td className="osm-comp-ver-status">
                       {comp.pending ? (
                         <span className="osm-badge osm-badge--muted">開發中</span>
                       ) : onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">通過 達標</span>
+                        <span className="osm-badge osm-badge--ok">達標</span>
                       ) : (
                         <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 )
               })}
-            </div>
+            </tbody></table></div>
           </>
         )}
 
@@ -1979,30 +1986,30 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             {tpSyncTime && (
               <p className="osm-report-time">取得時間：{tpSyncTime}</p>
             )}
-            <div className="osm-comp-ver-grid">
+            <div className="table-wrap"><table className="version-table osm-comp-ver-table">
+              <thead><tr><th>元件</th><th>版本</th><th>目標</th><th>狀態</th></tr></thead>
+              <tbody>
               {tpVersions.map(comp => {
                 const target = targets[comp.name]?.['Toppath']
                 const onTarget = target ? comp.version === target : null
                 return (
-                  <div key={comp.name} className={`osm-comp-ver-card${onTarget === false ? ' osm-comp-ver-card--warn' : onTarget === true ? ' osm-comp-ver-card--ok' : ''}`}>
-                    <div className="osm-comp-ver-name">{comp.name}</div>
-                    <div className="osm-comp-ver-version">{comp.version || '—'}</div>
-                    {target && (
-                      <div className="osm-comp-ver-target">目標 {target}</div>
-                    )}
-                    <div className="osm-comp-ver-status">
+                  <tr key={comp.name}>
+                    <td className="osm-comp-ver-name">{comp.name}</td>
+                    <td className="osm-comp-ver-version">{comp.version || '—'}</td>
+                    <td className="osm-comp-ver-target">{(target) ? target : '—'}</td>
+                    <td className="osm-comp-ver-status">
                       {onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">通過 達標</span>
+                        <span className="osm-badge osm-badge--ok">達標</span>
                       ) : (
                         <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 )
               })}
-            </div>
+            </tbody></table></div>
           </>
         )}
 

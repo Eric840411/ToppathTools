@@ -366,15 +366,11 @@
     /* 擷取進度：A／B 兩格各自浮起、進度條凹槽 */
     html[data-ui="redesign"] .progress-card { background: var(--rd-panel); border-color: var(--rd-line); box-shadow: var(--rd-elev); }
     html[data-ui="redesign"] .progress-bar-wrap { height: 6px; background: var(--rd-bg); box-shadow: var(--rd-well); }
-    /* 結果分頁：底線＋選中發光（跟外框 .rd-tabs 一致） */
-    html[data-ui="redesign"] .tab-nav { border-bottom-color: var(--rd-line); padding: 4px 8px 0; }
-    html[data-ui="redesign"] .tab-btn { position: relative; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--rd-fg-2); }
-    html[data-ui="redesign"] .tab-btn:hover { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
-    html[data-ui="redesign"] .tab-btn.active { color: var(--rd-fg); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--rd-accent) 12%, transparent)); }
-    html[data-ui="redesign"] .tab-btn.active::after {
-      content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px;
-      background: var(--rd-mark); box-shadow: 0 0 10px var(--rd-mark);
-    }
+    /* 結果分頁：原型 .tabs：內凹底座、選中那格填強調色漸層（1102 CodeX 對照設計圖，之前的底線分頁是錯的） */
+    html[data-ui="redesign"] .tab-nav { display: inline-flex; gap: 4px; padding: 4px; margin: 12px 16px 0; border: 0; border-radius: 10px; background: var(--rd-bg-2, #0b1424); box-shadow: var(--rd-well); }
+    html[data-ui="redesign"] .tab-btn { height: auto; padding: 7px 16px; border: 0; border-radius: 7px; margin: 0; color: var(--rd-fg-2); font-weight: 500; }
+    html[data-ui="redesign"] .tab-btn:hover { color: var(--rd-fg); background: none; }
+    html[data-ui="redesign"] .tab-btn.active { color: var(--rd-fg); background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel))); box-shadow: var(--rd-elev); }
     html[data-ui="redesign"] .stat-card { background: var(--rd-panel); box-shadow: var(--rd-elev); }
     @media (max-width: 720px) {
       html[data-ui="redesign"] .input-group { flex-direction: column; align-items: stretch; }

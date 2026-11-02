@@ -65,22 +65,23 @@
 /* 欄位說明 */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .field-hint { color: var(--rd-fg-3) !important; }
 
-/* 分頁列（原型 v7 .tabs）：底線＋選中那頁發光，兩版共用（仙俠版底線用鎏金） */
+/* 分頁列：照原型 v7 的 .tabs 原始碼（toppath-shell-mockup.html 第 300～303 行）——內凹底座、選中那格填強調色漸層＋浮起。
+   1102 CodeX 對照設計圖指出之前做成「底線分頁」是錯的，改回原型的樣子。兩版共用，仙俠版選中用鎏金細框 */
 :root[data-ui="redesign"] .rd-tabs {
-  display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--rd-line); padding: 4px 0 0;
+  display: flex; gap: 4px; padding: 4px; border-radius: 10px; align-self: flex-start; width: fit-content; max-width: 100%;
+  overflow-x: auto; scrollbar-width: none; background: var(--rd-bg-2); box-shadow: var(--rd-well); border: 0;
 }
 :root[data-ui="redesign"] .rd-tab {
-  position: relative; height: 38px; padding: 0 16px; border: 0; background: none; cursor: pointer;
-  color: var(--rd-fg-2); font-size: 13.5px; font-weight: 600; border-radius: 6px 6px 0 0;
-  transition: color .14s ease, background .14s ease;
+  flex: none; border: 0; background: none; color: var(--rd-fg-2); padding: 7px 16px; height: auto; border-radius: 7px;
+  cursor: pointer; white-space: nowrap; font-size: 13.5px; font-weight: 500; transition: color .14s ease, background .14s ease;
 }
-:root[data-ui="redesign"] .rd-tab:hover { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-panel) 70%, transparent); }
-:root[data-ui="redesign"] .rd-tab[aria-selected="true"] { color: var(--rd-fg); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--rd-accent) 12%, transparent)); }
-:root[data-ui="redesign"] .rd-tab[aria-selected="true"]::after {
-  content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px;
-  background: var(--rd-accent); box-shadow: 0 0 10px var(--rd-accent);
+:root[data-ui="redesign"] .rd-tab:hover { color: var(--rd-fg); }
+:root[data-ui="redesign"] .rd-tab[aria-selected="true"] {
+  color: var(--rd-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel)));
+  box-shadow: var(--rd-elev-1);
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab[aria-selected="true"]::after { background: var(--rd-ornament); box-shadow: 0 0 10px rgba(214, 183, 112, .6); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab[aria-selected="true"] { box-shadow: var(--rd-elev-1), 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 55%, transparent) inset; }
 :root[data-ui="redesign"] .rd-tab:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: -2px; }
 
 /* 仙俠版：只補凹槽與立體感，配色交給原本的仙俠樣式 */
@@ -89,3 +90,13 @@
 /* 表格面板：面板本身不留內距，表格貼齊面板邊（原型 v7 的 raw panel） */
 :root[data-ui="redesign"] .rd-table-panel { padding: 0; overflow: hidden; }
 :root[data-ui="redesign"] .rd-table-panel > .table-wrap { border-radius: 0; }
+
+/* 面板標題帶（原型 v7 .panel-h／.panel-b）：標題自己一條帶、底下分隔線、淡淡的上亮漸層；內容區 14px 16px。
+   只套在「第一個子元素就是標題」的面板，沒有標題的面板照舊 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card:has(> .section-title:first-child) { padding: 0 16px 14px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card > .section-title:first-child {
+  margin: 0 -16px 14px; padding: 11px 16px 11px 29px; min-height: 0; font-size: 14px; font-weight: 700;
+  border-bottom: 1px solid var(--rd-line); border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card > .section-title:first-child::before { left: 16px; height: 16px; margin-top: -8px; }
