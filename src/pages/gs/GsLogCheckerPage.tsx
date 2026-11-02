@@ -222,7 +222,7 @@ export function GsLogCheckerPage() {
       {/* ── Log 攔截工具 ── */}
       {tab === 'checker' && (
         <>
-          {/* 介紹卡：原型沒有，拿掉前要先問使用者（交接 1102） */}
+          {/* 介紹卡：原型沒有，使用者 1102 決定保留 */}
           <div className="section-card" style={{ padding: '18px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <XianxiaIcon name="monitor" size={34} />
