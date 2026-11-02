@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.68.1'
+export const APP_VERSION = '5.68.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.68.2', date: '2026-11-02', changes: ["fix(文書工具)：CodeX 複審 38f09fb 再抓兩個，都實際重現——[P1] sw.js 比對的是解碼前的字串，%73w.js 照樣送出 Effect 原本的 SW：改成比對解碼後的最後一段，並且在檢查版本存不存在之前；[P1] 工作區容器放在會被 Game Show 圖片比對／Bonus V2 整個換掉的 <main> 裡，切到那兩頁 iframe 仍被卸載：移到三元判斷外面，用 display:none 隱藏。單元 36 條；冒煙＋6 種注入都紅；瀏覽器實測切 Dashboard／圖片比對／Bonus V2 回來 iframe 都還是同一個"] },
   { version: '5.68.1', date: '2026-11-02', changes: ["fix(文書工具)：CodeX 審 5f7c6d0 抓到三個問題，都實際重現過——[P1] Effect 自帶 cache-first Service Worker，登出後瀏覽器重開仍由快取開頁面：/office 底下的 sw.js 一律回退役版（清快取、註銷自己，不驗登入才換得掉舊的），前端進頁面與登出時也註銷；[P1] 切到 Dashboard 會卸載所有 iframe、未存內容直接不見：改成進過一次就保持掛載，關分頁／重新整理／登出前確認；[P2] 部署切版會混版（每個請求重讀 CURRENT）：網址改綁版本 /office/v/<版本>/<app>/，安裝腳本換下來未滿一天的版本不刪。單元 33 條、真 server 冒煙含切版；注入 5 種都紅（忽略網址版本那個要第二版沒有同一份 word 才驗得出來）"] },
   { version: '5.68.0', date: '2026-11-02', changes: ["feat(文書工具)：使用者 1102 在 Lark 要求把 Eric Office（craft-office 的 13 個 WASM 工具：Word／Excel／PPT／PDF／影像設計／影音）串進 Toppath、部署在 Spug、要登入才能用，選同源。新頁「文書工具」（修仙版「文房四寶」）：只列這個版本實際有部署的工具、iframe 分頁保留最多 3 個（滿了請使用者自己關、不自動踢、關閉前確認）、Film／Effect 需要 cross-origin isolation 改開新分頁。後端 /office/<app>/* 由新 router 自己驗登入＋權限 key office，掛在 SPA fallback 之前（未登入開頁 302、子資源 401、沒權限 403），逐段解碼後擋路徑穿越，帶 COOP／COEP／CORP，送部署時預壓的 .gz；版本目錄＋CURRENT 指標一次切換、可退版（scripts/office/pack-release.mjs、install-release.sh）。架構與 CodeX 討論定案。office-files.test 23 條、真 server 冒煙 33 條；注入拿掉權限紅 3、router 移到 fallback 後紅 6、拿掉穿越檢查紅 1"] },
   { version: '5.67.1', date: '2026-10-22', changes: ["fix(OSM 版本更新紀錄 日期篩選)：使用者 1022 回報日期欄沒有選擇器——<input type=\"month\"> 在 Safari／Firefox 桌機版不支援，退化成空白文字框。改成兩個下拉選單（最早／最新＋這個分頁實際有紀錄的月份），存成檢視的月份沒資料也保留；WebKit 實測可選、篩選生效"] },

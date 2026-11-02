@@ -37,10 +37,14 @@ Eric Office＝`Desktop/craft-office` 的 13 個 Rust→WASM 純靜態 web build�
   登出後瀏覽器重開仍由 SW 回 200。處理：
   1. `/office/**/sw.js` 一律回**退役版**（`OFFICE_RETIRE_SW`）：裝上就清 Office 快取、註銷自己、重新載入已開頁面。
      ⚠️ 這支**不驗登入**——瀏覽器更新 SW 是直接打網路，登出狀態回 401 的話舊 SW 永遠換不掉。內容固定、不含資料。
+     ⚠️ 比對的是**解碼後**的最後一段，而且在檢查版本存不存在**之前**（v5.68.2，CodeX 複審 38f09fb [P1] 實際重現）：
+     原本比原始字串，`%73w.js` 照樣送出原本那支 SW；版本目錄被清掉後，那個 scope 的舊 SW 也要換得掉。
   2. 文書工具頁進來、以及 Toppath 登出時，前端也會註銷 `/office/` 底下的 SW、清快取（`src/officeServiceWorker.ts`）。
   代價：Effect 不能離線用、不能安裝成 App。
 - **切到 Toppath 其他頁不會卸載工作區**（v5.68.1，CodeX 審 5f7c6d0 [P1]）：原本條件掛載，點 Dashboard 就把所有 iframe 連同未存內容丟掉。
   改成進過一次就保持掛載（隱藏）；關瀏覽器分頁／重新整理有 beforeunload 確認；登出時若還開著工具會先確認。
+  ⚠️ 容器要放在 App.tsx 那個「Game Show 圖片比對／Bonus V2 換掉整個 `<main>`」的三元判斷**外面**（v5.68.2，CodeX 複審 38f09fb [P1]）：
+  放在 `<main>` 裡的話切到那兩頁一樣被卸載。隱藏用 inline `display:none`，不用 `hidden` 屬性——`.main-content` 有設 display 會蓋過 `[hidden]`。
 
 ## 版本目錄與部署
 
@@ -65,16 +69,16 @@ OFFICE_DIST_DIR（預設 <Toppath 目錄>/office-dist，不進 git）
 
 ## 驗證
 
-- 單元：`npx tsx server/office-files.test.ts`（33 條：CURRENT 指標、版本名、入口導向、sw.js、逐段解碼後的路徑檢查、`%2F`／`%5C`／`%2e%2e` 穿越、只列有部署的工具）。
+- 單元：`npx tsx server/office-files.test.ts`（36 條：CURRENT 指標、版本名、入口導向、sw.js、逐段解碼後的路徑檢查、`%2F`／`%5C`／`%2e%2e` 穿越、只列有部署的工具）。
 - 真 server（DB 副本、build 後的 server 起在 3999、版本放 word＋film，另一版只放 film）：
   `node scripts/ui-checks/office-live-check.mjs <url> <DB 副本> <OFFICE_DIST_DIR>`，給了 OFFICE_DIST_DIR 會暫時切版驗「舊版本網址照常可用」再切回來。
   ⚠️ 第二個版本**不能跟第一版有同一個 word**：同一份 build 的 hash 檔名一樣，「忽略網址版本、一律用 CURRENT」的突變照樣 200，驗不出混版。
   ⚠️ 拿不到目前版本時腳本不會進切版那段——曾經把 CURRENT 寫成 `null`，之後每一輪都跟著壞。
   ⚠️ 路徑穿越不能用 `fetch` 測：WHATWG URL 會先把 `%2e%2e` 正規化，送出去的根本不是那條路徑（曾經因此看到假的 200）。腳本改用 `http.get` 送原始路徑。
-- 注入（v5.68.1）：拿掉權限檢查 → 紅 3；router 掛到 SPA fallback 後面 → 紅 33；拿掉 `..` 與前綴檢查 → 紅 3；
-  sw.js 也要登入 → 紅 2；忽略網址版本、一律用 CURRENT → 紅 3（含「切版後舊版 WASM 404」）。
+- 注入（v5.68.2）：拿掉權限檢查 → 紅 3；router 掛到 SPA fallback 後面 → 紅 33；拿掉 `..` 與前綴檢查 → 紅 3；
+  sw.js 也要登入 → 紅 5；忽略網址版本、一律用 CURRENT → 紅 3（含「切版後舊版 WASM 404」）；sw.js 比對解碼前的字串 → 紅 1（`%73w.js`）。
 - 瀏覽器（區網 IP）：側欄進文書工具 → 開 Word，iframe 內 WordCraft 正常跑起來（src 是 `/office/v/<版本>/word/`）；
-  切到 Dashboard 再回來，iframe 是同一個（window 上的標記還在）；Film 開新分頁；localhost 下 Film／Effect `crossOriginIsolated=true`；
+  切到 Dashboard、Game Show 圖片比對、Bonus V2 再回來，iframe 都是同一個（window 上的標記還在）；Film 開新分頁；localhost 下 Film／Effect `crossOriginIsolated=true`；
   Effect 載入後沒有殘留 SW 與快取，登出後重開導回首頁；普通版／修仙版、390px 手機寬無橫向捲動。
 
 ## 操作清單

@@ -105,8 +105,15 @@ export function releaseDirByName(baseDir: string, name: string): string | null {
  * 整串先解碼的話 `%2F` 會變成新的分隔字元，`..%2F..` 就繞過逐段檢查了。
  */
 export function resolveOfficePath(baseDir: string, pathname: string, current: string | null): OfficeTarget {
-  // 任何層的 sw.js 都換成「退役」Service Worker，見 OFFICE_RETIRE_SW
-  if (/^\/office\/.*\/sw\.js$/i.test(pathname)) return { kind: 'sw' }
+  // 任何層的 sw.js 都換成「退役」Service Worker，見 OFFICE_RETIRE_SW。
+  // ⚠️ 要比對**解碼後**的最後一段：原本比原始字串，`%73w.js` 解碼後一樣是 sw.js、照樣送出原本那支 SW（CodeX 複審 38f09fb [P1] 實際重現）。
+  // ⚠️ 也要在檢查版本存不存在**之前**：版本目錄被清掉後，註冊在那個 scope 的舊 SW 仍要換得掉。
+  if (/^\/office\//i.test(pathname)) {
+    const last = pathname.slice(pathname.lastIndexOf('/') + 1)
+    let name = ''
+    try { name = decodeURIComponent(last) } catch { /* 壞掉的編碼交給下面回 404 */ }
+    if (name.toLowerCase() === 'sw.js') return { kind: 'sw' }
+  }
 
   const v = /^\/office\/v\/([^/]+)\/([^/]+)(\/.*)?$/i.exec(pathname)
   if (v) {

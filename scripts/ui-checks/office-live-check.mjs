@@ -70,7 +70,15 @@ r = await get('/api/office/apps', P)
 check('/api/office/apps → 403', r.status === 403, String(r.status))
 
 console.log('== 管理員')
-check('/api/office/apps 只列有部署的', j.ok && j.deployed && j.apps.map(a => a.id).join(',') === 'word,film', JSON.stringify(j.apps?.map(a => a.id)))
+{
+  // 給了 OFFICE_DIST_DIR 就對照版本目錄裡實際有 index.html 的工具；沒給就至少要有 word、film
+  const got = (j.apps ?? []).map(a => a.id)
+  const want = officeDir && relOk
+    ? readdirSync(join(officeDir, 'releases', REL)).filter(n => { try { return readFileSync(join(officeDir, 'releases', REL, n, 'index.html')).length > 0 } catch { return false } })
+    : null
+  const same = want ? got.length === want.length && want.every(x => got.includes(x)) : ['word', 'film'].every(x => got.includes(x))
+  check('/api/office/apps 只列有部署的', j.ok && j.deployed && same, `${JSON.stringify(got)}${want ? ' vs 目錄 ' + JSON.stringify(want) : ''}`)
+}
 check('film 標成需要獨立分頁', j.apps?.find(a => a.id === 'film')?.isolate === true)
 r = await get('/office/word/', { ...A, ...DOC })
 check('入口 → 302 到目前版本', r.status === 302 && r.headers.get('location') === `${W}/`, `${r.status} ${r.headers.get('location')}`)
@@ -106,6 +114,11 @@ for (const p of [`${W}/..%2F..%2F..%2FCURRENT`, `${W}/%2e%2e/%2e%2e/%2e%2e/CURRE
   '/office/nope/', `${W}/missing.js`, `/office/v/${REL}/excel/`]) {
   const s = await rawGet(p, { ...A, ...SUB })
   check(`${p} → 404`, s === 404, String(s))
+}
+// %73w.js 解碼後就是 sw.js：未登入也要拿到退役版（200），不能走到一般檔案那條（會 401／送出原本的 SW）
+for (const p of [`/office/v/${REL}/effect/%73w.js`, `/office/v/${REL}/effect/SW.JS`, '/office/v/deleted-release/effect/sw.js']) {
+  const s = await rawGet(p, SUB)
+  check(`未登入 ${p} → 200 退役版`, s === 200, String(s))
 }
 r = await get(`${W}/index.html`, A, 'POST')
 check('POST → 405', r.status === 405, String(r.status))

@@ -1091,8 +1091,8 @@ function App() {
             {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
             {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
           </>
-        ) : (
-          <main className={`main-content${currentGroup?.id === 'weekly-report' || currentGroup?.id === 'office' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
+        ) : currentGroup?.id === 'office' ? null : (
+          <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {(currentGroup?.id === 'jira' || (meegleBindTrip && currentGroup?.id === 'account')) && (
               <div hidden={currentGroup?.id !== 'jira'}>
@@ -1102,11 +1102,6 @@ function App() {
             )}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
-            {officeAllowed && (officeKept || currentGroup?.id === 'office') && (
-              <div hidden={currentGroup?.id !== 'office'}>
-                <OfficePage themeMode={themeMode} onOpenCountChange={setOfficeOpenCount} />
-              </div>
-            )}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
@@ -1130,6 +1125,13 @@ function App() {
             {currentGroup?.id === 'account' && <MeegleAccountPage themeMode={themeMode} onBack={meegleBindTrip ? () => { setActiveGroup('jira'); setActiveTab('jira') } : undefined} />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
             {currentGroup?.id === 'knowledge' && <KnowledgePage />}
+          </main>
+        )}
+        {/* 文書工具：進過一次就保持掛載，切到任何一頁（含會換掉整個 <main> 的 Game Show 圖片比對／Bonus V2）都不卸載 iframe（CodeX 複審 38f09fb [P1]）。
+            用 style 隱藏不用 hidden 屬性：.main-content 有設 display，會蓋過 [hidden] */}
+        {officeAllowed && (officeKept || currentGroup?.id === 'office') && (
+          <main className="main-content main-content--full" style={currentGroup?.id === 'office' ? undefined : { display: 'none' }}>
+            <OfficePage themeMode={themeMode} onOpenCountChange={setOfficeOpenCount} />
           </main>
         )}
         </Suspense>
