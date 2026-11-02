@@ -770,14 +770,16 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   }
   /** runs 本來就已經抓進來了（右欄「執行紀錄」用的同一份），直接取最近一筆 */
   const lastRunOf = (scriptId: string) => runs.find(run => run.script_id === scriptId)
-  const lastRunText = (run: AutoRun) => {
+  const lastRunParts = (run: AutoRun) => {
     const when = run.finished_at ?? run.started_at
     const stamp = when ? new Date(when).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : ''
     // ⚠️ 只認得 pass／fail 兩種就好。其他狀態（執行中、取消）寫「—」而不是猜一個圖示，
     //    猜錯的話畫面會說「上次成功」而其實是被取消的。
-    const mark = run.result === 'pass' ? '✅' : run.result === 'fail' ? '❌' : '—'
-    return `${'上次'} ${mark} ${stamp}`
+    const mark = run.result === 'pass' ? '✓' : run.result === 'fail' ? '✕' : '—'
+    return { status: `${'上次'} ${mark}`, stamp }
   }
+  /** 完整一句（膠囊的 title）；卡片上狀態放膠囊、時間放第二行 */
+  const lastRunText = (run: AutoRun) => { const p = lastRunParts(run); return `${p.status} ${p.stamp}` }
 
   const queueDone = queue.filter(item => item.state === 'done').length
   const queueFailed = queue.filter(item => item.state === 'error').length
@@ -886,10 +888,10 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
                   「紅或綠」，說不出什麼時候跑的；而「這支上次跑成功了嗎」正是
                   決定要不要點開的依據。要再拿掉的話拿掉文字就好，別把圓點加回來。 */}
               <button type="button" onClick={() => selectScript(script.id)}>
-                <span><strong>{script.name}</strong><small>
+                <span><span className="uat-script-card-head"><strong>{script.name}</strong>{lastRunOf(script.id) && <b className={`uat-last-run${lastRunOf(script.id)!.result === 'pass' ? ' is-ok' : lastRunOf(script.id)!.result === 'fail' ? ' is-bad' : ''}`} title={lastRunText(lastRunOf(script.id)!)}>{lastRunParts(lastRunOf(script.id)!).status}</b>}</span><small>
                   {script.owner_email ? script.owner_email.split('@')[0] : script.created_by} · {parseSteps(script.steps).length} {'區塊'}
                   {bindingCount(script) > 0 && <> · {`綁 ${bindingCount(script)} TC`}</>}
-                  {lastRunOf(script.id) && <> · {lastRunText(lastRunOf(script.id)!)}</>}
+                  {lastRunOf(script.id) && lastRunParts(lastRunOf(script.id)!).stamp && <> · {lastRunParts(lastRunOf(script.id)!).stamp}</>}
                 </small></span>
               </button>
               {filter === 'all' && inMine && <span className="uat-row-tag">{'已在我的'}</span>}
@@ -960,7 +962,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
               : <button type="button" className="uat-btn is-primary" disabled={!queueIds.length || running} onClick={runQueue}>{'依序執行勾選的腳本'}</button>}
           </div>
           <p className="uat-hint">
-            {'⚠️ 一次只跑一份。中途失敗或取消，後面的會全部標成「取消」而不是留在等待中——留著的話你會以為它還會跑。'}
+            {'一次只跑一份。中途失敗或取消，後面的會全部標成「取消」而不是留在等待中——留著的話你會以為它還會跑。'}
           </p>
         </section>
 
@@ -973,12 +975,12 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
           </div>
           <label>{copy.scriptName}<input className="uat-field" value={name} onChange={event => { setName(event.target.value); setDirty(true) }} placeholder={copy.scriptName} /></label>
           {!!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
-            <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
+            <p>這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
             {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
           </div>}
           {!!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
           {!!unassignedSteps.length && <div className="uat-multi-alert" role="alert">
-            <p>⚠️ 這些檢查／截圖<strong>還沒指定所屬 TC</strong>，直接執行會被擋下來（結果不知道要回寫到哪一筆）：</p>
+            <p>這些檢查／截圖<strong>還沒指定所屬 TC</strong>，直接執行會被擋下來（結果不知道要回寫到哪一筆）：</p>
             {unassignedSteps.map(line => <div key={line}>{line}</div>)}
           </div>}
           <div className="uat-step-summary">

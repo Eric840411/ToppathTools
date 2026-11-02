@@ -31,14 +31,17 @@ export const sortScriptsByNumber = <T extends { title: string; id?: string }>(xs
  * 順序：停止 → 失敗 → 受阻 → 未驗（含沒有結果）→ 通過
  */
 export type LastRun = { at: number; pass: number; fail: number; blocked: number; unverified?: number; total: number; dryRun: boolean; stopped: boolean }
-export function lastRunText(r: LastRun | null | undefined): { text: string; cls: '' | 'is-ok' | 'is-bad' | 'is-warn' } {
-  if (!r) return { text: '尚未執行', cls: '' }
+type LastRunCls = '' | 'is-ok' | 'is-bad' | 'is-warn'
+/** text＝完整一句（含時間）；status／when 是同一句拆開（清單卡片：狀態放膠囊、時間放第二行） */
+export function lastRunText(r: LastRun | null | undefined): { text: string; status: string; when: string; cls: LastRunCls } {
+  if (!r) return { text: '尚未執行', status: '尚未執行', when: '', cls: '' }
   const when = new Date(r.at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-  if (r.stopped) return { text: `上次已停止 ${when}`, cls: 'is-warn' }
-  if (r.fail) return { text: `上次失敗 ${r.fail}/${r.total} ${when}`, cls: 'is-bad' }
-  if (r.blocked) return { text: `上次受阻 ${r.blocked}/${r.total} ${when}`, cls: 'is-warn' }
-  if (r.total === 0 || r.pass !== r.total) return { text: `上次未驗 ${r.total - r.pass}/${r.total} ${when}`, cls: 'is-warn' }
-  return { text: `上次${r.dryRun ? '試跑' : ''}通過 ${r.pass}/${r.total} ${when}`, cls: 'is-ok' }
+  const out = (status: string, cls: LastRunCls) => ({ text: `${status} ${when}`, status, when, cls })
+  if (r.stopped) return out('上次已停止', 'is-warn')
+  if (r.fail) return out(`上次失敗 ${r.fail}/${r.total}`, 'is-bad')
+  if (r.blocked) return out(`上次受阻 ${r.blocked}/${r.total}`, 'is-warn')
+  if (r.total === 0 || r.pass !== r.total) return out(`上次未驗 ${r.total - r.pass}/${r.total}`, 'is-warn')
+  return out(`上次${r.dryRun ? '試跑' : ''}通過 ${r.pass}/${r.total}`, 'is-ok')
 }
 
 /**

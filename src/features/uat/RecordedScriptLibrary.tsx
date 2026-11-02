@@ -177,8 +177,8 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
         {tab === 'mine' && <span className={`uat-drag-grip${canDrag ? '' : ' is-off'}`} aria-hidden="true">⋮⋮</span>}
         <input type="checkbox" aria-label={`勾選 ${script.title}`} disabled={disabled || !script.id} checked={selectedIds.includes(script.id || '')} onChange={e => onSelection(e.target.checked ? [...selectedIds, script.id!] : selectedIds.filter(id => id !== script.id))} />
         <button className="uat-backend-tc" disabled={disabled} onClick={() => onOpen(script)}>
-          <span title={script.title}>{script.title}</span>
-          <em className="has-steps">{script.createdBy ? `${script.createdBy.split('@')[0]} · ` : ''}{script.steps.filter(s => !s.disabled).length} 步 · 綁 {script.bindings.length} TC · <b className={`uat-last-run ${lr.cls}`}>{lr.text}</b>{script.running ? ' · 執行中' : ''}</em>
+          <span className="uat-script-card-head"><span title={script.title}>{script.title}</span><b className={`uat-last-run ${lr.cls}`} title={lr.text}>{lr.status}</b></span>
+          <em className="has-steps">{script.createdBy ? `${script.createdBy.split('@')[0]} · ` : ''}{script.steps.filter(s => !s.disabled).length} 步 · 綁 {script.bindings.length} TC{lr.when ? ` · ${lr.when}` : ''}{script.running ? ' · 執行中' : ''}</em>
         </button>
         {tab === 'all' && info?.inMine && <span className="uat-row-tag">已在我的</span>}
         {others && <span className="uat-row-tag">別人的</span>}

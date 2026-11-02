@@ -1,0 +1,339 @@
+/* ══════════════════════════════════════════════════════════════════
+   UAT 整合測試（原型 v7）：
+   - 頁首右側（PageActions）：新手指引
+   - 執行位置一列（派工下拉＋重新整理在上，Agent 狀態在下）
+   - 左對齊的小分頁（原型 .tabs）
+   - 步驟條：置中圓點＋連線（原型 .steps／.stp），右端保留 每日排程／主要按鈕
+   - 三欄：錄製腳本 ／ 腳本執行順序（含統計磚與待處理項目）／ 執行設定
+   - 兩欄：網路監測 ／ 即時執行日誌（原本在三欄之上，改版排到下面）
+   版面規則兩種主題都套（顏色用 --uat-* 會跟著主題走）；原型配色只在普通版。功能不動。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 頁首右側：新手指引（portal 出 .uat-studio，--uat-* 變數拿不到，用 --rd-*） ── */
+:root[data-ui="redesign"] .main-content #rd-page-actions .uat-guide-open,
+:root[data-ui="redesign"] #rd-page-actions .uat-guide-open {
+  align-self: auto; height: 36px; padding: 0 18px; border-radius: 7px; opacity: 1;
+  font-size: 13px; font-weight: 600; line-height: 1;
+  border: 1px solid var(--rd-line-2, #2d3f55); color: var(--rd-fg-2, #94a3b8);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"] #rd-page-actions .uat-guide-open:hover { color: var(--rd-fg, #e2e8f0); border-color: var(--rd-accent, #3b82f6); }
+/* 頁首下面那行介紹收掉：原型從頁首分隔線直接接執行位置列（新手指引已搬進頁首，這一塊只剩介紹） */
+:root[data-ui="redesign"] .uat-studio .uat-page-header { display: none; }
+
+/* ── 執行位置列：派工下拉＋重新整理排第一列，Agent 狀態換到第二列 ── */
+:root[data-ui="redesign"] .uat-studio .uat-agent-bar {
+  flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 16px; border-radius: 10px;
+}
+:root[data-ui="redesign"] .uat-studio .uat-agent-pick {
+  order: -2; flex: 1 1 calc(100% - 140px); min-width: 0; max-width: none; padding-left: 0; border-left: 0;
+}
+:root[data-ui="redesign"] .uat-studio .uat-agent-pick label > span {
+  padding: 1px 8px; border-radius: 5px; font-size: 12px;
+  background: var(--uat-panel-soft); border: 1px solid var(--uat-border); color: var(--uat-muted);
+}
+:root[data-ui="redesign"] .uat-studio .uat-agent-pick select { height: 34px; }
+:root[data-ui="redesign"] .uat-studio .uat-agent-actions { order: -1; margin-left: auto; padding-left: 0; border-left: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-agent-lead { padding-right: 12px; }
+:root[data-ui="redesign"] .uat-studio :is(.uat-agent-chips, .uat-agent-empty) { flex: 1 1 300px; }
+
+/* ── 分頁：原型 .tabs（左對齊、凹槽底、小顆） ── */
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs {
+  display: flex; gap: 4px; align-self: flex-start; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+  padding: 4px; border: 0; border-radius: 10px; background: var(--uat-panel-soft); box-shadow: var(--rd-well, none);
+}
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs button {
+  flex: none; display: inline-flex; align-items: baseline; gap: 0; min-height: 0; padding: 7px 16px; border-radius: 7px;
+  color: var(--uat-muted); white-space: nowrap;
+}
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs :is(strong, small) { font-size: 14px; font-weight: 500; color: inherit; }
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs small { display: inline; opacity: 1; }
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs small::before { content: "·"; margin: 0 7px; }
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs button:hover { color: var(--uat-text); background: transparent; }
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs button.is-active { color: var(--uat-text); box-shadow: none; }
+:root[data-ui="redesign"] .uat-studio .uat-main-tabs button.is-active :is(strong, small) { font-weight: 600; color: inherit; }
+
+/* ── 工作區：拆掉外框，每一欄自己是一張面板 ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-workbench {
+  grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; min-height: 0; overflow: visible;
+  border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+/* 三欄以外的直屬區塊（步驟條、提示列、錄製中列…）一律跨滿，不要掉進某一格 */
+:root[data-ui="redesign"] .uat-studio .uat-backend-workbench > :not(.uat-backend-plan):not(.uat-backend-center):not(.uat-backend-settings) { grid-column: 1 / -1; }
+/* 網路監測＋即時日誌排到三欄後面（DOM 不動，只改顯示順序；原型的順序） */
+:root[data-ui="redesign"] .uat-studio .uat-backend-workbench > .uat-backend-bottom { order: 1; }
+
+:root[data-ui="redesign"] .uat-studio :is(.uat-backend-plan, .uat-backend-settings) {
+  padding: 0 16px 16px; border: 1px solid var(--uat-border); border-radius: 10px;
+  background: var(--uat-panel); box-shadow: var(--uat-shadow);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-center { padding: 0; gap: 16px; background: transparent; }
+:root[data-ui="redesign"] .uat-studio .uat-notice { border: 1px solid color-mix(in srgb, var(--uat-primary) 22%, var(--uat-border)); border-radius: 8px; }
+
+/* ── 步驟條：原型 .steps／.stp ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch {
+  align-items: center; gap: 12px 20px; padding: 14px 16px; border: 1px solid var(--uat-border); border-radius: 10px;
+  background: var(--uat-panel); box-shadow: var(--uat-shadow);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-steps { flex: 1 1 420px; gap: 6px 0; min-width: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-launch-step {
+  position: relative; flex: 1 0 110px; flex-direction: column; align-items: center; gap: 6px;
+  padding: 0; border: 0; background: none; font-size: 12.5px; color: var(--uat-muted); text-align: center;
+}
+:root[data-ui="redesign"] .uat-studio .uat-launch-step + .uat-launch-step::before {
+  content: ""; position: absolute; top: 15px; left: -50%; right: 50%; height: 3px; margin: 0; border-radius: 2px;
+  background: var(--uat-border-strong); opacity: 1;
+}
+:root[data-ui="redesign"] .uat-studio .uat-launch-step i {
+  position: relative; z-index: 1; width: 32px; height: 32px; font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+:root[data-ui="redesign"] .uat-studio .uat-launch-step.is-done { color: var(--uat-text); }
+/* 連線只在「兩端都已完成」時上色。
+   ⚠️ 不推算「目前在第幾步」：.is-done 是元件原本就有的 step.done（舊麵包屑同一份狀態），
+   這裡只把它畫成 ✓；沒完成的一律是普通編號，不另外標「目前這一步」。 */
+:root[data-ui="redesign"] .uat-studio .uat-launch-step.is-done + .uat-launch-step.is-done::before { background: var(--uat-primary); }
+/* 完成的步驟顯示 ✓（號碼還在 DOM 裡，只是不畫） */
+:root[data-ui="redesign"] .uat-studio .uat-launch-step.is-done i { font-size: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-launch-step.is-done i::after { content: "✓"; font-size: 15px; }
+/* 為什麼還不能跑／可以開始：放步驟條下面一整列 */
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-steps > :is(.uat-launch-block, .uat-launch-ready) {
+  flex: 1 0 100%; margin: 4px 0 0; text-align: center;
+}
+/* 步驟條吃滿整張面板；每日排程／主要按鈕等換到自己那一列（靠右，上面一條分隔線） */
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch { flex-wrap: wrap; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-steps { flex: 1 0 100%; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-cta {
+  flex: 1 0 100%; width: 100%; margin-left: 0; justify-content: flex-end; flex-wrap: wrap;
+  padding-top: 12px; border-top: 1px solid var(--uat-border);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-cta { gap: 10px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-cta .uat-btn { padding: 0 18px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-launch-cta .uat-btn.is-wide { width: auto; }
+
+/* ── 面板標題帶（原型 .panel-h）：拿掉英文小標，標題左側色條，底下分隔線 ── */
+:root[data-ui="redesign"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+) {
+  position: relative; margin: 0 -16px 14px; padding: 11px 16px 11px 29px; border-bottom: 1px solid var(--uat-border);
+  border-radius: 10px 10px 0 0;
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-backend-flow-head:first-child > .uat-section-title { padding: 0; margin: 0; border: 0; }
+:root[data-ui="redesign"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+)::before {
+  content: ""; position: absolute; left: 16px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
+  background: var(--uat-primary);
+}
+:root[data-ui="redesign"] .uat-studio :is(.uat-section-title, .uat-pane-heading, .uat-net-head) h3 { margin: 0; font-size: 14px; font-weight: 700; }
+:root[data-ui="redesign"] .uat-studio :is(.uat-section-title p, .uat-pane-heading small) { margin: 3px 0 0; font-size: 12px; }
+/* 標題帶有說明時，色條對齊標題那一行，不是整帶置中 */
+:root[data-ui="redesign"] .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child
+)::before { top: 13px; margin-top: 0; }
+/* 帶標題的面板：內距改成「標題帶貼邊、內容 16px」 */
+:root[data-ui="redesign"] .uat-studio :is(.uat-backend-center > .uat-panel:has(> .uat-section-title:first-child), .uat-net-panel, .uat-backend-bottom .uat-backend-log) {
+  padding: 0 16px 16px; border-radius: 10px;
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-center > .uat-panel:not(:has(> .uat-section-title:first-child)) { padding: 14px 16px; border-radius: 10px; }
+
+/* ── 下排：網路監測 ／ 即時日誌，兩欄等寬，各自一張面板 ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-bottom {
+  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0; border: 0; background: transparent;
+}
+/* 日誌：原型 .log 高 160、左右內縮 10px（標題帶跟著改成 -10px 才會貼齊面板邊） */
+:root[data-ui="redesign"] .uat-studio .uat-backend-bottom > .uat-panel.uat-backend-log.uat-backend-log { padding: 0 10px 10px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-bottom > .uat-panel.uat-backend-log > .uat-log-toolbar.uat-log-toolbar { margin: 0 -10px 0; padding-top: 7px; padding-bottom: 7px; padding-right: 10px; min-height: 44px; }
+/* 標題帶裡的「清除」改小顆，帶子才會是原型的 44px */
+:root[data-ui="redesign"] .uat-studio .uat-backend-log > .uat-log-toolbar .uat-btn.uat-btn { min-height: 28px; padding: 0 12px; font-size: 12px; }
+/* 日誌框直接接在標題帶下面 */
+:root[data-ui="redesign"] .uat-studio .uat-backend-bottom > .uat-panel.uat-backend-log > pre { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-bottom .uat-backend-log pre { min-height: 160px; height: 160px; max-height: 340px; resize: vertical; }
+
+/* ── 錄製腳本清單：原型卡片（整張外框；第一行名稱＋上次結果膠囊、第二行步數資訊；勾選框收進卡片左側） ── */
+.uat-script-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+/* ⚠️ 舊規則 .uat-script-library-list .uat-backend-tc > span 是 display:block，會把名稱與膠囊疊成兩行——這裡要壓過它 */
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-backend-tc > .uat-script-card-head,
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-item > button > span > .uat-script-card-head { display: flex; flex-wrap: nowrap; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-library-list { gap: 8px; margin: 0; padding: 0; border-left: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-list { display: flex; flex-direction: column; gap: 8px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row, .uat-script-item) {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; min-width: 0;
+  padding: 10px 12px; border: 1px solid var(--uat-border-strong); border-radius: 9px; background: var(--uat-panel-soft);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row, .uat-script-item) > input { flex: none; margin: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row, .uat-script-item) > .uat-drag-grip { margin: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row .uat-backend-tc, .uat-script-item > button) {
+  flex: 1; min-width: 0; padding: 0; border: 0; background: transparent;
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-select-row .uat-backend-tc { gap: 4px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-item > button > span { gap: 4px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head > :is(span, strong) {
+  display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 700; color: var(--uat-text);
+}
+/* 上次結果 → 原型 .pill（文字照舊，只換外觀） */
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head .uat-last-run {
+  --c: var(--uat-muted);
+  display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 100%; padding: 1px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head .uat-last-run::before {
+  content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor;
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head .uat-last-run.is-ok { --c: #34d399; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head .uat-last-run.is-bad { --c: #f87171; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan .uat-script-card-head .uat-last-run.is-warn { --c: #fbbf24; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row .uat-backend-tc > em, .uat-script-item small) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--uat-muted);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan :is(.uat-script-select-row, .uat-script-item) > .uat-row-tag { flex: none; }
+
+/* ── 錄製腳本面板的順序：錄製新腳本那排移到清單下面、靠右（DOM 不動） ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan { display: flex; flex-direction: column; gap: 10px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > * { margin-top: 0; margin-bottom: 0; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > :is(.uat-section-title, .uat-backend-flow-head):first-child { margin-bottom: 4px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-tc-record-actions { order: 1; display: flex; justify-content: flex-end; gap: 8px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-tc-record-actions .uat-btn { flex: none; width: auto; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-tc-record-actions + .uat-inline-hint { order: 1; text-align: right; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-script-select-bar,
+:root[data-ui="redesign"] .uat-studio .uat-backend-plan > .uat-script-select-bar ~ * { order: 2; }
+
+/* ── 執行設定：原型 .form（左 96px 標籤、右欄位；說明文字在欄位下面） ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-settings-form > label:not(.uat-check) {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 6px 14px;
+  font-size: 13px; font-weight: 400; color: var(--uat-muted);
+}
+:root[data-ui="redesign"] .uat-studio .uat-backend-settings-form > label:not(.uat-check) > * { grid-column: 2; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-settings-form > label:not(.uat-check) > :is(input, select) { height: 34px; }
+/* 掃描 Lark TC 等表單內按鈕：對齊欄位那一欄、不拉滿 */
+:root[data-ui="redesign"] .uat-studio .uat-backend-settings-form > .uat-btn { align-self: flex-start; width: auto; margin-left: 110px; }
+:root[data-ui="redesign"] .uat-studio .uat-backend-settings-form > .uat-check { margin-left: 110px; }
+
+/* ── 統計磚：原型 .stat（標籤在上、數字在下、整格色調） ── */
+:root[data-ui="redesign"] .uat-studio .uat-backend-center .uat-stat-grid { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px; }
+:root[data-ui="redesign"] .uat-studio .uat-stat {
+  --c: var(--uat-primary);
+  flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; min-width: 0;
+  padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); border-radius: 10px;
+}
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-pass { --c: #34d399; }
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-fail { --c: #f87171; }
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-manual { --c: #a78bfa; }
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-skip { --c: #94a3b8; }
+:root[data-ui="redesign"] .uat-studio .uat-stat span { font-size: 12.5px; font-weight: 500; }
+:root[data-ui="redesign"] .uat-studio .uat-stat strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 24px; font-weight: 600; line-height: 1.2;
+  font-variant-numeric: tabular-nums; color: var(--c);
+}
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-zero strong { color: var(--uat-muted); }
+:root[data-ui="redesign"] .uat-studio .uat-stat.is-time em { text-align: left; }
+
+/* ── 按鈕：原型 .btn 尺寸（36px、圓角 7） ── */
+:root[data-ui="redesign"] .uat-studio .uat-btn:not(.is-mini) { min-height: 36px; padding: 0 16px; border-radius: 7px; }
+/* 腳本清單底下那排（全選／清除勾選／加入我的／刪除＋已勾 N 份）在 1/3 欄寬放不下 16px 內距 */
+:root[data-ui="redesign"] .uat-studio .uat-script-select-bar .uat-btn:not(.is-mini) { padding: 0 11px; }
+
+/* ══════════════ 普通版配色（原型） ══════════════ */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio {
+  --uat-panel: var(--rd-panel); --uat-panel-soft: var(--rd-bg-2); --uat-border: var(--rd-line); --uat-border-strong: var(--rd-line-2);
+  --uat-text: var(--rd-fg); --uat-muted: var(--rd-fg-3); --uat-primary: var(--rd-accent); --uat-shadow: var(--rd-elev-2);
+}
+/* 面板：跟其他頁的 .section-card 同一套浮起漸層 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
+  box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio :is(.uat-agent-bar.is-none, .uat-agent-bar.is-error, .uat-agent-bar.is-anon) {
+  border-color: color-mix(in srgb, var(--uat-danger) 45%, var(--rd-line-2));
+}
+/* 英文小標拿掉：原型面板只有中文標題 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio :is(.uat-section-title > span:first-child, .uat-pane-heading span, .uat-net-kicker) { display: none; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio :is(
+  .uat-backend-plan > .uat-section-title:first-child,
+  .uat-backend-plan > .uat-backend-flow-head:first-child,
+  .uat-backend-settings > .uat-pane-heading:first-child,
+  .uat-backend-center > .uat-panel > .uat-section-title:first-child,
+  .uat-net-panel > .uat-net-head,
+  .uat-backend-log > .uat-log-toolbar
+)::before { box-shadow: 0 0 8px var(--rd-glow); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-section-title p,
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-pane-heading small { color: var(--rd-fg-3); text-shadow: none; }
+
+/* 分頁選中：原型 .tab[aria-selected] */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-main-tabs { background: var(--rd-bg-2); box-shadow: var(--rd-well); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-main-tabs button { color: var(--rd-fg-2); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-main-tabs button.is-active {
+  color: var(--rd-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel)));
+  box-shadow: var(--rd-elev-1);
+}
+
+/* 步驟條：完成＝實心漸層圓點 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-launch-step i {
+  background: var(--rd-panel-2); border-color: var(--rd-line-2); color: var(--rd-fg-3); box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-launch-step.is-done i {
+  background: linear-gradient(180deg, var(--rd-accent-2), var(--rd-accent)); border-color: transparent; color: #fff;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-launch-step.is-done + .uat-launch-step.is-done::before { background: var(--rd-accent); }
+
+/* 統計磚：原型 .stat 的色調底 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-stat {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
+  box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-stat span { color: var(--rd-fg-2); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-stat strong { text-shadow: 0 2px 0 rgba(0, 0, 0, .45); }
+
+/* 次要按鈕：原型 .btn（玻璃按鍵） */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-btn:is(.is-quiet, :not(.is-primary):not(.is-danger):not(.is-danger-quiet):not(.is-mini)) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
+  border-color: var(--rd-line-2); color: var(--rd-fg-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-btn:is(.is-quiet, :not(.is-primary):not(.is-danger):not(.is-danger-quiet):not(.is-mini)):hover:not(:disabled) { color: var(--rd-fg); border-color: var(--rd-accent); filter: none; }
+
+/* 日誌：凹槽 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .uat-studio .uat-backend-log pre {
+  background: color-mix(in srgb, var(--rd-bg) 60%, transparent); box-shadow: var(--rd-well); border-radius: 8px;
+}
+
+/* ── 窄螢幕 ── */
+@media (max-width: 1280px) {
+  :root[data-ui="redesign"] .uat-studio .uat-backend-workbench { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root[data-ui="redesign"] .uat-studio .uat-backend-workbench > .uat-backend-settings { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  :root[data-ui="redesign"] .uat-studio .uat-backend-workbench,
+  :root[data-ui="redesign"] .uat-studio .uat-backend-bottom { grid-template-columns: minmax(0, 1fr); }
+  :root[data-ui="redesign"] .uat-studio .uat-agent-pick { flex-basis: 100%; }
+  :root[data-ui="redesign"] .uat-studio .uat-backend-launch-cta { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+}

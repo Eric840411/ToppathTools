@@ -911,7 +911,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
                 <option value="cp">CP（uat-cp.osmslot.org）</option>
                 <option value="nc">NC（uat-nc.osmslot.org）</option>
               </select>
-              <small>錄製與執行都會用這個站台。⚠️ 兩個站台的登入帳密是分開存的，換站台要確認上面那組帳密也是那個站台的，否則會停在登入頁（症狀是每一步都說找不到元素）。</small>
+              <small>錄製與執行都會用這個站台。兩個站台的登入帳密是分開存的，換站台要確認上面那組帳密也是那個站台的，否則會停在登入頁（症狀是每一步都說找不到元素）。</small>
             </label>
             <label id="uat-focus-lark">{'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : '掃描 Lark TC'}</button>

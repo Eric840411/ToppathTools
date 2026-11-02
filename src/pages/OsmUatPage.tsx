@@ -5,6 +5,7 @@ import { FrontendAutomationStudio } from '../features/uat/FrontendAutomationStud
 import { UatAgentBar } from '../features/uat/UatAgentBar'
 import type { UatMainTab, UatThemeMode } from '../features/uat/types'
 import '../features/uat/UatStudio.css'
+import { PageActions } from '../redesign/PageActions'
 
 const TABS: Array<{ id: UatMainTab; label: string; description: string }> = [
   { id: 'backend', label: 'Backend', description: 'Lark TC Runner' },
@@ -38,9 +39,12 @@ export function OsmUatPage({ themeMode }: { themeMode: UatThemeMode }) {
           <p>{'集中管理 Backend、H5 與 PC 測試流程；錄製後可直接拆成積木，綁上 Lark TC 就會依 TC 判定並回寫。'}</p>
         </div>
         {/* 指引要隨時叫得出來：第一次自動播完之後，忘記某一步的人只能靠這顆 */}
-        <button type="button" className="uat-guide-open" onClick={() => setGuideOpen(true)}>
-          {'新手指引'}
-        </button>
+        {/* 新版外框：搬到頁首右側（PageActions）；沒有頁首的外框會原地畫 */}
+        <PageActions>
+          <button type="button" className="uat-guide-open" onClick={() => setGuideOpen(true)}>
+            {'新手指引'}
+          </button>
+        </PageActions>
       </header>
       {/* ⚠️ 這裡原本是一顆**寫死**的「Runner Ready／靈脈穩定」——一台 Agent 都沒有
           也照樣顯示。問題不是缺資訊，是在報一個假的綠燈，所以直接換掉而不是並存。
