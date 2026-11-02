@@ -650,8 +650,8 @@
   border: 1px solid color-mix(in srgb, var(--c) 30%, transparent) !important; box-shadow: var(--rd-elev-2) !important;
 }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-ok) { --c: #34d399; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-blue) { --c: var(--rd-accent); }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-warn) { --c: var(--rd-ornament); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-blue) { --c: #4cc3ff; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-warn) { --c: #f5c04a; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric-value {
   font: 600 26px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace !important; color: var(--rd-fg) !important;
 }
@@ -679,3 +679,7 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-user .dashboard-avatar {
   background: var(--rd-accent-2) !important; color: var(--rd-accent-ink) !important; border-color: transparent !important; box-shadow: none !important;
 }
+/* CodeX 複審：取色自原型截圖（Connected #34d17a／Ready #4cc3ff／Busy #f5c04a）；Security 有 token 時是中性字＋中性磚（沒 token 的警示色照留） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-ok) { --c: #34d17a; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:nth-child(4):has(.local-agent-tone-ok) { --c: var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:nth-child(4) .local-agent-metric-value.local-agent-tone-ok { color: var(--rd-fg) !important; }
