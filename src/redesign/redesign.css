@@ -168,13 +168,15 @@
 @keyframes rd-squish { 0% { scale: 1 1; } 30% { scale: 1.22 .82; } 60% { scale: .94 1.06; } 100% { scale: 1 1; } }
 @keyframes rd-sweep { from { background-position: 100% 0; opacity: 1; } to { background-position: 0 0; opacity: 1; } }
 
+/* ⚠️ 只列「本來就是一張卡」的 class。.mb-pane 是 Meegle 步驟的內層容器、沒有左右內距，
+   當成卡片加框之後內容貼著邊框（使用者 1102 回報「邊框靠太近」）——內層容器不要加進來 */
 /* ── 內容區：浮起的面板（普通版；仙俠版有自己的卷軸框，只補立體陰影） ── */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) :is(.section-card, .mb-pane, .uat-panel, .osm-section, .dashboard-panel) {
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
   box-shadow: var(--rd-elev-2);
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .mb-pane, .uat-panel, .osm-section, .dashboard-panel) {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
   box-shadow: var(--rd-elev-2) !important;
 }
 
