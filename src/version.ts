@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.70.4'
+export const APP_VERSION = '5.71.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.71.0', date: '2026-11-02', changes: ["style(新版排版 Game Show 三頁)：使用者 1102「排版怎麼跟設計圖不一致／Game Show 三個都是」——Log 攔截工具改滿版、步驟只留標題（說明改滑過顯示）、注意事項縮成按鈕列一行；圖片比對、Bonus V2 照原型重排（標籤在左一列一欄、按鈕靠右、底線分頁、面板浮起、狀態列獨立面板），並跟著普通／仙俠切色。做法（CodeX 定案 B）：iframe 首次帶 ?ui=redesign&theme=，切模式用 postMessage（驗同源＋父視窗＋白名單），不重載 iframe 所以結果不會被清掉；沒帶參數（舊版外框、直接開網址、GameApp）長相完全不變。新增 /api/gs/redesign-frame.js／.css 兩頁共用。redesign-frame-check 驗 4 條，拿掉父視窗檢查會紅。Bonus V2 統計表是 5 欄真實資料，寬螢幕才四張並排、否則兩張"] },
   { version: '5.70.4', date: '2026-11-02', changes: ["style(新版排版 Game Show／Log 攔截工具)：照原型 v7——分頁改共用 .rd-tabs；使用步驟從左欄直列改成橫向六格步進條（靜態編號：產品不追蹤使用者做到哪一步，所以不照原型畫打勾／目前步驟）；注入腳本面板：主按鈕＋下載＋行數膠囊、注意事項保留、腳本直接顯示（原本要按『展開腳本預覽』）。Log Checker 介紹卡原型沒有，先保留待使用者決定。Log 結構比對分頁不動"] },
   { version: '5.70.3', date: '2026-11-02', changes: ["fix(新版 邊框貼太近)：使用者 1102 回報 Meegle 步驟框內容貼著邊框——新版把 .mb-pane（Meegle 步驟的內層容器、沒有左右內距）當成卡片加了框，內容就貼邊。拿掉，只留本來就是卡片的 class。新增 redesign-edge-gap 掃全站每一頁（兩版）找「框內文字離邊 < 10px」，Meegle 已不在名單；其餘命中都是刻意滿版（面板頭、凹槽表格、文書工具分頁列）"] },
   { version: '5.70.2', date: '2026-11-02', changes: ["style(新版排版 通知設定)：照原型 v7，①～④ 四張卡改成兩欄並排（窄螢幕回一欄）、標題前自動編號、卡片浮起；頁首已有說明，頁內說明行收掉"] },

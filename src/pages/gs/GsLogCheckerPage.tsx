@@ -206,7 +206,7 @@ export function GsLogCheckerPage() {
 
   return (
     <div className="gl-page">
-      {/* 新版：分頁列用共用 .rd-tabs（redesign/pages/kit.css）；步進條與腳本面板樣式在 redesign/pages/gs-log.css */}
+      {/* 新版：分頁列用共用 .rd-tabs（redesign/pages/kit.css）；步進條與腳本面板樣式在 redesign/pages/gs.css */}
       <div className="rd-tabs" role="tablist" aria-label="Log 工具">
         {([
           { key: 'checker', label: 'Log 攔截工具' },
@@ -249,10 +249,10 @@ export function GsLogCheckerPage() {
             <h3 className="section-title">使用步驟</h3>
             <ol className="gl-steps">
               {STEPS.map(s => (
-                <li key={s.n} className="gl-step">
+                // 設計圖只有標題；說明改成滑過顯示（使用者 1102：排版要跟設計圖一致）
+                <li key={s.n} className="gl-step" title={s.desc}>
                   <span className="gl-step-n">{s.n}</span>
                   <span className="gl-step-title">{s.title}</span>
-                  <span className="gl-step-desc">{s.desc}</span>
                 </li>
               ))}
             </ol>
@@ -270,15 +270,8 @@ export function GsLogCheckerPage() {
                 ⬇ 下載 .js
               </button>
               {script && <span className="gl-lines">{script.split('\n').length} 行</span>}
-            </div>
-
-            <div className="gl-note">
-              <strong>注意事項</strong>
-              <ul>
-                <li>僅在測試環境使用，勿長期掛載於正式站</li>
-                <li>每次測試前重新執行腳本，確保攔截器是最新版</li>
-                <li>如出現 CSP 限制，可嘗試在 DevTools Sources 注入</li>
-              </ul>
+              {/* 設計圖沒有注意事項區塊；內容要留，縮成按鈕列右側一行 */}
+              <span className="gl-note-inline">⚠ 僅限測試環境・每次測試前重新執行・遇 CSP 改在 DevTools Sources 注入</span>
             </div>
 
             {loading ? (

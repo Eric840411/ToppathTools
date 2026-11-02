@@ -53,7 +53,7 @@ import './redesign/page-head.css'
 import './redesign/pages/kit.css'
 import './redesign/pages/dashboard.css'
 import './redesign/pages/machine-test.css'
-import './redesign/pages/gs-log.css'
+import './redesign/pages/gs.css'
 import './redesign/pages/notify.css'
 import { TopControls } from './redesign/TopControls'
 import { NavIcon } from './redesign/NavIcon'
@@ -1108,10 +1108,12 @@ function App() {
           </div>
         }>
         {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
-          <>
-            {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
-            {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
-          </>
+          // 新版：iframe 頁也放進 main-content 加頁首（原本直接貼滿 app-main、頁首是 iframe 裡自己畫的）
+          <main className="main-content main-content--full main-content--frame">
+            <PageHead themeMode={themeMode} label={currentPageLabel} themeLabel={currentThemeLabel} description={currentDescription} />
+            {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page themeMode={themeMode} />}
+            {effectiveTab === 'gs-imgcompare' && <GsImgComparePage themeMode={themeMode} />}
+          </main>
         ) : currentGroup?.id === 'office' ? null : (
           <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             <PageHead themeMode={themeMode} label={currentPageLabel} themeLabel={currentThemeLabel} description={currentDescription} />

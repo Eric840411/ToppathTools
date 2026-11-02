@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bonus V2 電子骰機率驗證</title>
+  <!-- 新版外框（ui-redesign）：沒帶 ?ui=redesign 時這兩支什麼都不做 -->
+  <link rel="stylesheet" href="/api/gs/redesign-frame.css">
+  <script src="/api/gs/redesign-frame.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
@@ -187,6 +190,50 @@
     }
     .debug-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .debug-count { font-size: 11px; color: #64748b; }
+  </style>
+  <style>
+    /* ══ 新版外框（原型 v7）：只在 html[data-ui="redesign"] 生效；共用配色／面板在 redesign-frame.css。
+       這頁的顏色是寫死的十六進位，所以逐條覆寫；行內 style 的版面不動 ══ */
+    html[data-ui="redesign"] body { color: var(--rd-fg-2); }
+    html[data-ui="redesign"] .page-wrap { max-width: none; padding: 0 0 24px; }
+    /* 模式切換：膠囊 → 底線分頁（跟外框 .rd-tabs 一致） */
+    html[data-ui="redesign"] .mode-tabs { display: flex; background: none; border: 0; border-bottom: 1px solid var(--rd-line); border-radius: 0; padding: 4px 0 0; gap: 2px; margin-bottom: 16px; }
+    html[data-ui="redesign"] .mode-tab { position: relative; height: 38px; padding: 0 16px; border-radius: 6px 6px 0 0; color: var(--rd-fg-2); font-weight: 600; }
+    html[data-ui="redesign"] .mode-tab:hover { color: var(--rd-fg); background: color-mix(in srgb, var(--rd-panel) 70%, transparent); }
+    html[data-ui="redesign"] .mode-tab.active { color: var(--rd-fg); box-shadow: none; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--rd-accent) 12%, transparent)); }
+    html[data-ui="redesign"] .mode-tab.active::after {
+      content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px;
+      background: var(--rd-mark); box-shadow: 0 0 10px var(--rd-mark);
+    }
+    /* 欄位：一列一個、標籤在左（原型 v7）；label 裡的文字節點會變成格線的第一格 */
+    html[data-ui="redesign"] .card > .grid-2:has(> label.field) { grid-template-columns: 1fr; gap: 10px; }
+    html[data-ui="redesign"] label.field { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: center; gap: 12px; color: var(--rd-fg-2); font-size: 12.5px; }
+    html[data-ui="redesign"] .card > .btn-row { justify-content: flex-end; margin-top: 14px !important; }
+    html[data-ui="redesign"] .badge-indigo { background: color-mix(in srgb, var(--rd-accent) 14%, transparent); color: var(--rd-accent-2); }
+    html[data-ui="redesign"] .badge-slate { background: var(--rd-panel-2); color: var(--rd-fg-2); }
+    /* 按鈕 */
+    html[data-ui="redesign"] .btn-primary { background: var(--rd-accent); color: #fff; box-shadow: 0 1px 0 rgba(255,255,255,.2) inset, 0 2px 0 rgba(0,0,0,.35), 0 0 16px -4px var(--rd-glow); }
+    html[data-ui="redesign"] .btn-primary:hover:not(:disabled) { background: var(--rd-accent); filter: brightness(1.1); }
+    html[data-ui="redesign"][data-theme-mode="xianxia"] .btn-primary { color: #04110f; }
+    html[data-ui="redesign"] .btn-muted { background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.01)); border-color: var(--rd-line-2); color: var(--rd-fg-2); }
+    html[data-ui="redesign"] .btn-muted:hover:not(:disabled) { background: var(--rd-panel-2); color: var(--rd-fg); }
+    /* 狀態列：獨立面板、進度條凹槽 */
+    html[data-ui="redesign"] .status-bar { background: var(--rd-panel); border-color: var(--rd-line); border-radius: 12px; box-shadow: var(--rd-elev); }
+    html[data-ui="redesign"] #statusCount { color: var(--rd-fg); }
+    html[data-ui="redesign"] #statusMsg { color: var(--rd-fg-2); }
+    html[data-ui="redesign"] .progress-wrap { background: var(--rd-bg); box-shadow: var(--rd-well); }
+    html[data-ui="redesign"] #progressBar { background: var(--rd-accent); box-shadow: 0 0 10px var(--rd-glow); }
+    /* 統計表：每張凹進面板；寬螢幕四張並排（原型 v7），否則兩張 */
+    html[data-ui="redesign"] .stat-card { border-color: var(--rd-line); background: color-mix(in srgb, var(--rd-bg) 55%, transparent); box-shadow: var(--rd-well); }
+    html[data-ui="redesign"] .stat-card-head { background: var(--rd-panel-2); color: var(--rd-fg); border-bottom-color: var(--rd-line-2); }
+    html[data-ui="redesign"] .stat-card-head span { color: var(--rd-fg-3); }
+    @media (min-width: 1500px) { html[data-ui="redesign"] .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    html[data-ui="redesign"] td { color: var(--rd-fg); }
+    html[data-ui="redesign"] .detail-scroll { border-color: var(--rd-line); box-shadow: var(--rd-well); }
+    html[data-ui="redesign"] textarea.copy-box, html[data-ui="redesign"] #debugLog { background: var(--rd-bg); border-color: var(--rd-line-2); box-shadow: var(--rd-well); }
+    @media (max-width: 720px) {
+      html[data-ui="redesign"] label.field { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>

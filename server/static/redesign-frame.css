@@ -1,0 +1,41 @@
+/* ══ 新版外框（ui-redesign）：只有帶 ?ui=redesign 時才生效（server/static/redesign-frame.js 設 data-ui）。
+   沒帶參數（舊版外框、直接開網址）長相完全不變。DOM 不動，原本 JS 用的 id／class 都照舊。
+   配色跟外框 src/redesign/redesign.css 的 --rd-* 同一組值，兩邊改要一起改。 ══ */
+html[data-ui="redesign"] {
+  color-scheme: dark;
+  --rd-bg: #070d18; --rd-panel: #0e1a2e; --rd-panel-2: #12213a;
+  --rd-line: #1d3050; --rd-line-2: #284369;
+  --rd-fg: #e3ebf7; --rd-fg-2: #9fb0c8; --rd-fg-3: #6b7f9c;
+  --rd-accent: #4c8dff; --rd-accent-2: #7fb0ff; --rd-glow: rgba(76, 141, 255, .35);
+  --rd-mark: var(--rd-accent);
+  --rd-hi: rgba(255, 255, 255, .10);
+  --rd-elev: 0 1px 0 var(--rd-hi) inset, 0 -1px 0 rgba(0, 0, 0, .4) inset, 0 2px 4px rgba(0, 0, 0, .35), 0 10px 24px -6px rgba(0, 0, 0, .55);
+  --rd-well: inset 0 2px 6px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 0 var(--rd-hi);
+}
+html[data-ui="redesign"][data-theme-mode="xianxia"] {
+  --rd-bg: #03070c; --rd-panel: #0b1722; --rd-panel-2: #102231;
+  --rd-line: rgba(214, 183, 112, .16); --rd-line-2: rgba(214, 183, 112, .28);
+  --rd-fg: #e6efe8; --rd-fg-2: #a7bdb2; --rd-fg-3: #6f8a7e;
+  --rd-accent: #78d5c8; --rd-accent-2: #a9ece2; --rd-glow: rgba(120, 213, 200, .3);
+  --rd-mark: #d6b770;
+  --rd-hi: rgba(240, 216, 156, .10);
+}
+html[data-ui="redesign"] body { background: transparent; }
+/* 面板：浮起、標題左側色條（跟外框 .section-title 一致；仙俠版色條用鎏金） */
+html[data-ui="redesign"] .card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%);
+  border: 1px solid var(--rd-line); border-radius: 12px; box-shadow: var(--rd-elev);
+}
+html[data-ui="redesign"] .card-title {
+  position: relative; padding-left: 13px; color: var(--rd-fg); font-size: 14px;
+}
+html[data-ui="redesign"] .card-title::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 15px; margin-top: -7.5px; border-radius: 2px;
+  background: var(--rd-mark); box-shadow: 0 0 8px var(--rd-glow);
+}
+html[data-ui="redesign"] :is(input[type="text"], input[type="number"]) {
+  background: var(--rd-bg); border: 1px solid var(--rd-line-2); color: var(--rd-fg); box-shadow: var(--rd-well);
+}
+html[data-ui="redesign"] :is(input[type="text"], input[type="number"]):focus { border-color: var(--rd-accent); }
+html[data-ui="redesign"] table th { background: var(--rd-panel-2); color: var(--rd-fg-2); border-bottom-color: var(--rd-line-2); }
+html[data-ui="redesign"] table td { border-bottom-color: var(--rd-line); }

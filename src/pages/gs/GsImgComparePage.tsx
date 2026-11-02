@@ -1,9 +1,5 @@
-export function GsImgComparePage() {
-  return (
-    <iframe
-      src="/api/gs/img-compare"
-      style={{ flex: 1, border: 'none', width: '100%', display: 'block', minHeight: 0 }}
-      title="圖片比對工具"
-    />
-  )
+import { RedesignFrame } from './RedesignFrame'
+
+export function GsImgComparePage({ themeMode }: { themeMode?: 'classic' | 'xianxia' }) {
+  return <RedesignFrame src="/api/gs/img-compare" title="圖片比對工具" themeMode={themeMode} />
 }

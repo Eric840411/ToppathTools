@@ -998,6 +998,20 @@ router.get('/api/gs/img-compare-app.js', (_req, res) => {
   }
 })
 
+// 新版外框的 iframe 共用檔（圖片比對、Bonus V2）：開機腳本讀 ?ui=&theme=、收外框切模式的 postMessage；CSS 是兩頁共用的配色與面板
+const REDESIGN_FRAME_FILES: Record<string, string> = {
+  'redesign-frame.js': 'application/javascript; charset=utf-8',
+  'redesign-frame.css': 'text/css; charset=utf-8',
+}
+for (const [file, type] of Object.entries(REDESIGN_FRAME_FILES)) {
+  router.get(`/api/gs/${file}`, (_req, res) => {
+    res.set('Content-Type', type)
+    res.sendFile(join(STATIC_ROOT, file), err => {
+      if (err && !res.headersSent) res.status(500).send(`/* ${file} 載入失敗 */`)
+    })
+  })
+}
+
 // GET /api/gs/img-compare/session — 建立新 session，供 app.js 在擷取前呼叫
 router.get('/api/gs/img-compare/session', (_req, res) => {
   const sessionId = crypto.randomBytes(8).toString('hex')
