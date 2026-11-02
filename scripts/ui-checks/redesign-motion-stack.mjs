@@ -1,8 +1,8 @@
 /**
  * 新版外框的兩個回歸（CodeX 審 ea86844 重現過的）：
- *  1. 動畫開關關掉後，「從 opacity:0 播進場」的內容（Dashboard 事件、仙俠逐字標題）要看得見
+ *  1. 系統「減少動態」時（動畫開關已拿掉，只剩這個會停），「從 opacity:0 播進場」的內容要看得見
  *  2. 頁面裡沒走 createPortal 的彈窗遮罩，要蓋得住側欄（不能還點得到側欄切頁）
- *  3. 動畫關掉時排行榜境界圖要換靜態 PNG
+ *  3. 減少動態時排行榜境界圖、突破特效要換靜態 PNG
  * 跑法：node scripts/ui-checks/redesign-motion-stack.mjs <base url>
  */
 import Database from 'better-sqlite3'
@@ -20,13 +20,13 @@ const check = (name, ok, extra = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}
 const b = await chromium.launch()
 for (const theme of ['classic', 'xianxia']) {
   console.log(`== ${theme}`)
-  const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } })
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' })
   await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: u.hostname, path: '/' }])
-  await ctx.addInitScript(t => { try { localStorage.setItem('toppath-theme-mode', t); localStorage.setItem('toppath-motion', 'off') } catch { /* */ } }, theme)
+  await ctx.addInitScript(t => { try { localStorage.setItem('toppath-theme-mode', t) } catch { /* */ } }, theme)
   const p = await ctx.newPage()
   await p.goto(H + '/', { waitUntil: 'networkidle' })
   await p.waitForTimeout(1500)
-  check('動畫開關是關的', await p.evaluate(() => document.documentElement.classList.contains('rd-no-motion')))
+  check('減少動態：html 掛上 rd-no-motion', await p.evaluate(() => document.documentElement.classList.contains('rd-no-motion')))
   const ev = await p.evaluate(() => [...document.querySelectorAll('.dashboard-event')].map(e => getComputedStyle(e).opacity))
   check('Dashboard 事件看得見', ev.length > 0 && ev.every(o => o === '1'), JSON.stringify(ev.slice(0, 3)))
   if (theme === 'xianxia') {
@@ -58,7 +58,7 @@ for (const theme of ['classic', 'xianxia']) {
     await p.waitForTimeout(1500)
     const srcs = await p.evaluate(() => [...document.querySelectorAll('.realm-art img')].map(i => i.currentSrc))
     check('排行榜境界圖是靜態 PNG', srcs.length > 0 && srcs.every(s => s.includes('/realms-v1/') && s.endsWith('.png')), srcs[0])
-    // 突破特效（非 hold）：動畫關掉時要直接顯示定格畫面，不能跳到結尾的 visibility:hidden（CodeX 複審 b346cc1 [P2]）
+    // 突破特效（非 hold）：減少動態時要直接顯示定格畫面，不能跳到結尾的 visibility:hidden（CodeX 複審 b346cc1 [P2]）
     await p.goto(H + '/?breakthrough-preview=qi-refining', { waitUntil: 'networkidle' })
     await p.waitForTimeout(1200)
     const bt = await p.evaluate(() => {

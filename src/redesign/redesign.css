@@ -5,7 +5,7 @@
    不能讓舊仙俠 CSS「有寫就照它」——它對側欄／頂列／背景用了 !important，會把新版蓋回去）。
    只對確認過的舊規則做集中覆寫，不在全站堆 !important。
 
-   第一批：外框（側欄、頂列、背景、版本切換／動畫開關、立體感、Logo）。
+   第一批：外框（側欄、頂列、背景、版本切換、立體感、Logo）。動畫一律開啟（使用者 1102），只有系統減少動態會停。
    逐頁換 token 是第二批，不在這裡一次掃。
    ══════════════════════════════════════════════════════════════════ */
 
@@ -168,31 +168,6 @@
 @keyframes rd-squish { 0% { scale: 1 1; } 30% { scale: 1.22 .82; } 60% { scale: .94 1.06; } 100% { scale: 1 1; } }
 @keyframes rd-sweep { from { background-position: 100% 0; opacity: 1; } to { background-position: 0 0; opacity: 1; } }
 
-/* 動畫開關：iOS 26 液態玻璃開關（按住時滑塊脹成透鏡） */
-.rd-switch { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--rd-fg-2); cursor: pointer; white-space: nowrap; }
-/* ⚠️ 選擇器要比仙俠版的 input[type="checkbox"]（全站改成 15px）更具體，否則開關被縮成小方塊 */
-.rd-top-controls .rd-switch input[type="checkbox"] {
-  appearance: none; -webkit-appearance: none; margin: 0; position: relative; flex: none; cursor: pointer;
-  box-sizing: border-box; width: 46px; height: 28px; border-radius: 14px;
-  background: rgba(120, 120, 128, .32); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); transition: background .25s ease;
-}
-.rd-top-controls .rd-switch input[type="checkbox"]:checked { background: var(--rd-ios-on); }
-.rd-switch input::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px;
-  background: #fff; border: 1px solid transparent; box-shadow: 0 3px 8px rgba(0, 0, 0, .28), 0 1px 1px rgba(0, 0, 0, .16);
-  transition: transform .42s cubic-bezier(.3, 1.5, .5, 1), width .28s cubic-bezier(.3, 1.4, .5, 1), left .28s cubic-bezier(.3, 1.4, .5, 1), background .2s, box-shadow .2s, border-color .2s;
-}
-.rd-switch input:checked::after { transform: translateX(18px); }
-.rd-switch input:active::after {
-  width: 32px; left: -2px; background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .75);
-  backdrop-filter: blur(1.5px) saturate(130%) brightness(1.12);
-  -webkit-backdrop-filter: blur(1.5px) saturate(130%) brightness(1.12);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 -2px 4px rgba(255, 255, 255, .25), inset 0 0 6px rgba(255, 255, 255, .35), 0 6px 16px rgba(0, 0, 0, .3);
-  transform: scale(1.18, 1.3);
-}
-.rd-switch input:checked:active::after { transform: translateX(14px) scale(1.18, 1.3); }
-.rd-switch input:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: 2px; }
-
 /* ── 內容區：浮起的面板（普通版；仙俠版有自己的卷軸框，只補立體陰影） ── */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) :is(.section-card, .mb-pane, .uat-panel, .osm-section, .dashboard-panel) {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
@@ -224,7 +199,7 @@
 :root[data-ui="redesign"] .main-content > * { animation: rd-enter .42s var(--rd-ease) backwards; }
 @keyframes rd-enter { from { opacity: .25; transform: translateY(10px); } }
 
-/* ── 動畫關掉／系統減少動態：全部停，含烘在 WebP 裡的靈氣條（CSS 停不掉，換成靜態圖） ──
+/* ── 系統減少動態（無障礙設定；頂列開關已拿掉）：全部停，含烘在 WebP 裡的靈氣條（CSS 停不掉，換成靜態圖） ──
    ⚠️ 不能用 animation:none：Dashboard 事件、仙俠逐字標題這類「從 opacity:0 播進場」的元素會停在看不見的初始狀態
    （CodeX 審 ea86844 [P1] 重現）。改成時間歸零、只播一次——有 forwards 的直接跳到結束狀態（看得見），循環的停在一輪結束 */
 :root.rd-no-motion *,
@@ -250,18 +225,14 @@
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::before,
 :root.rd-no-motion[data-theme-mode="xianxia"] .dashboard-bar-fill::after { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
-  .rd-floor, .rd-orb, .rd-seg::after, .rd-seg-thumb, .rd-switch input::after, :root[data-ui="redesign"] .main-content > * { animation: none !important; transition: none !important; }
+  .rd-floor, .rd-orb, .rd-seg::after, .rd-seg-thumb, :root[data-ui="redesign"] .main-content > * { animation: none !important; transition: none !important; }
 }
 
 /* ── 手機：頂列放不下全部，狀態字收掉、開關縮小 ── */
 @media (max-width: 760px) {
-  .rd-switch span { display: none; }
   .rd-top-controls { gap: 8px; }
   .rd-seg button { padding: 6px 9px; font-size: 12px; }
   :root[data-ui="redesign"] .app-topbar { gap: 8px; padding-left: 12px; padding-right: 12px; }
   :root[data-ui="redesign"] .app-topbar-status,
   :root[data-ui="redesign"] .app-topbar-seal { display: none; }
-  .rd-top-controls .rd-switch input[type="checkbox"] { width: 40px; height: 24px; }
-  .rd-top-controls .rd-switch input[type="checkbox"]::after { width: 20px; height: 20px; }
-  .rd-top-controls .rd-switch input[type="checkbox"]:checked::after { transform: translateX(16px); }
 }

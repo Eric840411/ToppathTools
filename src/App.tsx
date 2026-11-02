@@ -48,6 +48,8 @@ import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccou
 import './App.css'
 // 新版外框（ui-redesign）：要在 App.css 之後載入；範圍限 html[data-ui="redesign"]
 import './redesign/redesign.css'
+// 逐頁重做（第二批起）：每頁一支，範圍同樣限 html[data-ui="redesign"]
+import './redesign/pages/dashboard.css'
 import { TopControls } from './redesign/TopControls'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
 // applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」
@@ -416,15 +418,22 @@ function App() {
   const [navQuery, setNavQuery] = useState('')
   const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
   const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'xianxia' ? 'xianxia' : 'classic')
-  // 新版外框的動畫開關：關掉＝全站裝飾動畫停（CSS 的 .rd-no-motion），影片也暫停
-  const [motionOn, setMotionOn] = useState(() => { try { return localStorage.getItem('toppath-motion') !== 'off' } catch { return true } })
-  useEffect(() => { document.documentElement.dataset.ui = 'redesign' }, [])
+  // 動畫一律開啟，不提供關閉開關（使用者 1102：「強制開啟，不做關閉功能」）。
+  // 只剩系統的「減少動態」（無障礙設定）會讓全站停：掛 html.rd-no-motion，CSS／動態圖／突破特效都看這個
   useEffect(() => {
-    document.documentElement.classList.toggle('rd-no-motion', !motionOn)
-    try { localStorage.setItem('toppath-motion', motionOn ? 'on' : 'off') } catch { /* 無痕模式寫不進去就算了 */ }
-    // CSS 停不掉影片（仙俠背景的修行影片），直接暫停／恢復
-    document.querySelectorAll('video').forEach(v => { if (motionOn) void v.play().catch(() => {}); else v.pause() })
-  }, [motionOn])
+    const root = document.documentElement
+    root.dataset.ui = 'redesign'
+    try { localStorage.removeItem('toppath-motion') } catch { /* 舊版開關存的值，清掉 */ }
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => {
+      root.classList.toggle('rd-no-motion', mq.matches)
+      // CSS 停不掉影片（仙俠背景的修行影片），直接暫停／恢復
+      document.querySelectorAll('video').forEach(v => { if (mq.matches) v.pause(); else void v.play().catch(() => {}) })
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
   const [systemHealthy, setSystemHealthy] = useState(true)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
@@ -1080,7 +1089,7 @@ function App() {
               ? (themeMode === 'xianxia' ? '靈脈穩定' : '系統正常')
               : (themeMode === 'xianxia' ? '靈脈紊亂' : '連線異常')}
           </div>
-          <TopControls themeMode={themeMode} onThemeChange={setThemeMode} motionOn={motionOn} onMotionChange={setMotionOn} />
+          <TopControls themeMode={themeMode} onThemeChange={setThemeMode} />
           {themeMode === 'xianxia' && <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>}
         </div>
 

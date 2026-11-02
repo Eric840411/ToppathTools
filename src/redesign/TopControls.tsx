@@ -3,18 +3,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 type ThemeMode = 'classic' | 'xianxia'
 
 /**
- * 新版頂列右側：動畫開關（iOS 26 液態玻璃開關）＋版本切換（玻璃分段控制）。
- * 原型 v7 定稿（使用者 1102 確認）。原本放在側欄底部的「版面模式」移到這裡。
+ * 新版頂列右側：版本切換（玻璃分段控制）。原型 v7 定稿（使用者 1102 確認），原本放在側欄底部的「版面模式」移到這裡。
+ * 動畫開關已拿掉（使用者 1102：動畫強制開啟）。
  *
  * 動效：
  * - 按住時滑塊變成透明玻璃透鏡（.is-lens），放開後滑過去、回彈、縮回實心（.is-squish 每次切換播一次）
- * - 動畫關掉或系統「減少動態」時，CSS 統一不播（見 redesign.css 的 .rd-no-motion）
+ * - 系統「減少動態」時 CSS 統一不播（見 redesign.css 的 .rd-no-motion）
  */
-export function TopControls({ themeMode, onThemeChange, motionOn, onMotionChange }: {
+export function TopControls({ themeMode, onThemeChange }: {
   themeMode: ThemeMode
   onThemeChange: (m: ThemeMode) => void
-  motionOn: boolean
-  onMotionChange: (on: boolean) => void
 }) {
   const segRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
@@ -55,10 +53,6 @@ export function TopControls({ themeMode, onThemeChange, motionOn, onMotionChange
 
   return (
     <div className="rd-top-controls">
-      <label className="rd-switch" title="關掉會停止所有裝飾動畫（也會跟著系統的「減少動態」設定）">
-        <input type="checkbox" checked={motionOn} onChange={e => onMotionChange(e.target.checked)} />
-        <span>動畫</span>
-      </label>
       <div
         className="rd-seg"
         role="group"
