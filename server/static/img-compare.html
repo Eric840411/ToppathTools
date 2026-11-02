@@ -394,14 +394,14 @@
   </div>
 
   <div class="card" id="input-card">
-    <div class="card-title">🔗 輸入網址</div>
+    <div class="card-title">輸入網址</div>
     <div class="url-grid">
       <div class="input-group">
-        <label class="label-a">🔵 A 版（本機開發）</label>
+        <label class="label-a">A 版（本機開發）</label>
         <input type="text" id="url-a" placeholder="http://localhost:8080" autocomplete="off">
       </div>
       <div class="input-group">
-        <label class="label-b">🟣 B 版（原始環境，可留空）</label>
+        <label class="label-b">B 版（原始環境，可留空）</label>
         <input type="text" id="url-b" placeholder="https://staging.example.com" autocomplete="off">
       </div>
     </div>
@@ -431,20 +431,20 @@
     </fieldset>
 
     <div class="btn-row">
-      <button class="btn-primary btn-large" id="btn-capture">🚀 開始擷取</button>
-      <button class="btn-secondary btn-sm" id="btn-reset" style="display:none">↺ 重新開始</button>
+      <button class="btn-primary btn-large" id="btn-capture">開始擷取</button>
+      <button class="btn-secondary btn-sm" id="btn-reset" style="display:none">重新開始</button>
     </div>
 
     <div id="progress-area">
       <div class="progress-grid">
         <div class="progress-card">
-          <div class="progress-label a">🔵 A 版</div>
+          <div class="progress-label a">A 版</div>
           <div class="progress-bar-wrap"><div class="progress-bar a" id="prog-bar-a"></div></div>
           <div class="progress-msg" id="prog-msg-a">等待中…</div>
           <div class="progress-count" id="prog-cnt-a"></div>
         </div>
         <div class="progress-card">
-          <div class="progress-label b">🟣 B 版</div>
+          <div class="progress-label b">B 版</div>
           <div class="progress-bar-wrap"><div class="progress-bar b" id="prog-bar-b"></div></div>
           <div class="progress-msg" id="prog-msg-b">等待中…</div>
           <div class="progress-count" id="prog-cnt-b"></div>
@@ -456,10 +456,10 @@
   <div id="results">
     <div class="card" style="padding: 0; overflow: hidden;">
       <div class="tab-nav" id="tab-nav">
-        <button class="tab-btn active" data-tab="overview">📊 總覽</button>
-        <button class="tab-btn" data-tab="http">📡 載入狀態</button>
-        <button class="tab-btn" data-tab="size">📦 資源大小</button>
-        <button class="tab-btn" data-tab="visual">🖼️ 視覺比對</button>
+        <button class="tab-btn active" data-tab="overview">總覽</button>
+        <button class="tab-btn" data-tab="http">載入狀態</button>
+        <button class="tab-btn" data-tab="size">資源大小</button>
+        <button class="tab-btn" data-tab="visual">視覺比對</button>
       </div>
       <div style="padding: 0 20px 20px;">
         <div class="tab-panel active" id="tab-overview"></div>
@@ -482,17 +482,17 @@
     </div>
     <div class="lb-grid">
       <div class="lb-panel">
-        <div class="lb-panel-title a">🔵 A 版</div>
+        <div class="lb-panel-title a">A 版</div>
         <div class="lb-img-wrap" id="lb-img-a"><span style="color:rgba(255,255,255,.4)">載入中…</span></div>
         <div class="lb-meta" id="lb-meta-a"></div>
       </div>
       <div class="lb-panel">
-        <div class="lb-panel-title b">🟣 B 版</div>
+        <div class="lb-panel-title b">B 版</div>
         <div class="lb-img-wrap" id="lb-img-b"><span style="color:rgba(255,255,255,.4)">載入中…</span></div>
         <div class="lb-meta" id="lb-meta-b"></div>
       </div>
       <div class="lb-panel">
-        <div class="lb-panel-title diff">🔴 差異圖</div>
+        <div class="lb-panel-title diff">差異圖</div>
         <div class="lb-img-wrap" id="lb-img-diff"><span style="color:rgba(255,255,255,.4)">計算中…</span></div>
         <div class="lb-meta" id="lb-meta-diff"></div>
       </div>
@@ -502,11 +502,11 @@
   <!-- Pair Modal -->
   <div id="pair-modal">
     <div class="pair-modal-inner">
-      <div class="pair-modal-title">🔗 手動配對未匹配圖片</div>
+      <div class="pair-modal-title">手動配對未匹配圖片</div>
       <div class="pair-modal-sub">點選左側 A 版圖片，再點選右側 B 版圖片，即可完成配對。已配對項目會從清單移除。</div>
       <div id="pair-modal-body"></div>
       <div class="btn-row" style="margin-top:16px">
-        <button class="btn-success" id="btn-pair-confirm">✅ 套用配對</button>
+        <button class="btn-success" id="btn-pair-confirm">套用配對</button>
         <button class="btn-secondary" id="btn-pair-cancel">取消</button>
       </div>
     </div>

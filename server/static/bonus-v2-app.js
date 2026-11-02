@@ -422,7 +422,7 @@ function connectSSE() {
     const roundData = JSON.parse(e.data);
     roundData.round += roundOffset;  // 接續局號
     processRound(roundData);
-    addDebugLog(`✅ 收到第 ${roundData.round} 局資料`, 'var(--green)');
+    addDebugLog(`收到第 ${roundData.round} 局資料`, 'var(--green)');
   });
 
   es.addEventListener('status', e => {
@@ -445,8 +445,8 @@ function connectSSE() {
   es.addEventListener('error', e => {
     if (!e.data) return;
     const data = JSON.parse(e.data);
-    addDebugLog(`❌ ${data.message}`, 'var(--red)');
-    alert(`❌ 錯誤：${data.message}`);
+    addDebugLog(`${data.message}`, 'var(--red)');
+    alert(`錯誤：${data.message}`);
     updateStatus({ collecting: false, current: appStats.totalRounds, target: 0, message: `錯誤：${data.message}` });
   });
 
@@ -490,7 +490,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
   const json = await res.json();
 
   if (!json.ok) {
-    alert(`❌ ${json.error}`);
+    alert(`${json.error}`);
     if (String(json.error || '').includes('已在收集中')) {
       updateStatus({ collecting: true, current: already, target: collectedTarget, message: '後端仍在收集中，可直接停止' });
     } else {

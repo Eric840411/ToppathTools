@@ -6,6 +6,7 @@
  *   ④ 只接受父視窗的訊息：自己對自己 postMessage 不會改模式
  *   ⑤ Bonus V2 偏差狀態色（.diff-ok／warn／bad）沒被新版的 td 文字色蓋掉（CodeX 1102 P2）
  *   ⑦ 三頁的操作按鈕同一套規格：高 34；圓角普通版 8、仙俠版 4（跟全站仙俠按鈕一致）——使用者 1102「按鈕沒有一致」
+ *   ⑧ 三頁畫面上沒有裝飾用 emoji——使用者 1102「不需要 emoji，拿掉」（文字箭頭 ↑↓↔、✕ 關閉、▶ 展開指示不算）
  *   ⑥ 系統「減少動態」時 iframe 裡的動畫也停（狀態點不閃）；一般情況照閃，證明有在量（CodeX 1102 P2）
  * 跑在本機 server 上，但 server/static 那幾支用 worktree 的版本攔截替換（本機 server 跑的是主 repo 的 static），
  * 這樣不用另外起一台會跑排程的 server。
@@ -26,7 +27,11 @@ const SERVE = {
   '/api/gs/bonus-v2': ['bonus-v2.html', 'text/html; charset=utf-8'],
   '/api/gs/redesign-frame.js': ['redesign-frame.js', 'application/javascript; charset=utf-8'],
   '/api/gs/redesign-frame.css': ['redesign-frame.css', 'text/css; charset=utf-8'],
+  '/api/gs/img-compare-app.js': ['img-compare-app.js', 'application/javascript; charset=utf-8'],
+  '/api/gs/bonus-v2-app.js': ['bonus-v2-app.js', 'application/javascript; charset=utf-8'],
 }
+// ⑧ 裝飾 emoji：圖示字元區＋✅❌⚠⏹↺⬇（跟 strip 時同一組；▶ 只在後面接空白時算按鈕裝飾）
+const EMOJI = /[\u{1F000}-\u{1FAFF}\u2705\u274C\u26A0\u23F9\u21BA\u2B07]|\u25B6(?= )/u
 const db = new Database('server/data.db')
 const { sid } = mintDevSession(db, 'eric.wu@toppath.tw', 1800000)
 const u = new URL(H)
@@ -81,6 +86,9 @@ for (const theme of ['classic', 'xianxia']) {
     ok(a.ui === 'redesign' && a.theme === theme, `${theme} ${name}: ① iframe data-ui=${a.ui} theme=${a.theme}`)
     ok(a.bodyBg === 'rgba(0, 0, 0, 0)', `${theme} ${name}: iframe 底色透明（${a.bodyBg}）`)
     await p.screenshot({ path: `${out}/frame-${theme}-${shot}.png` })
+    const txt = await f.evaluate(() => document.body.innerText)
+    const hits = [...txt.matchAll(new RegExp(EMOJI, 'gu'))].map(m => m[0])
+    ok(hits.length === 0, `${theme} ${name}: ⑧ 沒有裝飾 emoji（${hits.join(' ') || '無'}）`)
     // ⑦ 按鈕規格：看得到的操作按鈕（不含小按鈕）
     const btns = await f.evaluate(() => [...document.querySelectorAll('.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger')]
       .filter(el => el.offsetParent && !el.classList.contains('btn-sm'))
@@ -113,6 +121,17 @@ for (const theme of ['classic', 'xianxia']) {
   const { ctx, p } = await open(theme)
   await p.goto(H + '/', { waitUntil: 'networkidle' })
   await goPage(p, 'Log 攔截工具')
+  // 腳本原始碼（.gl-code）是要複製的內容、不是畫面，不算
+  const ltxt = await p.evaluate(() => { const c = document.querySelector('.gl-page').cloneNode(true); c.querySelectorAll('.gl-code').forEach(e => e.remove()); document.body.appendChild(c); const t = c.innerText; c.remove(); return t })
+  const lhits = [...ltxt.matchAll(new RegExp(EMOJI, 'gu'))].map(m => m[0])
+  ok(lhits.length === 0, `${theme} Log 攔截工具: ⑧ 沒有裝飾 emoji（${lhits.join(' ') || '無'}）`)
+  await p.locator('.rd-tab', { hasText: 'Log 結構比對' }).click()
+  await p.waitForTimeout(800)
+  const ctxt = await p.evaluate(() => document.querySelector('.gl-page').innerText)
+  const chits = [...ctxt.matchAll(new RegExp(EMOJI, 'gu'))].map(m => m[0])
+  ok(chits.length === 0, `${theme} Log 結構比對: ⑧ 沒有裝飾 emoji（${chits.join(' ') || '無'}）`)
+  await p.locator('.rd-tab', { hasText: 'Log 攔截工具' }).click()
+  await p.waitForTimeout(500)
   const btns = await p.evaluate(() => [...document.querySelectorAll('.gl-actions button')]
     .map(el => `${el.textContent.trim()}=${getComputedStyle(el).height}/${getComputedStyle(el).borderTopLeftRadius}`))
   const want = theme === 'xianxia' ? '=34px/4px' : '=34px/8px'

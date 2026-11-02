@@ -72,7 +72,7 @@ function thumbHtml(img, pairIdx) {
   }
   const click = pairIdx !== undefined ? `onclick="openLightbox(${pairIdx})"` : '';
   return `<div class="thumb-wrap" ${click}>
-    <img src="${img.imgSrc}" alt="" onerror="this.parentElement.innerHTML='<span class=no-img>🖼️</span>'">
+    <img src="${img.imgSrc}" alt="" onerror="this.parentElement.innerHTML='<span class=no-img>無圖</span>'">
   </div>`;
 }
 
@@ -163,13 +163,13 @@ function captureImages(url, side) {
             } else if (data.type === 'done') {
               clearInterval(ticker);
               barEl.style.width = '100%';
-              msgEl.textContent = `✅ 成功 ${data.totalOk} · 失敗 ${data.totalFailed}`;
+              msgEl.textContent = `成功 ${data.totalOk} · 失敗 ${data.totalFailed}`;
               cntEl.textContent = '';
               resolve({ ok: data.ok || [], failed: data.failed || [] });
               return;
             } else if (data.type === 'error') {
               clearInterval(ticker);
-              msgEl.textContent = `❌ 錯誤：${data.message}`;
+              msgEl.textContent = `錯誤：${data.message}`;
               reject(new Error(data.message));
               return;
             }
@@ -332,7 +332,7 @@ function renderOverview() {
   container.innerHTML = `
     <p style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
       比對與「已配對／未配對」僅使用 <strong style="color:var(--blue)">HTTP 成功</strong>（200–299 且為圖片，或 304 快取命中）。<br>
-      <strong style="color:var(--red)">失敗</strong>（4xx/5xx 或非圖片 Content-Type）請到「📡 載入狀態」查看。<br>
+      <strong style="color:var(--red)">失敗</strong>（4xx/5xx 或非圖片 Content-Type）請到「載入狀態」查看。<br>
       「成功圖片合計」僅加總上述成功清單的位元組（304 無 body 者為 0，不計入體積）。
     </p>
     <div class="stat-grid">
@@ -357,8 +357,8 @@ function renderOverview() {
     ${unmatchedA + unmatchedB > 0 ? renderUnmatchedSection() : ''}
 
     <div class="btn-row" style="margin-top:12px">
-      <button class="btn-secondary btn-sm" id="btn-export-overview">📥 匯出總覽 CSV</button>
-      <button class="btn-secondary btn-sm" id="btn-export-failed">📥 匯出失敗清單 CSV</button>
+      <button class="btn-secondary btn-sm" id="btn-export-overview">匯出總覽 CSV</button>
+      <button class="btn-secondary btn-sm" id="btn-export-failed">匯出失敗清單 CSV</button>
     </div>
   `;
 
@@ -391,16 +391,16 @@ function renderUnmatchedSection() {
   return `
     <div class="card" style="margin-top:0">
       <div class="card-title" style="justify-content:space-between">
-        ⚠️ 未配對圖片
-        <button class="btn-secondary btn-sm" onclick="openPairModal()">🔗 手動配對</button>
+        未配對圖片
+        <button class="btn-secondary btn-sm" onclick="openPairModal()">手動配對</button>
       </div>
       <div class="unmatched-grid">
         <div class="unmatched-col">
-          <div class="unmatched-col-title a">🔵 A版 多出 ${unmatchedA.length} 張</div>
+          <div class="unmatched-col-title a">A版 多出 ${unmatchedA.length} 張</div>
           ${itemsA || '<div style="color:var(--muted);font-size:12px">無</div>'}
         </div>
         <div class="unmatched-col">
-          <div class="unmatched-col-title b">🟣 B版 多出 ${unmatchedB.length} 張</div>
+          <div class="unmatched-col-title b">B版 多出 ${unmatchedB.length} 張</div>
           ${itemsB || '<div style="color:var(--muted);font-size:12px">無</div>'}
         </div>
       </div>
@@ -443,7 +443,7 @@ function renderSideHttpBlock(sideLabel, okList, failedList, isA) {
       <div class="card-title" style="color:${isA ? 'var(--blue)' : 'var(--purple)'}">${sideLabel}</div>
 
       <details class="http-details"${okOpen}>
-        <summary>✅ 成功（${okList.length}）${okHint}</summary>
+        <summary>成功（${okList.length}）${okHint}</summary>
         <div class="table-wrap http-table-scroll">
           <table>
             <thead><tr><th>#</th><th>預覽</th><th>檔名</th><th>HTTP</th><th>大小</th><th>類型</th></tr></thead>
@@ -453,7 +453,7 @@ function renderSideHttpBlock(sideLabel, okList, failedList, isA) {
       </details>
 
       <details class="http-details http-details-fail" open>
-        <summary>❌ 失敗（${failedList.length}）</summary>
+        <summary>失敗（${failedList.length}）</summary>
         <div class="table-wrap http-table-scroll">
           <table>
             <thead><tr><th>#</th><th>檔名</th><th>HTTP</th><th>Content-Type</th><th>回應摘要</th><th>URL</th></tr></thead>
@@ -473,11 +473,11 @@ function renderHttpTab() {
       寬螢幕（≥1000px）A/B 並排；表格區域可<strong>獨立捲動</strong>。成功超過 ${HTTP_OK_COLLAPSE_THRESHOLD} 筆時預設收合。
     </p>
     <div class="http-ab-grid">
-      ${renderSideHttpBlock('🔵 A 版', State.imagesA, State.failedA, true)}
-      ${renderSideHttpBlock('🟣 B 版', State.imagesB, State.failedB, false)}
+      ${renderSideHttpBlock('A 版', State.imagesA, State.failedA, true)}
+      ${renderSideHttpBlock('B 版', State.imagesB, State.failedB, false)}
     </div>
     <div class="btn-row" style="margin-top:12px">
-      <button class="btn-secondary btn-sm" onclick="exportFailedCSV()">📥 匯出 A/B 失敗清單 CSV</button>
+      <button class="btn-secondary btn-sm" onclick="exportFailedCSV()">匯出 A/B 失敗清單 CSV</button>
     </div>
   `;
 }
@@ -489,7 +489,7 @@ function renderSizeTab() {
   const container = $('tab-size');
   container.innerHTML = `
     <div class="card">
-      <div class="card-title">📦 資源大小比對</div>
+      <div class="card-title">資源大小比對</div>
       <div class="filter-row">
         <span class="filter-label">篩選：</span>
         <button class="filter-btn ${State.sizeFilter === 'all' ? 'active' : ''}"     onclick="setSizeFilter('all')">全部</button>
@@ -498,7 +498,7 @@ function renderSizeTab() {
         <button class="filter-btn ${State.sizeFilter === 'larger' ? 'active' : ''}"  onclick="setSizeFilter('larger')">A版放大 ↑</button>
         <button class="filter-btn ${State.sizeFilter === 'unmatched' ? 'active' : ''}" onclick="setSizeFilter('unmatched')">未配對</button>
         <span style="flex:1"></span>
-        <button class="btn-secondary btn-sm" onclick="exportSizeCSV()">📥 匯出 CSV</button>
+        <button class="btn-secondary btn-sm" onclick="exportSizeCSV()">匯出 CSV</button>
       </div>
       <div class="table-wrap">
         <table id="size-table">
@@ -556,9 +556,9 @@ function renderSizeRows() {
       const cls   = pct > 1 ? 'diff-up' : pct < -1 ? 'diff-down' : 'diff-zero';
       diffCell    = `<span class="${cls}">${sign}${pct}%</span>`;
       const absPct = Math.abs(pct);
-      if (absPct <= 1)  statusCell = `<span class="badge badge-green">✅ 相同</span>`;
-      else if (absPct <= 10) statusCell = `<span class="badge badge-yellow">⚠️ 輕微差異</span>`;
-      else              statusCell = `<span class="badge badge-red">🔴 差異大</span>`;
+      if (absPct <= 1)  statusCell = `<span class="badge badge-green">相同</span>`;
+      else if (absPct <= 10) statusCell = `<span class="badge badge-yellow">輕微差異</span>`;
+      else              statusCell = `<span class="badge badge-red">差異大</span>`;
     }
 
     rows.push(`
@@ -579,7 +579,7 @@ function renderSizeRows() {
 
   tbody.innerHTML = rows.length
     ? rows.join('')
-    : `<tr><td colspan="11"><div class="empty-state"><div class="icon">🔍</div><p>沒有符合條件的項目</p></div></td></tr>`;
+    : `<tr><td colspan="11"><div class="empty-state"><p>沒有符合條件的項目</p></div></td></tr>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -589,14 +589,14 @@ function renderVisualTab() {
   const container = $('tab-visual');
   container.innerHTML = `
     <div class="card">
-      <div class="card-title">🖼️ 視覺內容比對</div>
+      <div class="card-title">視覺內容比對</div>
       <div class="filter-row">
         <span class="filter-label">篩選：</span>
         <button class="filter-btn ${State.visualFilter === 'all'       ? 'active' : ''}" onclick="setVisualFilter('all')">全部</button>
         <button class="filter-btn ${State.visualFilter === 'diff'      ? 'active' : ''}" onclick="setVisualFilter('diff')">有差異</button>
         <button class="filter-btn ${State.visualFilter === 'unmatched' ? 'active' : ''}" onclick="setVisualFilter('unmatched')">未配對</button>
         <span style="flex:1"></span>
-        <button class="btn-secondary btn-sm" onclick="exportVisualCSV()">📥 匯出 CSV</button>
+        <button class="btn-secondary btn-sm" onclick="exportVisualCSV()">匯出 CSV</button>
       </div>
       <div class="table-wrap">
         <table id="visual-table">
@@ -692,7 +692,7 @@ function renderVisualRows() {
 
   tbody.innerHTML = rows.length
     ? rows.join('')
-    : `<tr><td colspan="10"><div class="empty-state"><div class="icon">🔍</div><p>沒有符合條件的項目</p></div></td></tr>`;
+    : `<tr><td colspan="10"><div class="empty-state"><p>沒有符合條件的項目</p></div></td></tr>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -959,11 +959,11 @@ function renderPairModal() {
     ${pendingManualPairs.length ? `<div style="margin-bottom:12px"><div class="card-title" style="margin-bottom:8px;font-size:12px">已配對 ${pendingManualPairs.length} 組</div>${paired}</div>` : ''}
     <div class="unmatched-grid">
       <div class="unmatched-col">
-        <div class="unmatched-col-title a">🔵 A版 未配對（點選後再點 B版）</div>
+        <div class="unmatched-col-title a">A版 未配對（點選後再點 B版）</div>
         ${listA || '<div style="color:var(--muted);font-size:12px">無未配對圖片</div>'}
       </div>
       <div class="unmatched-col">
-        <div class="unmatched-col-title b">🟣 B版 未配對</div>
+        <div class="unmatched-col-title b">B版 未配對</div>
         ${listB || '<div style="color:var(--muted);font-size:12px">無未配對圖片</div>'}
       </div>
     </div>`;
@@ -986,7 +986,7 @@ function tryAutoPair() {
     pendingManualPairs.push({ a: pairSelA, b: pairSelB });
     pairSelA = null;
     pairSelB = null;
-    showToast('✅ 已加入配對');
+    showToast('已加入配對');
   }
 }
 
@@ -1001,7 +1001,7 @@ function applyManualPairs() {
   State.visualDone = false;
   $('pair-modal').classList.remove('open');
   renderAll();
-  showToast('✅ 手動配對已套用');
+  showToast('手動配對已套用');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1094,7 +1094,7 @@ async function startCapture() {
   const urlB = $('url-b').value.trim();
 
   if (!urlA && !urlB) {
-    showToast('⚠️ 請至少輸入一個網址');
+    showToast('請至少輸入一個網址');
     return;
   }
 
@@ -1148,10 +1148,10 @@ async function startCapture() {
     switchTab('overview');
     renderAll();
 
-    showToast(`✅ A 成功 ${rA.ok.length} 失敗 ${rA.failed.length} · B 成功 ${rB.ok.length} 失敗 ${rB.failed.length}`);
+    showToast(`A 成功 ${rA.ok.length} 失敗 ${rA.failed.length} · B 成功 ${rB.ok.length} 失敗 ${rB.failed.length}`);
 
   } catch (err) {
-    showToast('❌ 擷取失敗：' + err.message, 4000);
+    showToast('擷取失敗：' + err.message, 4000);
   } finally {
     $('btn-capture').disabled = false;
     setCaptureModeDisabled(false);
