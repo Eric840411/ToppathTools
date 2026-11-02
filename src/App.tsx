@@ -48,11 +48,13 @@ import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccou
 import './App.css'
 // 新版外框（ui-redesign）：要在 App.css 之後載入；範圍限 html[data-ui="redesign"]
 import './redesign/redesign.css'
+import './redesign/sidebar.css'
 // 逐頁重做（第二批起）：每頁一支，範圍同樣限 html[data-ui="redesign"]
 import './redesign/pages/kit.css'
 import './redesign/pages/dashboard.css'
 import './redesign/pages/machine-test.css'
 import { TopControls } from './redesign/TopControls'
+import { NavIcon } from './redesign/NavIcon'
 // xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
 // applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」
 // 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
@@ -749,10 +751,51 @@ function App() {
             <div className="sidebar-logo-text">
               <span className="sidebar-brand-name">{themeMode === 'classic' ? 'Toppath Tools' : '太玄道樞'}</span>
             </div>
+            {!sbTiny && (
+              <button
+                type="button"
+                className="rd-collapse-btn"
+                aria-label={sbCollapsed ? '展開側欄' : '收起側欄'}
+                title={sbCollapsed ? '展開側欄' : '收起側欄'}
+                aria-expanded={!sbCollapsed}
+                onClick={() => { setSbFlyout(null); toggleSbCollapsed() }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5" /></svg>
+              </button>
+            )}
           </div>
           <p className="sidebar-sub">{themeMode === 'classic' ? 'WORKFLOW INTEGRATOR' : 'TOPPATH TOOLS'}</p>
         </div>
 
+        {/* 搜尋：原型 v7 放在側欄 Logo 下面（原本在頂列）。行為不變，結果清單在側欄裡往下展開 */}
+          <div className="app-global-search">
+            <span className="app-global-search-icon" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="搜尋工具"
+              placeholder={themeMode === 'xianxia' ? '搜尋任務、卷宗或術式' : '搜尋功能頁面'}
+              value={navQuery}
+              onChange={event => setNavQuery(event.target.value)}
+            />
+            {searchResults.length > 0 && (
+              <div className="app-global-search-results">
+                {searchResults.map(entry => (
+                  <button
+                    type="button"
+                    key={`${entry.group.id}-${entry.sub?.id ?? 'root'}`}
+                    onClick={() => {
+                      setActiveGroup(entry.group.id)
+                      setActiveTab(entry.sub?.id ?? entry.group.tab ?? activeTab)
+                      setNavQuery('')
+                    }}
+                  >
+                    <span>{entry.themeLabel}</span>
+                    {themeMode === 'xianxia' && entry.themeLabel !== entry.label && <small>{entry.label}</small>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         {/* Nav items */}
         <div className="sidebar-nav">
           <div className="sidebar-section-label">洞天總覽</div>
@@ -761,7 +804,7 @@ function App() {
             className={`sidebar-nav-item${currentGroup?.id === dashboardGroup.id ? ' sidebar-nav-item--active' : ''}`}
             onClick={() => handleGroupClick(dashboardGroup)}
           >
-            <span className={`tab-icon ${dashboardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="overview" size={18} /> : dashboardGroup.icon}</span>
+            <span className={`tab-icon ${dashboardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="overview" size={18} /> : <NavIcon id={dashboardGroup.id} />}</span>
             <NavLabel group={dashboardGroup} classic={themeMode === 'classic'} />
           </button>
           {visibleGroups.map((group) => (
@@ -781,7 +824,7 @@ function App() {
                   handleGroupClick(group)
                 }}
               >
-                <span className={`tab-icon ${group.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /> : group.icon}</span>
+                <span className={`tab-icon ${group.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /> : <NavIcon id={group.id} />}</span>
                 <NavLabel group={group} classic={themeMode === 'classic'} />
                 {group.subtabs && (
                   <span className="sidebar-expand-arrow">
@@ -822,7 +865,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === settingsGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(settingsGroup)}
             >
-              <span className={`tab-icon ${settingsGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : settingsGroup.icon}</span>
+              <span className={`tab-icon ${settingsGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : <NavIcon id={settingsGroup.id} />}</span>
               <NavLabel group={settingsGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -833,7 +876,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === historyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(historyGroup)}
             >
-              <span className={`tab-icon ${historyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="history" size={18} /> : historyGroup.icon}</span>
+              <span className={`tab-icon ${historyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="history" size={18} /> : <NavIcon id={historyGroup.id} />}</span>
               <NavLabel group={historyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -844,7 +887,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === knowledgeGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
-              <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="knowledge" size={18} /> : knowledgeGroup.icon}</span>
+              <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="knowledge" size={18} /> : <NavIcon id={knowledgeGroup.id} />}</span>
               <NavLabel group={knowledgeGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -855,7 +898,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === discordNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(discordNotifyGroup)}
             >
-              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : discordNotifyGroup.icon}</span>
+              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : <NavIcon id={discordNotifyGroup.id} />}</span>
               <NavLabel group={discordNotifyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -866,7 +909,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === larkNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(larkNotifyGroup)}
             >
-              <span className={`tab-icon ${larkNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : larkNotifyGroup.icon}</span>
+              <span className={`tab-icon ${larkNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : <NavIcon id={larkNotifyGroup.id} />}</span>
               <NavLabel group={larkNotifyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -877,7 +920,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === cultivationBoardGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(cultivationBoardGroup)}
             >
-              <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="monitor" size={18} /> : cultivationBoardGroup.icon}</span>
+              <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="monitor" size={18} /> : <NavIcon id={cultivationBoardGroup.id} />}</span>
               <NavLabel group={cultivationBoardGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -888,7 +931,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === xianxiaQuotesGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(xianxiaQuotesGroup)}
             >
-              <span className={`tab-icon ${xianxiaQuotesGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="document" size={18} /> : xianxiaQuotesGroup.icon}</span>
+              <span className={`tab-icon ${xianxiaQuotesGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="document" size={18} /> : <NavIcon id={xianxiaQuotesGroup.id} />}</span>
               <NavLabel group={xianxiaQuotesGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -898,7 +941,7 @@ function App() {
             className={`sidebar-nav-item${currentGroup?.id === accountGroup.id ? ' sidebar-nav-item--active' : ''}`}
             onClick={() => handleGroupClick(accountGroup)}
           >
-            <span className={`tab-icon ${accountGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="account" size={18} /> : accountGroup.icon}</span>
+            <span className={`tab-icon ${accountGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="account" size={18} /> : <NavIcon id={accountGroup.id} />}</span>
             <NavLabel group={accountGroup} classic={themeMode === 'classic'} />
           </button>
 
@@ -908,7 +951,7 @@ function App() {
             onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
             title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
           >
-            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : sysadminGroup.icon}</span>
+            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : <NavIcon id={sysadminGroup.id} />}</span>
             <NavLabel group={sysadminGroup} classic={themeMode === 'classic'} />
           </button>
 
@@ -916,16 +959,6 @@ function App() {
 
         {/* Bottom: user + AI settings */}
         <div className="sidebar-bottom">
-          {!sbTiny && <button
-            type="button"
-            className="sidebar-collapse-btn"
-            aria-label={sbCollapsed ? '展開側欄' : '收起側欄'}
-            aria-expanded={!sbCollapsed}
-            onClick={() => { setSbFlyout(null); toggleSbCollapsed() }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M10 3.5L5.5 8 10 12.5" /></svg>
-            <span className="sidebar-nav-label">{sbCollapsed ? '展開側欄' : '收起側欄'}</span>
-          </button>}
           {themeMode === 'xianxia' && (
             <div className="sidebar-realm-switch" aria-label="背景境界">
               <span>背景境界</span>
@@ -1056,34 +1089,6 @@ function App() {
                 : currentThemeLabel}
             </span>
             {themeMode === 'xianxia' && currentThemeLabel !== currentPageLabel && <span className="app-topbar-group">{currentPageLabel}</span>}
-          </div>
-          <div className="app-global-search">
-            <span className="app-global-search-icon" aria-hidden="true" />
-            <input
-              type="search"
-              aria-label="搜尋工具"
-              placeholder={themeMode === 'xianxia' ? '搜尋任務、卷宗或術式' : '搜尋功能頁面'}
-              value={navQuery}
-              onChange={event => setNavQuery(event.target.value)}
-            />
-            {searchResults.length > 0 && (
-              <div className="app-global-search-results">
-                {searchResults.map(entry => (
-                  <button
-                    type="button"
-                    key={`${entry.group.id}-${entry.sub?.id ?? 'root'}`}
-                    onClick={() => {
-                      setActiveGroup(entry.group.id)
-                      setActiveTab(entry.sub?.id ?? entry.group.tab ?? activeTab)
-                      setNavQuery('')
-                    }}
-                  >
-                    <span>{entry.themeLabel}</span>
-                    {themeMode === 'xianxia' && entry.themeLabel !== entry.label && <small>{entry.label}</small>}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
           <div className="app-topbar-status" title={systemHealthy ? 'API 健康檢查正常' : 'API 健康檢查失敗，可能連不上伺服器'}>
             <span style={{ background: systemHealthy ? undefined : '#dc2626' }} />

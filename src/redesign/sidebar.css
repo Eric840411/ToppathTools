@@ -1,0 +1,60 @@
+/* ══════════════════════════════════════════════════════════════════
+   新版側欄（照原型 v7）：Logo 列＋收合鈕、搜尋框、線條圖示、子項圓點
+   使用者 1102：「側邊欄不改的跟設計圖一樣嗎？」——外框第一批只換了質感，這裡把結構對齊原型。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Logo 列：Logo＋名稱＋右邊收合鈕 */
+:root[data-ui="redesign"] .sidebar-logo-inner { display: flex; align-items: center; gap: 10px; }
+:root[data-ui="redesign"] .rd-collapse-btn {
+  margin-left: auto; flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 6px; border: 1px solid transparent; background: none; color: var(--rd-fg-2); cursor: pointer;
+}
+:root[data-ui="redesign"] .rd-collapse-btn:hover { border-color: var(--rd-line-2); color: var(--rd-fg); }
+:root[data-ui="redesign"] .rd-collapse-btn svg { transition: transform .18s var(--rd-ease); }
+:root[data-ui="redesign"] .app--sb-collapsed .rd-collapse-btn svg { transform: rotate(180deg); }
+/* 收成圖示列時：Logo 跟收合鈕上下疊 */
+:root[data-ui="redesign"] .app--sb-collapsed .sidebar-logo-inner { flex-direction: column; gap: 10px; }
+:root[data-ui="redesign"] .app--sb-collapsed .rd-collapse-btn { margin: 0; }
+
+/* 搜尋框（原本在頂列）：側欄裡一條凹槽輸入框，結果清單在框下面往下展開（不浮在外面——側欄會捲動，浮層會被裁） */
+:root[data-ui="redesign"] .app-sidebar .app-global-search {
+  position: relative; margin: 4px 10px 10px; width: auto; max-width: none; flex: none;
+}
+:root[data-ui="redesign"] .app-sidebar .app-global-search input {
+  width: 100%; height: 36px; padding: 0 10px 0 34px; border-radius: 7px;
+  border: 1px solid var(--rd-line-2); background: var(--rd-panel); color: var(--rd-fg);
+  box-shadow: var(--rd-well); outline: none; transition: border-color .1s, box-shadow .1s;
+}
+:root[data-ui="redesign"] .app-sidebar .app-global-search input:focus { border-color: var(--rd-accent); box-shadow: var(--rd-well), 0 0 0 3px var(--rd-glow); }
+:root[data-ui="redesign"] .app-sidebar .app-global-search-icon { left: 11px; }
+:root[data-ui="redesign"] .app-sidebar .app-global-search-results {
+  position: static; margin-top: 6px; width: auto; max-height: none;
+  border-radius: 7px; border: 1px solid var(--rd-line-2); background: var(--rd-panel-2); box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"] .app--sb-collapsed .app-sidebar .app-global-search { display: none; }
+
+/* 普通版圖示：原本的彩色字母方塊換成線條圖示，方塊底色拿掉 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item .tab-icon {
+  background: none !important; box-shadow: none !important; border: 0 !important;
+  width: 20px; height: 20px; display: grid; place-items: center; color: inherit;
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item .rd-nav-icon { display: block; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active .tab-icon { color: var(--rd-accent-2); filter: drop-shadow(0 0 6px var(--rd-glow)); }
+
+/* 子項：普通版只留文字（原型），選中的前面一顆發光圓點；整組左邊一條細線 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtabs {
+  position: relative; margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--rd-line);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item .sub-tab-icon { display: none; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item { position: relative; border-radius: 6px; }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item--active::before {
+  content: ""; position: absolute; left: -14px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-accent);
+}
+
+/* 分區標題（洞天總覽／宗門維運）：字距放寬、降一階 */
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-section-label { letter-spacing: .14em; color: var(--rd-fg-3); }
+
+/* 搜尋搬走之後，頂列右側要自己推到最右邊（原本是搜尋框的 margin-left:auto 在推） */
+:root[data-ui="redesign"] .app-topbar-status { margin-left: auto; }

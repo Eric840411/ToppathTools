@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.69.5'
+export const APP_VERSION = '5.69.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.69.6', date: '2026-11-02', changes: ["style(新版側欄，照原型 v7)：使用者 1102 問側欄怎麼沒照設計圖——普通版彩色字母方塊換成線條圖示、收合鈕搬到 Logo 右邊、搜尋框從頂列搬到側欄（行為不變，結果在框下展開）、子項拿掉圖示改成選中圓點＋左側細線、分區標題字距。仙俠版圖示照舊用 icons-v3。實測搜尋跳頁、收合成圖示列、圖示列的子選單、展開回來都正常"] },
   { version: '5.69.5', date: '2026-11-02', changes: ["style(新版：共用零件＋機台自動化測試，逐頁重做第 2 頁)：共用零件一次套到 6～21 頁——面板標題左側色條、表格外框凹槽＋表頭底色＋列 hover、次要按鈕玻璃按鍵、狀態籤膠囊。機台自動化測試：測試項目改成膠囊（勾選亮起）、摘要數字磚依結果上色並浮起、FAIL 大於 0 才掛告警光暈（常駐動畫數＝異常數）、進度條凹槽＋流光、日誌凹槽。只改長相；JSX 只多一個依 failCount 掛的 class"] },
   { version: '5.69.4', date: '2026-11-02', changes: ["style(新版 Dashboard，逐頁重做第 1 頁)：照原型 v7——頁首漸層底線、數字磚依狀態膠囊上色（綠／藍／黃）並浮起、面板頭左側色條、表格凹進面板、進度條凹槽軌道＋高光條身、小數字格凹槽、事件光點、空狀態虛線框。只改長相，功能與輪詢不動；仙俠版保留原本設計只補陰影"] },
   { version: '5.69.3', date: '2026-11-02', changes: ["change(新版外框)：使用者 1102「動畫強制開啟，不做關閉功能」——拿掉頂列的動畫開關，清掉舊版存的 toppath-motion；只剩系統「減少動態」（無障礙設定）會讓全站停，之前修好的『內容不消失、境界圖換靜態、突破特效定格』都改由它觸發。redesign-motion-stack 改用系統減少動態跑，13 條全過"] },
