@@ -32,6 +32,7 @@ import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './component
 const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
 const EgmDayCountPage = lazy(() => import('./pages/EgmDayCountPage').then(m => ({ default: m.EgmDayCountPage })))
 const WeeklyReportPage = lazy(() => import('./pages/WeeklyReportPage').then(m => ({ default: m.WeeklyReportPage })))
+const OfficePage = lazy(() => import('./pages/OfficePage').then(m => ({ default: m.OfficePage })))
 const MeegleAccountPage = lazy(() => import('./pages/MeegleAccountPage').then(m => ({ default: m.MeegleAccountPage })))
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
@@ -50,8 +51,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'osm-releases' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
 
 type SubTab = {
   id: TabId
@@ -102,6 +103,15 @@ const groups: Group[] = [
     iconClass: 'tab-icon--lark',
     tab: 'weekly-report',
     description: '貼上本週 Lark Base 網址，選擇成員與主要專案，混寫 Jira 摘要與手記後送出一列紀錄',
+  },
+  {
+    id: 'office',
+    label: '文書工具',
+    themeLabel: '文房四寶',
+    icon: 'D',
+    iconClass: 'tab-icon--lark',
+    tab: 'office',
+    description: 'Eric Office：Word／Excel／PPT／PDF 與影像、影音工具，檔案在瀏覽器本機處理',
   },
   {
     id: 'osm-tools',
@@ -370,7 +380,7 @@ function navIconName(id: string, iconClass: string): XianxiaIconName {
   if (id === 'knowledge') return 'knowledge'
   if (id === 'discord-notify' || id === 'lark-notify') return 'notification'
   if (id === 'settings' || id === 'sysadmin' || id.includes('config')) return 'settings'
-  if (id === 'jira') return 'document'
+  if (id === 'jira' || id === 'office') return 'document'
   if (id === 'lark') return 'ai'
   if (id === 'color-game' || iconClass.includes('colorgame')) return 'compare'
   if (iconClass.includes('imagecheck') || iconClass.includes('osm')) return 'monitor'
@@ -1072,7 +1082,7 @@ function App() {
             {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
           </>
         ) : (
-          <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
+          <main className={`main-content${currentGroup?.id === 'weekly-report' || currentGroup?.id === 'office' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {(currentGroup?.id === 'jira' || (meegleBindTrip && currentGroup?.id === 'account')) && (
               <div hidden={currentGroup?.id !== 'jira'}>
@@ -1082,6 +1092,7 @@ function App() {
             )}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
+            {currentGroup?.id === 'office' && <OfficePage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}

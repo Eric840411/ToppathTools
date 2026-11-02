@@ -69,3 +69,7 @@ server/autospin-logs/
 # 執行時產生的輸出，不是原始碼
 server/frontend-auto/
 server/ui-screenshot-saves/
+
+# 文書工具（Eric Office）版本檔：不進 git，部署時另外上傳（docs/features/34-office.md）
+office-dist/
+office-release/

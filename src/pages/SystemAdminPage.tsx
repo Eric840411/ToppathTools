@@ -30,6 +30,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'jira',         label: 'Meegle 批量工具',          group: 'Meegle / TestCase' },
   { key: 'lark',         label: 'TestCase 生成',            group: 'Meegle / TestCase' },
   { key: 'weekly-report', label: '週報彙整',                group: 'Meegle / TestCase' },
+  { key: 'office',       label: '文書工具（Eric Office）',  group: 'Meegle / TestCase' },
   { key: 'osm',          label: 'OSM 版號同步',        group: 'OSM Tools' },
   { key: 'machinetest',  label: '機台自動化測試',       group: 'OSM Tools' },
   { key: 'imagecheck',   label: '圖片刪除驗證',         group: 'OSM Tools' },

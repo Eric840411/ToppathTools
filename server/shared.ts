@@ -2376,6 +2376,8 @@ export const ALL_PAGE_KEYS = [
   'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report','lark-notify',
   // OSM 版本更新紀錄：查看／編輯紀錄／管理設定（v5.67.0，後端逐項驗）
   'osm-releases','osm-releases-edit','osm-releases-manage',
+  // 文書工具（Eric Office 嵌入，v5.68.0）：/office/* 靜態檔與 /api/office/apps 都驗這個 key
+  'office',
   // 功能開關（不是頁面）：沿用同一套權限 key 機制，讓後台權限頁不用另外長出第二套 UI。
   // canAccess() 只查 tabId，多出來的 key 不會影響側邊欄。
   'jira-ai-format','jira-ai-review',

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.67.1'
+export const APP_VERSION = '5.68.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.68.0', date: '2026-11-02', changes: ["feat(文書工具)：使用者 1102 在 Lark 要求把 Eric Office（craft-office 的 13 個 WASM 工具：Word／Excel／PPT／PDF／影像設計／影音）串進 Toppath、部署在 Spug、要登入才能用，選同源。新頁「文書工具」（修仙版「文房四寶」）：只列這個版本實際有部署的工具、iframe 分頁保留最多 3 個（滿了請使用者自己關、不自動踢、關閉前確認）、Film／Effect 需要 cross-origin isolation 改開新分頁。後端 /office/<app>/* 由新 router 自己驗登入＋權限 key office，掛在 SPA fallback 之前（未登入開頁 302、子資源 401、沒權限 403），逐段解碼後擋路徑穿越，帶 COOP／COEP／CORP，送部署時預壓的 .gz；版本目錄＋CURRENT 指標一次切換、可退版（scripts/office/pack-release.mjs、install-release.sh）。架構與 CodeX 討論定案。office-files.test 23 條、真 server 冒煙 33 條；注入拿掉權限紅 3、router 移到 fallback 後紅 6、拿掉穿越檢查紅 1"] },
   { version: '5.67.1', date: '2026-10-22', changes: ["fix(OSM 版本更新紀錄 日期篩選)：使用者 1022 回報日期欄沒有選擇器——<input type=\"month\"> 在 Safari／Firefox 桌機版不支援，退化成空白文字框。改成兩個下拉選單（最早／最新＋這個分頁實際有紀錄的月份），存成檢視的月份沒資料也保留；WebKit 實測可選、篩選生效"] },
   { version: '5.67.0', date: '2026-10-22', changes: ["feat(OSM 版本更新紀錄)：使用者 1022 要求取代 Lark「OSM更新版本」表、工具就是主檔，版面照 CodeX 設計——OSM Tools 新子分頁：時間軸（月份分組＋右側詳情）／矩陣（元件群組可收合）、篩選（單號／內容／版號搜尋、月份、狀態、元件）與個人檢視；寬側欄新增／編輯，元件逐列三態（有更新必填版號／未異動＝表上的 x／未提供＝空白），規則前後端共用 shared/osm-release-rules；樂觀鎖（別人先存回 409、提示是誰改的、不覆蓋；重編時連設定一起重讀）、編輯時「沒送＝保留原值、送空字串＝清空」（隱藏欄位整個不送、後端不看現在的分頁設定；CodeX 審出隱藏欄位、舊設定、欄位事後被打開三種情境會清資料）、軟刪除＋修改履歷（逐欄列出變動）；設定頁管分頁／元件／狀態（被引用的只能停用）與從 Lark 一次匯入（冪等）；三層權限 查看／編輯紀錄／管理設定，後端逐項驗；Toppath 分頁顯示 GM／API／GW／TG-API 線上版本。osm-releases.test 66 條＋真 server PUT 11 條，拿掉樂觀鎖紅 7 條、編輯 schema 改回 default('') 紅 2 條"] },
   { version: '5.66.10', date: '2026-10-22', changes: ["change(AutoSpin JP Group 只留 QAT／UAT)：使用者 1022 選 A——拿掉 PROD 預設值與環境按鈕（原本預填正式後台帳號），新增／修改不再接受 PROD；既有 PROD 資料照常顯示、可在畫面上刪除。OSM 版號頁的 LuckyLink PROD 版本追蹤不受影響（用 .env 的唯讀帳號）"] },

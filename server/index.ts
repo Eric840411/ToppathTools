@@ -40,6 +40,7 @@ import { router as accountsRouter } from './routes/accounts.js'
 import { router as sheetsRouter } from './routes/sheets.js'
 import { router as attachmentsRouter } from './routes/attachments.js'
 import { router as osmReleasesRouter } from './routes/osm-releases.js'
+import { router as officeRouter } from './routes/office.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
@@ -414,6 +415,8 @@ app.use(accountsRouter)
 app.use(sheetsRouter)
 app.use(attachmentsRouter)
 app.use(osmReleasesRouter)
+// 文書工具：/office/* 靜態檔自己驗登入＋權限，一定要在下面的 static／SPA fallback 之前
+app.use(officeRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
