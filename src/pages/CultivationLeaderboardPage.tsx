@@ -147,6 +147,8 @@ export function CultivationLeaderboardPage({ currentEmail, onPreviewRealm }: { c
 
         {entries && entries.length > 0 && (
           <div className="cultivation-list">
+            {/* 新版（原型 v7）：名次表的表頭；各列裡的小標籤在新版收掉（redesign/xianxia.css 第五批） */}
+            <div className="cultivation-list-head" aria-hidden="true"><span>名次</span><span>修士</span><span>當前境界</span><span>入門修行</span><span>下次突破</span></div>
             {entries.map((entry, index) => {
               const isMe = currentEmail !== null && entry.email === currentEmail
               const realm = realmFor(entry)

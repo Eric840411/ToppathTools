@@ -145,8 +145,9 @@ export function XianxiaQuotesPage() {
     }
   }
 
+  // 新版（原型 v7）：左欄「新增語錄」「AI 建議候選語錄」兩塊面板（標籤在左），右欄「語錄庫」卡片清單；版面樣式在 redesign/pages/settings.css 的 .st-xq-*
   return (
-    <div className="discord-notify-page">
+    <div className="discord-notify-page st-asn st-xq">
       <div className="discord-notify-head">
         <div>
           <h1 className="discord-notify-title">每日仙語管理</h1>
@@ -156,30 +157,29 @@ export function XianxiaQuotesPage() {
         </div>
       </div>
 
-      <div className="discord-notify-grid">
-        <div>
-          <div className="discord-notify-card">
-            <div className="discord-notify-card-title">新增語錄</div>
-            <div className="discord-notify-field" style={{ marginBottom: 10 }}>
+      <div className="st-xq-grid">
+        <div className="st-col">
+          <section className="section-card st-card">
+            <h2 className="section-title">新增語錄</h2>
+            <div className="st-form">
+              <span className="st-l st-l--top">語錄內容</span>
               <textarea
-                className="discord-notify-input"
-                style={{ minHeight: 60, resize: 'vertical' }}
+                className="lst-field st-ta"
                 placeholder="語錄內容"
                 value={newText}
                 onChange={e => setNewText(e.target.value)}
               />
-            </div>
-            <div className="discord-notify-field" style={{ marginBottom: 10 }}>
+              <span className="st-l">出處</span>
               <input
-                className="discord-notify-input"
-                placeholder="出處（例：凡人修仙傳）"
+                className="lst-field"
+                placeholder="例：凡人修仙傳"
                 value={newSource}
                 onChange={e => setNewSource(e.target.value)}
               />
             </div>
-            <div className="discord-notify-actions">
+            <div className="st-actions">
               <button
-                className="discord-notify-btn discord-notify-btn--primary"
+                className="submit-btn lst-btn"
                 onClick={handleAdd}
                 disabled={adding || !newText.trim()}
               >
@@ -187,43 +187,45 @@ export function XianxiaQuotesPage() {
               </button>
             </div>
             {msg && <div className={`discord-notify-msg ${msg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{msg.text}</div>}
-          </div>
+          </section>
 
-          <div className="discord-notify-card" style={{ marginTop: 16 }}>
-            <div className="discord-notify-card-title">AI 建議候選語錄</div>
-            <p className="discord-notify-card-note">
+          <section className="section-card st-card">
+            <h2 className="section-title">AI 建議候選語錄</h2>
+            <p className="st-note">
               請 Gemini 幫忙生成候選語錄草稿——但這只是草稿，AI 可能編造根本不存在的句子或講錯出處，
               請自己確認出處真的存在才按「加入語錄庫」，不會自動幫你存進去。
-              {/* ⚠️ 實測：指定單一作品又要 8 句時，回來的有好幾句是「小心駛得萬年船」
+              {/* 實測：指定單一作品又要 8 句時，回來的有好幾句是「小心駛得萬年船」
                   「斬草不除根」這類通用成語——不是那部作品的原創台詞，是模型為了湊滿
                   數量填的。數量越大湊數越明顯，這件事要講出來，不能讓人以為指定作品就可靠。 */}
               <br />
-              <span style={{ color: '#ead8a6' }}>
-                ⚠️ 數量拉太大時，AI 會用通用成語湊數（實測指定單一作品要 8 句就出現了）。
+              <span className="st-xq-warn">
+                數量拉太大時，AI 會用通用成語湊數（實測指定單一作品要 8 句就出現了）。
                 一次 3~5 句、需要更多就多按幾次，品質會比較穩。
               </span>
             </p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <div className="st-form">
+              <span className="st-l">數量</span>
               <input
-                className="discord-notify-input"
+                className="lst-field st-xq-count"
                 type="number"
                 min={1}
                 max={10}
-                style={{ width: 70 }}
                 value={suggestCount}
                 onChange={e => setSuggestCount(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
               />
               {/* 指定作品是最有效的辦法——模型在單一作品上的準確度明顯高於「隨便給幾句」，
                   也是避開「一直重複那幾部」最直接的手段 */}
+              <span className="st-l">只從這部作品裡找</span>
               <input
-                className="discord-notify-input"
-                style={{ flex: 1, minWidth: 0 }}
-                placeholder="只從這部作品裡找（選填，例：遮天）"
+                className="lst-field"
+                placeholder="選填，例：遮天"
                 value={onlySource}
                 onChange={e => setOnlySource(e.target.value)}
               />
+            </div>
+            <div className="st-actions">
               <button
-                className="discord-notify-btn discord-notify-btn--secondary"
+                className="submit-btn lst-btn"
                 onClick={handleSuggest}
                 disabled={suggesting}
               >
@@ -231,83 +233,85 @@ export function XianxiaQuotesPage() {
               </button>
             </div>
             {unparsed > 0 && suggestions.length > 0 && (
-              <p className="discord-notify-card-note" style={{ color: '#8fb3d9' }}>
+              <p className="st-note st-xq-unparsed">
                 另有 {unparsed} 行不符「台詞｜出處」格式已略過（多半是 AI 的開場白）
               </p>
             )}
             {dropped > 0 && suggestions.length > 0 && (
-              <div className="discord-notify-msg" style={{ fontSize: 12 }}>
+              <div className="discord-notify-msg st-xq-dropped">
                 已自動擋掉 {dropped} 句語錄庫裡已經有的
               </div>
             )}
             {suggestError && <div className="discord-notify-msg discord-notify-msg--error">{suggestError}</div>}
-            {suggestions.map((s, idx) => (
-              <div key={idx} style={{ border: '1px solid #334155', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 13, marginBottom: 4 }}>{s.text}</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span>出處：{s.source || '（未標示）'}</span>
-                  {/* ⚠️ 只標示不自動轉換：改了字沒人看得出來，改錯一個字就變成
-                      原著裡不存在的話。要不要用交給人決定。 */}
-                  {s.hasTraditional && (
-                    <span
-                      title="語錄庫統一用簡體，這句含繁體字。系統刻意不自動轉換——改錯一個字就會變成原著裡不存在的話。"
-                      style={{ color: '#ead8a6', border: '1px solid #6b5b34', borderRadius: 4, padding: '0 5px', fontSize: 11 }}
-                    >繁體</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="discord-notify-btn discord-notify-btn--primary" onClick={() => handleAcceptSuggestion(s, idx)}>加入語錄庫</button>
-                  <button className="discord-notify-btn discord-notify-btn--secondary" onClick={() => setSuggestions(prev => prev.filter((_, i) => i !== idx))}>忽略</button>
-                </div>
+            {suggestions.length > 0 && (
+              <div className="st-xq-list st-xq-list--suggest">
+                {suggestions.map((s, idx) => (
+                  <div key={idx} className="st-xq-item">
+                    <div className="st-xq-text">{s.text}</div>
+                    <div className="st-xq-meta">
+                      <span>出處：{s.source || '（未標示）'}</span>
+                      {/* 只標示不自動轉換：改了字沒人看得出來，改錯一個字就變成
+                          原著裡不存在的話。要不要用交給人決定。 */}
+                      {s.hasTraditional && (
+                        <span
+                          className="st-xq-trad"
+                          title="語錄庫統一用簡體，這句含繁體字。系統刻意不自動轉換——改錯一個字就會變成原著裡不存在的話。"
+                        >繁體</span>
+                      )}
+                    </div>
+                    <div className="st-xq-btns">
+                      <button className="submit-btn lst-btn" onClick={() => handleAcceptSuggestion(s, idx)}>加入語錄庫</button>
+                      <button className="btn-ghost lst-btn" onClick={() => setSuggestions(prev => prev.filter((_, i) => i !== idx))}>忽略</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </section>
         </div>
 
-        <div>
-          <div className="discord-notify-card">
-            <div className="discord-notify-card-title">語錄庫（{quotes.length} 則）</div>
-            {loading && <p className="discord-notify-card-note">載入中…</p>}
-            {!loading && quotes.length === 0 && <p className="discord-notify-card-note">語錄庫是空的，先新增幾則吧。</p>}
+        <section className="section-card st-card">
+          <h2 className="section-title">語錄庫（{quotes.length} 則）</h2>
+          {loading && <p className="st-note">載入中…</p>}
+          {!loading && quotes.length === 0 && <p className="st-note">語錄庫是空的，先新增幾則吧。</p>}
+          <div className="st-xq-list">
             {quotes.map(q => (
-              <div key={q.id} style={{ border: '1px solid #263345', borderRadius: 6, padding: 10, marginBottom: 8 }}>
+              <div key={q.id} className="st-xq-item">
                 {editingId === q.id ? (
                   <>
                     <textarea
-                      className="discord-notify-input"
-                      style={{ minHeight: 50, resize: 'vertical', marginBottom: 8, width: '100%' }}
+                      className="lst-field st-ta"
                       value={editText}
                       onChange={e => setEditText(e.target.value)}
                     />
                     <input
-                      className="discord-notify-input"
-                      style={{ marginBottom: 8, width: '100%' }}
+                      className="lst-field"
                       value={editSource}
                       onChange={e => setEditSource(e.target.value)}
                     />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="discord-notify-btn discord-notify-btn--primary" onClick={handleSaveEdit} disabled={savingEdit || !editText.trim()}>
+                    <div className="st-xq-btns">
+                      <button className="submit-btn lst-btn" onClick={handleSaveEdit} disabled={savingEdit || !editText.trim()}>
                         {savingEdit ? '儲存中…' : '儲存'}
                       </button>
-                      <button className="discord-notify-btn discord-notify-btn--secondary" onClick={() => setEditingId(null)}>取消</button>
+                      <button className="btn-ghost lst-btn" onClick={() => setEditingId(null)}>取消</button>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div style={{ fontSize: 13, marginBottom: 4 }}>{q.text}</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                    <div className="st-xq-text">{q.text}</div>
+                    <div className="st-xq-meta">
                       出處：{q.source || '（未標示）'} · 已用於第 {q.last_used_cycle} 輪
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="discord-notify-btn discord-notify-btn--secondary" onClick={() => startEdit(q)}>編輯</button>
-                      <button className="discord-notify-btn discord-notify-btn--secondary" onClick={() => handleDelete(q.id)}>刪除</button>
+                    <div className="st-xq-btns">
+                      <button className="btn-ghost lst-btn" onClick={() => startEdit(q)}>編輯</button>
+                      <button className="btn-ghost lst-btn st-btn--danger" onClick={() => handleDelete(q.id)}>刪除</button>
                     </div>
                   </>
                 )}
               </div>
             ))}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   )

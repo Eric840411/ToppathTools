@@ -502,3 +502,142 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-backend-settings > .uat-pane-heading:first-child > div, .uat-backend-log > .uat-log-toolbar > .uat-section-title)::before { content: none !important; }
 /* 網路監測面板原本 position: static，角框會定位到外層去 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio .uat-net-panel { position: relative; }
+
+/* ══════════════════════════════════════════════════════════════════
+   第五批：AutoSpin 通知、通知設定、境界排行榜、每日仙語管理、個人帳號、系統管理
+   （圖片比對、Bonus V2 在 iframe 裡，改在 server/static/redesign-frame.css；Log 攔截工具已一致）
+   ══════════════════════════════════════════════════════════════════ */
+/* 頁首說明：舊仙俠把 .discord-notify-head 畫成帶主視覺圖的大橫幅；新版跟普通版一樣只是一行小字（頁首已有標題） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .discord-notify-head {
+  min-height: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0;
+  background: none !important; box-shadow: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .discord-notify-head::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .discord-notify-head::after { content: none !important; }
+/* AutoSpin 通知：狀態生命週期列（App.css 藍灰）、預覽卡左邊那條（普通版執行中藍）→ 墨綠／玉色 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .discord-notify-state-row {
+  background: color-mix(in srgb, var(--rd-bg-2) 85%, transparent) !important; border-color: var(--rd-line-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .discord-notify-state-name { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .discord-notify-state-desc { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .st-pv { border-left-color: var(--rd-accent-2); }
+
+/* 通知設定：頁面自帶的 --ln-* 換成新版 tokens；四張卡＋儲存列加鎏金角框；按鈕換原型墨綠玻璃（頁面 CSS 的仙俠版是金框透明） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page {
+  --ln-card: var(--rd-panel); --ln-border: var(--rd-line-2); --ln-input: var(--rd-bg-2); --ln-input-border: var(--rd-line-2);
+  --ln-text: var(--rd-fg); --ln-muted: var(--rd-fg-2); --ln-primary: var(--rd-accent); --ln-primary-text: var(--rd-accent-ink); --ln-head-row: var(--rd-bg-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar) { position: relative; border-radius: 3px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar)::after {
+  content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; border: 2px solid var(--rd-ornament); opacity: .85; pointer-events: none;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar)::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar)::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-savebar {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent); box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .ln-btn:not(.ln-btn--primary) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2);
+  border-color: var(--rd-line-2); color: var(--rd-fg); box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .ln-btn:not(.ln-btn--primary):not(:disabled):hover { border-color: var(--rd-accent); filter: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-pill { border-color: color-mix(in srgb, var(--rd-accent) 45%, transparent); color: var(--rd-accent-2); background: color-mix(in srgb, var(--rd-accent) 10%, transparent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-tab.is-active { color: var(--rd-accent-2); border-bottom-color: var(--rd-accent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-note { background: color-mix(in srgb, var(--rd-accent) 6%, transparent); }
+
+/* ── 境界排行榜（只有仙俠版）：照原型 v7「九境圖譜」面板（九格一列）＋「宗門名次」表格 ──
+   頁首已經有「境界排行榜｜群英榜」，頁內的大標語區（群英榜＋九境印）原型沒有、內容是說明文字，收掉 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board { gap: 16px; padding-bottom: 24px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board::before { content: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-hero { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking) {
+  position: relative; padding: 0 16px 16px; border-radius: 3px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent); box-shadow: var(--rd-elev-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::after {
+  content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; border: 2px solid var(--rd-ornament); opacity: .85; pointer-events: none;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas, .cultivation-ranking)::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+/* 標題帶：英文小標收掉，右側小字當 meta；標題前鎏金菱形 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading) {
+  position: relative; align-items: center; margin: 0 -16px 14px; padding: 11px 16px 11px 33px; min-height: 0;
+  border-bottom: 1px solid var(--rd-line); background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading)::before {
+  content: ""; position: absolute; left: 18px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-board .cultivation-kicker { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.realm-atlas__heading, .cultivation-ranking__heading) h3 {
+  margin: 0; font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: normal; color: var(--rd-fg);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-atlas__heading p,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-ranking__count {
+  padding: 0; border: 0; font: 400 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg-3);
+}
+/* 九境：九格一列，每格＝編號、法相、名稱、門檻天數（原型 .card）；稱號與「預覽突破」照留 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-atlas__track { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 10px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card {
+  grid-template-columns: 1fr; justify-items: center; align-content: start; gap: 6px; min-height: 0; padding: 12px 6px;
+  border-radius: 9px; text-align: center; border: 1px solid var(--rd-line-2);
+  background: linear-gradient(170deg, var(--rd-panel-2), var(--rd-panel)); box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--realm-accent) 55%, var(--rd-line-2)); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card__order {
+  position: static; order: -1; color: var(--rd-fg-2); font: 400 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: 0;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card .realm-art { --realm-size: 56px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card__copy h4 { margin: 0 0 2px; font-family: inherit; font-weight: 700; font-size: 13.5px; line-height: 1.3; letter-spacing: normal; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card__copy p { margin: 0 0 4px; font-size: 11px; letter-spacing: normal; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card__copy > span { color: var(--rd-fg-2); font: 400 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-card__preview { margin: 6px auto 0; font-size: 11px; letter-spacing: normal; }
+@media (max-width: 1280px) {
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-atlas__track { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .realm-atlas__track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* 宗門名次：原型 .tbl-wrap 表格（表頭一列、每位修士一列）；格內的小標籤收進表頭 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list {
+  --cl-cols: 64px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.1fr);
+  gap: 0; margin: 0 -6px; border-radius: 6px; overflow: hidden;
+  background: color-mix(in srgb, var(--rd-bg) 75%, transparent); box-shadow: var(--rd-well);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list-head {
+  display: grid; grid-template-columns: var(--cl-cols); padding: 0; background: var(--rd-bg-2); border-bottom: 1px solid var(--rd-line-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list-head > span { padding: 9px 14px; font-size: 12px; font-weight: 600; color: var(--rd-fg-2); letter-spacing: .04em; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-entry {
+  grid-template-columns: var(--cl-cols); min-height: 0; border: 0; border-bottom: 1px solid var(--rd-line); background: none; transition: background .12s ease;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-entry:last-child { border-bottom: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-entry:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); border-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-entry--me { box-shadow: inset 3px 0 var(--rd-accent); border-color: var(--rd-line); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-rank, .cultivation-user, .cultivation-realm, .cultivation-days, .cultivation-next) { padding: 8px 14px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-rank, .cultivation-realm, .cultivation-days, .cultivation-next) small { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-rank { text-align: left; border-right: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-rank strong { color: var(--rd-fg-2); font: 600 13px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-rank--top strong { color: var(--rd-ornament); text-shadow: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-user strong { font-size: 13px; color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-user div > span { font-size: 11px; color: var(--rd-fg-3); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-realm .realm-art { --realm-size: 26px; filter: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-realm .realm-art::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-realm .realm-art::after { content: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-realm div > span { display: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.cultivation-realm, .cultivation-next) strong { display: inline; font-family: inherit; font-weight: 500; font-size: 13px; line-height: 1.4; letter-spacing: normal; color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-days strong { font: 400 13px/1 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-days > span { font-size: 12px; color: var(--rd-fg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-next > span { display: inline; margin: 0 0 0 4px; font-size: 13px; color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-next > span::before { content: "・ "; color: var(--rd-fg-3); }
+@media (max-width: 1120px) {
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list { --cl-cols: 56px minmax(0, 1.25fr) minmax(0, 1fr) 95px; }
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list-head > span:last-child { display: none; }
+}
+/* 危險按鈕（刪除、刪除角色）：全站次要按鈕那條 !important 把紅字壓成白，補回來 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.lst-btn.st-btn--danger { color: #f87171 !important; border-color: color-mix(in srgb, #f87171 55%, transparent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .btn-ghost.lst-btn.st-btn--danger:hover:not(:disabled) { color: #fca5a5 !important; border-color: #f87171 !important; }

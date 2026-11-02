@@ -13,8 +13,10 @@ html[data-ui="redesign"] {
   --rd-well: inset 0 2px 6px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 0 var(--rd-hi);
 }
 html[data-ui="redesign"][data-theme-mode="xianxia"] {
-  --rd-bg: #03070c; --rd-bg-2: #07101a; --rd-panel: #0b1722; --rd-panel-2: #102231;
-  --rd-line: rgba(214, 183, 112, .16); --rd-line-2: rgba(214, 183, 112, .28);
+  /* 墨綠（同外框 src/redesign/redesign.css 的仙俠 tokens，原型 [data-skin="xianxia"]） */
+  --rd-bg: #060f0d; --rd-bg-2: #0a1613; --rd-panel: #0d1c18; --rd-panel-2: #11251f;
+  --rd-line: #1c3a31; --rd-line-2: #2b5547;
+  --rd-ornament: #d6b770; --rd-accent-ink: #04120d;
   --rd-fg: #e6efe8; --rd-fg-2: #a7bdb2; --rd-fg-3: #6f8a7e;
   --rd-accent: #78d5c8; --rd-accent-2: #a9ece2; --rd-glow: rgba(120, 213, 200, .3);
   --rd-mark: #d6b770;
@@ -80,12 +82,31 @@ html[data-ui="redesign"] .btn-sm { height: 28px; padding: 0 12px; font-size: 12p
 html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success, .btn-secondary, .btn-muted, .btn-danger) { border-radius: 4px; }
 html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success),
 html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-primary, .btn-success):hover:not(:disabled) {
-  border: 1px solid rgba(117, 215, 207, .5); background: linear-gradient(145deg, #3a8d84, #245f5b); color: #f2fbf9;
-  box-shadow: inset 0 1px rgba(255, 255, 255, .12), 0 7px 18px rgba(14, 66, 62, .2);
+  border: 0; color: var(--rd-accent-ink);
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2)));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .3) inset, 0 3px 0 rgba(0, 0, 0, .35), 0 4px 18px var(--rd-glow);
 }
 html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger),
 html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) {
-  border: 1px solid rgba(214, 183, 112, .24); background: rgba(15, 25, 34, .82); color: #aeb9bf; box-shadow: none;
+  border: 1px solid var(--rd-line-2); color: var(--rd-fg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
 }
-html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) { border-color: rgba(214, 183, 112, .5); color: #e6efe8; }
-html[data-ui="redesign"][data-theme-mode="xianxia"] .btn-danger:not(:disabled) { color: #f2a08f; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.btn-secondary, .btn-muted, .btn-danger):hover:not(:disabled) { border-color: var(--rd-accent); }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .btn-danger:not(:disabled) { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
+
+/* ══ 仙俠版面板（原型 [data-skin="xianxia"] .panel）：圓角 3、左上／右下鎏金角框；標題前的色條換成鎏金菱形 ══ */
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.card, .status-bar) { position: relative; border-radius: 3px; border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent); }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card::before,
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card::after {
+  content: ""; position: absolute; z-index: 3; width: 14px; height: 14px; border: 2px solid var(--rd-ornament); opacity: .85; pointer-events: none;
+}
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card-title { padding-left: 17px; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .card-title::before {
+  left: 2px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+/* 圖片比對 A／B 版欄位標籤：原型是一般次要字色（不是藍／紫） */
+html[data-ui="redesign"][data-theme-mode="xianxia"] .input-group :is(.label-a, .label-b) { color: var(--rd-fg-2); }

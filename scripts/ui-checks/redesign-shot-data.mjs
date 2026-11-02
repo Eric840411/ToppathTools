@@ -5,6 +5,9 @@
  */
 import Database from 'better-sqlite3'
 import { chromium } from 'playwright'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mintDevSession } from './lib/dev-session.mjs'
 
 const [H, out, name, waitMs, ...buttons] = process.argv.slice(2)
@@ -14,6 +17,20 @@ const u = new URL(H)
 const b = await chromium.launch()
 const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } })
 await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: u.hostname, path: '/' }])
+// Game Show iframe 的 server/static 檔：本機 server 跑的是主 repo 的版本，這裡改吃 worktree 的（同 redesign-frame-check.mjs）
+const STATIC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server', 'static')
+const SERVE = {
+  '/api/gs/img-compare': ['img-compare.html', 'text/html; charset=utf-8'],
+  '/api/gs/bonus-v2': ['bonus-v2.html', 'text/html; charset=utf-8'],
+  '/api/gs/redesign-frame.js': ['redesign-frame.js', 'application/javascript; charset=utf-8'],
+  '/api/gs/redesign-frame.css': ['redesign-frame.css', 'text/css; charset=utf-8'],
+  '/api/gs/img-compare-app.js': ['img-compare-app.js', 'application/javascript; charset=utf-8'],
+  '/api/gs/bonus-v2-app.js': ['bonus-v2-app.js', 'application/javascript; charset=utf-8'],
+}
+await ctx.route(url => SERVE[url.pathname] !== undefined, route => {
+  const [file, type] = SERVE[new URL(route.request().url()).pathname]
+  route.fulfill({ status: 200, contentType: type, body: readFileSync(join(STATIC, file)) })
+})
 const MODE = process.env.THEME_MODE || 'classic'
 await ctx.addInitScript((MODE) => { try { localStorage.setItem('toppath-theme-mode', MODE) } catch { /* */ } }, MODE)
 const p = await ctx.newPage()

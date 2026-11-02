@@ -269,14 +269,14 @@
 :root[data-ui="redesign"] .mg-notes strong { color: var(--rd-fg-2, #94a3b8); }
 
 /* ── 普通版配色：卡片走原型面板，不吃 MeegleAccountPage.css 的平面底色 ── */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-page {
+:root[data-ui="redesign"] .mg-page {
   --mg-bg: var(--rd-bg-2); --mg-border: var(--rd-line-2); --mg-text: var(--rd-fg); --mg-muted: var(--rd-fg-2); --mg-primary: var(--rd-accent);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-btn:not(.mg-btn--primary) {
+:root[data-ui="redesign"] .mg-btn:not(.mg-btn--primary) {
   background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
   box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mg-btn--primary {
+:root[data-ui="redesign"] .mg-btn--primary {
   box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 -2px 0 rgba(0, 0, 0, .25) inset, 0 3px 0 rgba(0, 0, 0, .35), 0 6px 14px -4px var(--rd-glow);
 }
 
@@ -312,3 +312,24 @@
 .kb-table td:last-child { overflow: visible; white-space: nowrap; }
 /* 個人帳號第二輪：操作按鈕列與「最後成功驗證」之間收回 5px（CodeX 比對） */
 :root[data-ui="redesign"] .mg-actions { margin-top: -5px; }
+
+/* ════════════════════ 每日仙語管理（只有仙俠版；原型 v7）：左欄兩塊表單面板、右欄語錄庫卡片清單 ════════════════════ */
+:root[data-ui="redesign"] .st-xq-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+:root[data-ui="redesign"] .st-xq .st-form { grid-template-columns: 76px minmax(0, 1fr); }
+:root[data-ui="redesign"] .st-xq .lst-field.st-xq-count { width: 100%; }
+.st-xq-warn { color: #e6c77f; }
+.st-xq-unparsed { margin: 12px 0 0; }
+:root[data-ui="redesign"] .st-xq .discord-notify-msg { text-align: right; margin-top: 8px; }
+.st-xq-list { display: flex; flex-direction: column; gap: 10px; }
+.st-xq-list--suggest { margin-top: 14px; }
+.st-xq-item {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 9px; min-width: 0;
+  background: linear-gradient(170deg, var(--rd-panel-2, #1e293b), var(--rd-panel, #162032)); border: 1px solid var(--rd-line-2, #2d3f55); box-shadow: var(--rd-elev-1, none);
+}
+.st-xq-text { font-size: 13.5px; font-weight: 600; color: var(--rd-fg, #e2e8f0); line-height: 1.6; overflow-wrap: anywhere; }
+.st-xq-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--rd-fg-3, #64748b); }
+.st-xq-trad { color: #e6c77f; border: 1px solid color-mix(in srgb, #e6c77f 45%, transparent); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+.st-xq-btns { display: flex; gap: 10px; }
+@media (max-width: 1100px) {
+  :root[data-ui="redesign"] .st-xq-grid { grid-template-columns: 1fr; }
+}

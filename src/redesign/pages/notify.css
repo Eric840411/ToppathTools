@@ -21,7 +21,7 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card .ln-card-title::before {
   background: transparent; color: var(--rd-ornament); box-shadow: 0 0 0 1px var(--rd-ornament);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .ln-card {
+:root[data-ui="redesign"] .ln-card {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
   box-shadow: var(--rd-elev-2);
