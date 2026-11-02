@@ -30,16 +30,20 @@
   --rd-elev-2: 0 1px 0 var(--rd-hi-2) inset, 0 -1px 0 rgba(0, 0, 0, .45) inset, 0 6px 12px rgba(0, 0, 0, .35), 0 24px 48px -12px rgba(0, 0, 0, .7);
   --rd-well: inset 0 2px 6px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 0 var(--rd-hi);
   --rd-ios-on: #34c759;
+  --rd-run: #4cc3ff;
+  --rd-fail: #ff5d6c;
+  --rd-warn: #f5c04a;
+  --rd-btn-r: 7px;
 }
 
-/* 仙俠：只換配色（玉／金），丹砂只給異常 */
+/* 仙俠：只換配色（玉／金），丹砂只給異常。數值照原型 v7 [data-skin="xianxia"]（兩段 token 合併：第二段覆寫 accent／ornament／hi） */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] {
-  --rd-bg: #03070c;
-  --rd-bg-2: #07101a;
-  --rd-panel: #0b1722;
-  --rd-panel-2: #102231;
-  --rd-line: rgba(214, 183, 112, .16);
-  --rd-line-2: rgba(214, 183, 112, .28);
+  --rd-bg: #060f0d;
+  --rd-bg-2: #0a1613;
+  --rd-panel: #0d1c18;
+  --rd-panel-2: #11251f;
+  --rd-line: #1c3a31;
+  --rd-line-2: #2b5547;
   --rd-fg: #e6efe8;
   --rd-fg-2: #a7bdb2;
   --rd-fg-3: #6f8a7e;
@@ -50,6 +54,10 @@
   --rd-hi: rgba(240, 216, 156, .10);
   --rd-hi-2: rgba(240, 216, 156, .22);
   --rd-ios-on: #3da999;
+  --rd-run: #a9ece2;
+  --rd-accent-ink: #04120d;
+  --rd-fail: #e0715a;
+  --rd-btn-r: 4px; /* 全站仙俠按鈕圓角 4（redesign-frame-check ⑦） */
 }
 
 /* ── 背景：透視網格地板＋一顆光球（只在普通版；仙俠版保留原本的境界背景） ── */
@@ -96,18 +104,18 @@
   box-shadow: inset -1px 0 0 var(--rd-hi), 8px 0 30px -10px rgba(0, 0, 0, .7);
 }
 :root[data-ui="redesign"] .sidebar-nav-item { border-radius: 7px; transition: background .14s ease, color .14s ease, box-shadow .14s ease; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active {
+:root[data-ui="redesign"] .sidebar-nav-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
+:root[data-ui="redesign"] .sidebar-nav-item--active {
   position: relative;
   color: var(--rd-fg);
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 26%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 10%, var(--rd-panel)));
   box-shadow: var(--rd-elev-1), 0 0 18px -4px var(--rd-glow);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active::before {
+:root[data-ui="redesign"] .sidebar-nav-item--active::before {
   content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0;
   background: var(--rd-accent); box-shadow: 0 0 10px var(--rd-accent);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item--active {
+:root[data-ui="redesign"] .sidebar-subtab-item--active {
   color: var(--rd-accent-2); background: var(--rd-panel-2); box-shadow: var(--rd-elev-1);
 }
 
@@ -171,13 +179,10 @@
 /* ⚠️ 只列「本來就是一張卡」的 class。.mb-pane 是 Meegle 步驟的內層容器、沒有左右內距，
    當成卡片加框之後內容貼著邊框（使用者 1102 回報「邊框靠太近」）——內層容器不要加進來 */
 /* ── 內容區：浮起的面板（普通版；仙俠版有自己的卷軸框，只補立體陰影） ── */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
+:root[data-ui="redesign"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
   border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
   box-shadow: var(--rd-elev-2);
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
-  box-shadow: var(--rd-elev-2) !important;
 }
 
 /* 輸入框：凹槽。⚠️ 只選真的輸入元素：.field 在有些頁面是外層 div，套上去整列都被框起來（實測機台測試頁） */

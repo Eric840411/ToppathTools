@@ -1,0 +1,260 @@
+/* ══════════════════════════════════════════════════════════════════
+   新版仙俠皮（原型 v7 [data-skin="xianxia"]）
+   原型的規則：「Single dark world with two skins (classic / xianxia) swapped by data-skin; structure never changes.」
+   所以版面結構跟普通版完全同一套（各頁 redesign CSS 已不再排除仙俠），這裡只做兩件事：
+     ① 換配色與角飾：面板左上／右下鎏金角框、標題帶前的鎏金菱形、頁首的金→玉漸層線（tokens 在 redesign.css）
+     ② 集中覆寫舊仙俠 CSS（public/xianxia-complete.css）用 !important 寫死、會把新版結構蓋回去的規則。
+        只在 data-ui="redesign" 底下生效；舊版介面照舊吃 xianxia-complete.css，不受影響。
+   字型：原型仙俠跟普通版同一套內文字型，不用襯線、標題不加大字距。
+   保留正式站才有的東西：萬法歸樞標語＋主視覺圖、每日仙語、靈氣進度條、背景境界、側欄底部（更新日誌／陣法設定／使用者）。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 字型：去掉襯線與大字距（舊仙俠 CSS 對標題、表頭、徽章、數字全用 --xx-serif）。
+   用 :where 讓這條只有 (0,3,0)：仍壓得過舊仙俠的 !important，後面個別指定字距／字級的規則也蓋得過它 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :where(
+  .sidebar-brand-name, .app-topbar-title, .rd-page-title,
+  .app :is(h1, h2, h3, h4), .modal :is(h1, h2, h3, h4),
+  .main-content :is(.section-title, .card-title, .osm-section-title, .table-header h3, .dashboard-chip, .osm-badge, .cr-pill),
+  .dashboard-panel-head :is(h2, h3), .modal-header h2
+) {
+  font-family: inherit !important;
+  letter-spacing: normal !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-brand-name { letter-spacing: .02em !important; font-size: 17px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-section-label { letter-spacing: .14em !important; color: var(--rd-fg-3) !important; }
+/* 表頭：原型是內文字型 12px、次要字色；舊仙俠是襯線金字大字距 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content th {
+  font-family: inherit !important; font-size: 12px !important; font-weight: 600 !important;
+  letter-spacing: .04em !important; color: var(--rd-fg-2) !important; text-transform: none;
+}
+
+/* ── 面板：同普通版的浮起面板，圓角 3px＋鎏金角框（原型 .panel::before／::after） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
+  border-radius: 3px !important;
+  box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel):hover {
+  transform: none !important;
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
+  box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::after {
+  content: "" !important; display: block !important; position: absolute !important; z-index: 3 !important;
+  inset: auto !important; width: 14px !important; height: 14px !important; margin: 0 !important;
+  border: 2px solid var(--rd-ornament) !important; border-radius: 0 !important;
+  background: none !important; box-shadow: none !important; transform: none !important; animation: none !important;
+  opacity: .85 !important; pointer-events: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::before {
+  top: -1px !important; left: -1px !important; border-right: 0 !important; border-bottom: 0 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel)::after {
+  bottom: -1px !important; right: -1px !important; border-left: 0 !important; border-top: 0 !important;
+}
+/* Dashboard 面板原本 overflow:hidden，角框會被裁掉一半；表格本身不超寬，放開 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-panel { overflow: visible; }
+
+/* ── 標題帶：色條換成鎏金菱形（原型 .panel-h::before），舊仙俠的符印與標題下金線收掉 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-title { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-title::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-panel-head::before {
+  display: block; width: 7px; height: 7px; margin: -3.5px 0 0; border: 0; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-title::before { left: 2px; }
+/* 菱形比色條寬，不在標題帶裡的標題多留 4px，字跟菱形之間才有原型的間距 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-title { padding-left: 17px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-card > .section-title:first-child::before { left: 14px; height: 7px; margin-top: -3.5px; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .section-title::after { display: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-panel-head::before { top: 24px; left: 15px; margin: 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-panel-head h2 { color: var(--rd-fg); }
+
+/* ── Dashboard ── */
+/* 舊仙俠把頁面加了 28px 內距與 max-width，內容比頁首縮進一截 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-page { max-width: none !important; padding: 0 !important; }
+/* 萬法歸樞：原型 .dash-intro 是不框起來的標語（kicker＋大字＋說明）；正式站的主視覺圖保留在右側、邊緣淡出 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro {
+  min-height: 140px !important; margin: -4px 0 16px; padding: 2px 300px 0 0 !important;
+  align-items: flex-start !important; justify-content: space-between;
+  border: 0 !important; border-radius: 0; background: none !important; box-shadow: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro::before {
+  width: 280px !important;
+  -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent);
+  mask-image: radial-gradient(closest-side, #000 55%, transparent);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-hero-kicker { color: var(--rd-ornament); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro h1 {
+  margin: 8px 0 6px !important; font-size: 34px !important; font-weight: 900 !important; letter-spacing: .02em !important;
+  color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro p { color: var(--rd-fg-2) !important; font-size: 13.5px; margin: 0; }
+/* 自動更新資訊：原型放在頁首右側；舊仙俠整個藏掉 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro-meta {
+  display: flex !important; position: absolute; top: 0; right: 0; z-index: 4;
+}
+
+/* 數字磚：跟普通版同一套（依狀態膠囊上色、上緣細光），圓角 4px（原型 .tile） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric {
+  padding: 10px 14px !important;
+  border: 1px solid color-mix(in srgb, var(--tile) 30%, transparent) !important;
+  border-radius: 4px !important;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 18%, var(--rd-panel-2)), var(--rd-panel) 75%) !important;
+  box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric:hover {
+  border-color: color-mix(in srgb, var(--tile) 55%, transparent) !important;
+  box-shadow: var(--rd-elev-2), 0 0 24px -10px var(--tile) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric::before { width: auto; border: 0; border-radius: 0; z-index: auto; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric::after { content: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric-value {
+  color: var(--tile) !important; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace !important;
+  font-size: 22px !important; font-weight: 600 !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-chip { border-radius: 99px !important; }
+
+/* ── 機台自動化測試：主按鈕照原型 .btn.primary（強調色漸層、深色字） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary, .orl-btn--primary, .discord-notify-btn--primary, .ln-btn--primary):not(.submit-btn--stop):not(.scripted-stop-btn):not(.saved):not(.loading) {
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important;
+  border-color: transparent !important;
+  color: var(--rd-accent-ink) !important;
+}
+
+/* 輸入框：原型 .field（bg-2 底、line-2 框） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]), select, textarea) {
+  background: var(--rd-bg-2) !important;
+  border-color: var(--rd-line-2) !important;
+  box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(input, select, textarea):focus {
+  border-color: var(--rd-accent) !important;
+  box-shadow: var(--rd-well), 0 0 0 3px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--rd-accent); }
+
+/* ── 側欄：選中樣式、子項細線＋圓點同普通版；圖示保留仙俠圖（原型 .xxi），去掉舊的圓形底座 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sidebar-nav-item, .sidebar-subtab-item) {
+  border-color: transparent !important; color: var(--rd-fg-2) !important; box-shadow: none !important; background: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item { border-radius: 7px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item { border-radius: 6px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sidebar-nav-item, .sidebar-subtab-item):hover {
+  background: var(--rd-panel) !important; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item.sidebar-nav-item--active {
+  color: var(--rd-fg) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 26%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 10%, var(--rd-panel))) !important;
+  box-shadow: var(--rd-elev-1), 0 0 18px -4px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item.sidebar-subtab-item--active {
+  color: var(--rd-accent-2) !important; background: var(--rd-panel-2) !important; box-shadow: var(--rd-elev-1) !important;
+}
+/* 舊仙俠每個項目左邊都有一條（透明的）色條，選中時亮起；新版選中的色條／圓點由 redesign.css／sidebar.css 畫，未選中的不畫 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sidebar-nav-item, .sidebar-subtab-item):not([class*="--active"])::before { content: none; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item--active::before { bottom: auto; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-label-theme { color: inherit; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tab-icon {
+  background: none !important; border-color: transparent !important; box-shadow: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tab-icon .xianxia-icon {
+  width: 20px !important; height: 20px !important; border-radius: 0; object-fit: contain;
+  filter: drop-shadow(0 0 4px rgba(214, 183, 112, .28));
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sub-tab-icon .xianxia-icon { width: 16px !important; height: 16px !important; opacity: .8; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item--active .xianxia-icon,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item:hover .xianxia-icon { opacity: 1; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item--active .xianxia-icon { box-shadow: none; filter: drop-shadow(0 0 6px var(--rd-glow)); }
+/* 子項：原型只有一行名稱（普通名稱在搜尋裡仍可搜得到） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item .sidebar-nav-label-sub { display: none; }
+
+/* ── 側欄寬度：舊仙俠寫死 214px !important，新版兩個皮同寬（App.css 的 --sb-w，收合時它自己會變成 rail 寬） ── */
+@media (min-width: 681px) {
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .app-sidebar { width: var(--sb-w) !important; min-width: var(--sb-w) !important; }
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .app-main { margin-left: var(--sb-w) !important; }
+  :root[data-ui="redesign"][data-theme-mode="xianxia"] .app-main::before { left: var(--sb-w) !important; }
+}
+
+/* ── 底色：原型仙俠是墨綠（#060f0d 一系），舊仙俠的中性底層是藍黑（rgba(4,9,15)／(5,10,17)／(2,7,13)）。
+   只換「中性墨色」那幾層；境界的光暈與背景圖照留，背景境界切換仍然看得出差別。
+   赤霄（ember）有自己整套暖色底，不碰（:not([data-realm="ember"])）。 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] body { background: var(--rd-bg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) body::before {
+  background:
+    linear-gradient(180deg, rgba(4, 12, 10, .2), rgba(4, 12, 10, .62) 58%, rgba(6, 15, 13, .9)),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 18% / cover no-repeat;
+  filter: saturate(.9) brightness(.95);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) body::after {
+  opacity: .5;
+  background-image:
+    radial-gradient(780px 620px at 10% 12%, rgba(95, 211, 172, .12), transparent 68%),
+    radial-gradient(680px 560px at 92% 20%, rgba(214, 183, 112, .07), transparent 72%),
+    linear-gradient(rgba(120, 213, 200, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 213, 200, .035) 1px, transparent 1px);
+  background-size: auto, auto, 54px 54px, 54px 54px;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app::before {
+  background:
+    radial-gradient(650px 500px at 9% 0%, rgba(95, 211, 172, .1), transparent 64%),
+    radial-gradient(720px 560px at 100% 16%, rgba(214, 183, 112, .06), transparent 67%),
+    linear-gradient(115deg, rgba(6, 15, 13, .94) 0 19%, rgba(6, 15, 13, .7) 19% 100%);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-main {
+  background:
+    linear-gradient(180deg, rgba(6, 15, 13, .5), rgba(6, 15, 13, .78)),
+    radial-gradient(circle at 94% 18%, rgba(214, 183, 112, .05), transparent 38%) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-main::before {
+  background:
+    radial-gradient(500px 480px at 100% 30%, rgba(214, 183, 112, .05), transparent 68%),
+    radial-gradient(560px 440px at 3% 0%, rgba(95, 211, 172, .07), transparent 72%);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .main-content::before {
+  background:
+    linear-gradient(180deg, rgba(6, 15, 13, .55), rgba(6, 15, 13, .9) 55%, rgba(6, 15, 13, .97)),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 15% / cover no-repeat !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .main-content::after {
+  background:
+    radial-gradient(640px 460px at 3% 4%, rgba(95, 211, 172, .07), transparent 68%),
+    radial-gradient(620px 420px at 97% 0%, rgba(214, 183, 112, .05), transparent 68%) !important;
+}
+/* 側欄／頂列：原型 .sidebar（bg-2 → bg 漸層、line 邊）；頂列半透明墨綠 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-sidebar {
+  background: linear-gradient(180deg, var(--rd-bg-2), var(--rd-bg)) !important;
+  border-right-color: var(--rd-line) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-topbar {
+  background: color-mix(in srgb, var(--rd-bg) 88%, transparent) !important;
+  border-bottom-color: var(--rd-line) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-logo { border-bottom-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sidebar-ai-btn, .sidebar-user, .sidebar-version-link) {
+  background: var(--rd-panel) !important; border-color: var(--rd-line-2) !important;
+}
+
+/* ── 機台自動化測試：OSMWatcher 狀態條／監控面板原本是普通版的藍灰（#162032／#2d3f55／#1e293b） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-osm-banner--off {
+  background: color-mix(in srgb, var(--rd-panel) 85%, transparent) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg-3) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-osm-banner code { color: var(--rd-fg-2); background: var(--rd-bg-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-osm-panel { background: var(--rd-panel) !important; border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-worker-badge { background: color-mix(in srgb, var(--rd-accent) 16%, transparent) !important; color: var(--rd-accent-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-phase-todo { background: var(--rd-bg-2) !important; border-color: var(--rd-line) !important; }
+
+/* 面板底部計數帶、自動更新／更新時間膠囊：App.css 寫死藍灰底，改吃修仙 token（CodeX 1102 複審） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-panel-foot {
+  background: color-mix(in srgb, var(--rd-bg-2) 85%, transparent) !important;
+  border-top-color: var(--rd-line) !important;
+  color: var(--rd-fg-3) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro-meta span,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-chip:not([class*="dashboard-chip--"]) {
+  background: var(--rd-panel-2) !important;
+  border-color: var(--rd-line-2) !important;
+  color: var(--rd-fg-2) !important;
+}

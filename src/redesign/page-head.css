@@ -22,7 +22,6 @@
   color: var(--rd-fg); text-wrap: balance;
   background: none; -webkit-text-fill-color: currentColor;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-page-title { font-family: var(--xx-serif, serif); letter-spacing: .06em; }
 :root[data-ui="redesign"] .rd-page-sub {
   color: var(--rd-accent-2); font-size: 16px; padding-left: 12px; margin-bottom: 4px;
   border-left: 1px solid var(--rd-line-2);

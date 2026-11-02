@@ -1,64 +1,56 @@
 /* ══════════════════════════════════════════════════════════════════
    機台自動化測試（逐頁重做第 2 頁，原型 v7「機台自動化測試」）
-   只改長相：測試項目改成可點的膠囊（勾選＝亮起）、摘要數字磚依結果上色並浮起（FAIL 有數字時告警光暈）、
-   進度條凹槽＋流光、執行日誌凹槽。欄位、流程、送出行為都不動。
+   版面照原型 .row2／.form（兩個皮同一套）：測試設定｜測試摘要 = 自適應｜320px，摘要只長到內容高；
+   設定表單是左 96px 標籤欄的列（大廳 URL、Lark、機台代碼清單、測試項目、環境、執行選項），欄位 34px，
+   按鈕一列小按鈕（36px）。摘要數字磚 2×2、依結果上色（FAIL 有數字時告警光暈）、進度條凹槽＋流光、執行日誌凹槽。
+   只改長相：每個控制項都還在、行為不動。JSX 只加了 class（mt-f-*／mt-opt*／mt-actions…）跟一層沒有樣式的 .mt-opts。
    ══════════════════════════════════════════════════════════════════ */
 
-/* 測試項目：膠囊。勾起來的亮強調色；「待串接」的維持半透明 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-checks { gap: 8px; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 12px 6px 10px; border-radius: 999px;
-  border: 1px solid var(--rd-line-2);
-  background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .01));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 2px 0 rgba(0, 0, 0, .3);
-  cursor: pointer;
-  transition: border-color .14s ease, background .14s ease, box-shadow .14s ease, color .14s ease;
+/* 測試項目：原型 .checks／.chk——四欄一般勾選框（不是膠囊）；「待串接」的半透明 */
+:root[data-ui="redesign"] .mt-step-checks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
+:root[data-ui="redesign"] .mt-step-check {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 13.5px; color: var(--rd-fg); white-space: nowrap; cursor: pointer;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check:has(input:checked) {
-  border-color: color-mix(in srgb, var(--rd-accent) 70%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 24%, transparent), color-mix(in srgb, var(--rd-accent) 10%, transparent));
-  color: var(--rd-fg);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .14) inset, 0 2px 0 rgba(0, 0, 0, .3), 0 0 14px -4px var(--rd-glow);
-}
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check:has(input:disabled) { cursor: not-allowed; opacity: .55; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-step-check input { accent-color: var(--rd-accent); margin: 0; }
+:root[data-ui="redesign"] .mt-step-check:has(input:disabled) { cursor: not-allowed; opacity: .55; }
+:root[data-ui="redesign"] .mt-step-check input { accent-color: var(--rd-accent); width: 15px; height: 15px; margin: 0; flex: none; }
+@media (max-width: 1100px) { :root[data-ui="redesign"] .mt-step-checks { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* 摘要數字磚：跟 Dashboard 同一套（依結果上色、浮起、上緣細光） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item {
+:root[data-ui="redesign"] .mt-summary-item {
   --tile: #8a97ab;
   position: relative; overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--tile) 32%, transparent);
   background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
   box-shadow: var(--rd-elev-1);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item::before {
+:root[data-ui="redesign"] .mt-summary-item::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--tile), transparent); opacity: .7;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-pass { --tile: #34d17a; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-warn { --tile: #f5c04a; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-fail { --tile: #ff5d6c; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-item .mt-summary-num {
+:root[data-ui="redesign"] .mt-summary-pass { --tile: #34d17a; }
+:root[data-ui="redesign"] .mt-summary-warn { --tile: #f5c04a; }
+:root[data-ui="redesign"] .mt-summary-fail { --tile: var(--rd-fail); }
+:root[data-ui="redesign"] .mt-summary-item .mt-summary-num {
   color: var(--tile); text-shadow: 0 2px 0 rgba(0, 0, 0, .45); font-variant-numeric: tabular-nums;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-total .mt-summary-num { color: var(--rd-fg); }
+:root[data-ui="redesign"] .mt-summary-total .mt-summary-num { color: var(--rd-fg); }
 /* FAIL 大於 0 才告警（mt-summary-fail--hot，JSX 依 failCount 掛）：呼吸光暈只掛在這一塊，常駐動畫數＝異常數，不是磚數 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-summary-fail--hot {
+:root[data-ui="redesign"] .mt-summary-fail--hot {
   animation: rd-mt-alarm 2.4s ease-in-out infinite;
 }
 @keyframes rd-mt-alarm { 50% { box-shadow: var(--rd-elev-1), 0 0 0 1px #ff5d6c, 0 0 24px rgba(255, 93, 108, .4); } }
 
 /* 進度條：凹槽軌道＋條身流光 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-bar {
+:root[data-ui="redesign"] .mt-progress-bar {
   height: 8px; background: var(--rd-bg-2); box-shadow: var(--rd-well);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-fill {
+:root[data-ui="redesign"] .mt-progress-fill {
   position: relative; overflow: hidden;
-  background: linear-gradient(90deg, var(--rd-accent), #4cc3ff);
+  background: linear-gradient(90deg, var(--rd-accent), var(--rd-run));
   box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 0 10px var(--rd-glow);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-progress-fill::after {
+:root[data-ui="redesign"] .mt-progress-fill::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent);
   transform: translateX(-100%); animation: rd-mt-sheen 1.8s linear infinite;
@@ -66,15 +58,135 @@
 @keyframes rd-mt-sheen { to { transform: translateX(100%); } }
 
 /* 執行日誌：凹槽 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-log-box {
+:root[data-ui="redesign"] .mt-log-box {
   background: color-mix(in srgb, var(--rd-bg) 75%, transparent);
   box-shadow: var(--rd-well);
   border-color: var(--rd-line);
 }
 
 /* 尚未開始的階段卡（待串接）：虛線框維持，底色跟新版面板一致 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .mt-phase-card {
+:root[data-ui="redesign"] .mt-phase-card {
   border: 1.5px dashed var(--rd-line-2);
   background: color-mix(in srgb, var(--rd-panel) 70%, transparent);
   box-shadow: none;
 }
+
+/* ══ 測試設定｜測試摘要：原型 .row2（左自適應、右 320px；摘要靠上、只長到內容高） ══ */
+:root[data-ui="redesign"] .mt-settings-row { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+@media (max-width: 1100px) { :root[data-ui="redesign"] .mt-settings-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* ══ 測試設定表單：原型 .form（左 96px 標籤欄、右控制項；列距 12px） ══
+   卡片本身當格線；.form-stack 用 display:contents 讓裡面的列直接排進卡片格線。
+   每一列（.mt-f-*）再自己分 96px｜其餘：第一個子元素是標籤、放左欄第一列，其餘都在右欄往下排 */
+:root[data-ui="redesign"] .mt-settings-card {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 14px; row-gap: 12px; align-items: center;
+}
+:root[data-ui="redesign"] .mt-settings-card > *,
+:root[data-ui="redesign"] .mt-settings-card > .form-stack > * { grid-column: 1 / -1; min-width: 0; }
+:root[data-ui="redesign"] .mt-settings-card > .form-stack { display: contents; }
+:root[data-ui="redesign"] .main-content .mt-settings-card > .section-title:first-child { margin-bottom: 2px; }
+
+:root[data-ui="redesign"] .mt-settings-card :is(.mt-f-lobby, .mt-f-lark, .mt-f-codes, .mt-f-steps, .mt-f-agent) {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 14px; row-gap: 6px; align-items: center; margin: 0 !important;
+}
+:root[data-ui="redesign"] .mt-settings-card :is(.mt-f-lobby, .mt-f-lark, .mt-f-codes, .mt-f-steps, .mt-f-agent) > :first-child {
+  grid-column: 1; grid-row: 1; align-self: start; margin: 0 !important; padding-top: 8px;
+  display: block;
+  color: var(--rd-fg-2) !important; font-size: 13px; font-weight: 400; line-height: 1.35;
+  text-transform: none; letter-spacing: normal;
+}
+:root[data-ui="redesign"] .mt-settings-card :is(.mt-f-lobby, .mt-f-lark, .mt-f-codes, .mt-f-steps, .mt-f-agent) > :not(:first-child) { grid-column: 2; min-width: 0; }
+/* 標籤裡附帶的小字：Worker 數換到標籤下一行；Lark 的「選填…」說明放到欄位下方（標籤欄只有 96px，塞不下一整句） */
+:root[data-ui="redesign"] .mt-f-lobby > span:first-child .mt-worker-count { display: block; font-size: 11.5px; color: var(--rd-fg-3); }
+:root[data-ui="redesign"] .mt-f-lark { position: relative; padding-bottom: 18px; }
+:root[data-ui="redesign"] .mt-f-lark > span:first-child .field-hint {
+  position: absolute; left: 110px; bottom: 0; font-size: 11.5px; color: var(--rd-fg-3) !important; white-space: nowrap;
+}
+:root[data-ui="redesign"] .mt-settings-card .field-hint { font-size: 11.5px; }
+:root[data-ui="redesign"] .mt-settings-card .mt-url-row { margin: 0; gap: 8px; }
+:root[data-ui="redesign"] .mt-f-lobby .mt-url-row + .mt-url-row { margin-top: 0; }
+:root[data-ui="redesign"] .mt-f-lobby > button.btn-ghost { justify-self: start; margin-top: 0 !important; }
+
+/* 欄位：原型 .field 34px（文字框照原型最小 72px，可拉高） */
+:root[data-ui="redesign"] .mt-settings-card :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  height: 34px; padding: 0 10px; border-radius: 6px; box-sizing: border-box;
+}
+:root[data-ui="redesign"] .mt-settings-card .mt-codes-textarea { height: 76px; min-height: 72px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }
+:root[data-ui="redesign"] .mt-settings-card .mt-url-row > button { height: 34px; flex: none; }
+:root[data-ui="redesign"] .mt-settings-card .mt-worker-badge { height: 34px; width: 30px; }
+
+/* 測試項目底下附帶的列（AI 音頻分析、CCTV 模型）：放右欄 */
+:root[data-ui="redesign"] .mt-settings-card :is(.mt-f-ai, .mt-f-cctv) { grid-column: 2; margin: 0 !important; }
+
+/* 環境：分隔線（原型 .sep）＋「標籤｜QAT PROD｜主機」一列。原本是一個色塊框，框拿掉 */
+:root[data-ui="redesign"] .mt-settings-card .mt-opt-env {
+  display: grid !important; grid-template-columns: 96px auto auto minmax(0, 1fr); column-gap: 14px; align-items: center;
+  margin: 0 !important; padding: 12px 0 0 !important; border: 0 !important; border-top: 1px solid var(--rd-line) !important; border-radius: 0 !important;
+  background: none !important;
+}
+:root[data-ui="redesign"] .mt-opt-env > span:first-child { color: var(--rd-fg-2) !important; font-weight: 400 !important; white-space: normal !important; }
+:root[data-ui="redesign"] .mt-opt-env label > span { color: var(--rd-fg) !important; font-weight: 400 !important; }
+:root[data-ui="redesign"] .mt-opt-env label:has(input:checked) > span { font-weight: 700 !important; }
+:root[data-ui="redesign"] .mt-opt-env label:has(input[value="prod"]:checked) > span { color: var(--rd-fail) !important; }
+:root[data-ui="redesign"] .mt-opt-env input[value="qat"] { accent-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .mt-opt-env > span:last-child { color: var(--rd-fg-3) !important; margin-left: 0 !important; font-family: ui-monospace, Consolas, monospace; }
+
+/* 執行選項：Headed／Test 兩個選項同一列（原本是兩個色塊框）。標籤文字由這裡補（新版才有這一欄） */
+:root[data-ui="redesign"] .mt-settings-card .mt-opts {
+  display: grid; grid-template-columns: 96px auto minmax(0, 1fr); column-gap: 18px; align-items: start;
+}
+:root[data-ui="redesign"] .mt-settings-card .mt-opts::before {
+  content: "執行選項"; grid-column: 1; align-self: center; color: var(--rd-fg-2); font-size: 13px;
+}
+:root[data-ui="redesign"] .mt-settings-card .mt-opt {
+  margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; min-width: 0;
+}
+:root[data-ui="redesign"] .mt-opt > label { gap: 8px !important; flex-wrap: wrap; }
+:root[data-ui="redesign"] .mt-opt > label > span:first-of-type { color: var(--rd-fg) !important; font-weight: 500 !important; font-size: 13.5px !important; }
+:root[data-ui="redesign"] .mt-opt > label > span:not(:first-of-type) { color: var(--rd-fg-3) !important; font-size: 11.5px !important; }
+:root[data-ui="redesign"] .mt-opt input[type="checkbox"] { accent-color: var(--rd-accent); width: 15px; height: 15px; margin: 0; }
+:root[data-ui="redesign"] .mt-opt-debug input[type="text"] {
+  height: 34px; padding: 0 10px !important; border-radius: 6px !important;
+  background: var(--rd-bg-2) !important; border: 1px solid var(--rd-line-2) !important; color: var(--rd-fg) !important;
+}
+
+/* Agent／帳號提示：原本是淺色底（舊版就有的深色主題漏網），換成面板色 */
+:root[data-ui="redesign"] .mt-settings-card .mt-agent-status {
+  margin: 0 !important; background: var(--rd-panel-2) !important; border: 1px solid var(--rd-line-2) !important; color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"] .mt-settings-card .mt-account-warn {
+  margin: 0 !important; background: color-mix(in srgb, var(--rd-warn, #f5c04a) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-warn, #f5c04a) 40%, transparent) !important; color: var(--rd-warn, #f5c04a) !important;
+}
+
+/* 按鈕列：原型 .actions／.btn——一列小按鈕（36px、圓角、14px），不是滿版大按鈕；PIN 提示放到按鈕下面（原型的說明行位置） */
+:root[data-ui="redesign"] .mt-settings-card .mt-actions { order: 1; display: flex !important; gap: 10px !important; flex-wrap: wrap; }
+:root[data-ui="redesign"] .mt-settings-card .mt-pin { order: 2; margin: 0 !important; }
+:root[data-ui="redesign"] .mt-pin > span:not(:has(button)) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .main-content .mt-actions > button {
+  flex: none !important; width: auto !important; height: 36px; min-height: 0; padding: 0 18px !important; margin: 0;
+  border-radius: var(--rd-btn-r) !important; font-size: 14px !important; font-weight: 600 !important;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
+}
+:root[data-ui="redesign"] .main-content .mt-actions > .mt-watch-btn {
+  background: var(--rd-panel-2) !important; color: var(--rd-fg) !important; border: 1px solid var(--rd-line-2) !important;
+}
+:root[data-ui="redesign"] .main-content .mt-actions > .mt-watch-btn:hover { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .main-content .mt-actions > .mt-stop-btn {
+  background: transparent !important; color: var(--rd-fail) !important; border: 1px solid color-mix(in srgb, var(--rd-fail) 55%, transparent) !important;
+}
+
+/* ══ 測試摘要：原型 .sum-tiles（2×2 磚，標籤在上、數字在下） ══ */
+:root[data-ui="redesign"] .mt-summary-card { align-self: start; }
+:root[data-ui="redesign"] .mt-summary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+:root[data-ui="redesign"] .mt-summary-row .mt-summary-item {
+  flex-direction: column-reverse; align-items: flex-start; gap: 6px; padding: 12px 12px 10px; border-radius: 8px;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-summary-row .mt-summary-item { border-radius: 4px; }
+:root[data-ui="redesign"] .mt-summary-row .mt-summary-num {
+  font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 30px; font-weight: 600; margin: 0;
+}
+:root[data-ui="redesign"] .mt-summary-row .mt-summary-item span:last-child { font-size: 12.5px; color: var(--rd-fg-2); }
+/* 還沒有日誌時，日誌框是一條空的深色長條，收掉；有日誌就出現 */
+:root[data-ui="redesign"] .mt-summary-card .mt-log-box:empty { display: none; }
+:root[data-ui="redesign"] .mt-summary-card .idle-hint { display: block; color: var(--rd-fg-3); font-size: 12.5px; }

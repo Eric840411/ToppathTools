@@ -6,56 +6,56 @@
      .btn-ghost        11 頁   次要按鈕：玻璃按鍵，按下沉
      .badge            14 頁   狀態籤：膠囊
      .field-hint        6 頁   欄位說明：降一階
-   只在普通版改（仙俠版這些都有自己的卷軸／鎏金樣式，只補立體感）。功能不動。
+   兩版共用同一套結構（原型：兩個皮只換配色與角飾）；舊仙俠 CSS 的 !important 在 redesign/xianxia.css 集中覆寫。功能不動。
    ══════════════════════════════════════════════════════════════════ */
 
 /* 面板標題：左側色條＋微微發光（跟原型 .panel-h 一致） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-title {
+:root[data-ui="redesign"] .main-content .section-title {
   position: relative;
   padding-left: 13px;
   letter-spacing: .01em;
   text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-title::before {
+:root[data-ui="redesign"] .main-content .section-title::before {
   content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 15px; margin-top: -7.5px; border-radius: 2px;
   background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
 }
 
 /* 表格外框：凹槽（表格常刷新——只用 box-shadow，不用 backdrop-filter／動畫，見 ui-visual-effects 成本表） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .table-wrap {
+:root[data-ui="redesign"] .main-content .table-wrap {
   border-radius: 8px;
   background: color-mix(in srgb, var(--rd-bg) 60%, transparent);
   box-shadow: var(--rd-well);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .version-table th {
+:root[data-ui="redesign"] .main-content .version-table th {
   background: var(--rd-bg-2);
   color: var(--rd-fg-2);
   border-bottom: 1px solid var(--rd-line-2);
   letter-spacing: .05em;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .version-table td { border-bottom-color: var(--rd-line); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .version-table tbody tr { transition: background .12s ease; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .version-table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
+:root[data-ui="redesign"] .main-content .version-table td { border-bottom-color: var(--rd-line); }
+:root[data-ui="redesign"] .main-content .version-table tbody tr { transition: background .12s ease; }
+:root[data-ui="redesign"] .main-content .version-table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
 
 /* 次要按鈕：玻璃按鍵（上緣打光、下緣陰影、按下沉 1px） */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost {
+:root[data-ui="redesign"] .main-content .btn-ghost {
   background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01));
   border-color: var(--rd-line-2);
   color: var(--rd-fg-2);
   box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost:hover:not(:disabled) {
+:root[data-ui="redesign"] .main-content .btn-ghost:hover:not(:disabled) {
   color: var(--rd-fg);
   border-color: var(--rd-accent);
   box-shadow: 0 1px 0 rgba(255, 255, 255, .1) inset, 0 2px 0 rgba(0, 0, 0, .35), 0 0 14px -4px var(--rd-glow);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .btn-ghost:active:not(:disabled) {
+:root[data-ui="redesign"] .main-content .btn-ghost:active:not(:disabled) {
   transform: translateY(1px);
   box-shadow: 0 1px 0 rgba(0, 0, 0, .35);
 }
 
 /* 狀態籤：膠囊 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .badge {
+:root[data-ui="redesign"] .main-content .badge {
   border-radius: 999px;
   padding: 2px 10px;
   font-weight: 600;
@@ -63,7 +63,7 @@
 }
 
 /* 欄位說明 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .field-hint { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .main-content .field-hint { color: var(--rd-fg-3) !important; }
 
 /* 分頁列：照原型 v7 的 .tabs 原始碼（toppath-shell-mockup.html 第 300～303 行）——內凹底座、選中那格填強調色漸層＋浮起。
    1102 CodeX 對照設計圖指出之前做成「底線分頁」是錯的，改回原型的樣子。兩版共用，仙俠版選中用鎏金細框 */
@@ -84,8 +84,6 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab[aria-selected="true"] { box-shadow: var(--rd-elev-1), 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 55%, transparent) inset; }
 :root[data-ui="redesign"] .rd-tab:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: -2px; }
 
-/* 仙俠版：只補凹槽與立體感，配色交給原本的仙俠樣式 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .table-wrap { box-shadow: var(--rd-well); }
 
 /* 表格面板：面板本身不留內距，表格貼齊面板邊（原型 v7 的 raw panel） */
 :root[data-ui="redesign"] .rd-table-panel { padding: 0; overflow: hidden; }
@@ -93,10 +91,10 @@
 
 /* 面板標題帶（原型 v7 .panel-h／.panel-b）：標題自己一條帶、底下分隔線、淡淡的上亮漸層；內容區 14px 16px。
    只套在「第一個子元素就是標題」的面板，沒有標題的面板照舊 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card:has(> .section-title:first-child) { padding: 0 16px 14px; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card > .section-title:first-child {
+:root[data-ui="redesign"] .main-content .section-card:has(> .section-title:first-child) { padding: 0 16px 14px; }
+:root[data-ui="redesign"] .main-content .section-card > .section-title:first-child {
   margin: 0 -16px 14px; padding: 11px 16px 11px 29px; min-height: 0; font-size: 14px; font-weight: 700;
   border-bottom: 1px solid var(--rd-line); border-radius: 12px 12px 0 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .main-content .section-card > .section-title:first-child::before { left: 16px; height: 16px; margin-top: -8px; }
+:root[data-ui="redesign"] .main-content .section-card > .section-title:first-child::before { left: 16px; height: 16px; margin-top: -8px; }

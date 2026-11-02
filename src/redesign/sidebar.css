@@ -42,19 +42,19 @@
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-nav-item--active .tab-icon { color: var(--rd-accent-2); filter: drop-shadow(0 0 6px var(--rd-glow)); }
 
 /* 子項：普通版只留文字（原型），選中的前面一顆發光圓點；整組左邊一條細線 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtabs {
+:root[data-ui="redesign"] .sidebar-subtabs {
   position: relative; margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--rd-line);
 }
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item .sub-tab-icon { display: none; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item { position: relative; border-radius: 6px; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-subtab-item--active::before {
+:root[data-ui="redesign"] .sidebar-subtab-item { position: relative; border-radius: 6px; }
+:root[data-ui="redesign"] .sidebar-subtab-item:hover { background: var(--rd-panel); color: var(--rd-fg); }
+:root[data-ui="redesign"] .sidebar-subtab-item--active::before {
   content: ""; position: absolute; left: -14px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%;
   background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-accent);
 }
 
 /* 分區標題（洞天總覽／宗門維運）：字距放寬、降一階 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .sidebar-section-label { letter-spacing: .14em; color: var(--rd-fg-3); }
+:root[data-ui="redesign"] .sidebar-section-label { letter-spacing: .14em; color: var(--rd-fg-3); }
 
 /* 搜尋搬走之後，頂列右側要自己推到最右邊（原本是搜尋框的 margin-left:auto 在推） */
 :root[data-ui="redesign"] .app-topbar-status { margin-left: auto; }

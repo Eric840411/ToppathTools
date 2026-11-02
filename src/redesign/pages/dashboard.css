@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════════════════════════
    Dashboard（逐頁重做第 1 頁，原型 v7「Dashboard」）
    只改長相：頁首漸層底線、狀態色調的數字磚、面板頭左側色條、凹槽表格、立體進度條、事件光點。
-   功能、欄位、輪詢都不動。仙俠版有自己完整的 Dashboard 設計（境界背景、靈氣條），只補立體陰影，不覆蓋。
+   功能、欄位、輪詢都不動。仙俠版結構相同、只換配色與角飾；保留靈氣條、萬法歸樞標語與主視覺圖（redesign/xianxia.css）。
    ══════════════════════════════════════════════════════════════════ */
 
 /* 頁首：標題＋說明，底下一條從強調色淡出的線 */
@@ -20,7 +20,7 @@
 }
 
 /* 數字磚：依右上角的狀態膠囊上色（good＝綠、blue＝藍、warn＝黃），浮起 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric {
+:root[data-ui="redesign"] .dashboard-metric {
   --tile: var(--rd-accent);
   position: relative;
   overflow: hidden;
@@ -29,51 +29,51 @@
   background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 18%, var(--rd-panel-2)), var(--rd-panel) 75%);
   box-shadow: var(--rd-elev-1);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric:has(.dashboard-chip--good) { --tile: #34d17a; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric:has(.dashboard-chip--blue) { --tile: #4cc3ff; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric:has(.dashboard-chip--warn) { --tile: #f5c04a; }
+:root[data-ui="redesign"] .dashboard-metric:has(.dashboard-chip--good) { --tile: #34d17a; }
+:root[data-ui="redesign"] .dashboard-metric:has(.dashboard-chip--blue) { --tile: #4cc3ff; }
+:root[data-ui="redesign"] .dashboard-metric:has(.dashboard-chip--warn) { --tile: #f5c04a; }
 /* 上緣一道細光：讓磚看起來是一塊有厚度的板 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric::before {
+:root[data-ui="redesign"] .dashboard-metric::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--tile) 80%, #fff 10%), transparent);
   opacity: .7;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric-value {
+:root[data-ui="redesign"] .dashboard-metric-value {
   color: var(--tile);
   text-shadow: 0 2px 0 rgba(0, 0, 0, .45);
   font-variant-numeric: tabular-nums;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-metric:hover {
+:root[data-ui="redesign"] .dashboard-metric:hover {
   transform: translateY(-3px);
   border-color: color-mix(in srgb, var(--tile) 55%, transparent);
   box-shadow: var(--rd-elev-2), 0 0 24px -10px var(--tile);
 }
 
 /* 面板頭：左側一條強調色、頭部微亮 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-panel-head {
+:root[data-ui="redesign"] .dashboard-panel-head {
   position: relative;
   padding-left: 30px;
   background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
   text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-panel-head::before {
+:root[data-ui="redesign"] .dashboard-panel-head::before {
   content: ""; position: absolute; left: 16px; top: 18px; width: 3px; height: 16px; border-radius: 2px;
   background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
 }
 
 /* 表格：凹進面板裡 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-table {
+:root[data-ui="redesign"] .dashboard-table {
   background: color-mix(in srgb, var(--rd-bg) 60%, transparent);
   box-shadow: var(--rd-well);
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-table thead th {
+:root[data-ui="redesign"] .dashboard-table thead th {
   background: var(--rd-bg-2);
   color: var(--rd-fg-2);
   font-size: 12px;
   letter-spacing: .04em;
 }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-table tbody tr { transition: background .12s ease; }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
+:root[data-ui="redesign"] .dashboard-table tbody tr { transition: background .12s ease; }
+:root[data-ui="redesign"] .dashboard-table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
 
 /* 進度條：凹槽軌道＋有高光的條身（普通版；仙俠版是靈氣條素材，不碰） */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-bar-track {
@@ -89,25 +89,38 @@
 }
 
 /* 小數字格（Uptime／Latency…）：凹槽 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-mini-stat {
+:root[data-ui="redesign"] .dashboard-mini-stat {
   background: color-mix(in srgb, var(--rd-bg) 55%, transparent);
   border-color: var(--rd-line);
   box-shadow: var(--rd-well);
 }
 
 /* 事件：前面的狀態點發光 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-event-dot { box-shadow: 0 0 8px rgba(76, 195, 255, .8); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-event-dot--success { box-shadow: 0 0 8px rgba(52, 209, 122, .8); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-event-dot--warn { box-shadow: 0 0 8px rgba(245, 192, 74, .8); }
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-event-dot--error { box-shadow: 0 0 8px rgba(255, 93, 108, .85); }
+:root[data-ui="redesign"] .dashboard-event-dot { box-shadow: 0 0 8px rgba(76, 195, 255, .8); }
+:root[data-ui="redesign"] .dashboard-event-dot--success { box-shadow: 0 0 8px rgba(52, 209, 122, .8); }
+:root[data-ui="redesign"] .dashboard-event-dot--warn { box-shadow: 0 0 8px rgba(245, 192, 74, .8); }
+:root[data-ui="redesign"] .dashboard-event-dot--error { box-shadow: 0 0 8px rgba(255, 93, 108, .85); }
 
 /* 空狀態：虛線框 */
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-table-empty,
-:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .dashboard-empty {
+:root[data-ui="redesign"] .dashboard-table-empty,
+:root[data-ui="redesign"] .dashboard-empty {
   border: 1.5px dashed var(--rd-line-2);
   background: transparent;
   color: var(--rd-fg-3);
 }
 
-/* 仙俠版：只補立體陰影 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric { box-shadow: var(--rd-elev-1) !important; }
+/* 仙俠版：結構同上，只換配色與角飾（覆寫舊仙俠 CSS 的部分在 redesign/xianxia.css） */
+
+/* 數字磚變矮（原型 .stat：padding 10px 14px、標籤／數字／說明三行緊排、數字 22px）；兩個皮同一套 */
+:root[data-ui="redesign"] .dashboard-metric {
+  min-height: 0; padding: 10px 14px; gap: 4px; justify-content: flex-start;
+}
+:root[data-ui="redesign"] .dashboard-metric-label { font-size: 12.5px; font-weight: 500; color: var(--rd-fg-2); }
+:root[data-ui="redesign"] .dashboard-metric-label .dashboard-chip { padding: 1px 8px; font-size: 10.5px; line-height: 1.5; }
+:root[data-ui="redesign"] .dashboard-metric-value { margin-top: 0; font-size: 22px; font-weight: 600; line-height: 1.2; }
+:root[data-ui="redesign"] .dashboard-metric-value span { font-size: 12px; }
+:root[data-ui="redesign"] .dashboard-metric-note { margin-top: 0; font-size: 12px; color: var(--rd-fg-2); }
+
+/* 下方兩欄：原型 .g-side（左自適應、右 340px） */
+:root[data-ui="redesign"] .dashboard-grid { grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 1120px) { :root[data-ui="redesign"] .dashboard-grid { grid-template-columns: 1fr; } }

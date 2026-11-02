@@ -1,7 +1,7 @@
 /**
  * 有資料的整頁截圖：先按頁面自己的取得／同步按鈕，等資料回來再截（使用者 1102：只看空畫面會漏掉有資料時的破版）。
  * 跑法（主 repo 目錄）：node ../toppath-wt-redesign/scripts/ui-checks/redesign-shot-data.mjs <base url> <輸出 png> <頁面名稱> <等待毫秒> [按鈕文字…]
- * 只按「讀取」類按鈕（取得、同步、重新整理），不要傳會寫入或送出的按鈕。
+ * 修仙版：THEME_MODE=xianxia。只按「讀取」類按鈕（取得、同步、重新整理），不要傳會寫入或送出的按鈕。
  */
 import Database from 'better-sqlite3'
 import { chromium } from 'playwright'
@@ -14,7 +14,8 @@ const u = new URL(H)
 const b = await chromium.launch()
 const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } })
 await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: u.hostname, path: '/' }])
-await ctx.addInitScript(() => { try { localStorage.setItem('toppath-theme-mode', 'classic') } catch { /* */ } })
+const MODE = process.env.THEME_MODE || 'classic'
+await ctx.addInitScript((MODE) => { try { localStorage.setItem('toppath-theme-mode', MODE) } catch { /* */ } }, MODE)
 const p = await ctx.newPage()
 await p.goto(H + '/', { waitUntil: 'networkidle' })
 const sub = () => p.locator('.sidebar-subtab-item').filter({ hasText: name })

@@ -1390,7 +1390,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
       {/* ── OSMWatcher 即時監控面板 ── */}
       {osmPanelOpen && osmConnected && (
-        <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <div className="mt-osm-panel" style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ color: '#64748b', fontSize: 12 }}>
               即時機台狀態 — SSE 即時推送
@@ -1549,11 +1549,11 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       </div>
 
       {/* ── Settings ── */}
-      <div className="two-col">
-        <div className="section-card">
+      <div className="two-col mt-settings-row">
+        <div className="section-card mt-settings-card">
           <h2 className="section-title">測試設定</h2>
           <div className="form-stack">
-            <div className="field">
+            <div className="field mt-f-lobby">
               <span>
                 大廳 URL <em className="req">*</em>
                 <span className="mt-worker-count"> — {lobbyUrls.filter(u => u.trim()).length} 個 Worker</span>
@@ -1602,7 +1602,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               <span className="field-hint">每個 Worker 使用不同 token 的帳號，並行測試機台（各自跑不同機台）</span>
             </div>
 
-            <div className="field">
+            <div className="field mt-f-lark">
               <span>Lark 測試表單 <span className="field-hint" style={{ fontWeight: 'normal' }}>（選填，自動讀取機台清單並回寫結果）</span></span>
               <div className="mt-url-row">
                 <input
@@ -1634,7 +1634,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               )}
             </div>
 
-            <label className="field">
+            <label className="field mt-f-codes">
               <span>機台代碼清單 <em className="req">*</em></span>
               <textarea
                 className="mt-codes-textarea"
@@ -1647,7 +1647,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               <span className="field-hint">{machineCodes.length} 個機台</span>
             </label>
 
-            <div>
+            <div className="mt-f-steps">
               <div className="field-label" style={{ marginBottom: 8 }}>測試項目</div>
               <div className="mt-step-checks">
                 {(Object.keys(steps) as (keyof StepConfig)[]).map(k => {
@@ -1669,7 +1669,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             </div>
 
             {steps.audio && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>
+              <label className="mt-f-ai" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={aiAudio} onChange={e => setAiAudio(e.target.checked)} disabled={running} />
                 <span style={{ color: aiAudio ? '#7c3aed' : '#6b7280', fontWeight: aiAudio ? 600 : 400 }}>AI 音頻分析</span>
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>錄音傳送 Gemini 判斷靜音/音量/爆音/雜訊（每台多 ~2s）</span>
@@ -1677,14 +1677,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             )}
 
             {steps.cctv && (
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="mt-f-cctv" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'nowrap' }}>CCTV AI 模型</span>
                 <ModelSelector value={cctvModel} onChange={setCctvModel} style={{ flex: 1 }} />
               </div>
             )}
           </div>
 
-          <div style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #2d3f55', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="mt-opt-env" style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #2d3f55', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap' }}>日誌 API 環境</span>
             {(['qat', 'prod'] as const).map(env => (
               <label key={env} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
@@ -1705,7 +1705,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             </span>
           </div>
 
-          <div style={{ marginTop: 0, padding: '10px 12px', background: headedMode ? 'rgba(59,130,246,0.08)' : '#162032', border: `1.5px solid ${headedMode ? 'rgba(59,130,246,0.4)' : '#2d3f55'}`, borderRadius: 8, marginBottom: 8 }}>
+          {/* 新版把 Headed／Test 兩個選項排成「執行選項」一列（redesign/pages/machine-test.css）；這層 div 在舊版沒有樣式 */}
+          <div className="mt-opts">
+          <div className="mt-opt mt-opt-headed" style={{ marginTop: 0, padding: '10px 12px', background: headedMode ? 'rgba(59,130,246,0.08)' : '#162032', border: `1.5px solid ${headedMode ? 'rgba(59,130,246,0.4)' : '#2d3f55'}`, borderRadius: 8, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={headedMode} onChange={e => setHeadedMode(e.target.checked)} disabled={running} />
               <span style={{ fontSize: 13, fontWeight: 600, color: headedMode ? '#60a5fa' : '#cbd5e1' }}>Headed 模式</span>
@@ -1713,7 +1715,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             </label>
           </div>
 
-          <div style={{ marginTop: 0, padding: '10px 12px', background: debugMode ? 'rgba(251,191,36,0.08)' : '#162032', border: `1.5px solid ${debugMode ? 'rgba(251,191,36,0.4)' : '#2d3f55'}`, borderRadius: 8 }}>
+          <div className="mt-opt mt-opt-debug" style={{ marginTop: 0, padding: '10px 12px', background: debugMode ? 'rgba(251,191,36,0.08)' : '#162032', border: `1.5px solid ${debugMode ? 'rgba(251,191,36,0.4)' : '#2d3f55'}`, borderRadius: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={debugMode} onChange={e => { setDebugMode(e.target.checked); if (!e.target.checked) setDebugGmid('') }} disabled={running} />
               <span style={{ fontSize: 13, fontWeight: 600, color: debugMode ? '#92400e' : '#374151' }}>Test 調適模式</span>
@@ -1730,8 +1732,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               />
             )}
           </div>
+          </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
+          <div className="mt-pin" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
             {isAdmin
               ? <span style={{ fontSize: 12, color: '#16a34a' }}>管理員已解鎖 <button type="button" onClick={() => { setIsAdmin(false); sessionStorage.removeItem(ADMIN_KEY) }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>登出</button></span>
               : <span style={{ fontSize: 12, color: '#64748b' }}>需要管理員 PIN 才能執行測試</span>
@@ -1740,7 +1743,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
           {/* Agent status */}
           {agentStatus.length > 0 && (
-            <div style={{ fontSize: 12, color: '#6366f1', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '6px 10px', marginBottom: 8 }}>
+            <div className="mt-agent-status" style={{ fontSize: 12, color: '#6366f1', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '6px 10px', marginBottom: 8 }}>
               傀 {agentStatus.length} 個 Agent 已連線：{agentStatus.map(a => (
                 <span key={a.agentId} style={{ marginRight: 8, color: a.busy ? '#f59e0b' : '#16a34a' }}>
                   {a.hostname}{a.busy ? '（執行中）' : '（待機）'}
@@ -1749,7 +1752,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             </div>
           )}
           {agentStatus.length > 0 && (
-            <label className="field" style={{ marginBottom: 8 }}>
+            <label className="field mt-f-agent" style={{ marginBottom: 8 }}>
               <span>執行 Agent</span>
               <select value={selectedAgentId} disabled={running} onChange={e => setSelectedAgentId(e.target.value)}>
                 {agentStatus.map(agent => (
@@ -1763,12 +1766,12 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           )}
 
           {!account && (
-            <div style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e', marginBottom: 8 }}>
+            <div className="mt-account-warn" style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e', marginBottom: 8 }}>
               請先在右上角選擇帳號，才能執行測試（結果將與帳號關聯）
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="mt-actions" style={{ display: 'flex', gap: 8 }}>
             <button
               type="button"
               className={`submit-btn${running ? ' loading' : ''}`}
@@ -1788,6 +1791,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 type="button"
                 onClick={() => { setActiveSessionBanner(false); setLogs([]); setResults([]); allResultsRef.current = []; setRunning(true); connectWS() }}
                 title="連線廣播頻道，觀看進行中的測試進度"
+                className="mt-watch-btn"
                 style={{ padding: '10px 14px', background: '#f0fdf4', color: '#16a34a', border: '1.5px solid #86efac', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
               >
                 觀看
@@ -1797,6 +1801,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               <button
                 type="button"
                 onClick={handleStop}
+                className="mt-stop-btn"
                 style={{ padding: '10px 18px', background: '#fef2f2', color: '#dc2626', border: '1.5px solid #fca5a5', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
               >
                 ■ 停止
@@ -1806,7 +1811,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         </div>
 
         {/* ── Summary ── */}
-        <div className="section-card">
+        <div className="section-card mt-summary-card">
           <h2 className="section-title">測試摘要</h2>
           {results.length === 0 && !running && (
             <span className="idle-hint">填寫左側設定後按「開始測試」</span>
