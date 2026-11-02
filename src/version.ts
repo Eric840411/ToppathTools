@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.70.1'
+export const APP_VERSION = '5.70.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.70.2', date: '2026-11-02', changes: ["style(新版排版 通知設定)：照原型 v7，①～④ 四張卡改成兩欄並排（窄螢幕回一欄）、標題前自動編號、卡片浮起；頁首已有說明，頁內說明行收掉"] },
   { version: '5.70.1', date: '2026-11-02', changes: ["style(新版排版 Config 比對)：照原型 v7，左邊模板清單放進「模板管理」浮起面板（原本只有一條右邊框）、＋新增改共用主按鈕；右邊網址列放進面板。Jackpot／Egm 有資料時本來就是分區面板，只是空資料時只看得到第一塊"] },
   { version: '5.70.0', date: '2026-11-02', changes: ["feat(新版排版：頁首＋麵包屑)：使用者 1102「排版沒有按照新設計處理嗎？只更換 ui？」——照原型 v7，每一頁上方統一加頁首（大標題、仙俠版逐字浮現的仙俠名、頁面說明、強調色漸層底線），頂列改成麵包屑「群組 / 頁面」。各頁原本自己畫的大標題（AutoSpin 通知、Local Agent、腳本化投注、UI 截圖、每日仙語、UAT、普通版 Dashboard）收掉避免兩個標題；仙俠版 Dashboard 的萬法歸樞主視覺保留。Dashboard 內容對齊頁首。逐頁面板重排接著做"] },
   { version: '5.69.7', date: '2026-11-02', changes: ["style(新版 Meegle／AutoSpin，逐頁重做第 3～4 頁)：共用分頁列 .rd-tabs（原型 v7：底線＋選中發光，仙俠版鎏金底線），Meegle 五個工具的分頁從寫死的行內藍色改用它；AutoSpin 機台設定表從直接攤在背景上改成放進浮起面板、表格凹槽、表頭底色，「＋新增機台」改共用主按鈕。UAT 整合測試本來就是同一套深色設計，吃共用零件（面板浮起、凹槽、按鍵）。只改長相"] },

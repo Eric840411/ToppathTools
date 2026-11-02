@@ -1,0 +1,32 @@
+/* ══════════════════════════════════════════════════════════════════
+   通知設定（原型 v7）：①～④ 四張卡兩欄並排；卡片浮起、標題前面自動編號。
+   標題列與底部儲存列橫跨兩欄。窄螢幕回到一欄。只改長相。
+   ══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1100px) {
+  :root[data-ui="redesign"] .ln-page {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start;
+  }
+  :root[data-ui="redesign"] .ln-page > :not(.ln-card) { grid-column: 1 / -1; }
+}
+:root[data-ui="redesign"] .ln-page { counter-reset: rd-ln; }
+:root[data-ui="redesign"] .ln-page > .ln-card { counter-increment: rd-ln; }
+:root[data-ui="redesign"] .ln-page > .ln-card .ln-card-title::before {
+  content: counter(rd-ln, decimal) "";
+  display: inline-grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  font-size: 12px; font-weight: 800; color: var(--rd-fg);
+  background: color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent) 60%, transparent), 0 0 10px -2px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page > .ln-card .ln-card-title::before {
+  background: transparent; color: var(--rd-ornament); box-shadow: 0 0 0 1px var(--rd-ornament);
+}
+:root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .ln-card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000));
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent);
+  box-shadow: var(--rd-elev-2);
+}
+
+/* 頁首已經有說明，這頁自己的說明行收掉，只留右邊「僅發送通知」膠囊 */
+:root[data-ui="redesign"] .ln-head .ln-sub { display: none; }
+:root[data-ui="redesign"] .ln-head { justify-content: flex-end; }
