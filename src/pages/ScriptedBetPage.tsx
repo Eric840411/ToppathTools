@@ -135,22 +135,23 @@ function statusBadgeClass(state: AccountState) {
   return 'badge'
 }
 
-function ScriptMetric({ label, value, sub, color }: { label: string; value: string | number; sub: string; color?: string }) {
+function ScriptMetric({ label, value, sub, tone }: { label: string; value: string | number; sub: string; tone?: 'run' | 'pass' | 'warn' | 'fail' }) {
   return (
-    <div className="scripted-bet-metric">
-      <div className="scripted-bet-metric-label">{label}</div>
-      <div className="scripted-bet-metric-value" style={color ? { color } : undefined}>{value}</div>
-      <div className="scripted-bet-metric-sub">{sub}</div>
+    <div className={`rn-stat${tone ? ` rn-stat--${tone}` : ''}`}>
+      <div className="rn-stat-k">{label}</div>
+      <div className="rn-stat-v">{value}</div>
+      <div className="rn-stat-s">{sub}</div>
     </div>
   )
 }
 
-function FlowStep({ n, name, note, active }: { n: number; name: string; note: string; active?: boolean }) {
+/** 原型的橫向步驟條：active＝目前這一步；排在第一個 active 之前的步驟視為已走過（只從現有狀態推，不另外算進度） */
+function FlowStep({ n, name, note, active, done }: { n: number; name: string; note: string; active?: boolean; done?: boolean }) {
   return (
-    <div className={`scripted-flow-step ${active ? 'active' : ''}`}>
-      <span className="scripted-flow-num">{n}</span>
-      <div className="scripted-flow-name">{name}</div>
-      <div className="scripted-flow-note">{note}</div>
+    <div className={`rn-stp${active ? ' cur' : done ? ' done' : ''}`}>
+      <i>{done && !active ? '✓' : n}</i>
+      <span className="rn-stp-name">{name}</span>
+      <span className="rn-stp-note">{note}</span>
     </div>
   )
 }
@@ -450,46 +451,49 @@ export function ScriptedBetPage({ currentAccount }: Props) {
   const currentStep = runningStatus?.state
   const selectedAgent = agents.find(agent => agent.agentId === selectedAgentId)
   const readyAgentCount = agents.filter(agent => !agent.busy).length
+  const flowSteps = [
+    { name: '領取帳號', note: runningStatus?.username ?? '等待開始', active: currentStep === 'opening' },
+    { name: '進入大廳', note: '等待可操作', active: currentStep === 'opening' },
+    { name: '進入機台', note: flowTargetMachineCode || '-', active: currentStep === 'entering' },
+    { name: '隨機 Spin', note: runningStatus?.spinTarget ? `目標 ${runningStatus.spinTarget} 次` : '每帳號抽一次', active: currentStep === 'spinning' },
+    { name: '退出機台', note: '失敗則補 Spin', active: currentStep === 'exiting' },
+    { name: '關閉視窗', note: '換下一帳號', active: runningStatus?.state === 'done' },
+  ]
+  const firstActiveStep = flowSteps.findIndex(step => step.active)
+  const formDisabled = runState === 'running'
 
   return (
-    <div className="scripted-bet-page">
+    <div className="scripted-bet-page rn-page">
       <div className="scripted-bet-head">
         <div>
           <h1 className="scripted-bet-title">腳本化投注紀錄</h1>
           <p className="scripted-bet-sub">依序領取 URL 帳號，進入指定機台並執行隨機 Spin，退出成功後關閉視窗並換下一個帳號。</p>
         </div>
         <PageActions className="scripted-bet-actions">
-          <button className="btn-ghost" type="button" disabled={runState === 'running'} onClick={selectVisible}>全選目前清單</button>
-          <button className="btn-ghost" type="button" disabled={runState === 'running'} onClick={clearVisible}>清除目前清單</button>
+          <button className="btn-ghost rn-btn" type="button" disabled={runState === 'running'} onClick={selectVisible}>全選目前清單</button>
+          <button className="btn-ghost rn-btn" type="button" disabled={runState === 'running'} onClick={clearVisible}>清除目前清單</button>
           {runState === 'running'
-            ? <button className="submit-btn submit-btn--sm scripted-stop-btn" type="button" onClick={stop}>停止</button>
-            : <button className="submit-btn submit-btn--sm" type="button" onClick={start}>開始測試</button>}
+            ? <button className="submit-btn submit-btn--sm scripted-stop-btn rn-btn" type="button" onClick={stop}>停止</button>
+            : <button className="submit-btn submit-btn--sm rn-btn" type="button" onClick={start}>開始測試</button>}
         </PageActions>
       </div>
 
-      <div className="scripted-bet-metrics">
+      <div className="rn-stats">
         <ScriptMetric label="Account Pool" value={rows.length} sub="URL 帳號表已載入" />
-        <ScriptMetric label="Selected" value={selectedRows.length} sub="本次會執行" />
-        <ScriptMetric label="Progress" value={`${doneCount} / ${statuses.length || selectedRows.length}`} sub={runningStatus ? `目前 ${runningStatus.username}` : '尚未開始'} />
-        <ScriptMetric label="Session State" value={runState.toUpperCase()} sub={failedCount > 0 ? `${failedCount} 筆失敗/略過` : '可手動停止'} color={runState === 'running' ? '#60a5fa' : runState === 'done' ? '#34d399' : undefined} />
+        <ScriptMetric label="Selected" value={selectedRows.length} sub="本次會執行" tone="run" />
+        <ScriptMetric label="Progress" value={`${doneCount} / ${statuses.length || selectedRows.length}`} sub={runningStatus ? `目前 ${runningStatus.username}` : '尚未開始'} tone="pass" />
+        <ScriptMetric label="Session State" value={runState.toUpperCase()} sub={failedCount > 0 ? `${failedCount} 筆失敗/略過` : '可手動停止'} tone={runState === 'running' ? 'run' : runState === 'done' ? 'pass' : undefined} />
       </div>
 
-      <div className="two-col scripted-bet-main-grid">
+      <div className="rn-grid2">
         <section className="section-card">
           <h2 className="section-title">執行設定</h2>
-          <div className="scripted-agent-panel">
-            <div>
-              <span className={selectedAgent && !selectedAgent.busy ? 'badge badge--ok' : 'badge badge--warn'}>Local Agent</span>
-              <strong>{selectedAgent ? selectedAgent.hostname : '未連線'}</strong>
-              <span className="field-hint">
-                {selectedAgent
-                  ? selectedAgent.busy ? '執行中' : `可用，${readyAgentCount} 台空閒`
-                  : '請先啟動 Toppath Local Agent'}
-              </span>
-            </div>
-            <label className="field scripted-agent-select">
-              <span>執行裝置</span>
+          <div className="rn-form">
+            <label className="rn-l" htmlFor="sb-agent">執行裝置</label>
+            <div className="rn-inline">
               <select
+                id="sb-agent"
+                className="rn-field rn-grow"
                 value={selectedAgentId}
                 disabled={runState === 'running' || agents.length === 0}
                 onChange={e => setSelectedAgentId(e.target.value)}
@@ -501,114 +505,107 @@ export function ScriptedBetPage({ currentAccount }: Props) {
                   </option>
                 ))}
               </select>
-            </label>
-            <button className="btn-ghost" type="button" onClick={refreshAgents} disabled={runState === 'running'}>重新整理</button>
-            {agentError && <span className="scripted-agent-error">{agentError}</span>}
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>帳號來源</span>
-              <select value="url-pool" disabled>
+              <button className="btn-ghost rn-btn" type="button" onClick={refreshAgents} disabled={runState === 'running'}>重新整理</button>
+            </div>
+            <div className="rn-c2 rn-inline rn-agent-line">
+              <span className={selectedAgent && !selectedAgent.busy ? 'badge badge--ok' : 'badge badge--warn'}>Local Agent</span>
+              <span className="rn-text-fg">{selectedAgent ? selectedAgent.hostname : '未連線'}</span>
+              <span className="rn-hint">
+                {selectedAgent
+                  ? selectedAgent.busy ? '執行中' : `可用，${readyAgentCount} 台空閒`
+                  : '請先啟動 Toppath Local Agent'}
+              </span>
+              {agentError && <span className="scripted-agent-error">{agentError}</span>}
+            </div>
+
+            <label className="rn-l" htmlFor="sb-source">帳號來源</label>
+            <div className="rn-inline">
+              <select id="sb-source" className="rn-field rn-grow" value="url-pool" disabled>
                 <option value="url-pool">URL 帳號池</option>
               </select>
-              <span className="field-hint">讀取現有 UrlPoolData 與後台 URL override。</span>
-            </label>
-            <label className="field">
-              <span>目標 gmid / 機台代碼</span>
-              <input value={targetMachineCode} onChange={e => setTargetMachineCode(e.target.value)} disabled={runState === 'running'} placeholder="873-JJBX-001" />
-              <span className="field-hint">使用可進入機器投注的機台代碼。</span>
-            </label>
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>Spin 最小次數</span>
-              <input type="number" min={1} value={spinMin} onChange={e => setSpinMin(Number(e.target.value))} disabled={runState === 'running'} />
-            </label>
-            <label className="field">
-              <span>Spin 最大次數</span>
-              <input type="number" min={1} value={spinMax} onChange={e => setSpinMax(Number(e.target.value))} disabled={runState === 'running'} />
-            </label>
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>Spin 間隔最小 ms</span>
-              <input type="number" min={0} value={spinDelayMinMs} onChange={e => setSpinDelayMinMs(Number(e.target.value))} disabled={runState === 'running'} />
-            </label>
-            <label className="field">
-              <span>Spin 間隔最大 ms</span>
-              <input type="number" min={0} value={spinDelayMaxMs} onChange={e => setSpinDelayMaxMs(Number(e.target.value))} disabled={runState === 'running'} />
-            </label>
-          </div>
-          <div className="field-row">
-            <label className="field">
-              <span>退出重試上限</span>
-              <input type="number" min={1} value={maxExitRetries} onChange={e => setMaxExitRetries(Number(e.target.value))} disabled={runState === 'running'} />
-              <span className="field-hint">退出失敗會補 Spin，再嘗試退出。</span>
-            </label>
-            <label className="field scripted-checkbox-field">
-              <span>瀏覽器模式</span>
-              <label className="scripted-checkbox-row">
-                <input type="checkbox" checked={headedMode} onChange={e => setHeadedMode(e.target.checked)} disabled={runState === 'running'} />
+            </div>
+
+            <label className="rn-l" htmlFor="sb-target">目標 gmid / 機台代碼</label>
+            <div className="rn-inline">
+              <input id="sb-target" className="rn-field rn-grow" value={targetMachineCode} onChange={e => setTargetMachineCode(e.target.value)} disabled={formDisabled} placeholder="873-JJBX-001" />
+            </div>
+
+            <label className="rn-l" htmlFor="sb-spin-min">Spin 次數</label>
+            <div className="rn-inline rn-range">
+              <input id="sb-spin-min" className="rn-field" aria-label="Spin 最小次數" type="number" min={1} value={spinMin} onChange={e => setSpinMin(Number(e.target.value))} disabled={formDisabled} />
+              <span className="rn-tilde">～</span>
+              <input className="rn-field" aria-label="Spin 最大次數" type="number" min={1} value={spinMax} onChange={e => setSpinMax(Number(e.target.value))} disabled={formDisabled} />
+            </div>
+
+            <label className="rn-l" htmlFor="sb-delay-min">Spin 間隔 ms</label>
+            <div className="rn-inline rn-range">
+              <input id="sb-delay-min" className="rn-field" aria-label="Spin 間隔最小 ms" type="number" min={0} value={spinDelayMinMs} onChange={e => setSpinDelayMinMs(Number(e.target.value))} disabled={formDisabled} />
+              <span className="rn-tilde">～</span>
+              <input className="rn-field" aria-label="Spin 間隔最大 ms" type="number" min={0} value={spinDelayMaxMs} onChange={e => setSpinDelayMaxMs(Number(e.target.value))} disabled={formDisabled} />
+            </div>
+
+            <label className="rn-l" htmlFor="sb-exit">退出重試上限</label>
+            <div className="rn-inline">
+              <input id="sb-exit" className="rn-field rn-grow" type="number" min={1} value={maxExitRetries} onChange={e => setMaxExitRetries(Number(e.target.value))} disabled={formDisabled} />
+              <span className="rn-hint">退出失敗會補 Spin，再嘗試退出</span>
+            </div>
+
+            <span className="rn-l">瀏覽器模式</span>
+            <div className="rn-inline">
+              <label className="rn-chk">
+                <input type="checkbox" checked={headedMode} onChange={e => setHeadedMode(e.target.checked)} disabled={formDisabled} />
                 <span>Headed 模式顯示瀏覽器視窗</span>
               </label>
-            </label>
-          </div>
-          <div className="field-row">
-            <div className="field">
-              <span>機台配置（Machine Test Profile）</span>
+            </div>
+
+            <span className="rn-l rn-l--top">機台配置</span>
+            <div>
               {matchedProfile ? (
-                <div style={{ fontSize: 12, padding: '8px 10px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ color: '#a5b4fc', fontWeight: 600 }}>通過 {matchedProfile.machineType}</span>
-                  {matchedProfile.entryTouchPoints?.length ? <span style={{ color: '#94a3b8' }}>進入觸屏：{matchedProfile.entryTouchPoints.join(', ')}</span> : null}
-                  {matchedProfile.entryTouchPoints2?.length ? <span style={{ color: '#94a3b8' }}>進入確認：{matchedProfile.entryTouchPoints2.join(', ')}</span> : null}
-                  {matchedProfile.touchPoints?.length ? <span style={{ color: '#94a3b8' }}>退出補救 touchPoints：{matchedProfile.touchPoints.join(', ')}</span> : null}
-                  {matchedProfile.bonusAction ? <span style={{ color: '#94a3b8' }}>特殊遊戲處理：{matchedProfile.bonusAction}</span> : null}
-                  {matchedProfile.spinSelector ? <span style={{ color: '#94a3b8' }}>Spin selector：{matchedProfile.spinSelector}</span> : null}
+                <div className="rn-profile">
+                  <span className="rn-profile-name">{matchedProfile.machineType}</span>
+                  {matchedProfile.entryTouchPoints?.length ? <span>進入觸屏：{matchedProfile.entryTouchPoints.join(', ')}</span> : null}
+                  {matchedProfile.entryTouchPoints2?.length ? <span>進入確認：{matchedProfile.entryTouchPoints2.join(', ')}</span> : null}
+                  {matchedProfile.touchPoints?.length ? <span>退出補救 touchPoints：{matchedProfile.touchPoints.join(', ')}</span> : null}
+                  {matchedProfile.bonusAction ? <span>特殊遊戲處理：{matchedProfile.bonusAction}</span> : null}
+                  {matchedProfile.spinSelector ? <span>Spin selector：{matchedProfile.spinSelector}</span> : null}
                 </div>
               ) : (
-                <div style={{ fontSize: 12, padding: '6px 10px', background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.3)', borderRadius: 6, color: '#64748b' }}>
+                <div className="rn-profile rn-profile--none">
                   未找到配置（機台代碼中段需為全大寫字母，如 JJBX）
                 </div>
               )}
-              <span className="field-hint">自動從 Machine Test 機台配置檔讀取進入觸屏、退出補救 touchPoints 等設定。</span>
+              <div className="rn-hint rn-hint--below">自動從 Machine Test 機台配置檔讀取進入觸屏、退出補救 touchPoints 等設定。</div>
             </div>
           </div>
-          <div className="op-plan scripted-plan">
-            <span>本次策略</span>
-            <span className="scripted-chip">序列執行</span>
-            <span className="scripted-chip">一帳號一視窗</span>
-            <span className="scripted-chip">退出成功才換帳號</span>
-            <span className="scripted-chip">停止後不再領新帳號</span>
+          <div className="rn-inline rn-tags">
+            <span className="rn-tag">序列執行</span>
+            <span className="rn-tag">一帳號一視窗</span>
+            <span className="rn-tag">退出成功才換帳號</span>
+            <span className="rn-tag">停止後不再領新帳號</span>
           </div>
         </section>
 
-        <section className="section-card">
+        <section className="section-card rn-flow-panel">
           <h2 className="section-title">流程狀態</h2>
-          <div className="scripted-flow">
-            <FlowStep n={1} name="領取帳號" note={runningStatus?.username ?? '等待開始'} active={currentStep === 'opening'} />
-            <FlowStep n={2} name="進入大廳" note="等待可操作" active={currentStep === 'opening'} />
-            <FlowStep n={3} name="進入機台" note={flowTargetMachineCode || '-'} active={currentStep === 'entering'} />
-            <FlowStep n={4} name="隨機 Spin" note={runningStatus?.spinTarget ? `目標 ${runningStatus.spinTarget} 次` : '每帳號抽一次'} active={currentStep === 'spinning'} />
-            <FlowStep n={5} name="退出機台" note="失敗則補 Spin" active={currentStep === 'exiting'} />
-            <FlowStep n={6} name="關閉視窗" note="換下一帳號" active={runningStatus?.state === 'done'} />
+          <div className="rn-steps">
+            {flowSteps.map((step, idx) => (
+              <FlowStep key={step.name} n={idx + 1} name={step.name} note={step.note} active={step.active} done={firstActiveStep > 0 && idx < firstActiveStep} />
+            ))}
           </div>
-          <div className="scripted-current-row">
-            <div>
-              <span className="badge badge--blue">Current Account</span>
-              <span className="scripted-current-account">{runningStatus ? `${runningStatus.account} / ${runningStatus.username}` : '尚未執行'}</span>
+          <div className="rn-current">
+            <div className="rn-current-top">
+              <span>{runningStatus ? `${runningStatus.account} / ${runningStatus.username}` : '尚未執行'}</span>
+              <span className="rn-mono">Spin {runningStatus?.spinDone ?? 0} / {runningStatus?.spinTarget ?? '?'}</span>
             </div>
-            <div className="scripted-progress">
-              <span className="field-hint">Spin {runningStatus?.spinDone ?? 0} / {runningStatus?.spinTarget ?? '?'}</span>
-              <div className="scripted-bar"><span style={{ width: runningStatus?.spinTarget ? `${Math.min(100, runningStatus.spinDone / runningStatus.spinTarget * 100)}%` : '0%' }} /></div>
-            </div>
+            <div className="rn-meter rn-meter--run"><i style={{ width: runningStatus?.spinTarget ? `${Math.min(100, runningStatus.spinDone / runningStatus.spinTarget * 100)}%` : '0%' }} /></div>
           </div>
-          <div className="scripted-console">
+          <div className="scripted-console rn-log">
             {logs.length === 0 && <div><span className="scripted-log-time">--:--:--</span> 等待開始測試...</div>}
             {logs.slice(-12).map((log, idx) => {
               const time = new Date(log.ts).toTimeString().slice(0, 8)
               return (
                 <div key={`${log.ts}-${idx}`}>
-                  <span className="scripted-log-time">{time}</span>{' '}
+                  <span className="scripted-log-time">[{time}]</span>{' '}
                   <span className={log.type === 'error' ? 'scripted-log-error' : log.type === 'session_done' ? 'scripted-log-ok' : 'scripted-log-blue'}>{log.type}</span>{' '}
                   {log.account && <span className="scripted-log-account">{log.account}</span>} {log.message}
                 </div>
@@ -618,39 +615,33 @@ export function ScriptedBetPage({ currentAccount }: Props) {
         </section>
       </div>
 
-      <section className="section-card">
-        <div className="scripted-table-head">
-          <h2 className="section-title" style={{ margin: 0 }}>帳號執行清單</h2>
+      <section className="section-card rn-table-panel">
+        <h2 className="section-title">帳號執行清單</h2>
+        <div className="rn-toolbar">
           {/* ⚠️ 環境分頁。跟 URL 帳號池頁與帳號池選取彈窗同一套心智模型。
               執行中不給切——切了會換掉整份清單，但勾選的帳號還是舊環境的。 */}
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="rn-tabs" role="tablist">
             {POOL_ENVS.map(e => (
               <button
                 key={e} type="button" data-testid={`scripted-env-${e}`}
+                className="rn-tab"
+                role="tab"
+                aria-selected={poolEnv === e}
                 disabled={runState === 'running'}
                 onClick={() => { setPoolEnv(e); setSelected(new Set()) }}
-                style={{
-                  padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-                  cursor: runState === 'running' ? 'not-allowed' : 'pointer',
-                  opacity: runState === 'running' ? .5 : 1,
-                  border: `1px solid ${poolEnv === e ? '#2563eb' : '#2d3f55'}`,
-                  background: poolEnv === e ? '#2563eb' : 'transparent',
-                  color: poolEnv === e ? '#fff' : '#94a3b8',
-                }}
               >
                 {POOL_LABEL[e]}
-                <span style={{ marginLeft: 5, fontSize: 10.5, fontWeight: 400, opacity: .75 }}>
+                <span className="rn-tab-count">
                   {POOL_SOURCE[e].filter(r => r.url).length}
                 </span>
               </button>
             ))}
           </div>
-          <label className="field scripted-search">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋帳號 / username / label / url..." disabled={runState === 'running'} />
-          </label>
+          <span className="rn-spacer" />
+          <input className="rn-field rn-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋帳號 / username / label / url..." disabled={runState === 'running'} />
         </div>
-        <div className="scripted-table-wrap">
-          <table className="scripted-table">
+        <div className="table-wrap rn-table-wrap">
+          <table className="version-table scripted-table rn-table">
             <thead>
               <tr>
                 <th>帳號</th>
@@ -671,22 +662,24 @@ export function ScriptedBetPage({ currentAccount }: Props) {
                 return (
                   <tr key={row.account}>
                     <td>
-                      <button type="button" className={`scripted-check ${selected.has(row.account) ? 'on' : ''}`} onClick={() => toggle(row.account)} disabled={runState === 'running'} aria-label="toggle account" />
-                      <span className="scripted-account-cell">
-                        <strong>{row.account}</strong>
-                        <span>{row.username}</span>
+                      <span className="rn-account">
+                        <button type="button" className={`scripted-check ${selected.has(row.account) ? 'on' : ''}`} onClick={() => toggle(row.account)} disabled={runState === 'running'} aria-label="toggle account" />
+                        <span className="scripted-account-cell">
+                          <strong>{row.account}</strong>
+                          <span>{row.username}</span>
+                        </span>
                       </span>
                     </td>
                     <td><span className={statusBadgeClass(state)}>{stateLabel[state]}</span></td>
-                    <td><code>{status?.targetMachineCode || targetMachineCode || '-'}</code></td>
+                    <td><span className="rn-mono">{status?.targetMachineCode || targetMachineCode || '-'}</span></td>
                     <td>
-                      <div className="scripted-progress">
-                        <span>{spinDone} / {spinTarget}</span>
-                        <div className="scripted-bar"><span style={{ width: `${progress}%` }} /></div>
+                      <div className="rn-spin">
+                        <span className="rn-mono">{spinDone} / {spinTarget}</span>
+                        <div className="rn-meter rn-meter--run"><i style={{ width: `${progress}%` }} /></div>
                       </div>
                     </td>
-                    <td><span className={status?.exitAttempts ? 'badge badge--warn' : 'badge'}>{status?.exitAttempts ?? 0}</span></td>
-                    <td>{status?.message ?? (selected.has(row.account) ? '等待執行' : '未勾選，不納入本次批次')}</td>
+                    <td><span className={status?.exitAttempts ? 'rn-tag rn-tag--warn' : 'rn-tag'}>{status?.exitAttempts ?? 0}</span></td>
+                    <td className="rn-msg">{status?.message ?? (selected.has(row.account) ? '等待執行' : '未勾選，不納入本次批次')}</td>
                   </tr>
                 )
               })}

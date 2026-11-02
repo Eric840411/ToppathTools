@@ -66,3 +66,5 @@
 
 /* 原型 v7 頁首只有標題（＋仙俠名），沒有說明行——1102 CodeX 對照設計圖兩輪都指出，全站收掉 */
 :root[data-ui="redesign"] .rd-page-desc { display: none; }
+/* 頁首右側有操作按鈕時，按鈕（36px）會把頁首撐高約 5px；收回，讓下面的內容起點跟原型一致（1102 CodeX 比對） */
+:root[data-ui="redesign"] .rd-page-head:has(.rd-page-head-actions:not(:empty)) { padding-bottom: 9px; }

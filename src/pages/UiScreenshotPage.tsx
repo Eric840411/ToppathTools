@@ -232,12 +232,12 @@ function taskStatusLabel(status: TaskStatus) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function MetricCard({ label, value, sub, color }: { label: string; value: string | number; sub: string; color?: string }) {
+function MetricCard({ label, value, sub, tone }: { label: string; value: string | number; sub: string; tone?: 'run' | 'pass' | 'warn' | 'fail' }) {
   return (
-    <div className="section-card ui-ss-metric-card">
-      <div className="ui-ss-metric-label">{label}</div>
-      <div className="ui-ss-metric-value" style={color ? { color } : undefined}>{value}</div>
-      <div className="ui-ss-metric-sub">{sub}</div>
+    <div className={`rn-stat${tone ? ` rn-stat--${tone}` : ''}`}>
+      <div className="rn-stat-k">{label}</div>
+      <div className="rn-stat-v">{value}</div>
+      <div className="rn-stat-s">{sub}</div>
     </div>
   )
 }
@@ -246,12 +246,10 @@ function ResCheckbox({
   res, checked, onChange, disabled,
 }: { res: typeof RESOLUTIONS[0]; checked: boolean; onChange: (k: string) => void; disabled: boolean }) {
   return (
-    <label className={`ui-ss-res-item${checked ? ' checked' : ''}`} onClick={() => !disabled && onChange(res.key)}>
-      <input type="checkbox" checked={checked} readOnly style={{ accentColor: '#3b82f6', cursor: 'pointer', flexShrink: 0 }} />
-      <div>
-        <div className="ui-ss-res-lbl">{res.label}</div>
-        <div className="ui-ss-res-nm">{res.w}×{res.h}</div>
-      </div>
+    <label className={`rn-res-item${checked ? ' checked' : ''}`} onClick={() => !disabled && onChange(res.key)} title={`${res.w}×${res.h}`}>
+      <input type="checkbox" checked={checked} readOnly />
+      <span className="rn-res-lbl">{res.label}</span>
+      <span className="rn-res-nm">{res.w}×{res.h}</span>
     </label>
   )
 }
@@ -416,19 +414,19 @@ export function UiScreenshotPage() {
         } else if (data.type === 'agent_log') {
           // agent 端不屬於任何一張圖的警告（例如拍完退出機台失敗）
           const m = data
-          setLogs(prev => [...prev.slice(-200), `${m.level === 'warn' ? '⚠️ ' : ''}${m.message ?? ''}`])
+          setLogs(prev => [...prev.slice(-200), `${m.level === 'warn' ? '警告：' : ''}${m.message ?? ''}`])
         } else if (data.type === 'agent_hold') {
           setAgentHold(data.message)
         } else if (data.type === 'run_complete') {
           setRunStatus('done')
           const c = data as SseRunComplete
-          const msg = `通過 Run 完成｜OK:${c.ok_count ?? '?'} POPUP:${c.popup_count ?? '?'} ERR:${c.err_count ?? '?'}`
+          const msg = `Run 完成｜OK:${c.ok_count ?? '?'} POPUP:${c.popup_count ?? '?'} ERR:${c.err_count ?? '?'}`
           setLogs(prev => [...prev, msg])
           // ⚠️ 不在這裡關連線：完成事件是**最後一張圖回報時**就發了，agent 之後還要退出機台，
           //    退出失敗的警告（agent_log）會在這之後才來。關掉就收不到了（CodeX 2026-09-24）
         } else if (data.type === 'run_stopped') {
           setRunStatus('stopped')
-          setLogs(prev => [...prev, '⏹ Run 已停止'])
+          setLogs(prev => [...prev, 'Run 已停止'])
         }
       } catch { /* ignore */ }
     }
@@ -840,7 +838,7 @@ export function UiScreenshotPage() {
     if (!runId) return
     await fetch(`/api/ui-screenshot/stop/${runId}`, { method: 'POST' }).catch(() => {})
     setRunStatus('stopped')
-    setLogs(prev => [...prev, '⏹ 已送出停止指令'])
+    setLogs(prev => [...prev, '已送出停止指令'])
     // ⚠️ 不關連線：按停止之後 agent 還要退出機台，退出失敗的警告要收得到
   }
 
@@ -918,10 +916,10 @@ export function UiScreenshotPage() {
   }
 
   // ── Status color ─────────────────────────────────────────────────────────────
-  const runStateColor = runStatus === 'running' ? '#60a5fa' : runStatus === 'done' ? '#34d399' : runStatus === 'stopped' ? '#fbbf24' : undefined
+  const runStateTone = runStatus === 'running' ? 'run' as const : runStatus === 'done' ? 'pass' as const : runStatus === 'stopped' ? 'warn' as const : undefined
 
   return (
-    <div className="ui-screenshot-page">
+    <div className="ui-screenshot-page rn-page">
       {/* ── Page Header ── */}
       <div className="scripted-bet-head">
         <div>
@@ -932,215 +930,181 @@ export function UiScreenshotPage() {
         </div>
         <PageActions className="scripted-bet-actions">
           {running
-            ? <button className="submit-btn submit-btn--sm submit-btn--stop" type="button" onClick={stop}>停止</button>
-            : <button className="submit-btn submit-btn--sm" type="button" onClick={start}>開始截圖</button>
+            ? <button className="submit-btn submit-btn--sm submit-btn--stop rn-btn" type="button" onClick={stop}>停止</button>
+            : <button className="submit-btn submit-btn--sm rn-btn" type="button" onClick={start}>開始截圖</button>
           }
         </PageActions>
       </div>
 
       {/* ── Metrics ── */}
-      <div className="ui-ss-metrics">
+      <div className="rn-stats">
         <MetricCard label="Tasks" value={totalCount || '—'} sub={`共 ${gmids.length} gmids × ${activeResolutions.length} 解析度`} />
-        <MetricCard label="OK" value={okCount} sub="截圖成功" color={okCount > 0 ? '#34d399' : undefined} />
-        <MetricCard label="POPUP / ERR" value={`${popupCount} / ${errCount}`} sub="有彈窗 / 失敗" color={(popupCount + errCount) > 0 ? '#fbbf24' : undefined} />
-        <MetricCard label="Status" value={runStatus?.toUpperCase() ?? 'IDLE'} sub={running ? `${doneCount}/${totalCount} 完成` : '可設定後執行'} color={runStateColor} />
+        <MetricCard label="OK" value={okCount} sub="截圖成功" tone={okCount > 0 ? 'pass' : undefined} />
+        <MetricCard label="POPUP / ERR" value={`${popupCount} / ${errCount}`} sub="有彈窗 / 失敗" tone={(popupCount + errCount) > 0 ? 'warn' : undefined} />
+        <MetricCard label="Status" value={runStatus?.toUpperCase() ?? 'IDLE'} sub={running ? `${doneCount}/${totalCount} 完成` : '可設定後執行'} tone={runStateTone} />
       </div>
 
       {/* ── Main Layout ── */}
-      <div className="ui-ss-main-grid">
+      <div className="rn-side-l">
         {/* ── LEFT: Config ── */}
-        <div className="ui-ss-left">
-          {/* Agent */}
-          <section className="section-card">
-            <h2 className="section-title">Local Agent</h2>
-            <div className="ui-ss-agent-status">
-              <span className={selectedAgent && !selectedAgent.busy ? 'badge badge--ok' : 'badge badge--warn'}>
-                {selectedAgent && !selectedAgent.busy ? '可用' : selectedAgent?.busy ? '執行中' : '未連線'}
-              </span>
-              <span className="ui-ss-agent-hostname">
-                {selectedAgent ? selectedAgent.hostname : '請先啟動 Toppath Local Agent'}
-              </span>
-              {selectedAgent && !selectedAgent.busy && (
-                <span className="field-hint">{readyCount} 台空閒</span>
-              )}
-            </div>
-            <label className="field">
-              <span>執行裝置</span>
-              <select
-                value={selectedAgentId}
-                disabled={running || agents.length === 0}
-                onChange={e => setSelectedAgentId(e.target.value)}
-              >
-                {agents.length === 0 && <option value="">No local agent</option>}
-                {agents.map(a => (
-                  <option key={a.agentId} value={a.agentId}>
-                    {a.hostname}{a.busy ? ' - busy' : ' - ready'}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="btn-ghost" type="button" onClick={refreshAgents} disabled={running}>重新整理</button>
-            {agentError && <div className="ui-ss-agent-error">{agentError}</div>}
-          </section>
-
+        <div className="rn-col">
           {/* Source */}
           <section className="section-card">
             <h2 className="section-title">資料來源</h2>
-
-            {/* 客戶端：**使用者自己選**，不從網址猜（H5 的正式網址就帶 platform=pc，猜必錯） */}
-            <div className="field" style={{ marginBottom: 12 }}>
-              <span>客戶端</span>
-              <div className="ui-ss-client-seg">
+            <div className="rn-form">
+              {/* 客戶端：**使用者自己選**，不從網址猜（H5 的正式網址就帶 platform=pc，猜必錯） */}
+              <span className="rn-l">客戶端</span>
+              <div className="rn-tabs rn-tabs--fill" role="group" aria-label="客戶端">
                 {CLIENT_OPTIONS.map(opt => (
                   <button
                     key={opt.key}
                     type="button"
                     disabled={running}
-                    className={`ui-ss-client-opt${clientType === opt.key ? ' on' : ''}`}
+                    className="rn-tab"
                     onClick={() => setClientType(opt.key)}
                     aria-pressed={clientType === opt.key}
+                    title={`${opt.label} ${opt.sub}`}
                   >
-                    <span className="ui-ss-client-nm">{opt.label}</span>
-                    <span className="ui-ss-client-sub">{opt.sub}</span>
+                    {opt.label} <span className="rn-tab-sub">{opt.sub}</span>
                   </button>
                 ))}
               </div>
-              <span className="field-hint">掃大廳與截圖都用這個值決定流程，<b>不會從網址自動判斷</b></span>
+              <div className="rn-c2 rn-hint">掃大廳與截圖都用這個值決定流程，<b>不會從網址自動判斷</b></div>
               {hostGuess && hostGuess !== clientType && (
-                <span style={{ fontSize: 11.5, color: '#eab308', lineHeight: 1.7 }}>
-                  ⚠️ 下面網址的主機看起來是 <b>{hostGuess.toUpperCase()}</b>，跟這裡選的 <b>{clientType.toUpperCase()}</b> 不一致——確認一下是不是選錯了
-                </span>
+                <div className="rn-c2 rn-hint rn-warn">
+                  下面網址的主機看起來是 <b>{hostGuess.toUpperCase()}</b>，跟這裡選的 <b>{clientType.toUpperCase()}</b> 不一致——確認一下是不是選錯了
+                </div>
               )}
-            </div>
 
-            {/* Lark Sheet URL + fetch button */}
-            <label className="field">
-              <span>Lark Sheet URL</span>
+              {/* Lark Sheet URL + fetch button */}
+              <label className="rn-l" htmlFor="uiss-wiki">Lark Sheet URL</label>
               <input
+                id="uiss-wiki"
+                className="rn-field"
                 value={wikiUrl}
                 onChange={e => { setWikiUrl(e.target.value); setFetchGmidMsg('') }}
                 disabled={running}
                 placeholder="https://casinoplus.sg.larksuite.com/sheets/..."
               />
-              <span className="field-hint">含 gmid 欄位的 Lark Sheet，貼上後點「從 Lark 讀取 gmid」</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-              <button
-                className="submit-btn submit-btn--sm"
-                type="button"
-                disabled={running || fetchingGmids || !wikiUrl.trim()}
-                onClick={fetchGmidsFromLark}
-                style={{ fontSize: 12, padding: '6px 14px' }}
-              >
-                {fetchingGmids ? '讀取中…' : '從 Lark 讀取 gmid'}
-              </button>
-              {fetchGmidMsg && (
-                <span style={{ fontSize: 12, color: fetchGmidMsg.startsWith('成功') ? '#34d399' : '#f87171' }}>
-                  {fetchGmidMsg}
-                </span>
-              )}
-            </div>
-
-            {/* ⚠️ 自動選機以 **model** 為單位，不是遊戲代號：實測一個遊戲代號底下常有多個 model
-                （WLZBHELIX 39 台有 14 種），只用遊戲代號分組的話其餘 model 永遠不會被拍到，
-                而畫面上看起來「這款有拍」。 */}
-            <div className="ui-ss-toggle-row" style={{ marginBottom: 10 }}>
-              <div>
-                <div className="ui-ss-tgl-label">自動選機（依 model）</div>
-                <div className="ui-ss-tgl-sub">
-                  掃大廳 → 勾選要拍的 model → 每個 model 自動挑一台沒被佔用的機台。關掉則使用下面的 gmid 清單
-                </div>
-              </div>
-              <div
-                className={`ui-ss-toggle${autoPickByGame ? ' on' : ''}`}
-                onClick={() => !running && setAutoPickByGame(v => !v)}
-                role="switch"
-                aria-checked={autoPickByGame}
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && !running && setAutoPickByGame(v => !v)}
-              />
-            </div>
-
-            {autoPickByGame && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-                  <button
-                    className="submit-btn submit-btn--sm" type="button"
-                    disabled={running || scanning || !selectedAgentId || !gameUrlTemplate.trim()}
-                    onClick={scanLobby}
-                    style={{ fontSize: 12, padding: '6px 14px' }}
-                  >{scanning ? '掃描中…（最多 2 分鐘）' : '掃描大廳'}</button>
-                  {models.length > 0 && (
-                    <button className="submit-btn submit-btn--sm" type="button" disabled={running}
-                      onClick={() => setShowModelPicker(true)} style={{ fontSize: 12, padding: '6px 14px' }}>
-                      選擇 model（已選 {selectedModels.length}）
-                    </button>
-                  )}
-                  {scanMsg && <span style={{ fontSize: 12, color: scanMsg.startsWith('掃描完成') ? '#34d399' : '#f87171' }}>{scanMsg}</span>}
-                </div>
-
-                {models.length > 0 && (
-                  <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.9 }}>
-                    已選 <b style={{ color: '#e2e8f0' }}>{selectedModelCount}</b> / {models.length} 個 model{selectedMMCount > 0 && <> ・ <b style={{ color: '#e2e8f0' }}>{selectedMMCount}</b> 種 Machine Model</>}
-                    ｜預估約 <b style={{ color: '#e2e8f0' }}>
-                      {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
-                    </b> 分鐘（粗估，不含找台與失敗重試）
-                    {unparsed.length > 0 && (
-                      <span style={{ color: '#eab308' }}>｜{unparsed.length} 台無法判斷 model（未列入）</span>
-                    )}
-                  </div>
+              <div className="rn-c2 rn-inline">
+                <button
+                  className="btn-ghost rn-btn rn-btn--sm"
+                  type="button"
+                  disabled={running || fetchingGmids || !wikiUrl.trim()}
+                  onClick={fetchGmidsFromLark}
+                >
+                  {fetchingGmids ? '讀取中…' : '從 Lark 讀取 gmid'}
+                </button>
+                {fetchGmidMsg && (
+                  <span className={`rn-msg-inline ${fetchGmidMsg.startsWith('成功') ? 'rn-ok' : 'rn-err'}`}>
+                    {fetchGmidMsg}
+                  </span>
                 )}
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 8, color: '#cbd5e1' }}>
-                  <input type="checkbox" disabled={running} checked={captureLobby} onChange={e => setCaptureLobby(e.target.checked)} />
-                  也拍大廳本身（不進機台）
-                </label>
               </div>
-            )}
 
-            {/* Manual gmid textarea */}
-            <label className="field" style={{ display: autoPickByGame ? 'none' : undefined }}>
-              <span>
-                gmid 清單
-                <span className="badge badge--blue" style={{ marginLeft: 8, fontSize: 10 }}>
-                  {gmidText.split(/[\n,\s]+/).filter(s => s.trim().length > 0).length} 個
-                </span>
-              </span>
-              <textarea
-                value={gmidText}
-                onChange={e => setGmidText(e.target.value)}
-                disabled={running}
-                placeholder={'從 Lark 讀取後自動填入，或手動輸入：\n4179-ARUZE-3062\nJJBX001'}
-                style={{ fontFamily: 'monospace', fontSize: 12, minHeight: 90, resize: 'vertical' }}
-              />
-              <span className="field-hint">每行一個 gmid，或以逗號 / 空格分隔皆可；可手動修改</span>
-            </label>
+              {/* ⚠️ 自動選機以 **model** 為單位，不是遊戲代號：實測一個遊戲代號底下常有多個 model
+                  （WLZBHELIX 39 台有 14 種），只用遊戲代號分組的話其餘 model 永遠不會被拍到，
+                  而畫面上看起來「這款有拍」。 */}
+              <div className="rn-switch-row rn-full">
+                <div
+                  className={`ui-ss-toggle${autoPickByGame ? ' on' : ''}`}
+                  onClick={() => !running && setAutoPickByGame(v => !v)}
+                  role="switch"
+                  aria-checked={autoPickByGame}
+                  aria-label="自動選機（依 model）"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && !running && setAutoPickByGame(v => !v)}
+                />
+                <div>
+                  <div className="rn-switch-label">自動選機（依 model）</div>
+                  <div className="rn-hint">
+                    掃大廳 → 勾選要拍的 model → 每個 model 自動挑一台沒被佔用的機台。關掉則使用下面的 gmid 清單
+                  </div>
+                </div>
+              </div>
 
-            <label className="field" style={{ marginBottom: 0 }}>
-              <span>遊戲 URL Template</span>
+              {autoPickByGame && (
+                <div className="rn-full rn-indent">
+                  <div className="rn-inline">
+                    <button
+                      className="btn-ghost rn-btn rn-btn--sm" type="button"
+                      disabled={running || scanning || !selectedAgentId || !gameUrlTemplate.trim()}
+                      onClick={scanLobby}
+                    >{scanning ? '掃描中…（最多 2 分鐘）' : '掃描大廳'}</button>
+                    {models.length > 0 && (
+                      <button className="btn-ghost rn-btn rn-btn--sm" type="button" disabled={running}
+                        onClick={() => setShowModelPicker(true)}>
+                        選擇 model（已選 {selectedModels.length}）
+                      </button>
+                    )}
+                    {scanMsg && <span className={`rn-msg-inline ${scanMsg.startsWith('掃描完成') ? 'rn-ok' : 'rn-err'}`}>{scanMsg}</span>}
+                  </div>
+
+                  {models.length > 0 && (
+                    <div className="rn-hint rn-hint--below">
+                      已選 <b>{selectedModelCount}</b> / {models.length} 個 model{selectedMMCount > 0 && <> ・ <b>{selectedMMCount}</b> 種 Machine Model</>}
+                      ｜預估約 <b>
+                        {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
+                      </b> 分鐘（粗估，不含找台與失敗重試）
+                      {unparsed.length > 0 && (
+                        <span className="rn-warn">｜{unparsed.length} 台無法判斷 model（未列入）</span>
+                      )}
+                    </div>
+                  )}
+
+                  <label className="rn-chk rn-chk--below">
+                    <input type="checkbox" disabled={running} checked={captureLobby} onChange={e => setCaptureLobby(e.target.checked)} />
+                    <span>也拍大廳本身（不進機台）</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Manual gmid textarea */}
+              <div className="rn-form-row" style={{ display: autoPickByGame ? 'none' : undefined }}>
+                  <label className="rn-l rn-l--top" htmlFor="uiss-gmids">
+                    gmid 清單
+                    <span className="rn-l-count">
+                      {gmidText.split(/[\n,\s]+/).filter(s => s.trim().length > 0).length} 個
+                    </span>
+                  </label>
+                  <div>
+                    <textarea
+                      id="uiss-gmids"
+                      className="rn-field rn-textarea"
+                      value={gmidText}
+                      onChange={e => setGmidText(e.target.value)}
+                      disabled={running}
+                      placeholder={'從 Lark 讀取後自動填入，或手動輸入：\n4179-ARUZE-3062\nJJBX001'}
+                    />
+                    <div className="rn-hint rn-hint--below">每行一個 gmid，或以逗號 / 空格分隔皆可；可手動修改</div>
+                  </div>
+              </div>
+
+              <label className="rn-l" htmlFor="uiss-tpl">遊戲 URL Template</label>
               <input
+                id="uiss-tpl"
+                className="rn-field rn-mono"
                 value={gameUrlTemplate}
                 onChange={e => setGameUrlTemplate(e.target.value)}
                 disabled={running}
                 placeholder="https://osm-h5-prod.osmslot.org/?token=...&gameid={gmid}&..."
-                style={{ fontFamily: 'monospace', fontSize: 12 }}
               />
-              <span className="field-hint">以 {'{gmid}'} 替換 gameid= 的值，其餘參數固定</span>
-            </label>
+              <div className="rn-c2 rn-hint">以 {'{gmid}'} 替換 gameid= 的值，其餘參數固定</div>
+            </div>
           </section>
 
           {/* Resolutions */}
           <section className="section-card">
             <h2 className="section-title">
-              解析度選擇
-              <span className="badge badge--blue" style={{ marginLeft: 'auto' }}>{selectedResolutions.length}/{RESOLUTIONS.length}</span>
+              解析度選擇 {selectedResolutions.length}/{RESOLUTIONS.length}
+              <span className="rn-title-meta">
+                <button type="button" className="rn-link" onClick={selectAll} disabled={running}>全選</button>
+                <span aria-hidden="true">·</span>
+                <button type="button" className="rn-link" onClick={clearAll} disabled={running}>清除</button>
+              </span>
             </h2>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={selectAll} disabled={running}>全選</button>
-              <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={clearAll} disabled={running}>清除</button>
-            </div>
             {RESOLUTION_GROUPS.map(group => (
-              <div key={group} style={{ marginBottom: 10 }}>
+              <div key={group} className="rn-res-group">
                 <div
                   className="ui-ss-group-label"
                   onClick={() => selectGroup(group)}
@@ -1149,11 +1113,11 @@ export function UiScreenshotPage() {
                   onKeyDown={e => e.key === 'Enter' && selectGroup(group)}
                 >
                   {group}
-                  <span style={{ marginLeft: 4, fontSize: 10, color: '#475569' }}>
+                  <span className="rn-group-count">
                     ({RESOLUTIONS.filter(r => r.group === group && selectedResolutions.includes(r.key)).length}/{RESOLUTIONS.filter(r => r.group === group).length})
                   </span>
                 </div>
-                <div className="ui-ss-res-grid">
+                <div className="rn-res-grid">
                   {RESOLUTIONS.filter(r => r.group === group).map(res => (
                     <ResCheckbox
                       key={res.key}
@@ -1168,90 +1132,135 @@ export function UiScreenshotPage() {
             ))}
           </section>
 
-          {/* Options */}
+          {/* Options（執行裝置＝原本獨立的 Local Agent 面板，原型沒有這塊，併進執行選項第一列） */}
           <section className="section-card">
             <h2 className="section-title">執行選項</h2>
-            <div className="ui-ss-toggle-row">
-              <div>
-                <div className="ui-ss-tgl-label">自動關閉彈窗</div>
-                {/* ⚠️ 這個開關管的**不只是面額選單**：面額選單、大廳中獎彈窗的 ✕、
-                    以及 `Tips: Game exception...(39)` 這類 Confirm 框都歸它管。
-                    標題原本寫「自動關閉面額彈窗」、說明只提 `.select-bg`——
-                    照字面讀會以為關掉它只是不選面額，實際上是**整套都不關**。 */}
-                <div className="ui-ss-tgl-sub">
-                  面額選單、大廳中獎彈窗的 ✕、Tips／錯誤提示的 Confirm 都會自動關掉。
-                  <b style={{ color: '#eab308' }}>關掉這個開關＝以上全部都不關</b>
+            <div className="rn-form">
+              <label className="rn-l" htmlFor="uiss-agent">執行裝置</label>
+              <div className="rn-inline">
+                <select
+                  id="uiss-agent"
+                  className="rn-field rn-grow"
+                  value={selectedAgentId}
+                  disabled={running || agents.length === 0}
+                  onChange={e => setSelectedAgentId(e.target.value)}
+                >
+                  {agents.length === 0 && <option value="">No local agent</option>}
+                  {agents.map(a => (
+                    <option key={a.agentId} value={a.agentId}>
+                      {a.hostname}{a.busy ? ' - busy' : ' - ready'}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn-ghost rn-btn rn-btn--sm" type="button" onClick={refreshAgents} disabled={running}>重新整理</button>
+              </div>
+              <div className="rn-c2 rn-inline rn-agent-line">
+                <span className={selectedAgent && !selectedAgent.busy ? 'badge badge--ok' : 'badge badge--warn'}>
+                  {selectedAgent && !selectedAgent.busy ? '可用' : selectedAgent?.busy ? '執行中' : '未連線'}
+                </span>
+                <span className="rn-text-fg">
+                  {selectedAgent ? selectedAgent.hostname : '請先啟動 Toppath Local Agent'}
+                </span>
+                {selectedAgent && !selectedAgent.busy && (
+                  <span className="rn-hint">{readyCount} 台空閒</span>
+                )}
+              </div>
+              {agentError && <div className="rn-c2 ui-ss-agent-error">{agentError}</div>}
+              <div className="rn-sep" />
+            </div>
+
+            <div className="rn-switches">
+              <div className="rn-switch-row">
+                <div
+                  className={`ui-ss-toggle${dismissPopup ? ' on' : ''}`}
+                  onClick={() => !running && setDismissPopup(v => !v)}
+                  role="switch"
+                  aria-checked={dismissPopup}
+                  aria-label="自動關閉彈窗"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && !running && setDismissPopup(v => !v)}
+                />
+                <div>
+                  <div className="rn-switch-label">自動關閉彈窗</div>
+                  {/* ⚠️ 這個開關管的**不只是面額選單**：面額選單、大廳中獎彈窗的 ✕、
+                      以及 `Tips: Game exception...(39)` 這類 Confirm 框都歸它管。
+                      標題原本寫「自動關閉面額彈窗」、說明只提 `.select-bg`——
+                      照字面讀會以為關掉它只是不選面額，實際上是**整套都不關**。 */}
+                  <div className="rn-hint">
+                    面額選單、大廳中獎彈窗的 ✕、Tips／錯誤提示的 Confirm 都會自動關掉。
+                    <b className="rn-warn">關掉這個開關＝以上全部都不關</b>
+                  </div>
                 </div>
               </div>
-              <div
-                className={`ui-ss-toggle${dismissPopup ? ' on' : ''}`}
-                onClick={() => !running && setDismissPopup(v => !v)}
-                role="switch"
-                aria-checked={dismissPopup}
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && !running && setDismissPopup(v => !v)}
-              />
-            </div>
-            <div className="ui-ss-toggle-row">
-              <div>
-                <div className="ui-ss-tgl-label">等待推流 {'<video>'} 就緒</div>
-                <div className="ui-ss-tgl-sub">偵測到 video.readyState≥2 且有寬度後才截圖</div>
-              </div>
-              <div
-                className={`ui-ss-toggle${waitForVideo ? ' on' : ''}`}
-                onClick={() => !running && setWaitForVideo(v => !v)}
-                role="switch"
-                aria-checked={waitForVideo}
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && !running && setWaitForVideo(v => !v)}
-              />
-            </div>
-            {/* ⚠️ 預設開。這些遊戲的版型是載入當下依視窗大小決定的——只改視窗大小再截圖，
-                拍到的是「用 A 尺寸載入、硬撐成 B 尺寸」，那種畫面看起來有拍到，
-                但正是這個工具要抓的版型問題永遠不會出現。 */}
-            <div className="ui-ss-toggle-row">
-              <div>
-                <div className="ui-ss-tgl-label">每個解析度重新載入</div>
-                <div className="ui-ss-tgl-sub">
-                  關掉會改成「只改視窗大小」：快很多，但版型在載入時決定的遊戲會拍不到真實版型。
-                  開著時每張都要重進一次機台，**每台機台約需「解析度數 × 20～30 秒」**
+              <div className="rn-switch-row">
+                <div
+                  className={`ui-ss-toggle${waitForVideo ? ' on' : ''}`}
+                  onClick={() => !running && setWaitForVideo(v => !v)}
+                  role="switch"
+                  aria-checked={waitForVideo}
+                  aria-label="等待推流 video 就緒"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && !running && setWaitForVideo(v => !v)}
+                />
+                <div>
+                  <div className="rn-switch-label">等待推流 {'<video>'} 就緒</div>
+                  <div className="rn-hint">偵測到 video.readyState≥2 且有寬度後才截圖</div>
                 </div>
               </div>
-              <div
-                className={`ui-ss-toggle${reloadPerResolution ? ' on' : ''}`}
-                onClick={() => !running && setReloadPerResolution(v => !v)}
-                role="switch"
-                aria-checked={reloadPerResolution}
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && !running && setReloadPerResolution(v => !v)}
-              />
-            </div>
-            <div className="ui-ss-toggle-row">
-              <div>
-                <div className="ui-ss-tgl-label">Headed 模式</div>
-                <div className="ui-ss-tgl-sub">顯示瀏覽器視窗（預設隱藏）</div>
+              {/* ⚠️ 預設開。這些遊戲的版型是載入當下依視窗大小決定的——只改視窗大小再截圖，
+                  拍到的是「用 A 尺寸載入、硬撐成 B 尺寸」，那種畫面看起來有拍到，
+                  但正是這個工具要抓的版型問題永遠不會出現。 */}
+              <div className="rn-switch-row">
+                <div
+                  className={`ui-ss-toggle${reloadPerResolution ? ' on' : ''}`}
+                  onClick={() => !running && setReloadPerResolution(v => !v)}
+                  role="switch"
+                  aria-checked={reloadPerResolution}
+                  aria-label="每個解析度重新載入"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && !running && setReloadPerResolution(v => !v)}
+                />
+                <div>
+                  <div className="rn-switch-label">每個解析度重新載入</div>
+                  <div className="rn-hint">
+                    關掉會改成「只改視窗大小」：快很多，但版型在載入時決定的遊戲會拍不到真實版型。
+                    開著時每張都要重進一次機台，<b>每台機台約需「解析度數 × 20～30 秒」</b>
+                  </div>
+                </div>
               </div>
-              <div
-                className={`ui-ss-toggle${headedMode ? ' on' : ''}`}
-                onClick={() => !running && setHeadedMode(v => !v)}
-                role="switch"
-                aria-checked={headedMode}
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && !running && setHeadedMode(v => !v)}
-              />
+              <div className="rn-switch-row">
+                <div
+                  className={`ui-ss-toggle${headedMode ? ' on' : ''}`}
+                  onClick={() => !running && setHeadedMode(v => !v)}
+                  role="switch"
+                  aria-checked={headedMode}
+                  aria-label="Headed 模式"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && !running && setHeadedMode(v => !v)}
+                />
+                <div>
+                  <div className="rn-switch-label">Headed 模式</div>
+                  <div className="rn-hint">顯示瀏覽器視窗（預設隱藏）</div>
+                </div>
+              </div>
             </div>
-            <label className="field" style={{ marginTop: 10, marginBottom: 0 }}>
-              <span>截圖延遲秒數</span>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                value={screenshotDelaySeconds}
-                disabled={running}
-                onChange={e => setScreenshotDelaySeconds(Math.max(0, Math.min(60, Number(e.target.value) || 0)))}
-              />
-              <span className="field-hint">進入機器且偵測到遊戲畫面後，再等待資源載入完成才截圖。</span>
-            </label>
+
+            <div className="rn-form rn-form--after">
+              <label className="rn-l" htmlFor="uiss-delay">截圖延遲秒數</label>
+              <div className="rn-inline">
+                <input
+                  id="uiss-delay"
+                  className="rn-field rn-w120"
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={screenshotDelaySeconds}
+                  disabled={running}
+                  onChange={e => setScreenshotDelaySeconds(Math.max(0, Math.min(60, Number(e.target.value) || 0)))}
+                />
+              </div>
+              <div className="rn-c2 rn-hint">進入機器且偵測到遊戲畫面後，再等待資源載入完成才截圖。</div>
+            </div>
           </section>
 
           {error && (
@@ -1260,60 +1269,58 @@ export function UiScreenshotPage() {
         </div>
 
         {/* ── RIGHT: Results ── */}
-        <div className="ui-ss-right">
+        <div className="rn-col">
           {/* Progress */}
           {totalCount > 0 && (
-            <div className="section-card" style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>進度</span>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                  <span style={{ color: '#34d399', fontWeight: 600 }}>OK: {okCount}</span>
-                  <span style={{ color: '#fbbf24', fontWeight: 600 }}>POPUP: {popupCount}</span>
-                  <span style={{ color: '#f87171', fontWeight: 600 }}>ERR: {errCount}</span>
-                  <span style={{ color: '#475569' }}>待執行: {totalCount - doneCount}</span>
-                </div>
+            <section className="section-card">
+              <h2 className="section-title">
+                進度
+                <span className="rn-title-meta rn-mono">
+                  <span className="rn-ok">OK {okCount}</span>
+                  <span className="rn-warn">POPUP {popupCount}</span>
+                  <span className="rn-err">ERR {errCount}</span>
+                  <span>待執行 {totalCount - doneCount}</span>
+                </span>
+              </h2>
+              <div className="rn-meter rn-meter--stack">
+                <i className="rn-seg-ok" style={{ width: `${(okCount / totalCount) * 100}%` }} />
+                <i className="rn-seg-warn" style={{ width: `${(popupCount / totalCount) * 100}%` }} />
+                <i className="rn-seg-err" style={{ width: `${(errCount / totalCount) * 100}%` }} />
               </div>
-              <div style={{ height: 5, background: '#0f172a', borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
-                <div style={{ width: `${(okCount / totalCount) * 100}%`, background: '#10b981', transition: 'width 0.3s' }} />
-                <div style={{ width: `${(popupCount / totalCount) * 100}%`, background: '#f59e0b', transition: 'width 0.3s' }} />
-                <div style={{ width: `${(errCount / totalCount) * 100}%`, background: '#ef4444', transition: 'width 0.3s' }} />
-              </div>
-              <div style={{ fontSize: 11, color: '#475569', marginTop: 5 }}>
+              <div className="rn-mono rn-hint rn-hint--below">
                 {doneCount}/{totalCount} 完成（{pctDone.toFixed(0)}%）
               </div>
-            </div>
+            </section>
           )}
 
           {/* Heatmap / List Panel */}
-          <div className="section-card" style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h2 className="section-title" style={{ margin: 0 }}>截圖結果</h2>
-              <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 5, overflow: 'hidden' }}>
-                {(['heatmap', 'list'] as const).map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setViewMode(m)}
-                    style={{
-                      padding: '4px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-                      background: viewMode === m ? '#3b82f6' : 'transparent',
-                      color: viewMode === m ? '#fff' : '#64748b',
-                      border: 'none', borderRight: m === 'heatmap' ? '1px solid #2d3f55' : 'none',
-                    }}
-                  >
-                    {m === 'heatmap' ? '熱圖' : '清單'}
-                  </button>
+          <section className="section-card rn-table-panel">
+            <h2 className="section-title">
+              截圖結果
+              <span className="rn-title-meta">
+                {(['heatmap', 'list'] as const).map((m, i) => (
+                  <span key={m} className="rn-inline-pair">
+                    {i > 0 && <span aria-hidden="true">·</span>}
+                    <button
+                      type="button"
+                      className={`rn-link${viewMode === m ? ' is-on' : ''}`}
+                      aria-pressed={viewMode === m}
+                      onClick={() => setViewMode(m)}
+                    >
+                      {m === 'heatmap' ? '熱圖' : '清單'}
+                    </button>
+                  </span>
                 ))}
-              </div>
-            </div>
+              </span>
+            </h2>
 
             {taskList.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#334155', padding: '32px 0', fontSize: 13 }}>
+              <div className="rn-empty">
                 尚未有截圖資料，設定完成後點擊「開始截圖」
               </div>
             ) : viewMode === 'heatmap' ? (
-              <div className="ui-ss-table-scroll">
-                <table className="ui-ss-heatmap-table">
+              <div className="table-wrap ui-ss-table-scroll rn-table-wrap">
+                <table className="version-table ui-ss-heatmap-table">
                   <thead>
                     <tr>
                       <th>gmid</th>
@@ -1322,7 +1329,7 @@ export function UiScreenshotPage() {
                         return (
                           <th key={r} title={`${r}`}>
                             <div>{info?.label ?? r}</div>
-                            <div style={{ fontSize: 9, color: '#475569', fontWeight: 400 }}>{r}</div>
+                            <div className="rn-th-sub">{r}</div>
                           </th>
                         )
                       })}
@@ -1334,7 +1341,7 @@ export function UiScreenshotPage() {
                         <td className="ui-ss-gmid-cell" title={gmid}>{gmid}</td>
                         {activeResolutions.map(res => {
                           const t = taskIndex.get(gmid)?.get(res)
-                          if (!t) return <td key={res} style={{ background: '#0f172a' }} />
+                          if (!t) return <td key={res} className="rn-cell-empty" />
                           return (
                             <td
                               key={res}
@@ -1348,7 +1355,7 @@ export function UiScreenshotPage() {
                                     alt={`${gmid} ${res}`}
                                     className="ui-ss-thumb"
                                   />
-                                : <span className={taskBadgeClass(t.status)} style={{ fontSize: 9, padding: '1px 5px' }}>
+                                : <span className={taskBadgeClass(t.status)}>
                                     {taskStatusLabel(t.status)}
                                   </span>
                               }
@@ -1361,8 +1368,8 @@ export function UiScreenshotPage() {
                 </table>
               </div>
             ) : (
-              <div className="ui-ss-table-scroll ui-ss-list-scroll">
-                <table className="ui-ss-list-table">
+              <div className="table-wrap ui-ss-table-scroll ui-ss-list-scroll rn-table-wrap">
+                <table className="version-table ui-ss-list-table">
                   <thead>
                     <tr>
                       <th>gmid</th>
@@ -1375,23 +1382,22 @@ export function UiScreenshotPage() {
                   <tbody>
                     {taskList.sort((a, b) => a.gmid.localeCompare(b.gmid) || a.resolution.localeCompare(b.resolution)).map(t => (
                       <tr key={t.id}>
-                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        <td className="rn-mono">
                           {t.gmid}
                           {/* 自動選機時實際進的是哪一台——同一組的每張可能不同台 */}
                           {t.actual_gmid && t.actual_gmid !== t.gmid && (
-                            <div style={{ fontSize: 10, color: '#94a3b8' }}>@{t.actual_gmid}</div>
+                            <div className="rn-th-sub">@{t.actual_gmid}</div>
                           )}
                         </td>
-                        <td style={{ fontSize: 11 }}>{t.resolution}</td>
+                        <td className="rn-mono">{t.resolution}</td>
                         <td><span className={taskBadgeClass(t.status)}>{taskStatusLabel(t.status)}</span></td>
-                        <td style={{ fontSize: 11, color: '#64748b', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <td className="rn-cell-msg">
                           {t.error_msg ?? '—'}
                         </td>
                         <td>
                           {t.server_path && (
                             <button
-                              className="btn-ghost"
-                              style={{ fontSize: 10, padding: '2px 7px' }}
+                              className="btn-ghost rn-btn rn-btn--xs"
                               onClick={() => setPreviewTask(t)}
                             >
                               查看
@@ -1404,85 +1410,84 @@ export function UiScreenshotPage() {
                 </table>
               </div>
             )}
-          </div>
+          </section>
 
           {/* Logs */}
-          <div className="section-card" style={{ marginBottom: 14 }}>
+          <section className="section-card">
             <h2 className="section-title">執行日誌</h2>
             {/* 座位不明時 agent 被鎖著：不處理的話下一輪開不了，而且畫面上看不出為什麼 */}
             {agentHold && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 10px',
-                padding: '8px 12px', border: '1px solid #b45309', borderRadius: 6, background: 'rgba(180,83,9,.12)', fontSize: 12.5, color: '#fbbf24' }}>
-                <span>⚠️ {agentHold}。agent 已鎖住，請先到該機台確認座位已釋放。</span>
-                <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={releaseAgent}>
+              <div className="rn-notice rn-notice--warn">
+                <span>{agentHold}。agent 已鎖住，請先到該機台確認座位已釋放。</span>
+                <button className="btn-ghost rn-btn rn-btn--sm" type="button" onClick={releaseAgent}>
                   我已確認座位釋放，解除 agent 鎖定
                 </button>
               </div>
             )}
-            <div className="ui-ss-log-panel" ref={logPanelRef}>
+            <div className="ui-ss-log-panel rn-log" ref={logPanelRef}>
               {logs.length === 0
-                ? <span style={{ color: '#334155' }}>（等待任務開始）</span>
+                ? <span className="rn-dim">（等待任務開始）</span>
                 : logs.map((l, i) => <div key={i} className="ui-ss-log-line">{l}</div>)
               }
             </div>
-          </div>
+          </section>
 
           {/* Export / Writeback */}
           {runStatus === 'done' && runId && (
-            <div className="section-card">
+            <section className="section-card">
               <h2 className="section-title">匯出與回寫</h2>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div className="rn-inline">
                 <button
-                  className="submit-btn submit-btn--sm"
+                  className="submit-btn submit-btn--sm rn-btn"
                   type="button"
                   onClick={writeback}
                   disabled={writingBack}
-                  style={{ background: '#059669' }}
                 >
                   {writingBack ? '回寫中…' : '回寫至 Lark Wiki'}
                 </button>
                 {writebackMsg && (
-                  <span style={{ fontSize: 12, color: writebackMsg.includes('失敗') ? '#f87171' : '#34d399' }}>
+                  <span className={`rn-msg-inline ${writebackMsg.includes('失敗') ? 'rn-err' : 'rn-ok'}`}>
                     {writebackMsg}
                   </span>
                 )}
               </div>
 
               {/* ── 驗收報告：產生 HTML，可連同原圖 zip 一起上傳 Lark 雲端資料夾 ── */}
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule, #2d3f55)' }}>
-                <label className="field" style={{ marginBottom: 8 }}>
-                  <span>Lark 雲端資料夾（報告要傳去哪）</span>
-                  <input
-                    value={larkFolderUrl}
-                    onChange={e => { setLarkFolderUrl(e.target.value); saveSettings({ larkFolderUrl: e.target.value }) }}
-                    placeholder="https://xxx.larksuite.com/drive/folder/…"
-                    style={{ fontFamily: 'monospace', fontSize: 12 }}
-                  />
-                  {/* ⚠️ 這是雲端資料夾（Drive），跟 Wiki／Sheets 是三套不同的 API——貼錯會失敗 */}
-                  <span className="field-hint">貼資料夾網址即可；留空則不上傳，只在本機產生報告</span>
-                </label>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div className="rn-subsec">
+                <div className="rn-form">
+                  <label className="rn-l rn-l--top" htmlFor="uiss-folder">Lark 雲端資料夾</label>
+                  <div>
+                    <input
+                      id="uiss-folder"
+                      className="rn-field rn-mono"
+                      value={larkFolderUrl}
+                      onChange={e => { setLarkFolderUrl(e.target.value); saveSettings({ larkFolderUrl: e.target.value }) }}
+                      placeholder="https://xxx.larksuite.com/drive/folder/…"
+                    />
+                    {/* ⚠️ 這是雲端資料夾（Drive），跟 Wiki／Sheets 是三套不同的 API——貼錯會失敗 */}
+                    <div className="rn-hint rn-hint--below">報告要傳去哪。貼資料夾網址即可；留空則不上傳，只在本機產生報告</div>
+                  </div>
+                </div>
+                <div className="rn-inline rn-row-gap">
                   <button
-                    className="submit-btn submit-btn--sm" type="button" disabled={reporting}
+                    className="btn-ghost rn-btn rn-btn--sm" type="button" disabled={reporting}
                     onClick={() => generateReport(false)}
                   >{reporting ? '產生中…' : '產生報告'}</button>
                   <button
-                    className="submit-btn submit-btn--sm" type="button" disabled={reporting || !larkFolderUrl.trim()}
+                    className="submit-btn submit-btn--sm rn-btn rn-btn--sm" type="button" disabled={reporting || !larkFolderUrl.trim()}
                     onClick={() => generateReport(true)}
-                    style={{ background: '#2563eb' }}
                   >{reporting ? '處理中…' : '產生並上傳 Lark（含原圖 zip）'}</button>
                   {reportMsg && (
-                    <span style={{ fontSize: 12, color: reportMsg.includes('失敗') ? '#f87171' : '#34d399' }}>{reportMsg}</span>
+                    <span className={`rn-msg-inline ${reportMsg.includes('失敗') ? 'rn-err' : 'rn-ok'}`}>{reportMsg}</span>
                   )}
                 </div>
 
                 {/* ── 自動建 Lark Sheet：只放 gmid＋各尺寸截圖（使用者 2026-09-24 定的版面） ── */}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+                <div className="rn-inline rn-row-gap">
                   <button
-                    className="submit-btn submit-btn--sm" type="button"
+                    className="submit-btn submit-btn--sm rn-btn rn-btn--sm" type="button"
                     disabled={sheetBusy || sheetRunning || !larkFolderUrl.trim()}
                     onClick={createLarkSheet}
-                    style={{ background: '#2563eb' }}
                   >{sheetBusy ? '建立中…' : '建立 Lark Sheet（gmid＋截圖）'}</button>
                   {sheetExport && (() => {
                     const im = sheetExport.images
@@ -1493,25 +1498,25 @@ export function UiScreenshotPage() {
                       : sheetExport.status === 'done' ? '完成'
                       : sheetExport.status === 'interrupted' ? '中斷（伺服器重啟）' : '部分失敗'
                     return (
-                      <span style={{ fontSize: 12, color: bad > 0 || sheetExport.status === 'interrupted' ? '#fbbf24' : '#34d399' }}>
+                      <span className={`rn-msg-inline ${bad > 0 || sheetExport.status === 'interrupted' ? 'rn-warn' : 'rn-ok'}`}>
                         {label}｜圖片 {im.ok}/{total}
                         {im.fail > 0 && `，失敗 ${im.fail}`}
                         {textFail > 0 && `｜文字格失敗 ${textFail}`}
                         {sheetExport.no_machine > 0 && `｜${sheetExport.no_machine} 張未取得機台號（列名有標示）`}
                         {sheetExport.message && `｜${sheetExport.message}`}
-                        {sheetExport.url && <> ｜<a href={sheetExport.url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>開啟 Sheet</a></>}
+                        {sheetExport.url && <> ｜<a href={sheetExport.url} target="_blank" rel="noreferrer" className="rn-a">開啟 Sheet</a></>}
                       </span>
                     )
                   })()}
                   {sheetExport && !sheetExport.running && sheetExport.status !== 'done' && (
-                    <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={resumeLarkSheet}>
+                    <button className="btn-ghost rn-btn rn-btn--sm" type="button" onClick={resumeLarkSheet}>
                       補傳沒成功的格子
                     </button>
                   )}
-                  {sheetMsg && <span style={{ fontSize: 12, color: '#f87171' }}>{sheetMsg}</span>}
+                  {sheetMsg && <span className="rn-msg-inline rn-err">{sheetMsg}</span>}
                 </div>
                 {sheetExport && sheetExport.failures.length > 0 && !sheetExport.running && (
-                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 6, fontFamily: 'monospace' }}>
+                  <div className="rn-mono rn-hint rn-hint--below">
                     {sheetExport.failures.slice(0, 5).map(f => (
                       <div key={`${f.row_num}-${f.col_num}`}>第 {f.row_num + 1} 列第 {f.col_num + 1} 欄：{f.error ?? '失敗'}</div>
                     ))}
@@ -1520,24 +1525,24 @@ export function UiScreenshotPage() {
               </div>
 
               {/* ── 儲存空間：截圖不會自己消失，要看得到也要清得掉 ── */}
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule, #2d3f55)' }}>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12.5 }}>
-                  <span style={{ color: '#94a3b8' }}>
+              <div className="rn-subsec">
+                <div className="rn-inline">
+                  <span className="rn-text">
                     截圖佔用：
                     {storage
-                      ? <b style={{ color: '#e2e8f0' }}> {(storage.bytes / 1048576).toFixed(1)} MB</b>
+                      ? <b className="rn-text-fg"> {(storage.bytes / 1048576).toFixed(1)} MB</b>
                       : ' —'}
-                    {storage && <span style={{ color: '#64748b' }}>（{storage.runs} 次 run、{storage.files} 個檔案）</span>}
+                    {storage && <span className="rn-dim">（{storage.runs} 次 run、{storage.files} 個檔案）</span>}
                   </span>
-                  <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={loadStorage}>重新計算</button>
+                  <button className="btn-ghost rn-btn rn-btn--sm" type="button" onClick={loadStorage}>重新計算</button>
                   <button
-                    className="btn-ghost" type="button" style={{ fontSize: 12 }}
+                    className="btn-ghost rn-btn rn-btn--sm" type="button"
                     onClick={pruneStorage}
                   >清理舊資料（保留最近 10 次 / 14 天）</button>
-                  {storageMsg && <span style={{ fontSize: 12, color: '#34d399' }}>{storageMsg}</span>}
+                  {storageMsg && <span className="rn-msg-inline rn-ok">{storageMsg}</span>}
                 </div>
               </div>
-            </div>
+            </section>
           )}
         </div>
       </div>
