@@ -703,11 +703,12 @@ function App() {
   const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
   const currentPageLabel = currentSubtab?.label ?? currentGroup?.label ?? ''
-  const currentThemeLabel = themeMode === 'xianxia' ? (currentSubtab?.themeLabel ?? currentGroup?.themeLabel ?? currentPageLabel) : currentPageLabel
+  // 子頁籤一律用原功能名（使用者 11-03：「子頁籤不要用修仙詞」）；修仙名只留給頂層群組
+  const currentThemeLabel = themeMode === 'xianxia' && !currentSubtab ? (currentGroup?.themeLabel ?? currentPageLabel) : currentPageLabel
   const searchResults = navQuery.trim()
     ? allVisible.flatMap(group => {
         const entries = group.subtabs?.length
-          ? group.subtabs.map(sub => ({ group, sub, themeLabel: themeMode === 'xianxia' ? (sub.themeLabel ?? sub.label) : sub.label, label: sub.label }))
+          ? group.subtabs.map(sub => ({ group, sub, themeLabel: sub.label, label: sub.label }))
           : [{ group, sub: null, themeLabel: themeMode === 'xianxia' ? (group.themeLabel ?? group.label) : group.label, label: group.label }]
         const needle = navQuery.trim().toLowerCase()
         return entries.filter(entry => `${entry.themeLabel} ${entry.label}`.toLowerCase().includes(needle))
@@ -858,12 +859,7 @@ function App() {
                       onClick={() => setActiveTab(sub.id)}
                     >
                       <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /> : sub.icon}</span>
-                      {sub.themeLabel && themeMode === 'xianxia' ? (
-                        <span className="sidebar-nav-label sidebar-nav-label--dual">
-                          <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
-                          <span className="sidebar-nav-label-sub">{sub.label}</span>
-                        </span>
-                      ) : sub.label}
+                      {sub.label}
                     </button>
                   ))}
                 </div>
@@ -1067,12 +1063,7 @@ function App() {
               >
                 <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /> : sub.icon}</span>
                 {/* 用自己的 class：修仙版 ≤680px 會把所有 .sidebar-nav-label 全域 display:none，portal 出去的選單也會被吃掉 */}
-                {sub.themeLabel && themeMode === 'xianxia' ? (
-                  <span className="sb-fly-label sb-fly-label--dual">
-                    <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
-                    <span className="sidebar-nav-label-sub">{sub.label}</span>
-                  </span>
-                ) : <span className="sb-fly-label">{sub.label}</span>}
+                <span className="sb-fly-label">{sub.label}</span>
               </button>
             ))}
           </SidebarFlyout>
