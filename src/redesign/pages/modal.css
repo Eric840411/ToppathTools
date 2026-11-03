@@ -615,3 +615,7 @@
 /* AutoSpin 執行模式切換（遠端 Agent／伺服器端 fallback）：修仙版未選中那格也改墨綠（CodeX 1103 第三輪） */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-mode { border-color: var(--rd-line-2) !important; border-radius: 3px !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-mode button:not(.is-on) { background: var(--rd-panel-2) !important; color: var(--rd-fg-2) !important; }
+
+/* 關閉只留一個（使用者 1103 更新日誌截圖：標題列右上「關閉」＋底部「關閉」重複）。
+   底部操作列有按鈕（取消／關閉／儲存…）時，標題列的關閉鈕收掉；底部沒有按鈕的（帳號池選取、文件預覽只有一行說明）照樣保留右上關閉 */
+:root[data-ui="redesign"] :has(> .rd-modal-f button) :is(.rd-modal-x, .modal-close) { display: none !important; }
