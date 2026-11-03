@@ -670,3 +670,20 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro::before,
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro::after { display: none !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-head-meta { color: var(--rd-fg-3) !important; }
+
+/* 空狀態：舊仙俠在提示文字正後方畫一個旋轉法陣（xianxia-complete.css），新版已改在文字上方放淡雙菱形印記（xianxia-ornament.css），舊的收掉（使用者 1103 截圖） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.osm-empty, .dashboard-table-empty, .local-agent-empty, .auth-login-empty,
+  .osm-dist-empty, .osm-detail-placeholder, .uat-list-empty, .uat-block-empty, .uat-net-empty, .uat-risk-empty, .uat-inspector-empty,
+  .uat-backend-flow-empty, .uat-tc-blocks-empty, .uat-tc-inspector-empty, .uat-tc-steps-empty)::before { content: none !important; }
+
+/* OSM 版號同步「目標版本 & 告警設定」：App.css 寫死的藍黑（#162032／#263345／#2d3f55／#0f172a）在修仙版沒換掉（使用者 1103 截圖） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-target-row {
+  background: color-mix(in srgb, var(--rd-panel-2) 80%, transparent) !important; border-color: var(--rd-line) !important; border-radius: 3px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-type-badge { background: var(--rd-bg-2) !important; color: var(--rd-fg) !important; border: 1px solid var(--rd-line-2); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-type-cat-ver { background: transparent !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.osm-type-cat-label, .osm-type-count, .osm-type-target) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-type-cat-val { color: var(--rd-accent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-lark-url-input { background: var(--rd-bg) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-lark-url-input:focus { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-comp-ver-card:not(.osm-comp-ver-card--ok):not(.osm-comp-ver-card--warn) { background: var(--rd-panel-2) !important; border-color: var(--rd-line) !important; }

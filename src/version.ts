@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.74.2'
+export const APP_VERSION = '5.74.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.74.3', date: '2026-11-03', changes: ["style(修仙裝飾減量＋OSM 版號同步按鈕，使用者與 CodeX 意見)：OSM 版號同步各面板的「取得元件版本／取得 SAS/MML/G2S 版本／取得最新版本／一鍵全部取得」改回跟「全部同步」同一種實心按鈕（使用者 1103：跟機台 Dashboard 格式不同），兩版；目標版本 & 告警設定的機種列、標籤、Lark 網址框修仙版改墨綠（App.css 寫死的藍黑沒換）；空狀態拿掉舊仙俠提示字後方的旋轉法陣。裝飾層依 CodeX 意見減量：UAT 面板角紋誤鋪整頁修正、空狀態印記改淡且放文字上方、膠囊拿掉常駐外光、面板底色與框線調暗、次要按鈕不加角飾、頁首標題線改細金雙線、側欄搜尋與底部卡片補玉色描邊、靈脈線縮到右下"] },
   { version: '5.74.2', date: '2026-11-03', changes: ["style(AutoSpin 執行模式切換)：修仙版未選中的「伺服器端（fallback）」改墨綠底與綠系邊框（只加 class）"] },
   { version: '5.74.1', date: '2026-11-03', changes: ["style(彈窗第三輪，CodeX 意見)：AutoSpin 執行監控修仙版改墨綠（執行模式／執行控制／日誌工具列與內容／底欄，普通版不變）；錄製工作台試跑提示換行、按鈕另起一列；清除 PIN 選項恢復危險紅"] },
   { version: '5.74.0', date: '2026-11-03', changes: ["feat(修仙版裝飾層，使用者 1103 要求多一點修仙元素，CodeX 出圖)：新增 redesign/xianxia-ornament.css 與 public/xianxia-ornament 三個素材（金色回紋角飾、背景靈脈線、無縫玉石底紋）——面板四角回紋＋雙層內框、頁首金玉漸層線兩端菱形、每日仙語框角紋、數字磚角紋與同色微光、按鈕／選中分頁玉面高光、膠囊與開關微光、側欄選中光脊與角飾、表頭金玉線、空狀態雙菱形印記、資源條刻度、彈窗角紋、右下靈脈背景、全頁玉石細紋。只疊裝飾層、尺寸不變；普通版逐像素不變"] },

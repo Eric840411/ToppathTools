@@ -1479,7 +1479,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchAll}
             disabled={fetchAllLoading || syncingAll || versionHistoryLoading || llLoading || llProtoLoading || tpLoading || reportLoading}
           >
@@ -1679,7 +1679,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchVersionHistory}
             disabled={versionHistoryLoading}
           >
@@ -1744,7 +1744,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchLlVersions}
             disabled={llLoading}
           >
@@ -1809,7 +1809,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchLlProto}
             disabled={llProtoLoading}
           >
@@ -1955,7 +1955,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchTpVersions}
             disabled={tpLoading}
           >
@@ -2018,7 +2018,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
           <button
             type="button"
-            className="osm-btn osm-btn--primary"
+            className="osm-btn osm-btn--primary osm-btn--main"
             onClick={handleFetchReport}
             disabled={reportLoading}
           >

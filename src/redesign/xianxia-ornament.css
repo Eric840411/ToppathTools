@@ -18,8 +18,9 @@
   --xo-dia: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M5 .9 9.1 5 5 9.1 .9 5z' fill='%23081411' stroke='%23e2c27a' stroke-width='1.5'/%3E%3C/svg%3E");
   /* 空狀態的雙菱形印記（透明度直接烘在描邊裡） */
   --xo-dd: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke-width='1'%3E%3Cpath d='M16 1.5 30.5 16 16 30.5 1.5 16z' stroke='%23d6b770' stroke-opacity='.26'/%3E%3Cpath d='M16 7.5 24.5 16 16 24.5 7.5 16z' stroke='%2378d5c8' stroke-opacity='.3'/%3E%3C/g%3E%3Cpath d='M16 13 19 16 16 19 13 16z' fill='%23d6b770' fill-opacity='.3'/%3E%3C/svg%3E");
-  --xo-edge: color-mix(in srgb, var(--rd-accent) 50%, var(--rd-line-2));
-  --xo-frame-c: color-mix(in srgb, var(--rd-accent) 30%, transparent);
+  --xo-dd-faint: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke-width='1.2'%3E%3Cpath d='M16 1.5 30.5 16 16 30.5 1.5 16z' stroke='%23d6b770' stroke-opacity='.2'/%3E%3Cpath d='M16 7.5 24.5 16 16 24.5 7.5 16z' stroke='%2378d5c8' stroke-opacity='.22'/%3E%3C/g%3E%3Cpath d='M16 13 19 16 16 19 13 16z' fill='%23d6b770' fill-opacity='.22'/%3E%3C/svg%3E");
+  --xo-edge: color-mix(in srgb, var(--rd-accent) 36%, var(--rd-line-2));
+  --xo-frame-c: color-mix(in srgb, var(--rd-accent) 20%, transparent);
   --xo-hl: color-mix(in srgb, var(--rd-accent) 40%, var(--rd-ornament));
   /* 四角回紋（面板 22px） */
   --xo-frets:
@@ -76,24 +77,24 @@
    原本那兩團光暈一起搬過來，整層透明度 .4，光暈的 alpha 乘回來（.05／.07 → .12／.17） ── */
 :root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-main::before {
   background:
-    url('/xianxia-ornament/meridian.png') right -40px bottom 56px / 980px auto no-repeat,
-    radial-gradient(500px 480px at 100% 30%, rgba(214, 183, 112, .12), transparent 68%),
-    radial-gradient(560px 440px at 3% 0%, rgba(95, 211, 172, .17), transparent 72%);
-  opacity: .36;
+    url('/xianxia-ornament/meridian.png') right -36px bottom 64px / 640px auto no-repeat,
+    radial-gradient(500px 480px at 100% 30%, rgba(214, 183, 112, .09), transparent 68%),
+    radial-gradient(560px 440px at 3% 0%, rgba(95, 211, 172, .13), transparent 72%);
+  opacity: .5;
 }
 :root[data-ui="redesign"][data-theme-mode="xianxia"][data-realm="ember"] .app-main::before {
   background:
-    url('/xianxia-ornament/meridian.png') right -40px bottom 56px / 980px auto no-repeat,
-    radial-gradient(500px 480px at 100% 30%, rgba(169, 65, 45, .22), transparent 68%),
-    radial-gradient(560px 440px at 3% 0%, rgba(77, 157, 149, .17), transparent 72%);
-  opacity: .36;
+    url('/xianxia-ornament/meridian.png') right -36px bottom 64px / 640px auto no-repeat,
+    radial-gradient(500px 480px at 100% 30%, rgba(169, 65, 45, .16), transparent 68%),
+    radial-gradient(560px 440px at 3% 0%, rgba(77, 157, 149, .13), transparent 72%);
+  opacity: .5;
 }
 
 /* ── ② 玉紋：128px 灰階貼圖，極淡 soft-light 疊整個外殼（不擋點擊；彈窗 portal 在 body 不受影響） ── */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .app::after {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: url('/xianxia-ornament/jade-128.png') 0 0 / 128px 128px repeat;
-  mix-blend-mode: soft-light; opacity: .05;
+  mix-blend-mode: soft-light; opacity: .03;
 }
 
 /* ── ③ 面板：外框提亮成玉色＋距 3px 的內框（雙線）＋四角鎏金回紋，取代原本左上／右下兩個簡單角框。
@@ -131,13 +132,13 @@
 
 /* ── ④ 頁首標題線：鎏金→玉色漸層，兩端 7px 空心菱形；右側留給頁首資訊（設計圖線在右側資訊前就收住） ── */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-page-head::after {
-  left: -4px; right: 12%; bottom: -5px; height: 11px;
+  left: -4px; right: 12%; bottom: -4px; height: 9px;
   background:
-    var(--xo-dia) left center / 11px 11px no-repeat,
-    var(--xo-dia) right center / 11px 11px no-repeat,
-    linear-gradient(90deg, color-mix(in srgb, var(--rd-ornament) 80%, var(--rd-accent)), var(--rd-accent) 18%, color-mix(in srgb, var(--rd-accent) 85%, #fff) 50%, var(--rd-accent) 82%, color-mix(in srgb, var(--rd-ornament) 80%, var(--rd-accent))) left 9px center / calc(100% - 18px) 1px no-repeat,
-    linear-gradient(90deg, rgba(214, 183, 112, .35), rgba(120, 213, 200, .3) 20%, rgba(120, 213, 200, .3) 80%, rgba(214, 183, 112, .35)) left 9px center / calc(100% - 18px) 3px no-repeat;
-  filter: drop-shadow(0 0 3px rgba(120, 213, 200, .35));
+    var(--xo-dia) left center / 9px 9px no-repeat,
+    var(--xo-dia) right center / 9px 9px no-repeat,
+    linear-gradient(90deg, var(--rd-ornament), color-mix(in srgb, var(--rd-ornament) 70%, var(--rd-accent)) 35%, color-mix(in srgb, var(--rd-ornament) 70%, var(--rd-accent)) 65%, var(--rd-ornament)) left 8px top 4px / calc(100% - 16px) 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(120, 213, 200, .26) 12%, rgba(120, 213, 200, .26) 88%, transparent) left 8px top 7px / calc(100% - 16px) 1px no-repeat;
+  filter: none;
   pointer-events: none;
 }
 
@@ -201,13 +202,7 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary, .orl-btn--primary, .discord-notify-btn--primary, .ln-btn--primary, .cfg-run):disabled {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3) !important;
 }
-/* 次要按鈕：墨綠玻璃照舊，只加暗金小折角 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.btn-ghost, .settings-btn, .osm-btn:not(.osm-btn--primary)) {
-  background: var(--xo-ticks-dim), linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2) !important;
-}
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-btn:not(.is-primary):not(.is-danger) {
-  background-image: var(--xo-ticks-dim), linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important;
-}
+/* 次要按鈕不加小折角（CodeX 複審：折角只給面板、選中項與主按鈕） */
 
 /* 分頁列：凹槽外加一圈玉線；選中那格玉色漸層＋鎏金內框＋四角小折角 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tabs {
@@ -224,10 +219,13 @@
 
 /* ── ⑧ 膠囊：細內框（外框→1px 暗縫→1px 同色細線）；狀態點、開關鈕一點光 ── */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-chip, .lst-pill, .ln-pill, .stat-chip, .osm-badge, .cr-pill) {
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .32), inset 0 0 0 2px color-mix(in srgb, currentColor 24%, transparent), 0 0 8px -3px color-mix(in srgb, currentColor 45%, transparent) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .32), inset 0 0 0 2px color-mix(in srgb, currentColor 18%, transparent) !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-chip--good, .dashboard-chip--warn, .osm-badge--ok, .osm-badge--warn)::before { box-shadow: 0 0 6px currentColor; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill::before { box-shadow: 0 0 7px currentColor, 0 0 2px currentColor; }
+/* 狀態點：只留很淡的光；中性（灰）膠囊不發光 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-chip--good, .dashboard-chip--warn, .osm-badge--ok, .osm-badge--warn)::before { box-shadow: 0 0 3px currentColor; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill::before { box-shadow: 0 0 3px color-mix(in srgb, currentColor 70%, transparent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill.kb-src--file_upload::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill:not([class*="lst-pill--"])::before { box-shadow: none; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch {
   box-shadow: var(--rd-well), inset 0 0 0 1px color-mix(in srgb, var(--rd-accent) 22%, transparent) !important;
 }
@@ -297,14 +295,19 @@
     var(--rd-bg-2);
 }
 
-/* ── ⑪ 空狀態：容器裡淡淡一個 32px 雙菱形印記（背景圖層，高度不變） ── */
+/* ── ⑪ 空狀態：淡淡一個雙菱形印記（背景圖層，高度不變）；放在提示字上方、不壓字（CodeX 複審） ──
+   高的空狀態放上緣置中；Dashboard 那種單行提示條放左右兩側 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
-  .dashboard-empty, .dashboard-table-empty, .osm-empty, .lst-empty, .jp-empty, .rn-empty, .kb-empty, .ic-empty, .cfg-tpl-empty,
+  .dashboard-table-empty, .osm-empty, .lst-empty, .jp-empty, .rn-empty, .kb-empty, .ic-empty, .cfg-tpl-empty,
   .uat-agent-empty, .wr-empty, .local-agent-empty, .osm-dist-empty, .osm-detail-placeholder, .uat-list-empty, .uat-block-empty,
   .uat-net-empty, .uat-risk-empty, .uat-inspector-empty, .uat-backend-flow-empty, .uat-tc-blocks-empty, .uat-tc-inspector-empty, .uat-tc-steps-empty
 ) {
-  background-image: var(--xo-dd) !important;
-  background-position: center !important; background-size: 32px 32px !important; background-repeat: no-repeat !important;
+  background-image: var(--xo-dd-faint) !important;
+  background-position: center top 8px !important; background-size: 20px 20px !important; background-repeat: no-repeat !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-empty {
+  background-image: var(--xo-dd-faint), var(--xo-dd-faint) !important;
+  background-position: left 16px center, right 16px center !important; background-size: 22px 22px !important; background-repeat: no-repeat !important;
 }
 
 /* ── ⑫ 資源條：軌道內緣打光＋玉色細框、刻度加亮；靈氣流動是原本的動態貼圖（只在條子上），
@@ -358,5 +361,25 @@
 
 /* 面板底色帶一點玉色（設計圖的面板上緣偏青），只改色不改結構 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 5%, var(--rd-panel)) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 4%, color-mix(in srgb, var(--rd-panel-2) 70%, var(--rd-panel))), color-mix(in srgb, var(--rd-panel) 88%, #000) 45%, color-mix(in srgb, var(--rd-panel) 72%, #000)) !important;
+}
+
+/* ── 1103 CodeX 複審 ── */
+/* UAT 待處理佇列面板本身沒定位，紋飾層會跑到整個主內容區、變成框外框——給它定位就好（內容沒有絕對定位的子元素） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio .uat-risk-queue { position: relative; }
+/* 表格面板（AutoSpin 機台表等）：工具列那段不要比設計亮，底色壓平 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .section-card.rd-table-panel {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel) 92%, #000), color-mix(in srgb, var(--rd-panel) 78%, #000)) !important;
+}
+/* 側欄：搜尋框、背景境界切換、底部工具卡加一圈玉線與微光 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .app-sidebar .app-global-search input {
+  border-color: color-mix(in srgb, var(--rd-accent) 42%, var(--rd-line-2));
+  box-shadow: var(--rd-well), 0 0 10px -4px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-realm-switch {
+  border-radius: 4px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--rd-accent) 34%, var(--rd-line-2)), 0 0 12px -5px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sidebar-ai-btn, .sidebar-user, .sidebar-version-link) {
+  border-color: color-mix(in srgb, var(--rd-accent) 40%, var(--rd-line-2)) !important;
+  box-shadow: inset 0 1px 0 rgba(240, 216, 156, .08), 0 0 12px -5px var(--rd-glow) !important;
 }
