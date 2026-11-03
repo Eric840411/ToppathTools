@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.17'
+export const APP_VERSION = '5.73.18'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.18', date: '2026-11-03', changes: ["fix(頂列版本切換)：滑塊寬度只在切換時量一次，字型晚到（Mac／Safari 先用系統字量）或縮放後滑塊會凸出切換鈕外；改成按鈕尺寸一變就重量（ResizeObserver＋fonts.ready）。修仙版頂列拿掉原型沒有的羅盤印章"] },
   { version: '5.73.17', date: '2026-11-03', changes: ["style(新版前端 原型差距收尾，使用者拍板)：境界排行榜恢復群英榜大橫幅（改墨綠面板＋四角框）；AutoSpin 頁首目前帳號、膠囊分頁、表格工具列、文字連結操作、30×18 圓膠囊開關（AutoSpin 通知同步）；腳本化投注狀態膠囊補發光圓點；操作歷史分類改彩色膠囊（補 Meter／OSM 版本更新紀錄／Egm 色、提亮過暗色）；通知設定「僅發送通知」移到頁首。兩版一起，事件不變"] },
   { version: '5.73.16', date: '2026-11-03', changes: ["style(修仙版 Local Agent)：統計磚色調依原型校正——Ready 改藍青、Security 改中性淺色字＋中性墨綠底（無 Token 時的警示金色保留）。第四、五批其餘頁 CodeX 複審一致"] },
   { version: '5.73.15', date: '2026-11-03', changes: ["style(修仙版 第五批 CodeX 意見)：圖片比對「輸入網址」、Bonus V2 設定卡與倍率機率分布補整條標題帶，分布四表 1000px 起同列；通知設定四卡改整條標題帶、群組切換改膠囊分頁（以上兩版一起，原型兩版都是）、修仙表格列改墨綠；AutoSpin 通知開關改圓膠囊深綠底（只加 class）；Log 攔截步驟圈、個人帳號 Token 步驟圈、境界排行榜字母頭像改青玉。server/static 兩檔要重啟 server 才生效"] },

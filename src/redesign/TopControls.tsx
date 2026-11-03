@@ -27,8 +27,12 @@ export function TopControls({ themeMode, onThemeChange }: {
       if (b) setThumb({ x: b.offsetLeft, w: b.offsetWidth })
     }
     place()
+    // 字型晚到（Noto Sans TC 非同步載入；Mac／Safari 先用 PingFang 量）或縮放時按鈕寬度會變，只量一次滑塊就會凸出去
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null
+    for (const el of Object.values(btnRefs.current)) if (el && ro) ro.observe(el)
+    document.fonts?.ready.then(place).catch(() => { /* */ })
     window.addEventListener('resize', place)
-    return () => window.removeEventListener('resize', place)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', place) }
   }, [themeMode])
 
   // 重播一次性的回彈與反光：拿掉 class、強制 reflow、再加回去。

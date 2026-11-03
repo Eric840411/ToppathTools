@@ -661,3 +661,6 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:has(.local-agent-tone-ok) { --c: #34d17a; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:nth-child(4):has(.local-agent-tone-ok) { --c: var(--rd-line-2); }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .la-page .local-agent-metric:nth-child(4) .local-agent-metric-value.local-agent-tone-ok { color: var(--rd-fg) !important; }
+
+/* 頂列：原型修仙版右側只有版本切換，沒有羅盤印章（使用者 1103 回報切換鈕區塊異常） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .app-topbar-seal { display: none !important; }
