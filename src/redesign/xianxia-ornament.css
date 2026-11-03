@@ -1,0 +1,362 @@
+/* ══════════════════════════════════════════════════════════════════
+   仙俠皮紋飾層（CodeX 1103 設計圖 output/design/xianxia-ornament-v1/：dashboard-1440x1000、autospin-1440x1000）
+   只在 :root[data-ui="redesign"][data-theme-mode="xianxia"] 底下生效，普通版一條都不吃。
+   只加「疊在上面的紋飾」，不改任何盒子的尺寸、內距、版面：
+     底色經絡線（右下）＋玉紋貼圖、面板雙線內框＋鎏金回紋角、頁首標題線兩端菱形、
+     每日仙語框、數字磚、按鈕／選中分頁、膠囊／開關、側欄選中項、表頭金玉線、空狀態雙菱形、資源條、彈窗。
+   素材：public/xianxia-ornament/（corner-tl.png 只有左上一個方向，另外三個角用 SVG 包一層翻轉，
+   因為 background 不能翻轉圖片，偽元素又只有兩個）。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 素材與共用圖層 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] {
+  --xo-c-tl: url('/xianxia-ornament/corner-tl.png');
+  --xo-c-tr: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 66 66'%3E%3Cimage width='66' height='66' transform='translate(66 0) scale(-1 1)' href='data:image/png;base64,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'/%3E%3C/svg%3E");
+  --xo-c-bl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 66 66'%3E%3Cimage width='66' height='66' transform='translate(0 66) scale(1 -1)' href='data:image/png;base64,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'/%3E%3C/svg%3E");
+  --xo-c-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 66 66'%3E%3Cimage width='66' height='66' transform='translate(66 66) scale(-1 -1)' href='data:image/png;base64,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'/%3E%3C/svg%3E");
+  /* 空心菱形（鎏金描邊、墨色填底，線從中間穿過時不會透出來） */
+  --xo-dia: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M5 .9 9.1 5 5 9.1 .9 5z' fill='%23081411' stroke='%23e2c27a' stroke-width='1.5'/%3E%3C/svg%3E");
+  /* 空狀態的雙菱形印記（透明度直接烘在描邊裡） */
+  --xo-dd: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke-width='1'%3E%3Cpath d='M16 1.5 30.5 16 16 30.5 1.5 16z' stroke='%23d6b770' stroke-opacity='.26'/%3E%3Cpath d='M16 7.5 24.5 16 16 24.5 7.5 16z' stroke='%2378d5c8' stroke-opacity='.3'/%3E%3C/g%3E%3Cpath d='M16 13 19 16 16 19 13 16z' fill='%23d6b770' fill-opacity='.3'/%3E%3C/svg%3E");
+  --xo-edge: color-mix(in srgb, var(--rd-accent) 50%, var(--rd-line-2));
+  --xo-frame-c: color-mix(in srgb, var(--rd-accent) 30%, transparent);
+  --xo-hl: color-mix(in srgb, var(--rd-accent) 40%, var(--rd-ornament));
+  /* 四角回紋（面板 22px） */
+  --xo-frets:
+    var(--xo-c-tl) left 2px top 2px / 24px 24px no-repeat,
+    var(--xo-c-tl) left 3px top 3px / 24px 24px no-repeat,
+    var(--xo-c-tr) right 2px top 2px / 24px 24px no-repeat,
+    var(--xo-c-tr) right 3px top 3px / 24px 24px no-repeat,
+    var(--xo-c-bl) left 2px bottom 2px / 24px 24px no-repeat,
+    var(--xo-c-bl) left 3px bottom 3px / 24px 24px no-repeat,
+    var(--xo-c-br) right 2px bottom 2px / 24px 24px no-repeat,
+    var(--xo-c-br) right 3px bottom 3px / 24px 24px no-repeat;
+  /* 四角回紋（每日仙語 24px） */
+  --xo-frets-24:
+    var(--xo-c-tl) left 3px top 3px / 28px 28px no-repeat,
+    var(--xo-c-tl) left 4px top 4px / 28px 28px no-repeat,
+    var(--xo-c-tr) right 3px top 3px / 28px 28px no-repeat,
+    var(--xo-c-tr) right 4px top 4px / 28px 28px no-repeat,
+    var(--xo-c-bl) left 3px bottom 3px / 28px 28px no-repeat,
+    var(--xo-c-bl) left 4px bottom 4px / 28px 28px no-repeat,
+    var(--xo-c-br) right 3px bottom 3px / 28px 28px no-repeat,
+    var(--xo-c-br) right 4px bottom 4px / 28px 28px no-repeat;
+  /* 四角回紋（數字磚 18px） */
+  --xo-frets-18:
+    var(--xo-c-tl) left 2px top 2px / 20px 20px no-repeat,
+    var(--xo-c-tl) left 3px top 3px / 20px 20px no-repeat,
+    var(--xo-c-tr) right 2px top 2px / 20px 20px no-repeat,
+    var(--xo-c-tr) right 3px top 3px / 20px 20px no-repeat,
+    var(--xo-c-bl) left 2px bottom 2px / 20px 20px no-repeat,
+    var(--xo-c-bl) left 3px bottom 3px / 20px 20px no-repeat,
+    var(--xo-c-br) right 2px bottom 2px / 20px 20px no-repeat,
+    var(--xo-c-br) right 3px bottom 3px / 20px 20px no-repeat;
+  /* 內框：距外框 3px 的一圈 1px 玉線（跟外框合起來就是雙線框） */
+  --xo-frame:
+    linear-gradient(var(--xo-frame-c), var(--xo-frame-c)) left 3px top 3px / calc(100% - 6px) 1px no-repeat,
+    linear-gradient(var(--xo-frame-c), var(--xo-frame-c)) left 3px bottom 3px / calc(100% - 6px) 1px no-repeat,
+    linear-gradient(var(--xo-frame-c), var(--xo-frame-c)) left 3px top 3px / 1px calc(100% - 6px) no-repeat,
+    linear-gradient(var(--xo-frame-c), var(--xo-frame-c)) right 3px top 3px / 1px calc(100% - 6px) no-repeat;
+  /* 按鈕／分頁的四角小折角（5px 臂、1px 線） */
+  --xo-ticks:
+    linear-gradient(#f0d89c, #f0d89c) left 2px top 2px / 5px 1px no-repeat, linear-gradient(#f0d89c, #f0d89c) left 2px top 2px / 1px 5px no-repeat,
+    linear-gradient(#f0d89c, #f0d89c) right 2px top 2px / 5px 1px no-repeat, linear-gradient(#f0d89c, #f0d89c) right 2px top 2px / 1px 5px no-repeat,
+    linear-gradient(#f0d89c, #f0d89c) left 2px bottom 2px / 5px 1px no-repeat, linear-gradient(#f0d89c, #f0d89c) left 2px bottom 2px / 1px 5px no-repeat,
+    linear-gradient(#f0d89c, #f0d89c) right 2px bottom 2px / 5px 1px no-repeat, linear-gradient(#f0d89c, #f0d89c) right 2px bottom 2px / 1px 5px no-repeat;
+  --xo-ticks-dim:
+    linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) left 2px top 2px / 5px 1px no-repeat, linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) left 2px top 2px / 1px 5px no-repeat,
+    linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) right 2px top 2px / 5px 1px no-repeat, linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) right 2px top 2px / 1px 5px no-repeat,
+    linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) left 2px bottom 2px / 5px 1px no-repeat, linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) left 2px bottom 2px / 1px 5px no-repeat,
+    linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) right 2px bottom 2px / 5px 1px no-repeat, linear-gradient(rgba(214, 183, 112, .55), rgba(214, 183, 112, .55)) right 2px bottom 2px / 1px 5px no-repeat;
+  --xo-face: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent-2) 92%, #fff), var(--rd-accent) 48%, color-mix(in srgb, var(--rd-accent) 72%, #0a4a40));
+}
+
+/* ── ① 底色：右下經絡線＋菱形節點（素材 meridian.png）。
+   畫在 .app-main::before：它在 DOM 上排在主內容前面（z-index 0、不擋點擊），所以一定在所有內容底下、不會壓到資料。
+   原本那兩團光暈一起搬過來，整層透明度 .4，光暈的 alpha 乘回來（.05／.07 → .12／.17） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-main::before {
+  background:
+    url('/xianxia-ornament/meridian.png') right -40px bottom 56px / 980px auto no-repeat,
+    radial-gradient(500px 480px at 100% 30%, rgba(214, 183, 112, .12), transparent 68%),
+    radial-gradient(560px 440px at 3% 0%, rgba(95, 211, 172, .17), transparent 72%);
+  opacity: .36;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"][data-realm="ember"] .app-main::before {
+  background:
+    url('/xianxia-ornament/meridian.png') right -40px bottom 56px / 980px auto no-repeat,
+    radial-gradient(500px 480px at 100% 30%, rgba(169, 65, 45, .22), transparent 68%),
+    radial-gradient(560px 440px at 3% 0%, rgba(77, 157, 149, .17), transparent 72%);
+  opacity: .36;
+}
+
+/* ── ② 玉紋：128px 灰階貼圖，極淡 soft-light 疊整個外殼（不擋點擊；彈窗 portal 在 body 不受影響） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .app::after {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: url('/xianxia-ornament/jade-128.png') 0 0 / 128px 128px repeat;
+  mix-blend-mode: soft-light; opacity: .05;
+}
+
+/* ── ③ 面板：外框提亮成玉色＋距 3px 的內框（雙線）＋四角鎏金回紋，取代原本左上／右下兩個簡單角框。
+   全部畫在 ::before 一層（背景圖層），::after 收掉；inset:0 疊在內容上、不擋點擊、不改尺寸 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card),
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card):hover,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings) {
+  border-color: var(--xo-edge) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar.is-none, .uat-agent-bar.is-error, .uat-agent-bar.is-anon) {
+  border-color: color-mix(in srgb, var(--uat-danger) 45%, var(--rd-line-2)) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::before {
+  content: "" !important; display: block !important; position: absolute !important; z-index: 3 !important;
+  inset: 0 !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+  width: auto !important; height: auto !important; margin: 0 !important;
+  border: 0 !important; border-radius: inherit !important;
+  background: var(--xo-frets), var(--xo-frame) !important;
+  box-shadow: none !important; transform: none !important; animation: none !important;
+  opacity: 1 !important; pointer-events: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card)::after,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio :is(.uat-agent-bar, .uat-backend-launch, .uat-backend-plan, .uat-backend-settings)::after {
+  content: none !important;
+}
+/* 通知設定四張卡＋儲存列、境界排行榜三塊：原本也是兩個 14px 角框（非 !important 寫法） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar, .cultivation-hero, .realm-atlas, .cultivation-ranking) { border-color: var(--xo-edge); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar, .cultivation-hero, .realm-atlas, .cultivation-ranking)::before {
+  content: ""; position: absolute; z-index: 3; inset: 0; top: 0; left: 0; right: 0; bottom: 0; width: auto; height: auto; margin: 0;
+  border: 0; border-radius: inherit; background: var(--xo-frets), var(--xo-frame); opacity: 1; pointer-events: none;
+  transform: none; animation: none; box-shadow: none; aspect-ratio: auto;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.ln-card, .ln-savebar, .cultivation-hero, .realm-atlas, .cultivation-ranking)::after { content: none; }
+
+/* ── ④ 頁首標題線：鎏金→玉色漸層，兩端 7px 空心菱形；右側留給頁首資訊（設計圖線在右側資訊前就收住） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-page-head::after {
+  left: -4px; right: 12%; bottom: -5px; height: 11px;
+  background:
+    var(--xo-dia) left center / 11px 11px no-repeat,
+    var(--xo-dia) right center / 11px 11px no-repeat,
+    linear-gradient(90deg, color-mix(in srgb, var(--rd-ornament) 80%, var(--rd-accent)), var(--rd-accent) 18%, color-mix(in srgb, var(--rd-accent) 85%, #fff) 50%, var(--rd-accent) 82%, color-mix(in srgb, var(--rd-ornament) 80%, var(--rd-accent))) left 9px center / calc(100% - 18px) 1px no-repeat,
+    linear-gradient(90deg, rgba(214, 183, 112, .35), rgba(120, 213, 200, .3) 20%, rgba(120, 213, 200, .3) 80%, rgba(214, 183, 112, .35)) left 9px center / calc(100% - 18px) 3px no-repeat;
+  filter: drop-shadow(0 0 3px rgba(120, 213, 200, .35));
+  pointer-events: none;
+}
+
+/* ── ⑤ 每日仙語：框線帶一點金、圓角 3、24px 回紋＋內框（行內 style 寫死框線／圓角，所以要 !important） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-page > .xx-glow {
+  border-color: color-mix(in srgb, var(--rd-accent) 42%, color-mix(in srgb, var(--rd-ornament) 30%, var(--rd-line-2))) !important;
+  border-radius: 3px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 70%, transparent), color-mix(in srgb, var(--rd-panel) 55%, transparent)) !important;
+  box-shadow: var(--rd-elev-1), 0 0 22px -12px rgba(214, 183, 112, .55);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-page > .xx-glow::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit;
+  background: var(--xo-frets-24),
+    linear-gradient(rgba(120, 213, 200, .26), rgba(120, 213, 200, .26)) left 4px top 4px / calc(100% - 8px) 1px no-repeat,
+    linear-gradient(rgba(120, 213, 200, .26), rgba(120, 213, 200, .26)) left 4px bottom 4px / calc(100% - 8px) 1px no-repeat,
+    linear-gradient(rgba(120, 213, 200, .26), rgba(120, 213, 200, .26)) left 4px top 4px / 1px calc(100% - 8px) no-repeat,
+    linear-gradient(rgba(120, 213, 200, .26), rgba(120, 213, 200, .26)) right 4px top 4px / 1px calc(100% - 8px) no-repeat;
+}
+
+/* ── ⑥ 數字磚：框線吃磚色、外圈一點磚色光暈、四角 18px 回紋＋內框（::after 原本收掉沒用） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric {
+  position: relative;
+  border-color: color-mix(in srgb, var(--tile) 48%, transparent) !important;
+  box-shadow: var(--rd-elev-1), 0 0 18px -8px var(--tile) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric:hover {
+  border-color: color-mix(in srgb, var(--tile) 65%, transparent) !important;
+  box-shadow: var(--rd-elev-2), 0 0 24px -8px var(--tile) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-metric::after {
+  content: "" !important; display: block; position: absolute; inset: 0; z-index: 2; margin: 0; width: auto; height: auto;
+  border: 0; border-radius: inherit; pointer-events: none; opacity: 1; transform: none; animation: none; box-shadow: none; filter: none;
+  background: var(--xo-frets-18),
+    linear-gradient(color-mix(in srgb, var(--tile) 22%, transparent), color-mix(in srgb, var(--tile) 22%, transparent)) left 3px top 3px / calc(100% - 6px) 1px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--tile) 22%, transparent), color-mix(in srgb, var(--tile) 22%, transparent)) left 3px bottom 3px / calc(100% - 6px) 1px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--tile) 22%, transparent), color-mix(in srgb, var(--tile) 22%, transparent)) left 3px top 3px / 1px calc(100% - 6px) no-repeat,
+    linear-gradient(color-mix(in srgb, var(--tile) 22%, transparent), color-mix(in srgb, var(--tile) 22%, transparent)) right 3px top 3px / 1px calc(100% - 6px) no-repeat;
+}
+/* 小統計格（開爐時長…）：同一套內框，不加回紋 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-mini-stat {
+  border-color: var(--xo-edge) !important;
+  box-shadow: var(--rd-elev-1), inset 0 0 0 2px color-mix(in srgb, var(--rd-panel) 92%, #000), inset 0 0 0 3px var(--xo-frame-c) !important;
+}
+
+/* ── ⑦ 主按鈕：玉色漸層面＋內緣打光＋四角小折角（同尺寸、不加前綴符號） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary, .orl-btn--primary, .discord-notify-btn--primary, .ln-btn--primary):not(.submit-btn--stop):not(.scripted-stop-btn):not(.saved):not(.loading),
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .cfg-run,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-btn.is-primary,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(.submit-btn, .osm-btn--primary):not(.rd-btn) {
+  background: var(--xo-ticks), var(--xo-face) !important;
+  border-color: color-mix(in srgb, var(--rd-accent) 55%, #0a3a33) !important;
+  color: var(--rd-accent-ink) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), inset 0 0 0 1px rgba(255, 255, 255, .16), inset 0 -2px 0 rgba(0, 0, 0, .22),
+    0 2px 0 rgba(0, 0, 0, .35), 0 6px 16px -6px var(--rd-glow) !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .25);
+}
+/* OSM 區塊標題列上的文字操作（xianxia.css 壓回無框文字）不是主按鈕，不要被上面那條塗回去 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .osm-section-header .osm-btn.osm-btn--primary:not(.osm-btn--main):not(.submit-btn--stop):not(.scripted-stop-btn):not(.saved):not(.loading) {
+  background: none !important; border: 0 !important; box-shadow: none !important; text-shadow: none; color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.mb-btn--primary, .submit-btn, .osm-btn--primary, .uat-btn.is-primary, .orl-btn.is-primary, .orl-btn--primary, .discord-notify-btn--primary, .ln-btn--primary, .cfg-run):disabled {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3) !important;
+}
+/* 次要按鈕：墨綠玻璃照舊，只加暗金小折角 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content :is(.btn-ghost, .settings-btn, .osm-btn:not(.osm-btn--primary)) {
+  background: var(--xo-ticks-dim), linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-btn:not(.is-primary):not(.is-danger) {
+  background-image: var(--xo-ticks-dim), linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important;
+}
+
+/* 分頁列：凹槽外加一圈玉線；選中那格玉色漸層＋鎏金內框＋四角小折角 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tabs {
+  box-shadow: var(--rd-well), 0 0 0 1px color-mix(in srgb, var(--rd-line-2) 80%, transparent);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-tab[aria-selected="true"] {
+  background: var(--xo-ticks-dim), linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 46%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 18%, var(--rd-panel)));
+  box-shadow: var(--rd-elev-1), 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 60%, transparent) inset, inset 0 1px 0 rgba(255, 255, 255, .22), 0 0 14px -4px var(--rd-glow);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ln-page .ln-tab.is-active {
+  background-image: var(--xo-ticks-dim);
+}
+
+/* ── ⑧ 膠囊：細內框（外框→1px 暗縫→1px 同色細線）；狀態點、開關鈕一點光 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-chip, .lst-pill, .ln-pill, .stat-chip, .osm-badge, .cr-pill) {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .32), inset 0 0 0 2px color-mix(in srgb, currentColor 24%, transparent), 0 0 8px -3px color-mix(in srgb, currentColor 45%, transparent) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-chip--good, .dashboard-chip--warn, .osm-badge--ok, .osm-badge--warn)::before { box-shadow: 0 0 6px currentColor; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-pill::before { box-shadow: 0 0 7px currentColor, 0 0 2px currentColor; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch {
+  box-shadow: var(--rd-well), inset 0 0 0 1px color-mix(in srgb, var(--rd-accent) 22%, transparent) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35), inset 0 0 0 1px rgba(255, 255, 255, .22), 0 0 8px -2px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch-knob {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 0 5px rgba(230, 239, 232, .35) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content .as-switch.is-on .as-switch-knob {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 0 8px var(--rd-accent-2) !important;
+}
+
+/* ── ⑨ 側欄：選中項玉色光脊（原本的左側亮條加亮）＋鎏金細框與四角小折角；圖示照留 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item.sidebar-nav-item--active {
+  background: var(--xo-ticks),
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 28%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 10%, var(--rd-panel))) !important;
+  box-shadow: var(--rd-elev-1), inset 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 46%, transparent), 0 0 18px -4px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item--active::before {
+  background: linear-gradient(180deg, transparent, var(--rd-accent-2) 20%, var(--rd-accent-2) 80%, transparent);
+  box-shadow: 0 0 10px var(--rd-accent), 0 0 3px var(--rd-accent-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-subtab-item.sidebar-subtab-item--active {
+  background: var(--xo-ticks-dim), var(--rd-panel-2) !important;
+  box-shadow: var(--rd-elev-1), inset 0 0 0 1px color-mix(in srgb, var(--rd-accent) 38%, transparent) !important;
+}
+/* 側欄外框：左上、右下兩角回紋（設計圖） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"]:not([data-realm="ember"]) .app-sidebar {
+  background:
+    var(--xo-c-tl) left 2px top 2px / 22px 22px no-repeat,
+    var(--xo-c-br) right 2px bottom 2px / 22px 22px no-repeat,
+    linear-gradient(180deg, var(--rd-bg-2), var(--rd-bg)) !important;
+}
+
+/* ── ⑩ 表格：表頭底線換成金→玉→金細線、兩端菱形（線畫在表頭格的背景，不影響高度）；列分隔線低對比玉色；格子裡不加花紋 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content, .rd-modal, .modal-box, .modal, .ui-ss-modal) thead tr:last-child > th {
+  border-bottom-color: transparent !important;
+  background-image: linear-gradient(var(--xo-hl), var(--xo-hl)) !important;
+  background-position: left bottom 3px !important; background-size: 100% 1px !important; background-repeat: no-repeat !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content, .rd-modal, .modal-box, .modal, .ui-ss-modal) thead tr:last-child > th:first-child {
+  background-image: var(--xo-dia), linear-gradient(90deg, var(--rd-ornament), var(--xo-hl) 60%) !important;
+  background-position: left 0 bottom 0, left 6px bottom 3px !important;
+  background-size: 7px 7px, calc(100% - 6px) 1px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content, .rd-modal, .modal-box, .modal, .ui-ss-modal) thead tr:last-child > th:last-child {
+  background-image: var(--xo-dia), linear-gradient(90deg, var(--xo-hl) 40%, var(--rd-ornament)) !important;
+  background-position: right 0 bottom 0, left 0 bottom 3px !important;
+  background-size: 7px 7px, calc(100% - 6px) 1px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content, .rd-modal, .modal-box, .modal, .ui-ss-modal) thead tr:last-child > th:only-child {
+  background-image: var(--xo-dia), var(--xo-dia), linear-gradient(90deg, var(--rd-ornament), var(--xo-hl) 30%, var(--xo-hl) 70%, var(--rd-ornament)) !important;
+  background-position: left 0 bottom 0, right 0 bottom 0, left 6px bottom 3px !important;
+  background-size: 7px 7px, 7px 7px, calc(100% - 12px) 1px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.main-content, .rd-modal, .modal-box, .modal, .ui-ss-modal) tbody > tr > td {
+  border-bottom-color: color-mix(in srgb, var(--rd-line) 85%, transparent) !important;
+}
+/* 境界排行榜的表頭是 div 格線，同一條線 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .cultivation-list-head {
+  border-bottom-color: transparent;
+  background:
+    var(--xo-dia) left 0 bottom 0 / 7px 7px no-repeat,
+    var(--xo-dia) right 0 bottom 0 / 7px 7px no-repeat,
+    linear-gradient(90deg, var(--rd-ornament), var(--xo-hl) 25%, var(--xo-hl) 75%, var(--rd-ornament)) left 6px bottom 3px / calc(100% - 12px) 1px no-repeat,
+    var(--rd-bg-2);
+}
+
+/* ── ⑪ 空狀態：容器裡淡淡一個 32px 雙菱形印記（背景圖層，高度不變） ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  .dashboard-empty, .dashboard-table-empty, .osm-empty, .lst-empty, .jp-empty, .rn-empty, .kb-empty, .ic-empty, .cfg-tpl-empty,
+  .uat-agent-empty, .wr-empty, .local-agent-empty, .osm-dist-empty, .osm-detail-placeholder, .uat-list-empty, .uat-block-empty,
+  .uat-net-empty, .uat-risk-empty, .uat-inspector-empty, .uat-backend-flow-empty, .uat-tc-blocks-empty, .uat-tc-inspector-empty, .uat-tc-steps-empty
+) {
+  background-image: var(--xo-dd) !important;
+  background-position: center !important; background-size: 32px 32px !important; background-repeat: no-repeat !important;
+}
+
+/* ── ⑫ 資源條：軌道內緣打光＋玉色細框、刻度加亮；靈氣流動是原本的動態貼圖（只在條子上），
+   減少動態時 redesign.css 已換成靜態圖；這裡不另外加常駐動畫 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-bar-track {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .65), inset 0 0 0 1px color-mix(in srgb, var(--rd-accent) 16%, transparent), 0 1px 0 rgba(240, 216, 156, .07);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-bar-track::after {
+  background: repeating-linear-gradient(90deg, rgba(167, 189, 178, .42) 0 1px, transparent 1px 8.333%);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-bar-fill { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28); }
+
+/* ── AI Agent 監控小窗：同一套框色＋四角小折角 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ai-monitor-widget {
+  border-color: color-mix(in srgb, var(--rd-ornament) 45%, var(--rd-line-2)) !important;
+  background: var(--xo-ticks), color-mix(in srgb, var(--rd-panel) 96%, transparent) !important;
+}
+
+/* ── 彈窗：卡片換成同一套雙線內框＋四角回紋（照 modal.css 的做法畫在背景，不佔偽元素）；
+   標題帶底線換成金→玉漸層 ── */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) {
+  border-color: var(--xo-edge) !important;
+  background:
+    var(--xo-frets), var(--xo-frame),
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .orl-drawer {
+  background:
+    var(--xo-c-tl) left 1px top 1px / 22px 22px no-repeat, var(--xo-c-bl) left 1px bottom 1px / 22px 22px no-repeat,
+    linear-gradient(var(--xo-frame-c), var(--xo-frame-c)) left 3px top 0 / 1px 100% no-repeat,
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  .rd-modal-h,
+  .modal-box > .modal-header,
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .ui-ss-modal-head,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
+) {
+  border-bottom-color: transparent !important;
+  background:
+    linear-gradient(90deg, var(--rd-ornament), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-ornament)) 28%, var(--rd-line-2) 70%, transparent) left bottom / 100% 1px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, .05), transparent) !important;
+}
+
+/* 面板底色帶一點玉色（設計圖的面板上緣偏青），只改色不改結構 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.section-card, .uat-panel, .osm-section, .dashboard-panel, .mb-shell, .mgd):not(.tc-action-card) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 5%, var(--rd-panel)) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+}
