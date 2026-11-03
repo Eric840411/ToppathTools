@@ -687,3 +687,372 @@
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-lark-url-input { background: var(--rd-bg) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-lark-url-input:focus { border-color: var(--rd-accent) !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-comp-ver-card:not(.osm-comp-ver-card--ok):not(.osm-comp-ver-card--warn) { background: var(--rd-panel-2) !important; border-color: var(--rd-line) !important; }
+
+/* ══ 普通版藍黑殘留（使用者 1103：一個一個截圖回報 → 改用 scripts/ui-checks/xianxia-navy-sweep.mjs 逐元素量 computed style）══
+   App.css／舊仙俠 CSS／TSX 行內樣式寫死的 slate 色（#0f172a #162032 #1e293b #263345 #2d3f55 #334155 #475569 #64748b #94a3b8 #cbd5e1）
+   換成修仙版 token。語意色（角色色、狀態點、資訊提示的藍）不動，清單在掃描報告的 blue-accent。 */
+
+/* 內容區的基本字色：App.css 的 #cbd5e1（slate-300）→ 跟行內 #cbd5e1 同一個對照；沒自己指定字色的文字都繼承它（AutoSpin「JP Group 設定」） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content { color: color-mix(in srgb, var(--rd-fg) 55%, var(--rd-fg-2)) !important; }
+/* 表格內文：舊仙俠 `.main-content td { color: #b5c0c7 !important }`（偏藍灰）→ 次要字色；:where 壓低權重，各頁自己指定的 td 色仍蓋得過 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :where(.main-content td) { color: var(--rd-fg-2) !important; }
+/* 那條舊規則連 OSM 未達標格的警示黃都蓋掉了，補回來 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content td.osm-td--warn { color: #f5c04a !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sheet-preview-table :is(th, td) { border-right-color: var(--rd-line) !important; }
+
+/* 側欄 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-bottom { border-top-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-expand-arrow { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-label-sub { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-nav-item--active .sidebar-nav-label-sub { color: color-mix(in srgb, var(--rd-fg) 55%, transparent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-ai-btn-label .sidebar-nav-label-theme { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .sidebar-cultivation-quest-label { color: var(--rd-fg-3) !important; }
+/* AI Agent 監控小窗的「展開」：在 .main-content 外面，沒吃到全站次要按鈕那條（舊仙俠 rgba(15,25,34,.82)） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ai-monitor-widget .btn-ghost {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2) !important;
+  border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important;
+}
+
+/* Dashboard */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-page-badge { background: var(--rd-bg-2) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-user .dashboard-avatar {
+  background: var(--rd-accent-2) !important; color: var(--rd-accent-ink) !important; border-color: transparent !important; box-shadow: none !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-bar-top b, .dashboard-bar-top span, .dashboard-bar-top em) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.dashboard-event-detail, .dashboard-event time, .dashboard-metric-value span,
+  .dashboard-mini-stat span, .dashboard-mini-stat em, .dashboard-panel-head p, .dashboard-user-key) { color: var(--rd-fg-3) !important; }
+
+/* Meegle 批量工具 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mb-step--todo :is(.mb-step-dot, .mb-step-label) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .msp-bar-hint { color: var(--rd-fg-3) !important; }
+
+/* TestCase 生成 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tc-flow :is(li, summary h3) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .tc-flow .info-note { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content label.field > span { color: var(--rd-fg-2) !important; }
+
+/* 週報、文書工具 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .wr-list-h { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-bar { border-bottom-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-placeholder { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .office-muted { color: var(--rd-fg-2) !important; }
+
+/* OSM 版號同步 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-channel-row-time { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-report-time { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .stat-chip:not([class*="stat-chip--"]) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .stat-chip:not([class*="stat-chip--"]) :is(.stat-chip-lbl, .stat-chip-val) { color: inherit !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .stat-chip--offline { color: var(--rd-fg-3) !important; }
+
+/* 機台自動化測試 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-osm-dot:not(.mt-osm-dot--on) { background: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.mt-osm-hint, .mt-todo-item, .mt-phase-desc) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-osm-hint code { background: var(--rd-bg-2) !important; color: var(--rd-fg-2) !important; }
+
+/* 腳本化投注、UAT、UI 截圖、Local Agent */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .scripted-account-cell span { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .scripted-log-time { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.scripted-table, .local-agent-extra-head) [class="badge"] { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-backend-log pre { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ui-ss-group-label { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .ui-ss-group-label:hover { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .local-agent-note { border-left-color: var(--rd-line-2) !important; color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .local-agent-empty { border-color: var(--rd-line-2) !important; color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .local-agent-extra-item :is(p, li, strong) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .local-agent-extra-item a { color: var(--rd-accent) !important; }
+
+/* URL 帳號池：數字標籤的中性色是行內 --c */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lst-tag[style*="--c: #94a3b8"] { --c: var(--rd-fg-2) !important; }
+
+/* AutoSpin 即時對帳「目前顯示：某人」：普通版藍膠囊（跨使用者檢視的琥珀色不動） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] [style*="background: rgb(22, 48, 74)"] {
+  background: color-mix(in srgb, var(--rd-accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--rd-accent) 40%, transparent) !important; color: var(--rd-accent-2) !important;
+}
+
+/* AutoSpin 模板「+ 上傳模板圖片」是行內藍底的主按鈕 → 同全站修仙主按鈕；模擬正式的提示框是行內藍 → 玉色提示 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .main-content label[for="tpl-upload"] {
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important;
+  color: var(--rd-accent-ink) !important; border-radius: 4px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] [style*="background: rgba(59, 130, 246, 0.08)"][style*="color: rgb(96, 165, 250)"] {
+  background: color-mix(in srgb, var(--rd-accent) 8%, transparent) !important;
+  border-color: color-mix(in srgb, var(--rd-accent) 28%, transparent) !important; color: var(--rd-accent-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] [style*="background: rgba(59, 130, 246, 0.08)"][style*="color: rgb(96, 165, 250)"] b { color: var(--rd-accent) !important; }
+
+/* 第二輪掃描（點開分頁／展開／彈窗後才看得到的） */
+/* 沒 class 的陽春按鈕（OSM 版本更新紀錄的 ▲▼ 排序鈕等）：舊仙俠底 rgba(12,24,34,.88) 偏藍黑；:where 壓低權重，行內自己設底色的照舊 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :where(.main-content button:not([class])) { background: var(--rd-panel-2); color: var(--rd-fg-2); }
+/* 機台設定檔表單、觸屏點位序號（App.css #0f172a／#2d3f55／#94a3b8） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-profile-form { background: color-mix(in srgb, var(--rd-bg) 70%, transparent) !important; border-color: var(--rd-line-2) !important; border-radius: 3px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .mt-touchpoint-index { background: var(--rd-line-2) !important; color: var(--rd-fg-2) !important; }
+/* UAT 統計磚「待確認／受阻」（is-skip）的中性色是 slate #94a3b8 → 修仙版中性色 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-studio .uat-stat.is-skip { --c: var(--rd-fg-3); }
+
+/* Game Show「Log 結構比對」：GsLogCheckerPage 自己注入的 LOG_COMPARE_CSS 全是 slate */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%) !important;
+  border-color: color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important; border-radius: 3px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .card-title { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .badge-slate { background: var(--rd-bg-2) !important; color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .badge-indigo { background: color-mix(in srgb, var(--rd-accent) 15%, transparent) !important; color: var(--rd-accent-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw label { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw label.row-checkbox { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw :is(input[type="text"], input[type="file"], select) {
+  background: var(--rd-bg) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw input[type="file"] { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw :is(input[type="text"], select):focus { border-color: var(--rd-accent) !important; box-shadow: 0 0 0 3px var(--rd-glow) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw input[type="checkbox"] { accent-color: var(--rd-accent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw :is(.hint-box, .examples-block, .auto-fields-wrap) {
+  background: color-mix(in srgb, var(--rd-panel-2) 80%, transparent) !important; border-color: var(--rd-line) !important; color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw :is(.hint-box code, .examples-body code) { background: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw :is(.hint-box-sub, .auto-fields-note) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .examples-block summary { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .examples-block summary:hover { background: var(--rd-panel-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .examples-body { color: var(--rd-fg-2) !important; border-top-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .auto-fields-head { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .auto-col h4 { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .auto-fields-list { background: var(--rd-bg) !important; border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .lcw-btn-muted {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)), var(--rd-panel-2) !important;
+  border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important; border-radius: 4px !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .lcw-btn-muted:hover:not(:disabled) { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .lcw-btn-primary { background: var(--rd-accent) !important; color: var(--rd-accent-ink) !important; border-radius: 4px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .cmp-tabs { border-bottom-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .cmp-tab-btn { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .cmp-tab-btn:hover { color: var(--rd-accent) !important; background: color-mix(in srgb, var(--rd-accent) 8%, transparent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .lcw .cmp-tab-btn.active { color: var(--rd-accent) !important; border-bottom-color: var(--rd-accent) !important; }
+
+/* 行內樣式（AutoSpin 即時對帳、URL 帳號池、TestCase、機台測試…TSX 裡 style={{ … '#2d3f55' }}）：
+   React 會把顏色序列化成 rgb()，用屬性選擇器對色換 token。對照：
+   底 #0f172a→bg-2、#162032→panel、#1e293b→panel-2、#2d3f55／#334155→line；框 #1e293b→line、#2d3f55／#334155→line-2、#475569／#64748b→fg-3；
+   字 #475569／#64748b→fg-3、#94a3b8→fg-2、#cbd5e1→fg 與 fg-2 之間 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="background: rgb(15, 23, 42)"],
+  [style*="background-color: rgb(15, 23, 42)"],
+  [style*="background: rgb(17, 24, 39)"],
+  [style*="background-color: rgb(17, 24, 39)"]
+) { background-color: var(--rd-bg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="background: rgb(22, 32, 50)"],
+  [style*="background-color: rgb(22, 32, 50)"],
+  [style*="background: rgb(22, 32, 46)"],
+  [style*="background-color: rgb(22, 32, 46)"]
+) { background-color: var(--rd-panel) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="background: rgb(30, 41, 59)"],
+  [style*="background-color: rgb(30, 41, 59)"],
+  [style*="background: rgb(27, 39, 57)"],
+  [style*="background-color: rgb(27, 39, 57)"],
+  [style*="background: rgb(38, 51, 69)"],
+  [style*="background-color: rgb(38, 51, 69)"]
+) { background-color: var(--rd-panel-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="background: rgb(30, 51, 80)"],
+  [style*="background-color: rgb(30, 51, 80)"],
+  [style*="background: rgb(45, 63, 85)"],
+  [style*="background-color: rgb(45, 63, 85)"],
+  [style*="background: rgb(51, 65, 85)"],
+  [style*="background-color: rgb(51, 65, 85)"]
+) { background-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border: 1px solid rgb(30, 41, 59)"],
+  [style*="border: 1px dashed rgb(30, 41, 59)"],
+  [style*="border: 2px solid rgb(30, 41, 59)"],
+  [style*="border: 2px dashed rgb(30, 41, 59)"],
+  [style*="border: 1px solid rgb(34, 48, 69)"],
+  [style*="border: 1px dashed rgb(34, 48, 69)"],
+  [style*="border: 2px solid rgb(34, 48, 69)"],
+  [style*="border: 2px dashed rgb(34, 48, 69)"],
+  [style*="border: 1px solid rgb(38, 51, 69)"],
+  [style*="border: 1px dashed rgb(38, 51, 69)"],
+  [style*="border: 2px solid rgb(38, 51, 69)"],
+  [style*="border: 2px dashed rgb(38, 51, 69)"],
+  [style*="border-color: rgb(30, 41, 59)"],
+  [style*="border-color: rgb(34, 48, 69)"],
+  [style*="border-color: rgb(38, 51, 69)"]
+) { border-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border: 1px solid rgb(45, 63, 85)"],
+  [style*="border: 1px dashed rgb(45, 63, 85)"],
+  [style*="border: 2px solid rgb(45, 63, 85)"],
+  [style*="border: 2px dashed rgb(45, 63, 85)"],
+  [style*="border: 1px solid rgb(51, 65, 85)"],
+  [style*="border: 1px dashed rgb(51, 65, 85)"],
+  [style*="border: 2px solid rgb(51, 65, 85)"],
+  [style*="border: 2px dashed rgb(51, 65, 85)"],
+  [style*="border-color: rgb(45, 63, 85)"],
+  [style*="border-color: rgb(51, 65, 85)"]
+) { border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border: 1px solid rgb(71, 85, 105)"],
+  [style*="border: 1px dashed rgb(71, 85, 105)"],
+  [style*="border: 2px solid rgb(71, 85, 105)"],
+  [style*="border: 2px dashed rgb(71, 85, 105)"],
+  [style*="border: 1px solid rgb(100, 116, 139)"],
+  [style*="border: 1px dashed rgb(100, 116, 139)"],
+  [style*="border: 2px solid rgb(100, 116, 139)"],
+  [style*="border: 2px dashed rgb(100, 116, 139)"],
+  [style*="border-color: rgb(71, 85, 105)"],
+  [style*="border-color: rgb(100, 116, 139)"]
+) { border-color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-top: 1px solid rgb(30, 41, 59)"],
+  [style*="border-top: 1px dashed rgb(30, 41, 59)"],
+  [style*="border-top: 2px solid rgb(30, 41, 59)"],
+  [style*="border-top: 2px dashed rgb(30, 41, 59)"],
+  [style*="border-top: 1px solid rgb(34, 48, 69)"],
+  [style*="border-top: 1px dashed rgb(34, 48, 69)"],
+  [style*="border-top: 2px solid rgb(34, 48, 69)"],
+  [style*="border-top: 2px dashed rgb(34, 48, 69)"],
+  [style*="border-top: 1px solid rgb(38, 51, 69)"],
+  [style*="border-top: 1px dashed rgb(38, 51, 69)"],
+  [style*="border-top: 2px solid rgb(38, 51, 69)"],
+  [style*="border-top: 2px dashed rgb(38, 51, 69)"]
+) { border-top-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-top: 1px solid rgb(45, 63, 85)"],
+  [style*="border-top: 1px dashed rgb(45, 63, 85)"],
+  [style*="border-top: 2px solid rgb(45, 63, 85)"],
+  [style*="border-top: 2px dashed rgb(45, 63, 85)"],
+  [style*="border-top: 1px solid rgb(51, 65, 85)"],
+  [style*="border-top: 1px dashed rgb(51, 65, 85)"],
+  [style*="border-top: 2px solid rgb(51, 65, 85)"],
+  [style*="border-top: 2px dashed rgb(51, 65, 85)"]
+) { border-top-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-top: 1px solid rgb(71, 85, 105)"],
+  [style*="border-top: 1px dashed rgb(71, 85, 105)"],
+  [style*="border-top: 2px solid rgb(71, 85, 105)"],
+  [style*="border-top: 2px dashed rgb(71, 85, 105)"],
+  [style*="border-top: 1px solid rgb(100, 116, 139)"],
+  [style*="border-top: 1px dashed rgb(100, 116, 139)"],
+  [style*="border-top: 2px solid rgb(100, 116, 139)"],
+  [style*="border-top: 2px dashed rgb(100, 116, 139)"]
+) { border-top-color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-right: 1px solid rgb(30, 41, 59)"],
+  [style*="border-right: 1px dashed rgb(30, 41, 59)"],
+  [style*="border-right: 2px solid rgb(30, 41, 59)"],
+  [style*="border-right: 2px dashed rgb(30, 41, 59)"],
+  [style*="border-right: 1px solid rgb(34, 48, 69)"],
+  [style*="border-right: 1px dashed rgb(34, 48, 69)"],
+  [style*="border-right: 2px solid rgb(34, 48, 69)"],
+  [style*="border-right: 2px dashed rgb(34, 48, 69)"],
+  [style*="border-right: 1px solid rgb(38, 51, 69)"],
+  [style*="border-right: 1px dashed rgb(38, 51, 69)"],
+  [style*="border-right: 2px solid rgb(38, 51, 69)"],
+  [style*="border-right: 2px dashed rgb(38, 51, 69)"]
+) { border-right-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-right: 1px solid rgb(45, 63, 85)"],
+  [style*="border-right: 1px dashed rgb(45, 63, 85)"],
+  [style*="border-right: 2px solid rgb(45, 63, 85)"],
+  [style*="border-right: 2px dashed rgb(45, 63, 85)"],
+  [style*="border-right: 1px solid rgb(51, 65, 85)"],
+  [style*="border-right: 1px dashed rgb(51, 65, 85)"],
+  [style*="border-right: 2px solid rgb(51, 65, 85)"],
+  [style*="border-right: 2px dashed rgb(51, 65, 85)"]
+) { border-right-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-right: 1px solid rgb(71, 85, 105)"],
+  [style*="border-right: 1px dashed rgb(71, 85, 105)"],
+  [style*="border-right: 2px solid rgb(71, 85, 105)"],
+  [style*="border-right: 2px dashed rgb(71, 85, 105)"],
+  [style*="border-right: 1px solid rgb(100, 116, 139)"],
+  [style*="border-right: 1px dashed rgb(100, 116, 139)"],
+  [style*="border-right: 2px solid rgb(100, 116, 139)"],
+  [style*="border-right: 2px dashed rgb(100, 116, 139)"]
+) { border-right-color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-bottom: 1px solid rgb(30, 41, 59)"],
+  [style*="border-bottom: 1px dashed rgb(30, 41, 59)"],
+  [style*="border-bottom: 2px solid rgb(30, 41, 59)"],
+  [style*="border-bottom: 2px dashed rgb(30, 41, 59)"],
+  [style*="border-bottom: 1px solid rgb(34, 48, 69)"],
+  [style*="border-bottom: 1px dashed rgb(34, 48, 69)"],
+  [style*="border-bottom: 2px solid rgb(34, 48, 69)"],
+  [style*="border-bottom: 2px dashed rgb(34, 48, 69)"],
+  [style*="border-bottom: 1px solid rgb(38, 51, 69)"],
+  [style*="border-bottom: 1px dashed rgb(38, 51, 69)"],
+  [style*="border-bottom: 2px solid rgb(38, 51, 69)"],
+  [style*="border-bottom: 2px dashed rgb(38, 51, 69)"]
+) { border-bottom-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-bottom: 1px solid rgb(45, 63, 85)"],
+  [style*="border-bottom: 1px dashed rgb(45, 63, 85)"],
+  [style*="border-bottom: 2px solid rgb(45, 63, 85)"],
+  [style*="border-bottom: 2px dashed rgb(45, 63, 85)"],
+  [style*="border-bottom: 1px solid rgb(51, 65, 85)"],
+  [style*="border-bottom: 1px dashed rgb(51, 65, 85)"],
+  [style*="border-bottom: 2px solid rgb(51, 65, 85)"],
+  [style*="border-bottom: 2px dashed rgb(51, 65, 85)"]
+) { border-bottom-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-bottom: 1px solid rgb(71, 85, 105)"],
+  [style*="border-bottom: 1px dashed rgb(71, 85, 105)"],
+  [style*="border-bottom: 2px solid rgb(71, 85, 105)"],
+  [style*="border-bottom: 2px dashed rgb(71, 85, 105)"],
+  [style*="border-bottom: 1px solid rgb(100, 116, 139)"],
+  [style*="border-bottom: 1px dashed rgb(100, 116, 139)"],
+  [style*="border-bottom: 2px solid rgb(100, 116, 139)"],
+  [style*="border-bottom: 2px dashed rgb(100, 116, 139)"]
+) { border-bottom-color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-left: 1px solid rgb(30, 41, 59)"],
+  [style*="border-left: 1px dashed rgb(30, 41, 59)"],
+  [style*="border-left: 2px solid rgb(30, 41, 59)"],
+  [style*="border-left: 2px dashed rgb(30, 41, 59)"],
+  [style*="border-left: 1px solid rgb(34, 48, 69)"],
+  [style*="border-left: 1px dashed rgb(34, 48, 69)"],
+  [style*="border-left: 2px solid rgb(34, 48, 69)"],
+  [style*="border-left: 2px dashed rgb(34, 48, 69)"],
+  [style*="border-left: 1px solid rgb(38, 51, 69)"],
+  [style*="border-left: 1px dashed rgb(38, 51, 69)"],
+  [style*="border-left: 2px solid rgb(38, 51, 69)"],
+  [style*="border-left: 2px dashed rgb(38, 51, 69)"]
+) { border-left-color: var(--rd-line) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-left: 1px solid rgb(45, 63, 85)"],
+  [style*="border-left: 1px dashed rgb(45, 63, 85)"],
+  [style*="border-left: 2px solid rgb(45, 63, 85)"],
+  [style*="border-left: 2px dashed rgb(45, 63, 85)"],
+  [style*="border-left: 1px solid rgb(51, 65, 85)"],
+  [style*="border-left: 1px dashed rgb(51, 65, 85)"],
+  [style*="border-left: 2px solid rgb(51, 65, 85)"],
+  [style*="border-left: 2px dashed rgb(51, 65, 85)"]
+) { border-left-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style*="border-left: 1px solid rgb(71, 85, 105)"],
+  [style*="border-left: 1px dashed rgb(71, 85, 105)"],
+  [style*="border-left: 2px solid rgb(71, 85, 105)"],
+  [style*="border-left: 2px dashed rgb(71, 85, 105)"],
+  [style*="border-left: 1px solid rgb(100, 116, 139)"],
+  [style*="border-left: 1px dashed rgb(100, 116, 139)"],
+  [style*="border-left: 2px solid rgb(100, 116, 139)"],
+  [style*="border-left: 2px dashed rgb(100, 116, 139)"]
+) { border-left-color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style^="color: rgb(71, 85, 105)"],
+  [style*="; color: rgb(71, 85, 105)"],
+  [style^="color: rgb(100, 116, 139)"],
+  [style*="; color: rgb(100, 116, 139)"]
+) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style^="color: rgb(148, 163, 184)"],
+  [style*="; color: rgb(148, 163, 184)"]
+) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style^="color: rgb(203, 213, 225)"],
+  [style*="; color: rgb(203, 213, 225)"]
+) { color: color-mix(in srgb, var(--rd-fg) 55%, var(--rd-fg-2)) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  [style^="color: rgb(165, 180, 252)"],
+  [style*="; color: rgb(165, 180, 252)"]
+) { color: var(--rd-accent-2) !important; }

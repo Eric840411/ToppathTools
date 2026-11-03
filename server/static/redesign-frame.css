@@ -125,3 +125,9 @@ html[data-ui="redesign"] .input-group :is(.label-a, .label-b) { color: var(--rd-
 /* 仙俠：標題帶圓角 3、菱形位置 */
 html[data-ui="redesign"][data-theme-mode="xianxia"] .card > .card-title:first-child { border-radius: 3px 3px 0 0; padding-left: 33px; }
 html[data-ui="redesign"][data-theme-mode="xianxia"] .card > .card-title:first-child::before { left: 18px; height: 7px; margin-top: -3.5px; }
+/* 仙俠版：頁面自己寫死的 slate 字色／底色（掃描 scripts/ui-checks/xianxia-navy-sweep.mjs 抓到的，使用者 1103） */
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is(.diff-none, #emptyRow td, .debug-toggle, #debugToggleIcon) { color: var(--rd-fg-2) !important; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] .debug-count { color: var(--rd-fg-3) !important; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] #debugLog { background: var(--rd-bg) !important; color: var(--rd-fg-2) !important; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is([style*="color:#64748b"], [style*="color: #64748b"], [style*="color:#475569"]) { color: var(--rd-fg-3) !important; }
+html[data-ui="redesign"][data-theme-mode="xianxia"] :is([style*="color:#94a3b8"], [style*="color: #94a3b8"]) { color: var(--rd-fg-2) !important; }
