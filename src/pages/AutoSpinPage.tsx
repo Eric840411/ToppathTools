@@ -447,9 +447,9 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
    *  放進「執行模式」卡是照 CodeX 的設計，但那張卡只在 remote agent 模式渲染，
    *  所以 server 模式也要掛一份，否則切過去就回不來（v4.98.3 的 bug）。 */
   const modeToggle = (
-    <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+    <div className="rd-xrun-mode" style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
       {(['hub', 'server'] as const).map(m => (
-        <button key={m} onClick={() => setRunMode(m)}
+        <button key={m} className={runMode === m ? 'is-on' : undefined} onClick={() => setRunMode(m)}
           style={{ flex: 1, padding: '6px 8px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
             background: runMode === m ? 'var(--xx-jade-solid)' : '#162032',
             color: runMode === m ? '#fff' : '#94a3b8' }}>

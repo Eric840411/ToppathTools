@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.74.1'
+export const APP_VERSION = '5.74.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.74.2', date: '2026-11-03', changes: ["style(AutoSpin 執行模式切換)：修仙版未選中的「伺服器端（fallback）」改墨綠底與綠系邊框（只加 class）"] },
   { version: '5.74.1', date: '2026-11-03', changes: ["style(彈窗第三輪，CodeX 意見)：AutoSpin 執行監控修仙版改墨綠（執行模式／執行控制／日誌工具列與內容／底欄，普通版不變）；錄製工作台試跑提示換行、按鈕另起一列；清除 PIN 選項恢復危險紅"] },
   { version: '5.74.0', date: '2026-11-03', changes: ["feat(修仙版裝飾層，使用者 1103 要求多一點修仙元素，CodeX 出圖)：新增 redesign/xianxia-ornament.css 與 public/xianxia-ornament 三個素材（金色回紋角飾、背景靈脈線、無縫玉石底紋）——面板四角回紋＋雙層內框、頁首金玉漸層線兩端菱形、每日仙語框角紋、數字磚角紋與同色微光、按鈕／選中分頁玉面高光、膠囊與開關微光、側欄選中光脊與角飾、表頭金玉線、空狀態雙菱形印記、資源條刻度、彈窗角紋、右下靈脈背景、全頁玉石細紋。只疊裝飾層、尺寸不變；普通版逐像素不變"] },
   { version: '5.73.21', date: '2026-11-03', changes: ["style(彈窗第二輪，CodeX 意見)：彈窗表單一律 96px 左標籤欄；修仙 AI 模型設定輸入框、JP Group 分段鈕、UAT 每日排程控制項改墨綠青玉；版本更新抽屜底部改標準按鈕；URL 帳號池選取搜尋列被擠壓與長清單被截斷修正。補 AutoSpin pinus 篩選列、OSM 未達標群組與缺少機台清單、錄製腳本工作台、側欄收合浮層、UAT 新手指引與錄製失敗提示。fix：側欄／頂列／版本切換的玻璃模糊在 Chrome 失效（minifier 只留 -webkit-），改只寫無前綴"] },

@@ -611,3 +611,7 @@
 
 /* 清除 PIN 這類破壞性勾選項：維持異常色（標籤自己帶 rd-danger） */
 :root[data-ui="redesign"] .rd-modal-b label.rd-danger { color: var(--rd-fail) !important; }
+
+/* AutoSpin 執行模式切換（遠端 Agent／伺服器端 fallback）：修仙版未選中那格也改墨綠（CodeX 1103 第三輪） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-mode { border-color: var(--rd-line-2) !important; border-radius: 3px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-mode button:not(.is-on) { background: var(--rd-panel-2) !important; color: var(--rd-fg-2) !important; }
