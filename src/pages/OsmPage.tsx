@@ -420,7 +420,7 @@ function GameTypeChannelsModal({ type, channelResults, onClose }: {
             <div className="osm-dist-empty-sub">比對這四項，不是模糊比對</div>
           </div>
         ) : (
-        <div ref={bodyRef} style={{ overflowY: 'auto', padding: '4px 0 10px' }}>
+        <div ref={bodyRef} className="rd-modal-scroll" style={{ overflowY: 'auto', padding: '4px 0 10px' }}>
           {found.channels.map(({ channel: g, models, matchCount }, gi) => {
             const channelVisible = showOffline ? g.machines.length : g.online
             return (
@@ -799,15 +799,16 @@ function VersionDashboard({
       {/* Machine groups — compact cards */}
       {machineGroups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（按類型分組）</div>
+          <div className="rd-sec-h" style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（按類型分組）</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {machineGroups.map(g => {
               const key = `${g.channelName}|${g.machineType}|${g.current}`
               const expanded = expandedGroup === key
               return (
-                <div key={key} style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
+                <div key={key} className="rd-group" style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
                   {/* Group row */}
                   <div
+                    className="rd-group-h"
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#1e293b', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setExpandedGroup(expanded ? null : key)}
                   >
@@ -821,9 +822,9 @@ function VersionDashboard({
                   </div>
                   {/* Expanded machine list */}
                   {expanded && (
-                    <div style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div className="rd-group-b" style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
-                        <span key={m.id} style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.machineName}</span>
+                        <span key={m.id} className="rd-tag" style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.machineName}</span>
                       ))}
                     </div>
                   )}
@@ -837,15 +838,16 @@ function VersionDashboard({
       {/* LuckyLink protocol machine groups — compact cards */}
       {protoGroups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（LuckyLink 協定）</div>
+          <div className="rd-sec-h" style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（LuckyLink 協定）</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {protoGroups.map(g => {
               const key = `proto|${g.protocol}|${g.game}|${g.current}`
               const expanded = expandedGroup === key
               return (
-                <div key={key} style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
+                <div key={key} className="rd-group" style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
                   {/* Group row */}
                   <div
+                    className="rd-group-h"
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#1e293b', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setExpandedGroup(expanded ? null : key)}
                   >
@@ -859,9 +861,9 @@ function VersionDashboard({
                   </div>
                   {/* Expanded machine list */}
                   {expanded && (
-                    <div style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div className="rd-group-b" style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
-                        <span key={m.gmid} style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.gmid}</span>
+                        <span key={m.gmid} className="rd-tag" style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.gmid}</span>
                       ))}
                     </div>
                   )}
@@ -875,10 +877,10 @@ function VersionDashboard({
       {/* Components — compact table */}
       {offTargetComps.length > 0 && (
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標元件</div>
+          <div className="rd-sec-h" style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標元件</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
-              <div key={`${c.system}-${c.name}`} className="osm-offtarget-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
+              <div key={`${c.system}-${c.name}`} className="osm-offtarget-row rd-group-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
                 <span style={{ padding: '2px 7px', borderRadius: 4, background: `color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 16%, transparent)`, border: `1px solid color-mix(in srgb, ${sysColor[c.system] ?? '#94a3b8'} 40%, transparent)`, color: sysColor[c.system] ?? '#94a3b8', fontSize: 11, flexShrink: 0, fontWeight: 700 }}>{c.system}</span>
                 <span style={{ flex: 1, fontWeight: 600, color: '#f1f5f9', fontSize: 13 }}>{c.name}</span>
                 <span style={{ color: '#f87171', fontWeight: 700, fontSize: 12 }}>{c.current || '—'}</span>
@@ -1606,7 +1608,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                         </span>
                       </div>
                       {hasMissing && missingMachines.length > 0 && (
-                        <div style={{ marginTop: 5, borderTop: '1px solid #f87171' }}>
+                        <div className="rd-missing" style={{ marginTop: 5, borderTop: '1px solid #f87171' }}>
                           <button
                             type="button"
                             onClick={e => { e.stopPropagation(); toggleExpand() }}
@@ -1615,7 +1617,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                             {isExpanded ? '▲' : '▼'} 缺少 {missingMachines.length} 台
                           </button>
                           {isExpanded && (
-                            <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 2 }}>
+                            <div className="rd-missing-list" style={{ maxHeight: 120, overflowY: 'auto', marginTop: 2 }}>
                               {missingMachines.map(m => (
                                 <div key={m.id} style={{ fontSize: 10, fontFamily: 'monospace', color: '#fca5a5', lineHeight: 1.6 }}>{m.machineName}</div>
                               ))}

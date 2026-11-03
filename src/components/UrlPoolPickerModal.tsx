@@ -108,7 +108,7 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
         </div>
 
         {/* Table */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div className="rd-modal-scroll" style={{ overflowY: 'auto', flex: 1 }}>
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>載入中...</div>
           ) : filtered.length === 0 ? (

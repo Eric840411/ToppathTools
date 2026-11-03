@@ -457,7 +457,7 @@ export function KnowledgePage() {
                   placeholder="自訂名稱，供選單顯示" style={mInput} />
               </FormRow>
               {/* Folder + Type side by side */}
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div className="rd-row-group" style={{ display: 'flex', gap: 12 }}>
                 <FormRow label="資料夾" style={{ flex: 1 }}>
                   <select value={formFolderId ?? ''} onChange={e => setFormFolderId(e.target.value ? Number(e.target.value) : null)} style={mInput}>
                     <option value="">未分類</option>

@@ -18,7 +18,7 @@
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── 遮罩 ── */
-:root[data-ui="redesign"] :is(.rd-modal-back, .modal-overlay, .ui-ss-modal-backdrop, .msp-modal-back, .orl-overlay, .uat-tc-modal, .uat-schedule-overlay):not(.auth-login-overlay) {
+:root[data-ui="redesign"] :is(.rd-modal-back, .modal-overlay, .ui-ss-modal-backdrop, .msp-modal-back, .orl-overlay, .uat-tc-modal, .uat-schedule-overlay, .uat-multi-overlay):not(.auth-login-overlay) {
   /* 只寫無前綴的 backdrop-filter：同時寫 -webkit- 的話 minifier 會把無前綴那條吃掉，Chrome 就吃不到 !important（實測） */
   background: color-mix(in srgb, var(--rd-bg) 62%, rgba(0, 0, 0, .55)) !important;
   backdrop-filter: blur(4px) saturate(110%) !important;
@@ -35,7 +35,7 @@
 @keyframes rd-modal-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
 
 /* ── 卡片 ── */
-:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) {
   position: relative;
   color: var(--rd-fg) !important;
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
@@ -44,7 +44,7 @@
   box-shadow: var(--rd-elev-2), 0 30px 80px -20px rgba(0, 0, 0, .75) !important;
   box-sizing: border-box;
 }
-:root[data-ui="redesign"] :is(.rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+:root[data-ui="redesign"] :is(.rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) {
   animation: rd-modal-rise .2s var(--rd-ease);
 }
 :root[data-ui="redesign"] .rd-modal {
@@ -58,7 +58,7 @@
 
 /* 仙俠：圓角 3、左上／右下鎏金角框（原型 .panel::before／::after）。用背景畫，不佔偽元素
    （.modal-close、登入框、UAT 的頭都有自己的 ::before／::after），也不會被 overflow:hidden 裁掉 */
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) {
   border-radius: 3px !important;
   background:
     linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 14px 2px no-repeat border-box,
@@ -76,7 +76,7 @@
 }
 
 /* 卡片內距統一：上 0（標題帶自己滿版）、左右 20、下 18。.modal-box／.ui-ss-modal／.rd-modal 本來就不留內距，子層自己留 */
-:root[data-ui="redesign"] :is(.modal:not(.auth-login-modal):not(.rd-modal), .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+:root[data-ui="redesign"] :is(.modal:not(.auth-login-modal):not(.rd-modal), .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) {
   padding: 0 20px 18px !important;
 }
 
@@ -91,7 +91,8 @@
   :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
   .uat-tc-picker > .uat-tc-picker-head,
   .uat-tc-editor > .uat-tc-editor-head,
-  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
 ) {
   position: relative;
   display: flex; align-items: center; gap: 10px; flex: none;
@@ -112,7 +113,8 @@
   :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
   .uat-tc-picker > .uat-tc-picker-head,
   .uat-tc-editor > .uat-tc-editor-head,
-  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
 ) { margin: 0 -20px 14px !important; }
 :root[data-ui="redesign"] :is(.orl-drawer) > .orl-drawer-head { border-radius: 0; }
 :root[data-ui="redesign"] :is(
@@ -125,7 +127,8 @@
   :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
   .uat-tc-picker > .uat-tc-picker-head,
   .uat-tc-editor > .uat-tc-editor-head,
-  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
 )::before {
   /* 固定在第一行的高度中線（44px 帶的一半），標題帶換行（底下有說明）時色條仍對齊標題字 */
   content: ""; position: absolute; left: 16px; top: 22px; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
@@ -141,7 +144,8 @@
   :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
   .uat-tc-picker > .uat-tc-picker-head,
   .uat-tc-editor > .uat-tc-editor-head,
-  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
 ) { border-radius: 3px 3px 0 0; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
   .rd-modal-h,
@@ -153,13 +157,14 @@
   :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
   .uat-tc-picker > .uat-tc-picker-head,
   .uat-tc-editor > .uat-tc-editor-head,
-  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title,
+  .uat-multi-workbench > .uat-multi-header
 )::before {
   left: 14px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
   background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
 }
 /* 標題文字：標題帶裡的 h2／h3／b／span 一律 14px 粗體、主字色 */
-:root[data-ui="redesign"] :is(.rd-modal-h, .modal-header, .ui-ss-modal-head, .orl-drawer-head, .uat-tc-picker-head, .uat-tc-editor-head, .uat-editor-modal > .uat-section-title, .uat-schedule > .uat-section-title) :is(h2, h3) {
+:root[data-ui="redesign"] :is(.rd-modal-h, .modal-header, .ui-ss-modal-head, .orl-drawer-head, .uat-tc-picker-head, .uat-tc-editor-head, .uat-editor-modal > .uat-section-title, .uat-schedule > .uat-section-title, .uat-multi-header) :is(h2, h3) {
   margin: 0 !important; font-size: 14px !important; font-weight: 700 !important; color: var(--rd-fg) !important;
   font-family: inherit !important; letter-spacing: normal !important;
 }
@@ -233,8 +238,10 @@
 :root[data-ui="redesign"] .rd-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
 @media (max-width: 640px) { :root[data-ui="redesign"] .rd-form { grid-template-columns: minmax(0, 1fr); } }
 
-/* 輸入框：彈窗裡的文字框／下拉一律照原型 .field（行內 style 的高度、框線、底色都蓋掉；寬度／flex 不動） */
-:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input:is([type="text"], [type="search"], [type="url"], [type="number"], [type="password"], [type="email"], [type="time"], [type="date"], :not([type])), select)) {
+/* 輸入框：彈窗裡的文字框／下拉一律照原型 .field（行內 style 的高度、框線、底色都蓋掉；寬度／flex 不動）。
+   ⚠️ input 要寫成跟 App.css 一樣的 :not() 串：那邊 `.modal-box input:not()×5` 是 (0,6,1)＋!important、寫死舊藍黑底，
+   用 :is([type=text]…) 權重不夠，修仙版會一直是藍黑底藍灰框（CodeX 1103 抓到） */
+:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]), select)) {
   height: 34px !important; min-height: 34px; padding: 0 10px !important; box-sizing: border-box;
   border: 1px solid var(--rd-line-2) !important; border-radius: 6px !important;
   background: var(--rd-bg-2) !important; color: var(--rd-fg) !important;
@@ -248,17 +255,17 @@
   font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; font-size: 12.5px !important; line-height: 1.55;
   box-shadow: var(--rd-well) !important; outline: none; resize: vertical;
 }
-:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input, select, textarea)):focus {
+:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]), select, textarea)):focus {
   border-color: var(--rd-accent) !important; box-shadow: var(--rd-well), 0 0 0 3px var(--rd-glow) !important;
 }
 :root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal, .ui-ss-modal) :is(input, textarea))::placeholder { color: var(--rd-fg-3) !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input, select, textarea)) { border-radius: 4px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]), select, textarea)) { border-radius: 4px !important; }
 :root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal, .ui-ss-modal, .orl-modal, .orl-drawer, .rd-sub) :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--rd-accent); }
 :root[data-ui="redesign"] .rd-field--sm { height: 28px !important; min-height: 28px; font-size: 12px !important; padding: 0 8px !important; }
 :root[data-ui="redesign"] .rd-field--mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; }
 
 /* ── 按鈕（原型 .btn） ── */
-:root[data-ui="redesign"] .rd-btn {
+:root[data-ui="redesign"] :is(.rd-btn, .orl-portal .orl-drawer-foot .orl-btn) {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 34px !important; padding: 0 16px !important; box-sizing: border-box; white-space: nowrap;
   border: 1px solid var(--rd-line-2) !important; border-radius: var(--rd-btn-r) !important;
@@ -267,19 +274,19 @@
   box-shadow: 0 1px 0 var(--rd-hi-2) inset, 0 2px 0 color-mix(in srgb, var(--rd-bg) 80%, #000), 0 4px 10px rgba(0, 0, 0, .35) !important;
   transition: transform .08s ease, border-color .12s ease, box-shadow .12s ease, filter .12s ease;
 }
-:root[data-ui="redesign"] .rd-btn:hover:not(:disabled) { border-color: var(--rd-accent) !important; }
-:root[data-ui="redesign"] .rd-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 var(--rd-hi) inset, 0 1px 2px rgba(0, 0, 0, .4) !important; }
-:root[data-ui="redesign"] .rd-btn:disabled { opacity: .45 !important; cursor: not-allowed; }
-:root[data-ui="redesign"] .rd-btn.is-primary {
+:root[data-ui="redesign"] :is(.rd-btn, .orl-portal .orl-drawer-foot .orl-btn):hover:not(:disabled) { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] :is(.rd-btn, .orl-portal .orl-drawer-foot .orl-btn):active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 var(--rd-hi) inset, 0 1px 2px rgba(0, 0, 0, .4) !important; }
+:root[data-ui="redesign"] :is(.rd-btn, .orl-portal .orl-drawer-foot .orl-btn):disabled { opacity: .45 !important; cursor: not-allowed; }
+:root[data-ui="redesign"] :is(.rd-btn.is-primary, .orl-portal .orl-drawer-foot .orl-btn--primary) {
   border-color: transparent !important; color: #fff !important; font-weight: 700 !important;
   background: linear-gradient(180deg, var(--rd-accent-2), var(--rd-accent) 55%, color-mix(in srgb, var(--rd-accent) 75%, #000)) !important;
   box-shadow: 0 1px 0 rgba(255, 255, 255, .45) inset, 0 2px 0 color-mix(in srgb, var(--rd-accent) 45%, #000), 0 6px 16px -4px var(--rd-glow) !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-btn.is-primary {
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-btn.is-primary, .orl-portal .orl-drawer-foot .orl-btn--primary) {
   color: var(--rd-accent-ink) !important;
   background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important;
 }
-:root[data-ui="redesign"] .rd-btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
+:root[data-ui="redesign"] :is(.rd-btn.is-primary, .orl-portal .orl-drawer-foot .orl-btn--primary):hover:not(:disabled) { filter: brightness(1.08); }
 :root[data-ui="redesign"] .rd-btn.is-danger { color: var(--rd-fail) !important; border-color: color-mix(in srgb, var(--rd-fail) 55%, transparent) !important; }
 :root[data-ui="redesign"] .rd-btn.is-danger:hover:not(:disabled) { border-color: var(--rd-fail) !important; }
 :root[data-ui="redesign"] .rd-btn.is-ok { color: var(--rd-ios-on) !important; border-color: color-mix(in srgb, var(--rd-ios-on) 50%, transparent) !important; }
@@ -324,7 +331,7 @@
 :root[data-ui="redesign"] .rd-pop-item.is-on { color: var(--rd-fg) !important; background: color-mix(in srgb, var(--rd-accent) 16%, transparent) !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui="redesign"] :is(.rd-modal-back, .rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) { animation: none !important; }
+  :root[data-ui="redesign"] :is(.rd-modal-back, .rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule, .uat-multi-workbench) { animation: none !important; }
 }
 
 /* ── 補充：彈窗 portal 出去之後吃不到 .main-content 底下的零件樣式，這裡補上同一套 ── */
@@ -398,3 +405,174 @@
 }
 :root[data-ui="redesign"] .rd-panel > .rd-panel-h { min-height: 38px; padding-top: 7px !important; padding-bottom: 7px !important; font-size: 13px !important; border-radius: 0; }
 :root[data-ui="redesign"] .rd-panel > .rd-panel-h::before { top: 19px; }
+
+/* 錄製腳本工作台（.uat-multi-overlay，z-index 11000 照舊）：標題帶裡的說明降一階、跟標題同一行；關閉鈕靠右 */
+:root[data-ui="redesign"] .uat-multi-workbench > .uat-multi-header > div { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 12px; min-width: 0; }
+:root[data-ui="redesign"] .uat-multi-workbench > .uat-multi-header p { margin: 0 !important; font-weight: 400; font-size: 12px !important; color: var(--rd-fg-3) !important; text-shadow: none; }
+:root[data-ui="redesign"] .uat-multi-workbench > .uat-multi-header > button { margin-left: auto; }
+
+/* ── 篩選列＋籤（AutoSpin 執行日誌的 pinus 分類）：凹槽底、膠囊籤，選中用強調色 ── */
+:root[data-ui="redesign"] .rd-filterbar {
+  background: color-mix(in srgb, var(--rd-bg) 55%, transparent) !important;
+  border-bottom: 1px solid var(--rd-line) !important; box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"] .rd-chip {
+  border: 1px solid var(--rd-line-2) !important; border-radius: 999px !important;
+  background: var(--rd-bg-2) !important; color: var(--rd-fg-3) !important;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+:root[data-ui="redesign"] .rd-chip:hover { color: var(--rd-fg) !important; border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .rd-chip.is-on {
+  color: var(--rd-accent-2) !important; border-color: color-mix(in srgb, var(--rd-accent) 70%, transparent) !important;
+  background: color-mix(in srgb, var(--rd-accent) 18%, var(--rd-bg-2)) !important; box-shadow: 0 0 10px -3px var(--rd-glow);
+}
+
+/* ── OSM 版號同步：未達標機台／元件的分組列與展開清單 ── */
+:root[data-ui="redesign"] .rd-sec-h { position: relative; padding-left: 12px; color: var(--rd-warn) !important; letter-spacing: normal !important; }
+:root[data-ui="redesign"] .rd-sec-h::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 12px; margin-top: -6px; border-radius: 2px; background: var(--rd-warn);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-sec-h::before { width: 6px; height: 6px; margin-top: -3px; border-radius: 1px; transform: rotate(45deg); }
+:root[data-ui="redesign"] .rd-group { border: 1px solid var(--rd-line-2) !important; border-radius: 8px !important; box-shadow: var(--rd-elev-1); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-group { border-radius: 3px !important; }
+:root[data-ui="redesign"] :is(.rd-group-h, .rd-group-row) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 90%, #fff 3%), var(--rd-panel)) !important;
+  transition: background .12s ease;
+}
+:root[data-ui="redesign"] .rd-group-h:hover { background: color-mix(in srgb, var(--rd-accent) 10%, var(--rd-panel-2)) !important; }
+:root[data-ui="redesign"] .rd-group-row { border: 1px solid var(--rd-line-2) !important; border-radius: 8px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-group-row { border-radius: 3px !important; }
+:root[data-ui="redesign"] .rd-group-b {
+  background: color-mix(in srgb, var(--rd-bg) 60%, transparent) !important; border-top: 1px solid var(--rd-line) !important;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, .4);
+}
+:root[data-ui="redesign"] .rd-tag {
+  background: var(--rd-bg-2) !important; border: 1px solid var(--rd-line-2) !important; color: var(--rd-fg-2) !important;
+  border-radius: 4px !important; font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+/* 機種卡裡「缺少 N 台」：分隔線與清單改成凹槽＋異常色（紅只給異常） */
+:root[data-ui="redesign"] .rd-missing { border-top: 1px solid color-mix(in srgb, var(--rd-fail) 45%, transparent) !important; }
+:root[data-ui="redesign"] .rd-missing > button { color: var(--rd-fail) !important; }
+:root[data-ui="redesign"] .rd-missing-list {
+  padding: 4px 8px; border-radius: 6px; background: color-mix(in srgb, var(--rd-fail) 6%, color-mix(in srgb, var(--rd-bg) 60%, transparent));
+  box-shadow: var(--rd-well);
+}
+:root[data-ui="redesign"] .rd-missing-list > div { color: color-mix(in srgb, var(--rd-fail) 70%, var(--rd-fg)) !important; }
+
+/* ── 其他浮出層（1103 第二輪補掃）：側欄收合時的提示／子選單、UAT 新手指引、錄製失敗提示 ── */
+:root[data-ui="redesign"] :is(.sb-flyout, .sb-tip) {
+  background: var(--rd-panel-2) !important; color: var(--rd-fg) !important;
+  border: 1px solid var(--rd-line-2) !important; border-radius: 8px !important; box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"] .sb-tip::before { border-right-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"] .sb-tip-sub, :root[data-ui="redesign"] .sb-flyout-title { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .sb-flyout .sidebar-subtab-item { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .sb-flyout .sidebar-subtab-item:hover { color: var(--rd-fg) !important; background: color-mix(in srgb, var(--rd-accent) 14%, transparent); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.sb-flyout, .sb-tip) { border-radius: 3px !important; border-color: color-mix(in srgb, var(--rd-ornament) 40%, var(--rd-line-2)) !important; }
+
+/* UAT 新手指引：右下浮出的小卡，同一張面板＋滿版標題帶 */
+:root[data-ui="redesign"] .uat-guide {
+  padding: 0 18px 14px !important; color: var(--rd-fg) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 85%, transparent) !important; border-radius: 12px !important;
+  box-shadow: var(--rd-elev-2), 0 20px 50px -16px rgba(0, 0, 0, .7) !important; font-family: inherit !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-guide {
+  border-radius: 3px !important;
+  background:
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 14px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 2px 14px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 14px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 2px 14px no-repeat border-box,
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) border-box !important;
+}
+:root[data-ui="redesign"] .uat-guide > .uat-guide-head {
+  position: relative; margin: 0 -18px 4px; min-height: 40px; padding: 8px 12px 8px 29px;
+  border-bottom: 1px solid var(--rd-line); background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent);
+  font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1.4; letter-spacing: normal; text-transform: none; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"] .uat-guide > .uat-guide-head::before {
+  content: ""; position: absolute; left: 16px; top: 50%; width: 3px; height: 14px; margin-top: -7px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-guide > .uat-guide-head::before {
+  left: 14px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px; transform: rotate(45deg); background: var(--rd-ornament); box-shadow: 0 0 8px var(--rd-ornament);
+}
+:root[data-ui="redesign"] .uat-guide p { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .uat-guide-dots i { background: var(--rd-line-2) !important; }
+:root[data-ui="redesign"] .uat-guide-dots i.is-on { background: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .uat-guide-foot { padding-top: 10px; border-top: 1px solid var(--rd-line); }
+:root[data-ui="redesign"] :is(.uat-guide-foot a, .uat-guide-x) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] :is(.uat-guide-foot a, .uat-guide-x):hover { color: var(--rd-accent-2) !important; }
+
+/* 錄製失敗提示：保留左側異常色條，底換成面板 */
+:root[data-ui="redesign"] .uat-record-toast {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-fail) 8%, var(--rd-panel-2)), var(--rd-panel)) !important;
+  border-color: color-mix(in srgb, var(--rd-fail) 45%, var(--rd-line-2)) !important; border-left-color: var(--rd-fail) !important;
+  box-shadow: var(--rd-elev-2) !important; color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .uat-record-toast { border-radius: 3px !important; }
+
+/* ── 1103 CodeX 第二輪 ── */
+/* 彈窗表單一律原型 .form 的 96px 左標籤欄（標籤｜欄位一列）。
+   舊寫法是「標籤在上、欄位在下」的小 div，兩欄 grid 的也拆成每格一列；用 CSS 接，不重寫每個元件 */
+:root[data-ui="redesign"] .rd-modal-b :is(.rd-row, .rd-modal-stack > div:has(> label + input), .rd-modal-stack > div:has(> label + div), .rd-modal-stack > div:has(> .rd-l + :is(input, select, textarea, div))) {
+  display: grid !important; grid-template-columns: 96px minmax(0, 1fr); column-gap: 14px; row-gap: 4px; align-items: center;
+}
+:root[data-ui="redesign"] .rd-modal-b :is(.rd-row, .rd-modal-stack > div) > :is(label, .rd-l):first-child {
+  display: block !important; margin: 0 !important; font-size: 13px !important; line-height: 1.35; color: var(--rd-fg-2) !important;
+}
+/* 標籤後面的說明（例如「自動填入：…」）放到欄位那一欄 */
+:root[data-ui="redesign"] .rd-modal-b :is(.rd-row, .rd-modal-stack > div) > :is(label, .rd-l):first-child ~ :not(:nth-child(2)) { grid-column: 2; }
+/* 兩欄 grid 的表單（編輯帳號）：每格自己是一列，整個 grid 改單欄 */
+:root[data-ui="redesign"] .rd-modal-b .rd-form-grid { display: flex !important; flex-direction: column; gap: 12px !important; }
+:root[data-ui="redesign"] .rd-modal-b .rd-form-grid > div {
+  display: grid !important; grid-template-columns: 96px minmax(0, 1fr); column-gap: 14px; row-gap: 4px; align-items: center;
+}
+:root[data-ui="redesign"] .rd-modal-b .rd-form-grid > div > label:first-child { margin: 0 !important; font-size: 13px !important; color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .rd-modal-b .rd-form-grid > div > label:first-child ~ * { grid-column: 2; }
+/* 一列放好幾個數字欄（AutoSpin 間隔／機率…）：每組自己是「標籤｜欄位」 */
+:root[data-ui="redesign"] .rd-modal-b .rd-row-group { display: flex !important; flex-direction: column; gap: 12px !important; align-items: stretch !important; }
+:root[data-ui="redesign"] .rd-modal-b .rd-row-group > div {
+  flex: none !important; display: grid !important; row-gap: 4px; grid-template-columns: 96px minmax(0, 1fr); column-gap: 14px; align-items: center;
+}
+:root[data-ui="redesign"] .rd-modal-b .rd-row-group > div > :first-child ~ * { grid-column: 2; }
+:root[data-ui="redesign"] .rd-modal-b .rd-row-group > div > :first-child { margin: 0 !important; font-size: 13px !important; color: var(--rd-fg-2) !important; line-height: 1.35; }
+@media (max-width: 640px) {
+  :root[data-ui="redesign"] .rd-modal-b :is(.rd-row, .rd-modal-stack > div, .rd-form-grid > div, .rd-row-group > div) { grid-template-columns: minmax(0, 1fr) !important; }
+  :root[data-ui="redesign"] .rd-modal-b :is(.rd-row, .rd-modal-stack > div, .rd-form-grid > div, .rd-row-group > div) > * { grid-column: auto !important; }
+}
+
+/* 彈窗裡的分段選擇（JP Group 的 QAT／UAT）：同 .rd-tabs，填滿整欄 */
+:root[data-ui="redesign"] .rd-modal-b .rd-tabs.rd-seg-fill { width: 100%; }
+:root[data-ui="redesign"] .rd-modal-b .rd-tabs.rd-seg-fill > .rd-tab { flex: 1 1 0; }
+
+/* UAT 每日排程（修仙版也是墨綠／玉色）：星期鈕、關閉鈕、分隔線 */
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-days button {
+  border: 1px solid var(--rd-line-2) !important; background: var(--rd-bg-2) !important; color: var(--rd-fg-2) !important; border-radius: var(--rd-btn-r) !important;
+}
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-days button:hover { border-color: var(--rd-accent) !important; color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-days button.is-on {
+  border-color: color-mix(in srgb, var(--rd-accent) 70%, transparent) !important; color: var(--rd-accent-2) !important;
+  background: color-mix(in srgb, var(--rd-accent) 16%, var(--rd-bg-2)) !important;
+}
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-close {
+  border: 1px solid var(--rd-line-2) !important; background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important;
+  color: var(--rd-fg-2) !important; border-radius: var(--rd-btn-r) !important;
+}
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-close:hover { border-color: var(--rd-accent) !important; color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule .uat-schedule-list { border-top-color: var(--rd-line) !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule :is(.uat-schedule-row, .uat-field, select, input) { border-color: var(--rd-line-2) !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule :is(.uat-field, select, input:not([type="checkbox"]):not([type="radio"])) { background: var(--rd-bg-2) !important; color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule hr { border-color: var(--rd-line) !important; }
+
+/* OSM 版本更新紀錄：抽屜頁尾按鈕（修仙版不要金框取消、飽和綠主鍵；跟 Config 彈窗同一組） */
+:root[data-ui="redesign"] .orl-portal .orl-drawer-foot .orl-btn:not(.orl-btn--primary) { color: var(--rd-fg) !important; }
+/* 彈窗是 flex 直欄＋overflow:hidden：只有中間自己捲的那段可以縮（min-height:0），其他列（分頁、搜尋列）固定高度。
+   兩個都要：捲動段沒有 min-height:0 長清單最後幾列會被裁掉捲不到；其他列可縮的話會被表格擠扁、表頭蓋到搜尋框 */
+:root[data-ui="redesign"] .rd-modal > * { flex-shrink: 0; }
+:root[data-ui="redesign"] .rd-modal > :is(.rd-modal-b, .rd-modal-scroll) { flex: 1 1 auto; flex-shrink: 1; min-height: 0; overflow-y: auto; }
+/* 表單裡單獨一列的勾選框（啟用此 JP Group、清除 PIN）：對齊欄位那一欄 */
+:root[data-ui="redesign"] .rd-modal-b :is(.rd-modal-stack, .rd-form-grid + *) > label:has(> input[type="checkbox"]),
+:root[data-ui="redesign"] .rd-modal-b > label:has(> input[type="checkbox"]) { margin-left: 110px !important; }
+@media (max-width: 640px) { :root[data-ui="redesign"] .rd-modal-b label:has(> input[type="checkbox"]) { margin-left: 0 !important; } }

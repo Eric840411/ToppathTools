@@ -96,10 +96,10 @@
    背景改放負的 z-index：在根疊層裡排在一般內容底下，不需要動內容的疊層 */
 
 /* ── 側欄：玻璃板＋亮邊 ── */
+/* ⚠️ backdrop-filter 只寫無前綴：同時寫 -webkit- 那條，build 的 CSS minifier 會只留 -webkit-，Chrome 算出來是 none（1103 實測，玻璃效果整個不見）。只寫無前綴它會自己補 -webkit- */
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-sidebar {
   background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 70%, transparent), color-mix(in srgb, var(--rd-bg) 88%, transparent));
   backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
   border-right: 1px solid var(--rd-line);
   box-shadow: inset -1px 0 0 var(--rd-hi), 8px 0 30px -10px rgba(0, 0, 0, .7);
 }
@@ -128,7 +128,6 @@
 :root[data-ui="redesign"]:not([data-theme-mode="xianxia"]) .app-topbar {
   background: color-mix(in srgb, var(--rd-bg) 80%, transparent);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--rd-line);
 }
 .rd-top-controls { display: flex; align-items: center; gap: 12px; flex: none; }
@@ -140,7 +139,6 @@
   border: 1px solid rgba(255, 255, 255, .16);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 6px 18px -8px rgba(0, 0, 0, .6);
   backdrop-filter: blur(14px) saturate(150%);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
 }
 .rd-seg::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
@@ -169,7 +167,6 @@
 .rd-seg-thumb.is-lens {
   background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .75);
   backdrop-filter: blur(1px) saturate(200%) brightness(1.2);
-  -webkit-backdrop-filter: blur(1px) saturate(200%) brightness(1.2);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, .95), inset 0 -2px 5px rgba(255, 255, 255, .22), inset 0 0 10px rgba(255, 255, 255, .3), 0 8px 22px rgba(0, 0, 0, .35);
   scale: 1.1 1.28;
 }

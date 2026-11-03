@@ -6,8 +6,10 @@
  *   css=<選擇器>   點整頁第一個符合的元素（例如 css=.orl-row）
  *   any=<文字>     點整頁（含彈窗）第一個文字符合的按鈕
  *   wait=<毫秒>    中途多等一下
+ *   scroll=<選擇器> 把第一個符合的元素捲到底（看長清單最後一列）
  *   VIEWPORT=1     只截視窗（彈窗是 position:fixed，整頁截圖會被拉長）
  *   PROBE=<JS 運算式>  截圖前在頁面裡求值並印出（查 computed style 用）
+ *   SHOT=<選擇器>  只截第一個符合元素的外框（往外抓它的父層用 css 自己寫）
  */
 import Database from 'better-sqlite3'
 import { chromium } from 'playwright'
@@ -53,6 +55,7 @@ await ((await sub().count()) ? sub().first() : top().first()).click()
 await p.waitForTimeout(1500)
 for (const t of buttons) {
   if (t.startsWith('wait=')) { await p.waitForTimeout(Number(t.slice(5))); continue }
+  if (t.startsWith('scroll=')) { await p.locator(t.slice(7)).first().evaluate(el => { el.scrollTop = el.scrollHeight }); console.log('scrolled', t.slice(7)); continue }
   const btn = t.startsWith('css=') ? p.locator(t.slice(4)).first()
     : t.startsWith('any=') ? p.locator('button').filter({ hasText: t.slice(4) }).filter({ visible: true }).first()
     : p.locator('.main-content button').filter({ hasText: t }).first()
@@ -61,6 +64,7 @@ for (const t of buttons) {
 }
 await p.waitForTimeout(Number(waitMs) || 3000)
 if (process.env.PROBE) console.log('probe', JSON.stringify(await p.evaluate(process.env.PROBE)))
-await p.screenshot({ path: out, fullPage: process.env.VIEWPORT !== '1' })
+if (process.env.SHOT) await p.locator(process.env.SHOT).first().screenshot({ path: out })
+else await p.screenshot({ path: out, fullPage: process.env.VIEWPORT !== '1' })
 console.log('saved', out)
 await b.close()

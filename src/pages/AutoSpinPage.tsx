@@ -918,7 +918,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                 ))}
 
                 {/* ── 頻率 / 隨機離開參數 ─────────────────────────────────── */}
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="rd-row-group" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div>
                     <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>Spin 間隔（秒）</div>
                     <input type="number" min={0.1} max={60} step={0.1}
@@ -944,7 +944,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                   </>)}
                 </div>
 
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="rd-row-group" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div>
                   <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>低餘額閾值（0 = 不偵測）</div>
                   <input type="number" min={0} step={1}
@@ -1170,12 +1170,12 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                 ))}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 13, color: '#94a3b8' }}>環境</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div className="rd-tabs rd-seg-fill" role="tablist">
                     {(['QAT', 'UAT'] as const).map(env => (
                       <button key={env} onClick={() => {
                         const preset = JP_ENV_PRESETS[env]
                         setJpGroupForm(f => ({ ...f, environment: env, ...(jpGroupEditing === null ? preset : {}) }))
-                      }} style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: `2px solid ${jpGroupForm.environment === env ? (env === 'UAT' ? '#22c55e' : '#38bdf8') : '#334155'}`, background: jpGroupForm.environment === env ? (env === 'UAT' ? 'rgba(34,197,94,0.15)' : 'rgba(56,189,248,0.15)') : 'transparent', color: jpGroupForm.environment === env ? '#f1f5f9' : '#64748b', fontWeight: jpGroupForm.environment === env ? 700 : 400, cursor: 'pointer', fontSize: 13 }}>
+                      }} className="rd-tab" role="tab" aria-selected={jpGroupForm.environment === env}>
                         {env}
                       </button>
                     ))}
@@ -1563,7 +1563,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     </div>
 
                     {pinusOpen && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#101827', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                      <div className="rd-filterbar" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#101827', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                         {PINUS_CATEGORY_META.map(({ key, label }) => {
                           const count = pinusCatCounts.get(key) ?? 0
                           const on = visiblePinusCats.has(key)
@@ -1573,6 +1573,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                               if (next.has(key)) next.delete(key); else next.add(key)
                               return next
                             })}
+                              className={`rd-chip${on ? ' is-on' : ''}`} aria-pressed={on}
                               style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
                                 border: `1px solid ${on ? 'var(--cr-cyan)' : '#2d3f55'}`,
                                 background: on ? 'var(--cr-cyan-soft)' : '#0f172a', color: on ? 'var(--cr-cyan)' : '#64748b' }}>

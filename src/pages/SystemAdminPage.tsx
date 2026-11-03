@@ -399,7 +399,7 @@ export function SystemAdminPage() {
                     編輯帳號：{editTarget.label}
                   </h3></div>
                   <div className="rd-modal-b">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                  <div className="rd-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                     <div>
                       <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>名稱</label>
                       <input style={inputStyle} value={editForm.label}
@@ -518,9 +518,10 @@ export function SystemAdminPage() {
                       目前境界：{cultivationInfo.level}（累計 {cultivationInfo.activeDays} 天）
                     </p>
                   )}
-                  <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>快速選擇境界</label>
+                  <div className="rd-form">
+                  <label className="rd-l">快速選擇境界</label>
                   <select
-                    style={{ ...inputStyle, marginBottom: 12 }}
+                    style={{ ...inputStyle }}
                     value=""
                     onChange={e => { if (e.target.value) setCultivationDaysInput(Number(e.target.value)) }}
                   >
@@ -529,14 +530,15 @@ export function SystemAdminPage() {
                       <option key={lv.name} value={lv.threshold}>{lv.name}（{lv.threshold} 天）</option>
                     ))}
                   </select>
-                  <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>累計登入天數</label>
+                  <label className="rd-l">累計登入天數</label>
                   <input
-                    style={{ ...inputStyle, marginBottom: 16 }}
+                    style={{ ...inputStyle }}
                     type="number"
                     min={0}
                     value={cultivationDaysInput}
                     onChange={e => setCultivationDaysInput(Math.max(0, Number(e.target.value) || 0))}
                   />
+                  </div>
                   </div>
                   <div className="rd-modal-f">
                     {cultivationMsg && <span className="rd-modal-f-note" style={{ color: cultivationMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{cultivationMsg}</span>}
