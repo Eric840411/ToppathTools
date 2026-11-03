@@ -664,3 +664,9 @@
 
 /* 頂列：原型修仙版右側只有版本切換，沒有羅盤印章（使用者 1103 回報切換鈕區塊異常） */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .app-topbar-seal { display: none !important; }
+
+/* Dashboard 頁首：原型修仙版只有標語，沒有右側人物主視覺圖（使用者 1103 要求拿掉）；自動更新資訊已移到頁首右側 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro { min-height: 0 !important; padding-right: 0 !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-intro::after { display: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .dashboard-head-meta { color: var(--rd-fg-3) !important; }

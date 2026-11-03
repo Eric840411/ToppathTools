@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaReveal } from '../components/XianxiaReveal'
+import { PageActions } from '../redesign/PageActions'
 
 type DashboardSummary = {
   ok: boolean
@@ -254,10 +255,10 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
             <p>登入後第一眼掌握目前使用人數、背景任務與服務壓力。</p>
           </div>
         )}
-        <div className="dashboard-intro-meta">
-          <span>自動更新：30 秒</span>
-          <span>更新於 {formatClock(summary.generatedAt)}</span>
-        </div>
+        {/* 原型 v7：自動更新資訊是頁首右側的一行小字（兩版相同） */}
+        <PageActions>
+          <span className="dashboard-head-meta">自動更新：30 秒 · 更新於 {formatClock(summary.generatedAt)}</span>
+        </PageActions>
       </div>
 
       {/* ④ 卡片光暈 + ① 文字浮現。
