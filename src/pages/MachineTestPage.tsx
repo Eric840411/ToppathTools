@@ -668,11 +668,12 @@ function ProfilesPanel() {
       )}
 
       {/* CCTV image lightbox */}
-      {cctvPreview && (
+      {cctvPreview && createPortal(
         <div
+          className="rd-lightbox"
           onClick={() => setCctvPreview(null)}
           style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
+            position: 'fixed', inset: 0, zIndex: 10000,
             background: 'rgba(0,0,0,0.75)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'zoom-out',
@@ -685,10 +686,11 @@ function ProfilesPanel() {
             onClick={e => e.stopPropagation()}
           />
           <span
+            className="rd-lightbox-x"
             onClick={() => setCctvPreview(null)}
-            style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer', lineHeight: 1 }}
           >關閉</span>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
@@ -918,9 +920,9 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
       )}
 
       {cctvPreview && createPortal(
-        <div onClick={() => setCctvPreview(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="rd-lightbox" onClick={() => setCctvPreview(null)} style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={cctvPreview} alt="CCTV" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8 }} onClick={e => e.stopPropagation()} />
-          <span onClick={() => setCctvPreview(null)} style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer' }}>關閉</span>
+          <span className="rd-lightbox-x" onClick={() => setCctvPreview(null)}>關閉</span>
         </div>,
         document.body,
       )}
@@ -1304,7 +1306,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         </div>
       )}
       {/* ── PIN Modal ── */}
-      {showPinModal && (
+      {showPinModal && createPortal(
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowPinModal(false)}>
           <div className="modal-box" style={{ width: 360 }}>
             <div className="modal-header">
@@ -1312,7 +1314,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               <button className="modal-close" onClick={() => setShowPinModal(false)}>關閉</button>
             </div>
             <div style={{ padding: '20px' }}>
-              <p style={{ fontSize: 14, color: '#4b5563', marginTop: 0 }}>機台測試需要管理員 PIN 才能執行</p>
+              <p className="rd-modal-hint" style={{ marginBottom: 12 }}>機台測試需要管理員 PIN 才能執行</p>
               <input
                 ref={pinInputRef}
                 type="password"
@@ -1320,20 +1322,22 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 value={pinValue}
                 onChange={e => setPinValue(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleVerifyPin()}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 14, boxSizing: 'border-box' }}
+                style={{ width: '100%' }}
               />
-              {pinError && <p style={{ color: '#dc2626', fontSize: 13, margin: '8px 0 0' }}>{pinError}</p>}
+              {pinError && <p className="rd-modal-err" style={{ marginTop: 8 }}>{pinError}</p>}
               <button
                 type="button"
+                className="rd-btn is-primary"
                 onClick={handleVerifyPin}
                 disabled={pinLoading}
-                style={{ marginTop: 12, width: '100%', padding: '10px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+                style={{ marginTop: 14, width: '100%' }}
               >
                 {pinLoading ? '驗證中...' : '確認'}
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ── Active Session Banner ── */}
@@ -1390,9 +1394,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
       {/* ── OSMWatcher 即時監控面板 ── */}
       {osmPanelOpen && osmConnected && (
-        <div className="mt-osm-panel" style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <div className="mt-osm-panel rd-inner" style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ color: '#64748b', fontSize: 12 }}>
+            <span className="rd-inner-h" style={{ color: '#64748b', fontSize: 12 }}>
               即時機台狀態 — SSE 即時推送
               {osmLastUpdated && <span style={{ marginLeft: 8, opacity: 0.7 }}>最後更新：{osmLastUpdated.toLocaleTimeString()}</span>}
             </span>
@@ -2022,10 +2026,11 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       )}
 
       {/* ── CCTV Screenshot Lightbox ── */}
-      {cctvPreview && (
+      {cctvPreview && createPortal(
         <div
+          className="rd-lightbox"
           onClick={() => setCctvPreview(null)}
-          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <img
             src={cctvPreview}
@@ -2034,10 +2039,11 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             onClick={e => e.stopPropagation()}
           />
           <span
+            className="rd-lightbox-x"
             onClick={() => setCctvPreview(null)}
-            style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer', lineHeight: 1 }}
           >關閉</span>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ── My History Panel ── */}

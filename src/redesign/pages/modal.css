@@ -1,0 +1,400 @@
+/* ══════════════════════════════════════════════════════════════════
+   彈窗／對話框／抽屜／內層設定（使用者 1103：「這種有內層設定的功能都沒做到相同風格」）
+
+   原型 v7 沒有彈窗設計，這裡用既有零件拼一套共用的樣子，兩個皮同一套結構（仙俠只換配色與角飾）：
+     遮罩   rd-modal-back   壓暗＋微模糊，卡片置中
+     卡片   rd-modal        面板底色／框線／圓角（同 .section-card）；仙俠鎏金角框
+     標題帶 rd-modal-h      同原型 .panel-h：滿版一條、左側強調色條（仙俠：鎏金菱形）、底下分隔線
+     內容   rd-modal-b      14px 16px
+     頁尾   rd-modal-f      靠右，次要「取消」＋主要按鈕
+     表單   rd-form         原型 .form：96px 標籤欄；rd-field＝原型 .field 34px，textarea 凹槽
+     按鈕   rd-btn          原型 .btn；.is-primary 主要、.is-danger 刪除
+
+   各元件原本的 class（.modal-overlay／.modal-box／.msp-modal／.orl-drawer／.uat-tc-picker…）也在下面一併接上，
+   不用每個元件都改寫。很多彈窗是行內 style 寫死顏色，所以視覺屬性一律 !important（只在 data-ui=redesign 底下）。
+
+   ⚠️ 彈窗一定要 Portal 到 document.body：仙俠外殼有 backdrop-filter、換頁動畫有 transform，
+      沒 portal 的 position:fixed 會被困在容器裡（沒壓暗整頁、沒置中——就是使用者這次回報的樣子）。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 遮罩 ── */
+:root[data-ui="redesign"] :is(.rd-modal-back, .modal-overlay, .ui-ss-modal-backdrop, .msp-modal-back, .orl-overlay, .uat-tc-modal, .uat-schedule-overlay):not(.auth-login-overlay) {
+  /* 只寫無前綴的 backdrop-filter：同時寫 -webkit- 的話 minifier 會把無前綴那條吃掉，Chrome 就吃不到 !important（實測） */
+  background: color-mix(in srgb, var(--rd-bg) 62%, rgba(0, 0, 0, .55)) !important;
+  backdrop-filter: blur(4px) saturate(110%) !important;
+}
+:root[data-ui="redesign"] .rd-modal-back {
+  position: fixed; inset: 0; z-index: 10000; /* 蓋過 AI Agent 監控小窗（9999）；UAT 自己的彈框更高，照舊 */
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; box-sizing: border-box;
+  animation: rd-modal-fade .16s ease-out;
+}
+@keyframes rd-modal-fade { from { opacity: 0; } }
+/* 既有彈窗的遮罩原本 z-index 1000～9999，會被 AI Agent 監控小窗（9999）壓在上面；統一拉到 10000（UAT 自己的 10050／11000 照舊） */
+:root[data-ui="redesign"] :is(.modal-overlay, .ui-ss-modal-backdrop, .msp-modal-back, .orl-overlay) { z-index: 10000 !important; }
+@keyframes rd-modal-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+
+/* ── 卡片 ── */
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+  position: relative;
+  color: var(--rd-fg) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 85%, transparent) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--rd-elev-2), 0 30px 80px -20px rgba(0, 0, 0, .75) !important;
+  box-sizing: border-box;
+}
+:root[data-ui="redesign"] :is(.rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+  animation: rd-modal-rise .2s var(--rd-ease);
+}
+:root[data-ui="redesign"] .rd-modal {
+  display: flex; flex-direction: column;
+  width: 540px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+:root[data-ui="redesign"] .rd-modal--wide { width: 760px; }
+/* 抽屜：右側滑出那種，維持貼右、滿高，只是外觀同一套 */
+:root[data-ui="redesign"] .orl-drawer { border-radius: 0 !important; border-width: 0 0 0 1px !important; }
+
+/* 仙俠：圓角 3、左上／右下鎏金角框（原型 .panel::before／::after）。用背景畫，不佔偽元素
+   （.modal-close、登入框、UAT 的頭都有自己的 ::before／::after），也不會被 overflow:hidden 裁掉 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal, .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+  border-radius: 3px !important;
+  background:
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 14px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 2px 14px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 14px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 2px 14px no-repeat border-box,
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) border-box !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .orl-drawer { border-radius: 0 !important; }
+/* 登入框：保留它自己的入口版面（置中鎖頭、大標），只換成同一套面板底色 */
+:root[data-ui="redesign"] .auth-login-modal {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
+  border-color: color-mix(in srgb, var(--rd-line-2) 85%, transparent) !important;
+  box-shadow: var(--rd-elev-2), 0 30px 80px -20px rgba(0, 0, 0, .75) !important;
+}
+
+/* 卡片內距統一：上 0（標題帶自己滿版）、左右 20、下 18。.modal-box／.ui-ss-modal／.rd-modal 本來就不留內距，子層自己留 */
+:root[data-ui="redesign"] :is(.modal:not(.auth-login-modal):not(.rd-modal), .msp-modal, .orl-modal, .orl-drawer, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) {
+  padding: 0 20px 18px !important;
+}
+
+/* ── 標題帶（同原型 .panel-h） ── */
+:root[data-ui="redesign"] :is(
+  .rd-modal-h,
+  .modal-box > .modal-header,
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .ui-ss-modal-head,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+) {
+  position: relative;
+  display: flex; align-items: center; gap: 10px; flex: none;
+  min-height: 44px; box-sizing: border-box;
+  padding: 10px 16px 10px 29px !important;
+  border: 0 !important; border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent) !important;
+  color: var(--rd-fg) !important;
+  font-size: 14px !important; font-weight: 700 !important; letter-spacing: normal !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
+}
+/* 有內距的卡片：標題帶往外撐到滿版 */
+:root[data-ui="redesign"] :is(
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+) { margin: 0 -20px 14px !important; }
+:root[data-ui="redesign"] :is(.orl-drawer) > .orl-drawer-head { border-radius: 0; }
+:root[data-ui="redesign"] :is(
+  .rd-modal-h,
+  .modal-box > .modal-header,
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .ui-ss-modal-head,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+)::before {
+  /* 固定在第一行的高度中線（44px 帶的一半），標題帶換行（底下有說明）時色條仍對齊標題字 */
+  content: ""; position: absolute; left: 16px; top: 22px; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  .rd-modal-h,
+  .modal-box > .modal-header,
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .ui-ss-modal-head,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+) { border-radius: 3px 3px 0 0; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(
+  .rd-modal-h,
+  .modal-box > .modal-header,
+  .modal:not(.auth-login-modal) > .modal-header,
+  .modal:not(.auth-login-modal) > .uat-section-title,
+  .ui-ss-modal-head,
+  .msp-modal-title,
+  :is(.orl-drawer, .orl-modal) > .orl-drawer-head,
+  .uat-tc-picker > .uat-tc-picker-head,
+  .uat-tc-editor > .uat-tc-editor-head,
+  .uat-schedule-overlay > .uat-schedule > .uat-section-title
+)::before {
+  left: 14px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 1px;
+  background: var(--rd-ornament); transform: rotate(45deg); box-shadow: 0 0 8px var(--rd-ornament);
+}
+/* 標題文字：標題帶裡的 h2／h3／b／span 一律 14px 粗體、主字色 */
+:root[data-ui="redesign"] :is(.rd-modal-h, .modal-header, .ui-ss-modal-head, .orl-drawer-head, .uat-tc-picker-head, .uat-tc-editor-head, .uat-editor-modal > .uat-section-title, .uat-schedule > .uat-section-title) :is(h2, h3) {
+  margin: 0 !important; font-size: 14px !important; font-weight: 700 !important; color: var(--rd-fg) !important;
+  font-family: inherit !important; letter-spacing: normal !important;
+}
+/* 標題後面的說明／計數：降一階，靠右（原型 .panel-h .meta） */
+:root[data-ui="redesign"] .rd-modal-h .rd-modal-meta,
+:root[data-ui="redesign"] .rd-modal-h > small {
+  margin-left: auto; font-weight: 400; font-size: 12px; color: var(--rd-fg-3);
+}
+:root[data-ui="redesign"] .rd-modal-h > .rd-modal-x,
+:root[data-ui="redesign"] :is(.modal-header, .ui-ss-modal-head, .orl-drawer-head, .uat-tc-picker-head, .uat-tc-editor-head) > :last-child:is(button) { margin-left: auto; }
+/* UAT 的英文小字 kicker 留著，但跟標題同一行才不會把標題帶撐成兩層 */
+:root[data-ui="redesign"] :is(.uat-tc-picker-head, .uat-tc-editor-head) > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; min-width: 0; }
+:root[data-ui="redesign"] :is(.uat-tc-picker-head, .uat-tc-editor-head, .uat-editor-modal > .uat-section-title, .uat-schedule > .uat-section-title) .uat-net-kicker,
+:root[data-ui="redesign"] :is(.uat-editor-modal, .uat-schedule) > .uat-section-title > span {
+  order: 2; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; color: var(--rd-fg-3) !important;
+}
+:root[data-ui="redesign"] .uat-tc-picker-head small { flex-basis: 100%; margin: 2px 0 0 !important; font-weight: 400; color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .uat-editor-modal > .uat-section-title { display: flex !important; flex-wrap: wrap; column-gap: 10px; }
+:root[data-ui="redesign"] .uat-editor-modal > .uat-section-title > h3 { order: 1; }
+:root[data-ui="redesign"] .uat-editor-modal > .uat-section-title > .uat-btn { order: 3; margin-left: auto; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule > .uat-section-title { flex-wrap: wrap; column-gap: 10px; padding-right: 56px !important; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule > .uat-section-title > h3 { order: 1; }
+:root[data-ui="redesign"] .uat-schedule-overlay > .uat-schedule > .uat-section-title > p {
+  order: 3; flex-basis: 100%; margin: 4px 0 0; font-weight: 400; font-size: 12.5px; color: var(--rd-fg-2); text-shadow: none;
+}
+:root[data-ui="redesign"] .uat-schedule-overlay .uat-schedule-close { top: 8px; right: 10px; z-index: 2; }
+/* Meegle 正式空間確認：標題帶的色條用警示色（這個彈窗本來就是橘色警告） */
+:root[data-ui="redesign"] .msp-modal-title::before { background: var(--rd-warn) !important; box-shadow: 0 0 8px color-mix(in srgb, var(--rd-warn) 50%, transparent) !important; }
+
+/* 關閉鈕：玻璃小按鍵 */
+:root[data-ui="redesign"] :is(.rd-modal-x, .modal-close) {
+  height: 28px; padding: 0 10px !important; border-radius: var(--rd-btn-r) !important;
+  border: 1px solid var(--rd-line-2) !important; background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important;
+  color: var(--rd-fg-2) !important; font-size: 12px !important; font-weight: 500 !important; cursor: pointer; line-height: 1;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"] :is(.rd-modal-x, .modal-close):hover { color: var(--rd-fg) !important; border-color: var(--rd-accent) !important; }
+/* 舊仙俠把 .modal-close 換成 ✕ 線條（字級 0）；新版兩個皮都顯示文字 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .modal-close { font-size: 12px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .modal-close::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .modal-close::after { content: none !important; }
+
+/* ── 內容／頁尾 ── */
+:root[data-ui="redesign"] .rd-modal-b { padding: 14px 16px; overflow-y: auto; min-height: 0; flex: 1 1 auto; font-size: 13px; color: var(--rd-fg-2); }
+:root[data-ui="redesign"] .rd-modal-f {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; flex: none;
+  padding: 12px 16px !important; border-top: 1px solid var(--rd-line) !important;
+  background: color-mix(in srgb, var(--rd-bg) 30%, transparent) !important;
+  color: var(--rd-fg-3) !important; font-size: 12px;
+}
+:root[data-ui="redesign"] .rd-modal-f > .rd-modal-f-note { margin-right: auto; }
+:root[data-ui="redesign"] :is(.msp-modal-actions, .orl-drawer-foot) { padding-top: 12px; border-top: 1px solid var(--rd-line) !important; }
+:root[data-ui="redesign"] .msp-modal-actions { margin-top: 16px; gap: 10px; }
+:root[data-ui="redesign"] .rd-modal-err { margin: 0; font-size: 12.5px; color: var(--rd-fail) !important; }
+:root[data-ui="redesign"] .rd-modal-hint { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--rd-fg-3) !important; }
+
+/* 內層小面板（彈窗裡的分區卡、頁內展開的設定區）：凹進面板一階 */
+:root[data-ui="redesign"] .rd-sub {
+  border: 1px solid var(--rd-line) !important; border-radius: 8px !important;
+  background: color-mix(in srgb, var(--rd-bg) 55%, transparent) !important;
+  box-shadow: var(--rd-well) !important; color: var(--rd-fg-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-sub { border-radius: 3px !important; }
+:root[data-ui="redesign"] .rd-sub-h { font-size: 13px !important; font-weight: 700 !important; color: var(--rd-fg) !important; letter-spacing: normal !important; text-transform: none !important; }
+
+/* ── 表單（原型 .form／.field） ── */
+:root[data-ui="redesign"] .rd-form { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px 14px; align-items: center; }
+:root[data-ui="redesign"] .rd-form > .rd-l { color: var(--rd-fg-2); font-size: 13px; }
+:root[data-ui="redesign"] .rd-form > .rd-l--top { align-self: start; padding-top: 8px; }
+:root[data-ui="redesign"] .rd-form > .rd-span { grid-column: 1 / -1; }
+:root[data-ui="redesign"] .rd-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
+@media (max-width: 640px) { :root[data-ui="redesign"] .rd-form { grid-template-columns: minmax(0, 1fr); } }
+
+/* 輸入框：彈窗裡的文字框／下拉一律照原型 .field（行內 style 的高度、框線、底色都蓋掉；寬度／flex 不動） */
+:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input:is([type="text"], [type="search"], [type="url"], [type="number"], [type="password"], [type="email"], [type="time"], [type="date"], :not([type])), select)) {
+  height: 34px !important; min-height: 34px; padding: 0 10px !important; box-sizing: border-box;
+  border: 1px solid var(--rd-line-2) !important; border-radius: 6px !important;
+  background: var(--rd-bg-2) !important; color: var(--rd-fg) !important;
+  font-size: 13px !important; box-shadow: var(--rd-well) !important; outline: none;
+  transition: border-color .1s, box-shadow .1s;
+}
+:root[data-ui="redesign"] :is(textarea.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) textarea) {
+  height: auto !important; min-height: 72px; padding: 8px 10px !important; box-sizing: border-box;
+  border: 1px solid var(--rd-line-2) !important; border-radius: 6px !important;
+  background: var(--rd-bg-2) !important; color: var(--rd-fg) !important;
+  font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; font-size: 12.5px !important; line-height: 1.55;
+  box-shadow: var(--rd-well) !important; outline: none; resize: vertical;
+}
+:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input, select, textarea)):focus {
+  border-color: var(--rd-accent) !important; box-shadow: var(--rd-well), 0 0 0 3px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal, .ui-ss-modal) :is(input, textarea))::placeholder { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-field, :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(input, select, textarea)) { border-radius: 4px !important; }
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal, .ui-ss-modal, .orl-modal, .orl-drawer, .rd-sub) :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--rd-accent); }
+:root[data-ui="redesign"] .rd-field--sm { height: 28px !important; min-height: 28px; font-size: 12px !important; padding: 0 8px !important; }
+:root[data-ui="redesign"] .rd-field--mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; }
+
+/* ── 按鈕（原型 .btn） ── */
+:root[data-ui="redesign"] .rd-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px !important; padding: 0 16px !important; box-sizing: border-box; white-space: nowrap;
+  border: 1px solid var(--rd-line-2) !important; border-radius: var(--rd-btn-r) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 80%, #fff 6%), var(--rd-panel)) !important;
+  color: var(--rd-fg) !important; font-size: 13px !important; font-weight: 500 !important; cursor: pointer;
+  box-shadow: 0 1px 0 var(--rd-hi-2) inset, 0 2px 0 color-mix(in srgb, var(--rd-bg) 80%, #000), 0 4px 10px rgba(0, 0, 0, .35) !important;
+  transition: transform .08s ease, border-color .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+:root[data-ui="redesign"] .rd-btn:hover:not(:disabled) { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] .rd-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 var(--rd-hi) inset, 0 1px 2px rgba(0, 0, 0, .4) !important; }
+:root[data-ui="redesign"] .rd-btn:disabled { opacity: .45 !important; cursor: not-allowed; }
+:root[data-ui="redesign"] .rd-btn.is-primary {
+  border-color: transparent !important; color: #fff !important; font-weight: 700 !important;
+  background: linear-gradient(180deg, var(--rd-accent-2), var(--rd-accent) 55%, color-mix(in srgb, var(--rd-accent) 75%, #000)) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .45) inset, 0 2px 0 color-mix(in srgb, var(--rd-accent) 45%, #000), 0 6px 16px -4px var(--rd-glow) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-btn.is-primary {
+  color: var(--rd-accent-ink) !important;
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important;
+}
+:root[data-ui="redesign"] .rd-btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
+:root[data-ui="redesign"] .rd-btn.is-danger { color: var(--rd-fail) !important; border-color: color-mix(in srgb, var(--rd-fail) 55%, transparent) !important; }
+:root[data-ui="redesign"] .rd-btn.is-danger:hover:not(:disabled) { border-color: var(--rd-fail) !important; }
+:root[data-ui="redesign"] .rd-btn.is-ok { color: var(--rd-ios-on) !important; border-color: color-mix(in srgb, var(--rd-ios-on) 50%, transparent) !important; }
+:root[data-ui="redesign"] .rd-btn--sm { height: 28px !important; padding: 0 11px !important; font-size: 12px !important; }
+
+/* 分頁（彈窗裡）：沿用 .rd-tabs／.rd-tab，左右留跟內容一樣的邊 */
+:root[data-ui="redesign"] .rd-modal-tabs { margin: 12px 16px 0; flex: none; }
+
+/* 彈窗裡的表格：同 .version-table 的表頭底色、分隔線 */
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .orl-modal) table th {
+  background: var(--rd-bg-2) !important; color: var(--rd-fg-2) !important;
+  border-bottom: 1px solid var(--rd-line-2) !important; font-size: 12px !important; font-weight: 600 !important;
+  font-family: inherit !important; letter-spacing: .04em !important;
+}
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .orl-modal) table :is(thead tr, tbody tr) { background: none !important; }
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .orl-modal) table td { border-bottom: 1px solid var(--rd-line) !important; }
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .orl-modal) table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent) !important; }
+
+/* 圖片預覽（點縮圖放大的那種）：只壓暗，不加卡片 */
+:root[data-ui="redesign"] .rd-lightbox {
+  background: color-mix(in srgb, var(--rd-bg) 70%, rgba(0, 0, 0, .75)) !important;
+  backdrop-filter: blur(4px) !important;
+}
+:root[data-ui="redesign"] .rd-lightbox img { border-radius: 8px; box-shadow: var(--rd-elev-2); border: 1px solid var(--rd-line-2); }
+:root[data-ui="redesign"] .rd-lightbox-x {
+  position: fixed; top: 18px; right: 24px; height: 32px; padding: 0 14px; display: inline-flex; align-items: center;
+  border: 1px solid var(--rd-line-2); border-radius: var(--rd-btn-r);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 80%, #fff 6%), var(--rd-panel)) !important;
+  color: var(--rd-fg) !important; font-size: 13px !important; cursor: pointer; line-height: 1 !important;
+  box-shadow: 0 1px 0 var(--rd-hi-2) inset, 0 4px 10px rgba(0, 0, 0, .4);
+}
+
+/* ── 頁內浮出選單（SearchSelect、週報人員下拉）：同一張面板，不再是白底 ── */
+:root[data-ui="redesign"] .rd-pop {
+  background: var(--rd-panel-2) !important; color: var(--rd-fg) !important;
+  border: 1px solid var(--rd-line-2) !important; border-radius: 8px !important;
+  box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-pop { border-radius: 3px !important; }
+:root[data-ui="redesign"] .rd-pop-item { color: var(--rd-fg-2) !important; background: none !important; }
+:root[data-ui="redesign"] .rd-pop-item:hover,
+:root[data-ui="redesign"] .rd-pop-item.is-on { color: var(--rd-fg) !important; background: color-mix(in srgb, var(--rd-accent) 16%, transparent) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="redesign"] :is(.rd-modal-back, .rd-modal, .msp-modal, .orl-modal, .uat-tc-picker, .uat-tc-editor, .uat-schedule-overlay > .uat-schedule) { animation: none !important; }
+}
+
+/* ── 補充：彈窗 portal 出去之後吃不到 .main-content 底下的零件樣式，這裡補上同一套 ── */
+:root[data-ui="redesign"] .rd-modal-stack { display: flex; flex-direction: column; gap: 12px; }
+:root[data-ui="redesign"] .rd-modal-b :is(label, .rd-l) { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .rd-modal-b .rd-l { font-size: 12.5px !important; }
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(.btn-ghost, .settings-btn) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .01)) !important;
+  border: 1px solid var(--rd-line-2) !important; border-radius: var(--rd-btn-r) !important; color: var(--rd-fg-2) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 0 rgba(0, 0, 0, .35);
+}
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(.btn-ghost, .settings-btn):hover:not(:disabled) { color: var(--rd-fg) !important; border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(.submit-btn, .osm-btn--primary):not(.rd-btn) {
+  background: var(--rd-accent) !important; color: #fff !important; border-color: transparent !important; border-radius: var(--rd-btn-r) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .ui-ss-modal) :is(.submit-btn, .osm-btn--primary):not(.rd-btn) {
+  background: linear-gradient(135deg, var(--rd-accent), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-accent-2))) !important; color: var(--rd-accent-ink) !important;
+}
+/* 表格列的行內淺色分隔線（舊淺色主題留下的 #f3f4f6／#e5e7eb）換成面板線 */
+:root[data-ui="redesign"] :is(.rd-modal, .modal-box, .modal:not(.auth-login-modal), .orl-modal) table tr { border-color: var(--rd-line) !important; }
+/* OSM 機種分布：搜尋框右側有清除鈕 */
+:root[data-ui="redesign"] .rd-modal .osm-dist-search { padding-right: 30px !important; }
+:root[data-ui="redesign"] .rd-modal .osm-dist-tools { padding-left: 16px; padding-right: 16px; }
+
+/* ── 頁內確認列（「確定解除？」「確認執行」這類不開彈窗、直接展開在原地的確認）：凹槽＋左側警示色條 ── */
+:root[data-ui="redesign"] :is(.mg-confirm, .uat-multi-confirm, .uat-script-lock-confirm) {
+  position: relative; padding: 10px 14px 10px 17px !important;
+  border: 1px solid var(--rd-line) !important; border-radius: 8px !important;
+  background: color-mix(in srgb, var(--rd-warn) 6%, color-mix(in srgb, var(--rd-bg) 55%, transparent)) !important;
+  box-shadow: var(--rd-well) !important; color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"] :is(.mg-confirm, .uat-multi-confirm, .uat-script-lock-confirm)::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--rd-warn);
+}
+:root[data-ui="redesign"] :is(.mg-confirm, .uat-multi-confirm, .uat-script-lock-confirm) strong { color: var(--rd-fg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.mg-confirm, .uat-multi-confirm, .uat-script-lock-confirm) { border-radius: 3px !important; }
+
+/* ── 頁內展開的設定區（行內 style 寫死舊配色的那幾塊）：同 .rd-sub ── */
+:root[data-ui="redesign"] .rd-inner {
+  border: 1px solid var(--rd-line) !important; border-radius: 10px !important;
+  background: color-mix(in srgb, var(--rd-bg) 45%, var(--rd-panel)) !important;
+  box-shadow: var(--rd-well) !important; color: var(--rd-fg-2);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-inner { border-radius: 3px !important; }
+:root[data-ui="redesign"] .rd-inner-h {
+  position: relative; padding-left: 13px !important; color: var(--rd-fg) !important; font-weight: 700 !important; font-size: 13px !important;
+}
+:root[data-ui="redesign"] .rd-inner-h::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 13px; margin-top: -6.5px; border-radius: 2px;
+  background: var(--rd-accent); box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-inner-h::before {
+  width: 6px; height: 6px; margin-top: -3px; border-radius: 1px; transform: rotate(45deg);
+  background: var(--rd-ornament); box-shadow: 0 0 6px var(--rd-ornament);
+}
+
+/* ── 頁內的小面板元件（Live Ledger 的 Panel）：同 .section-card 的浮起面板＋標題帶 ── */
+:root[data-ui="redesign"] .rd-panel {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
+  border-radius: 10px !important; box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-panel {
+  border-radius: 3px !important;
+  background:
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 12px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) left top / 2px 12px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 12px 2px no-repeat border-box,
+    linear-gradient(var(--rd-ornament), var(--rd-ornament)) right bottom / 2px 12px no-repeat border-box,
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) border-box !important;
+}
+:root[data-ui="redesign"] .rd-panel > .rd-panel-h { min-height: 38px; padding-top: 7px !important; padding-bottom: 7px !important; font-size: 13px !important; border-radius: 0; }
+:root[data-ui="redesign"] .rd-panel > .rd-panel-h::before { top: 19px; }

@@ -178,7 +178,7 @@ function SearchableSelect({ value, onChange, options, placeholder, invalid }: {
         className={'wr-field' + (invalid ? ' wr-field--invalid' : '')}
       />
       {open && filtered.length > 0 && (
-        <div style={{
+        <div className="rd-pop" style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60,
           maxHeight: 220, overflowY: 'auto', background: '#0b1322', border: '1px solid #2d3f55',
           borderRadius: 7, boxShadow: '0 12px 30px rgba(0,0,0,.4)',
@@ -248,7 +248,7 @@ function SearchableMultiSelect({ selected, onChange, options, placeholder }: {
         className="wr-field wr-field--ellipsis"
       />
       {open && (
-        <div style={{
+        <div className="rd-pop" style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 60, minWidth: 200,
           maxHeight: 220, overflowY: 'auto', background: '#0b1322', border: '1px solid #2d3f55',
           borderRadius: 7, boxShadow: '0 12px 30px rgba(0,0,0,.4)',

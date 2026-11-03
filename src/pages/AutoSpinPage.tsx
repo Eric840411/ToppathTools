@@ -3,6 +3,7 @@ import LiveLedgerTab from '../components/LiveLedgerTab'
 import { matchesLogFilterPre } from '../../shared/autospin-log-rules'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 import { PageActions } from '../redesign/PageActions'
+import Portal from '../components/Portal'
 
 /** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
  * 先前使用者只能手動選取複製，長日誌貼進 Discord 會被截斷成 message.txt
@@ -849,9 +850,11 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
           {/* Add/Edit modal */}
           {showForm && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 560, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{editingType ? `編輯：${editingType}` : '新增機台設定'}</div>
+            <Portal>
+            <div className="rd-modal-back">
+              <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 600 }}>
+                <div className="rd-modal-h">{editingType ? `編輯：${editingType}` : '新增機台設定'}</div>
+                <div className="rd-modal-b rd-modal-stack">
 
                 {[
                   { key: 'machineType', label: '機台類型 *', placeholder: 'e.g. JJBXGRAND', disabled: !!editingType },
@@ -876,9 +879,9 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                       placeholder="https://..."
                       style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }}
                     />
-                    <button type="button" className="btn-ghost"
+                    <button type="button" className="rd-btn"
                       title="從帳號池選取"
-                      style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
+                      style={{ flexShrink: 0 }}
                       onClick={() => setShowUrlPicker(true)}>
                       選取
                     </button>
@@ -963,15 +966,15 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                 </div>
                 </div>
 
-                {configMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>失敗 {configMsg}</p>}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-                  <button onClick={() => { setShowForm(false); setConfigMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>取消</button>
-                  <button onClick={handleSaveConfig}
-                    style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
+                {configMsg && <p className="rd-modal-err">失敗 {configMsg}</p>}
+                </div>
+                <div className="rd-modal-f">
+                  <button className="rd-btn" onClick={() => { setShowForm(false); setConfigMsg('') }}>取消</button>
+                  <button className="rd-btn is-primary" onClick={handleSaveConfig}>儲存</button>
                 </div>
               </div>
             </div>
+            </Portal>
           )}
         </div>
       )}
@@ -1088,17 +1091,20 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
       {/* ── Lightbox ─────────────────────────────────────────────────────────── */}
       {lightbox && (
+        <Portal>
         <div
+          className="rd-lightbox"
           onClick={() => setLightbox(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
         >
           <img src={lightbox} alt="preview"
             style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
-          <div style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, fontWeight: 300, cursor: 'pointer', lineHeight: 1 }}>×</div>
+          <div className="rd-lightbox-x">關閉</div>
           <div style={{ position: 'absolute', bottom: 20, color: '#94a3b8', fontSize: 12 }}>
             {decodeURIComponent(lightbox.split('/').pop() ?? '')}
           </div>
         </div>
+        </Portal>
       )}
 
       {/* ── JP Groups tab ───────────────────────────────────────────────────── */}
@@ -1141,9 +1147,11 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
           )}
 
           {jpGroupShowForm && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 520, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{jpGroupEditing !== null ? '編輯 JP Group' : '新增 JP Group'}</div>
+            <Portal>
+            <div className="rd-modal-back">
+              <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 560 }}>
+                <div className="rd-modal-h">{jpGroupEditing !== null ? '編輯 JP Group' : '新增 JP Group'}</div>
+                <div className="rd-modal-b rd-modal-stack">
                 {[
                   { label: '代碼 *', key: 'code', placeholder: '例：DFDC', disabled: jpGroupEditing !== null },
                   { label: '顯示名稱 *', key: 'display_name', placeholder: '例：DFDC Jackpot Group' },
@@ -1180,13 +1188,15 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                   <input type="checkbox" checked={jpGroupForm.enabled} onChange={e => setJpGroupForm(f => ({ ...f, enabled: e.target.checked }))} />
                   啟用此 JP Group
                 </label>
-                {jpGroupMsg && <div style={{ color: '#ef4444', fontSize: 13 }}>{jpGroupMsg}</div>}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-                  <button className="settings-btn" onClick={() => { setJpGroupShowForm(false); setJpGroupMsg('') }}>取消</button>
-                  <button className="submit-btn submit-btn--sm" onClick={handleSaveJpGroup}>儲存</button>
+                {jpGroupMsg && <div className="rd-modal-err">{jpGroupMsg}</div>}
+                </div>
+                <div className="rd-modal-f">
+                  <button className="rd-btn" onClick={() => { setJpGroupShowForm(false); setJpGroupMsg('') }}>取消</button>
+                  <button className="rd-btn is-primary" onClick={handleSaveJpGroup}>儲存</button>
                 </div>
               </div>
             </div>
+            </Portal>
           )}
         </div>
       )}
@@ -1214,11 +1224,11 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
           </div>
 
           {jackpotPanelOpen && jackpots.length > 0 && (
-            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 0 }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>即時獎池 — 每 10 秒自動更新（只顯示 Grand / Fortune）</div>
+            <div className="rd-inner" style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 0 }}>
+              <div className="rd-inner-h" style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>即時獎池 <span style={{ fontWeight: 400, color: 'var(--rd-fg-3)' }}>— 每 10 秒自動更新（只顯示 Grand / Fortune）</span></div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
                 {jackpots.filter(j => j.grand != null || j.fortunate != null).map(j => (
-                  <div key={j.gtype} style={{
+                  <div key={j.gtype} className="rd-sub" style={{
                     background: '#162032', border: '1px solid #2d3f55', borderRadius: 6,
                     padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
                   }}>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { XianxiaIcon, type XianxiaIconName } from '../components/XianxiaIcon'
+import Portal from '../components/Portal'
 
 interface KnowledgeFolder {
   id: number
@@ -441,14 +442,15 @@ export function KnowledgePage() {
 
       {/* ── Add Doc Modal ── */}
       {showAddDoc && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <Portal>
+        <div className="rd-modal-back"
           onClick={e => { if (e.target === e.currentTarget) setShowAddDoc(false) }}>
-          <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12, width: '100%', maxWidth: 560, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: '1px solid #2d3f55' }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>新增知識庫文件</span>
-              <button onClick={() => setShowAddDoc(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 580 }}>
+            <div className="rd-modal-h">
+              <span>新增知識庫文件</span>
+              <button className="rd-modal-x" onClick={() => setShowAddDoc(false)}>關閉</button>
             </div>
-            <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="rd-modal-b rd-modal-stack">
               {/* Name */}
               <FormRow label="名稱 *">
                 <input value={formName} onChange={e => setFormName(e.target.value)}
@@ -513,58 +515,58 @@ export function KnowledgePage() {
                 <input value={formTags} onChange={e => setFormTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書, v2.3" style={mInput} />
               </FormRow>
-              {formError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>{formError}</div>}
+              {formError && <div className="rd-modal-err">{formError}</div>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
-              <button className={`submit-btn${saving ? ' loading' : ''}`} onClick={handleSaveDoc} disabled={saving}
-                style={{ padding: '8px 22px', fontSize: 13, width: 'auto' }}>
-                {saving ? '處理中...' : '抓取並儲存'}
-              </button>
-              <button onClick={() => setShowAddDoc(false)}
-                style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <div className="rd-modal-f">
+              <span className="rd-modal-f-note">抓取後自動快取純文字</span>
+              <button className="rd-btn" onClick={() => setShowAddDoc(false)}>
                 取消
               </button>
-              <span style={{ fontSize: 11, color: '#334155' }}>抓取後自動快取純文字</span>
+              <button className="rd-btn is-primary" onClick={handleSaveDoc} disabled={saving}>
+                {saving ? '處理中...' : '抓取並儲存'}
+              </button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* ── Preview Modal ── */}
       {previewDoc && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <Portal>
+        <div className="rd-modal-back"
           onClick={e => { if (e.target === e.currentTarget) setPreviewDoc(null) }}>
-          <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12, width: '100%', maxWidth: 800, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: '1px solid #2d3f55', flexShrink: 0 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>預覽：{previewDoc.name}</div>
-                <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>快取純文字內容（AI 批次評論時使用的資料）</div>
-              </div>
-              <button onClick={() => setPreviewDoc(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <div className="rd-modal rd-modal--wide" role="dialog" aria-modal="true" style={{ width: 800, maxHeight: '82vh' }}>
+            <div className="rd-modal-h">
+              <span>預覽：{previewDoc.name}</span>
+              <small className="rd-modal-meta">快取純文字內容（AI 批次評論時使用的資料）</small>
+              <button className="rd-modal-x" style={{ marginLeft: 12 }} onClick={() => setPreviewDoc(null)}>關閉</button>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: '20px 22px' }}>
+            <div className="rd-modal-b">
               {previewLoading
                 ? <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: 40 }}>載入中...</div>
                 : <pre style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.75, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: 'monospace' }}>{previewDoc.content || '（無內容）'}</pre>
               }
             </div>
-            <div style={{ padding: '10px 22px', borderTop: '1px solid #2d3f55', fontSize: 11, color: '#334155', flexShrink: 0 }}>
-              共 {previewDoc.content.length.toLocaleString()} 字 · 點擊外部或 × 關閉
+            <div className="rd-modal-f" style={{ justifyContent: 'flex-start' }}>
+              共 {previewDoc.content.length.toLocaleString()} 字 · 點擊外部或「關閉」關閉
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* ── Edit Doc Modal ── */}
       {editDoc && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <Portal>
+        <div className="rd-modal-back"
           onClick={e => { if (e.target === e.currentTarget) setEditDoc(null) }}>
-          <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: '1px solid #2d3f55' }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>編輯文件</span>
-              <button onClick={() => setEditDoc(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 540 }}>
+            <div className="rd-modal-h">
+              <span>編輯文件</span>
+              <button className="rd-modal-x" onClick={() => setEditDoc(null)}>關閉</button>
             </div>
-            <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="rd-modal-b rd-modal-stack">
               <FormRow label="名稱 *">
                 <input value={editName} onChange={e => setEditName(e.target.value)} style={mInput} />
               </FormRow>
@@ -583,20 +585,19 @@ export function KnowledgePage() {
                 <input value={editTags} onChange={e => setEditTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書" style={mInput} />
               </FormRow>
-              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>{editError}</div>}
+              {editError && <div className="rd-modal-err">{editError}</div>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
-              <button className={`submit-btn${editSaving ? ' loading' : ''}`} onClick={() => void handleSaveEdit()} disabled={editSaving}
-                style={{ padding: '8px 22px', fontSize: 13, width: 'auto' }}>
-                {editSaving ? '儲存中...' : '儲存'}
-              </button>
-              <button onClick={() => setEditDoc(null)}
-                style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <div className="rd-modal-f">
+              <button className="rd-btn" onClick={() => setEditDoc(null)}>
                 取消
+              </button>
+              <button className="rd-btn is-primary" onClick={() => void handleSaveEdit()} disabled={editSaving}>
+                {editSaving ? '儲存中...' : '儲存'}
               </button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )
@@ -630,7 +631,7 @@ function FolderTab({ label, count, color, active, onClick, onDelete }: {
 function FormRow({ label, children, style }: { label: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, ...style }}>
-      <span style={{ fontSize: 12, color: '#64748b' }}>{label}</span>
+      <span className="rd-l" style={{ fontSize: 12, color: '#64748b' }}>{label}</span>
       {children}
     </div>
   )

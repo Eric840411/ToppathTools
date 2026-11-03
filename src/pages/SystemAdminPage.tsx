@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DELEGATION_SCOPES, delegationScopeShort, type DelegationScope } from '../../shared/delegation-scopes'
 import { MeegleIdentityOverridesPanel } from '../components/MeegleIdentityOverridesPanel'
+import Portal from '../components/Portal'
 import { RoleBadge, RoleManager, type RoleInfo } from '../components/RoleManager'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -287,18 +288,6 @@ export function SystemAdminPage() {
     background: 'var(--rd-bg-2, #0f172a)', color: 'var(--rd-fg, #e2e8f0)',
   }
 
-  const btnPrimary: React.CSSProperties = {
-    height: 36, padding: '0 18px', background: 'var(--rd-accent, #6366f1)', color: '#fff',
-    border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-    whiteSpace: 'nowrap',
-  }
-
-  const btnOutline: React.CSSProperties = {
-    height: 36, padding: '0 16px', background: 'var(--rd-panel-2, #1e293b)', color: 'var(--rd-fg-2, #94a3b8)',
-    border: '1px solid var(--rd-line-2, #2d3f55)', borderRadius: 7, cursor: 'pointer', fontSize: 13,
-    whiteSpace: 'nowrap',
-  }
-
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -395,22 +384,21 @@ export function SystemAdminPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" style={btnPrimary} onClick={createAccount}>建立帳號</button>
-                  <button type="button" style={btnOutline} onClick={() => setShowAddForm(false)}>取消</button>
+                  <button type="button" className="rd-btn is-primary" onClick={createAccount}>建立帳號</button>
+                  <button type="button" className="rd-btn" onClick={() => setShowAddForm(false)}>取消</button>
                 </div>
               </div>
             )}
 
             {/* Edit modal */}
             {editTarget && (
-              <div style={{
-                position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-              }}>
-                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#e2e8f0' }}>
+              <Portal>
+              <div className="rd-modal-back">
+                <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 520 }}>
+                  <div className="rd-modal-h"><h3>
                     編輯帳號：{editTarget.label}
-                  </h3>
+                  </h3></div>
+                  <div className="rd-modal-b">
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                     <div>
                       <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>名稱</label>
@@ -452,22 +440,26 @@ export function SystemAdminPage() {
                       清除 PIN（下次登入不需要 PIN）
                     </label>
                   )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={btnPrimary} onClick={saveEdit}>儲存</button>
-                    <button type="button" style={btnOutline} onClick={() => setEditTarget(null)}>取消</button>
+                  </div>
+                  <div className="rd-modal-f">
+                    <button type="button" className="rd-btn" onClick={() => setEditTarget(null)}>取消</button>
+                    <button type="button" className="rd-btn is-primary" onClick={saveEdit}>儲存</button>
                   </div>
                 </div>
               </div>
+              </Portal>
             )}
 
             {/* 個人權限覆寫 modal */}
             {permTarget && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 560, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: '#e2e8f0' }}>
+              <Portal>
+              <div className="rd-modal-back">
+                <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 600, maxHeight: '80vh' }}>
+                  <div className="rd-modal-h"><h3>
                     功能權限：{permTarget.label}
-                  </h3>
-                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                  </h3></div>
+                  <div className="rd-modal-b">
+                  <p className="rd-modal-hint" style={{ margin: '0 0 14px' }}>
                     疊在角色權限之上的個人例外。「繼承角色」＝照上面的角色權限表；設成開啟／關閉才會覆寫。
                     {permTarget.role === 'admin' && <span style={{ color: '#fbbf24' }}>（管理員一律全開，覆寫不會生效）</span>}
                   </p>
@@ -496,28 +488,29 @@ export function SystemAdminPage() {
                       })}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={btnPrimary} onClick={savePerm} disabled={permSaving || !permData}>
+                  </div>
+                  <div className="rd-modal-f">
+                    {permMsg && <span className="rd-modal-f-note" style={{ color: permMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{permMsg}</span>}
+                    <button type="button" className="rd-btn" onClick={() => setPermTarget(null)}>關閉</button>
+                    <button type="button" className="rd-btn is-primary" onClick={savePerm} disabled={permSaving || !permData}>
                       {permSaving ? '儲存中…' : '儲存'}
                     </button>
-                    <button type="button" style={btnOutline} onClick={() => setPermTarget(null)}>關閉</button>
                   </div>
-                  {permMsg && <p style={{ fontSize: 12, marginTop: 10, color: permMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{permMsg}</p>}
                 </div>
               </div>
+              </Portal>
             )}
 
             {/* Cultivation adjust modal */}
             {cultivationTarget && (
-              <div style={{
-                position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-              }}>
-                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: '#e2e8f0' }}>
+              <Portal>
+              <div className="rd-modal-back">
+                <div className="rd-modal" role="dialog" aria-modal="true" style={{ width: 460 }}>
+                  <div className="rd-modal-h"><h3>
                     調整境界：{cultivationTarget.label}
-                  </h3>
-                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                  </h3></div>
+                  <div className="rd-modal-b">
+                  <p className="rd-modal-hint" style={{ margin: '0 0 14px' }}>
                     直接改「累計登入天數」，之後帳號正常登入仍會從這個新天數繼續往上累計。
                   </p>
                   {cultivationInfo && (
@@ -544,15 +537,17 @@ export function SystemAdminPage() {
                     value={cultivationDaysInput}
                     onChange={e => setCultivationDaysInput(Math.max(0, Number(e.target.value) || 0))}
                   />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={btnPrimary} onClick={saveCultivation} disabled={cultivationSaving}>
+                  </div>
+                  <div className="rd-modal-f">
+                    {cultivationMsg && <span className="rd-modal-f-note" style={{ color: cultivationMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{cultivationMsg}</span>}
+                    <button type="button" className="rd-btn" onClick={() => setCultivationTarget(null)}>關閉</button>
+                    <button type="button" className="rd-btn is-primary" onClick={saveCultivation} disabled={cultivationSaving}>
                       {cultivationSaving ? '儲存中…' : '儲存'}
                     </button>
-                    <button type="button" style={btnOutline} onClick={() => setCultivationTarget(null)}>關閉</button>
                   </div>
-                  {cultivationMsg && <p style={{ fontSize: 12, marginTop: 10, color: cultivationMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{cultivationMsg}</p>}
                 </div>
               </div>
+              </Portal>
             )}
 
             {/* Accounts table */}

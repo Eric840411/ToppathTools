@@ -4,6 +4,7 @@ import { type UrlPoolEntry } from '../data/urlPoolData'
 import { POOL_SOURCE, POOL_LABEL, type PoolEnv } from '../data/urlPoolEnv'
 import { POOL_DEVICES, POOL_DEVICE_LABEL, toDeviceUrl, type PoolDevice } from '../data/urlPoolDevice'
 import { ProdSimPanel } from '../components/ProdSimPanel'
+import Portal from '../components/Portal'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -455,24 +456,30 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
       {/* ── View URL modal ───────────────────────────────────────────────────── */}
       {viewingUrl && (
+        <Portal>
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          className="rd-modal-back"
           onClick={() => setViewingUrl(null)}
         >
           <div
-            style={{ background: '#1e293b', borderRadius: 10, padding: 20, maxWidth: 640, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
+            className="rd-modal" role="dialog" aria-modal="true"
+            style={{ width: 640 }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 14 }}>Token URL</div>
+            <div className="rd-modal-h">Token URL</div>
+            <div className="rd-modal-b">
             <textarea
               readOnly
               value={viewingUrl}
-              style={{ width: '100%', minHeight: 100, fontSize: 11, fontFamily: 'monospace', border: '1px solid #2d3f55', borderRadius: 6, padding: 8, resize: 'vertical', boxSizing: 'border-box' }}
+              style={{ width: '100%', minHeight: 100, wordBreak: 'break-all' }}
               onFocus={e => e.target.select()}
             />
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+            </div>
+            <div className="rd-modal-f">
+              <button type="button" className="rd-btn" onClick={() => { setViewingUrl(null); setViewCopied(false) }}>關閉</button>
               <button
                 type="button"
+                className={viewCopied ? 'rd-btn is-ok' : 'rd-btn is-primary'}
                 onClick={() => {
                   const doCopy = (text: string) => {
                     // Fallback for non-HTTPS / non-localhost (clipboard API unavailable)
@@ -492,12 +499,11 @@ export function UrlPoolPage({ currentAccount }: Props) {
                   setViewCopied(true)
                   setTimeout(() => setViewCopied(false), 2000)
                 }}
-                style={btnSm(viewCopied ? '#16a34a' : '#2563eb')}
               >{viewCopied ? '已複製！' : '複製'}</button>
-              <button type="button" onClick={() => { setViewingUrl(null); setViewCopied(false) }} style={btnSm('#6b7280')}>關閉</button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       </>)}
@@ -513,13 +519,4 @@ function StatBadge({ label, value, color }: { label: string; value: number; colo
       <span>{label}</span> <strong>{value}</strong>
     </span>
   )
-}
-
-function btnSm(color: string, ghost = false): React.CSSProperties {
-  return {
-    padding: '2px 8px', borderRadius: 4, fontSize: 11, cursor: 'pointer', border: `1px solid ${color}`,
-    background: ghost ? 'transparent' : color,
-    color: ghost ? color : '#fff',
-    flexShrink: 0,
-  }
 }

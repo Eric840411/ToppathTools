@@ -513,17 +513,13 @@ export function JackpotPage() {
               sticky 的做法需要標題列自己有底色去蓋住捲過去的內容，而 modal 底色在修仙版
               是**漸層**——用任何單色去蓋都會變成一塊看得出來的補丁（使用者回報「為什麼有兩個顏色」）。
               改成固定頭尾之後標題列不覆蓋任何東西，底色直接讓 modal 自己的漸層透出來。 */}
-          <div className="modal" style={{
+          <div className="modal rd-modal" style={{
             width: 680, maxWidth: '95vw', maxHeight: '85vh',
             display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0,
           }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              flexShrink: 0, padding: '18px 24px 12px',
-              borderBottom: '1px solid var(--modal-sticky-line, #2d3f55)',
-            }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', margin: 0 }}>Jackpot 告警設定</h2>
-              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>關閉</button>
+            <div className="rd-modal-h">
+              <h2>Jackpot 告警設定</h2>
+              <button type="button" className="rd-modal-x" onClick={() => setShowSettings(false)}>關閉</button>
             </div>
 
             {/* 中間這段才是會捲的部分（minHeight: 0 是必要的，否則 flex 子元素不會縮） */}
@@ -540,7 +536,7 @@ export function JackpotPage() {
                     placeholder="Admin PIN"
                     style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 14, width: 160 }}
                   />
-                  <button type="button" className="osm-btn osm-btn--primary" onClick={handleVerifyPin}>確認</button>
+                  <button type="button" className="rd-btn is-primary" onClick={handleVerifyPin}>確認</button>
                 </div>
                 {pinError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>{pinError}</p>}
               </div>
@@ -663,15 +659,11 @@ export function JackpotPage() {
 
             {/* 底部按鈕列固定在 modal 下緣，不參與捲動 */}
             {pinVerified && (
-              <div style={{
-                display: 'flex', justifyContent: 'flex-end', gap: 8,
-                flexShrink: 0, padding: '12px 24px 18px',
-                borderTop: '1px solid var(--modal-sticky-line, #2d3f55)',
-              }}>
-                <button type="button" className="btn-ghost" onClick={() => setShowSettings(false)}>取消</button>
+              <div className="rd-modal-f">
+                <button type="button" className="rd-btn" onClick={() => setShowSettings(false)}>取消</button>
                 <button
                   type="button"
-                  className="osm-btn osm-btn--primary"
+                  className="rd-btn is-primary"
                   onClick={handleSaveSettings}
                   disabled={settingsSaving || settingGameIds.length === 0}
                 >

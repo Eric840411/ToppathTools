@@ -317,7 +317,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
         </div>
 
         {/* Tab */}
-        <div style={{ display: 'flex', gap: 8, padding: '0 20px', borderBottom: '1px solid #2d3f55' }}>
+        <div className="rd-tabs rd-modal-tabs" role="tablist">
           {([
             { id: 'personal', label: '個人 Key' },
             { id: 'keys', label: '全域 Gemini Keys' },
@@ -328,16 +328,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              style={{
-                padding: '10px 18px',
-                background: 'none',
-                border: 'none',
-                borderBottom: tab === t.id ? '2px solid #818cf8' : '2px solid transparent',
-                color: tab === t.id ? '#818cf8' : '#64748b',
-                fontWeight: tab === t.id ? 700 : 400,
-                cursor: 'pointer',
-                fontSize: 14,
-              }}
+              className="rd-tab" role="tab" aria-selected={tab === t.id}
             >
               {t.label}
             </button>
@@ -357,7 +348,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               {(['gemini', 'openai'] as const).map(provider => {
                 const existing = personalKeys.find(k => k.provider === provider)
                 return (
-                  <div key={provider} style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '14px 16px', marginBottom: 14, background: '#162032' }}>
+                  <div key={provider} className="rd-sub" style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '14px 16px', marginBottom: 14, background: '#162032' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1 }}>
                         {provider === 'gemini' ? 'Gemini' : 'OpenAI'}
@@ -375,13 +366,13 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                         style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                         type="password"
                       />
-                      <button
+                      <button className="rd-btn is-primary"
                         onClick={() => handleSavePersonalKey(provider)}
                         disabled={!(personalInput[provider] ?? '').trim()}
                         style={{ padding: '7px 16px', borderRadius: 6, fontSize: 13, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', opacity: !(personalInput[provider] ?? '').trim() ? 0.5 : 1 }}
                       >儲存</button>
                       {existing && (
-                        <button
+                        <button className="rd-btn is-danger"
                           onClick={() => handleDeletePersonalKey(provider)}
                           style={{ padding: '7px 14px', borderRadius: 6, fontSize: 13, background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer' }}
                         >移除</button>
@@ -420,7 +411,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   type="password"
                   style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                 />
-                <button
+                <button className="rd-btn is-primary"
                   onClick={handleAddKey}
                   disabled={keyLoading}
                   style={{ padding: '7px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
@@ -432,7 +423,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
               {keys.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-                  <button
+                  <button className="rd-btn rd-btn--sm is-ok"
                     onClick={handleProbe}
                     disabled={probing}
                     style={{ padding: '5px 14px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
@@ -507,7 +498,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                           </td>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                             {!k.isEnv && (
-                              <button
+                              <button className="rd-btn rd-btn--sm is-danger"
                                 onClick={() => handleDeleteKey(k.label)}
                                 style={{ padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
                               >
@@ -537,7 +528,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
                   <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>通過 API Key 已設定</span>
                   <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 13 }}>{openaiKeyMasked}</span>
-                  <button
+                  <button className="rd-btn rd-btn--sm is-danger"
                     onClick={handleDeleteOpenAIKey}
                     style={{ marginLeft: 'auto', padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
@@ -562,7 +553,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 {(() => {
                   const canSave = !!openaiKeyInput.trim()
                   return (
-                    <button
+                    <button className="rd-btn is-primary"
                       onClick={handleSaveOpenAIKey}
                       disabled={!canSave}
                       style={{
@@ -582,7 +573,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               </div>
               {openaiMsg && <p style={{ fontSize: 13, margin: 0 }}>{openaiMsg}</p>}
 
-              <div style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+              <div className="rd-sub" style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
                 <strong style={{ color: '#cbd5e1' }}>取得 API Key：</strong> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>platform.openai.com/api-keys</a><br />
                 <strong style={{ color: '#cbd5e1' }}>計費：</strong> Codex Mini — $1.50 / 1M input tokens，$6.00 / 1M output tokens（無免費額度，新帳號有試用 credit）
               </div>
@@ -601,7 +592,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
                   <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>通過 Ollama 已設定</span>
                   <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 12 }}>{ollamaBaseUrl} · {ollamaModel}</span>
-                  <button
+                  <button className="rd-btn rd-btn--sm is-danger"
                     onClick={handleDeleteOllama}
                     style={{ marginLeft: 'auto', padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
@@ -635,7 +626,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <button
+                <button className="rd-btn is-ok"
                   onClick={handleProbeOllama}
                   disabled={ollamaProbing}
                   style={{ padding: '7px 16px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
@@ -688,7 +679,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 </div>
               )}
 
-              <div style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+              <div className="rd-sub" style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
                 <strong style={{ color: '#cbd5e1' }}>公網版注意事項：</strong><br />
                 伺服器（eric.osmslot.org）需能連到此 URL。若 Ollama 在你的本機，請改用能從伺服器連線的位址（如 ngrok、內網 IP）。<br />
                 若 Ollama 安裝在伺服器上，填 <code>http://localhost:11434</code> 即可。
@@ -701,7 +692,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
             <div style={{ display: 'flex', gap: 16, height: '100%' }}>
               {/* 左側清單（依分類分組） */}
               <div style={{ flex: '0 0 200px', borderRight: '1px solid #2d3f55', paddingRight: 12, overflowY: 'auto' }}>
-                <button
+                <button className="rd-btn is-primary"
                   onClick={handleNewPrompt}
                   style={{ width: '100%', padding: '7px 0', marginBottom: 10, background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
                 >
@@ -737,7 +728,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                             fontSize: 13,
                           }}
                         >
-                          {p.id === 'default' ? '⭐ ' : ''}{p.name}
+                          {p.id === 'default' ? '預設・' : ''}{p.name}
                         </div>
                       ))}
                     </div>
@@ -767,7 +758,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                           onChange={e => setEditPrompt({ ...editPrompt, category: e.target.value })}
                           style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                         />
-                        <button type="button" onClick={() => setNewCatMode(false)}
+                        <button className="rd-btn" type="button" onClick={() => setNewCatMode(false)}
                           style={{ fontSize: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                           ← 選現有
                         </button>
@@ -815,14 +806,14 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   {promptMsg && <p style={{ fontSize: 13, margin: 0 }}>{promptMsg}</p>}
 
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
+                    <button className="rd-btn is-primary"
                       onClick={handleSavePrompt}
                       style={{ flex: 1, padding: '9px 0', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
                     >
                       儲存
                     </button>
                     {editPrompt.id !== 'default' && (
-                      <button
+                      <button className="rd-btn is-danger"
                         onClick={() => handleDeletePrompt(editPrompt.id)}
                         style={{ padding: '9px 16px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer' }}
                       >

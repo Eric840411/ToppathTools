@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.73.19'
+export const APP_VERSION = '5.73.20'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.73.20', date: '2026-11-03', changes: ["style(彈窗與內層設定統一，使用者 1103 回報 Config 比對編輯模板沒套新版)：新增 redesign/pages/modal.css——遮罩＋模糊、置中卡片、整條標題帶（修仙菱形＋四角框）、96px 標籤欄表單、34px 欄位、右下取消／主按鈕；套到 Config 比對、AutoSpin（新增機台／JP Group／帳號池選取／模板大圖）、知識庫、系統管理、URL 帳號池、Jackpot 告警、機台測試 PIN 與 CCTV 大圖、OSM 渠道分布、更新日誌、AI 模型設定、OSM 版本更新紀錄抽屜、UAT 各彈窗、Meegle 確認、UI 截圖、登入；多個彈窗改掛 document.body。內層：行內確認列、對帳台面板、JP 池與 OSMWatcher 面板、週報下拉。事件與預設值不變（逐一比對 on*/value/checked/disabled）"] },
   { version: '5.73.19', date: '2026-11-03', changes: ["style(Dashboard 頁首)：自動更新／更新時間改成原型的頁首右側一行等寬小字（兩版），普通版原本那一列整列收掉；修仙版拿掉右側人物主視覺圖（原型沒有，使用者 1103 要求）"] },
   { version: '5.73.18', date: '2026-11-03', changes: ["fix(頂列版本切換)：滑塊寬度只在切換時量一次，字型晚到（Mac／Safari 先用系統字量）或縮放後滑塊會凸出切換鈕外；改成按鈕尺寸一變就重量（ResizeObserver＋fonts.ready）。修仙版頂列拿掉原型沒有的羅盤印章"] },
   { version: '5.73.17', date: '2026-11-03', changes: ["style(新版前端 原型差距收尾，使用者拍板)：境界排行榜恢復群英榜大橫幅（改墨綠面板＋四角框）；AutoSpin 頁首目前帳號、膠囊分頁、表格工具列、文字連結操作、30×18 圓膠囊開關（AutoSpin 通知同步）；腳本化投注狀態膠囊補發光圓點；操作歷史分類改彩色膠囊（補 Meter／OSM 版本更新紀錄／Egm 色、提亮過暗色）；通知設定「僅發送通知」移到頁首。兩版一起，事件不變"] },

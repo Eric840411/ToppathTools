@@ -1284,10 +1284,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
         </Panel>
 
         <Panel title="門檻設定" right={
-          <button onClick={() => setSettingsOpen(o => !o)} style={{
-            padding: '2px 9px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
-            background: 'transparent', color: C.ink2, border: `1px solid ${C.line}`,
-          }}>{settingsOpen ? '收合' : '展開'}</button>
+          <button className="rd-btn rd-btn--sm" onClick={() => setSettingsOpen(o => !o)}>{settingsOpen ? '收合' : '展開'}</button>
         }>
           {settingsOpen ? (
             <div style={{ padding: '4px 0' }}>
@@ -1467,8 +1464,8 @@ const tdN: React.CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric
 
 function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, background: C.panel, overflow: 'hidden' }}>
-      <div style={{
+    <div className="rd-panel" style={{ border: `1px solid ${C.line}`, borderRadius: 8, background: C.panel, overflow: 'hidden' }}>
+      <div className="rd-modal-h rd-panel-h" style={{
         display: 'flex', alignItems: 'center', gap: 8, padding: '8px 13px',
         borderBottom: `1px solid ${C.line}`, background: C.panel2, fontSize: 12, fontWeight: 600, color: C.ink,
       }}>

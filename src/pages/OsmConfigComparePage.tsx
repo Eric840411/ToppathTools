@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Portal from '../components/Portal'
 import { parseServerCfgSource } from '../../shared/server-cfg-parse'
 
 interface ConfigTemplate {
@@ -279,31 +280,35 @@ export function OsmConfigComparePage() {
 
       {/* ── Add template modal ── */}
       {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 540, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{editingId ? '編輯 Config 模板' : '新增 Config 模板'}</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="模板名稱（如：QAT 正式版）"
-                style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
-              <input value={newVersion} onChange={e => setNewVersion(e.target.value)} placeholder="版本（選填）"
-                style={{ width: 100, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
+        <Portal>
+        <div className="rd-modal-back">
+          <div className="rd-modal" role="dialog" aria-modal="true" aria-labelledby="cfg-tpl-modal-title" style={{ width: 640 }}>
+            <div className="rd-modal-h"><h2 id="cfg-tpl-modal-title">{editingId ? '編輯 Config 模板' : '新增 Config 模板'}</h2></div>
+            <div className="rd-modal-b">
+              <div className="rd-form">
+                <label className="rd-l" htmlFor="cfg-tpl-name">模板名稱</label>
+                <input id="cfg-tpl-name" className="rd-field" value={newName} onChange={e => setNewName(e.target.value)} placeholder="模板名稱（如：QAT 正式版）" />
+                <label className="rd-l" htmlFor="cfg-tpl-version">版本</label>
+                <input id="cfg-tpl-version" className="rd-field" value={newVersion} onChange={e => setNewVersion(e.target.value)} placeholder="版本（選填）" style={{ maxWidth: 200 }} />
+                <label className="rd-l rd-l--top" htmlFor="cfg-tpl-body">serverCfg 內容</label>
+                <textarea
+                  id="cfg-tpl-body" className="rd-field"
+                  value={newTemplate} onChange={e => setNewTemplate(e.target.value)}
+                  placeholder={'直接貼上 DevTools 中 serverCfg.js 的完整內容即可\n（支援 JS 格式：window._ServerCfg = {...}; 或純 JSON）'}
+                  style={{ minHeight: 280 }}
+                />
+                {addError && <p className="rd-modal-err rd-span">失敗 {addError}</p>}
+              </div>
             </div>
-            <textarea
-              value={newTemplate} onChange={e => setNewTemplate(e.target.value)}
-              placeholder={'直接貼上 DevTools 中 serverCfg.js 的完整內容即可\n（支援 JS 格式：window._ServerCfg = {...}; 或純 JSON）'}
-              style={{ flex: 1, minHeight: 280, padding: '8px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
-            />
-            {addError && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>失敗 {addError}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowAddModal(false); setEditingId(null); setAddError('') }}
-                style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
-              <button onClick={handleAddTemplate} disabled={addLoading}
-                style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            <div className="rd-modal-f">
+              <button className="rd-btn" onClick={() => { setShowAddModal(false); setEditingId(null); setAddError('') }}>取消</button>
+              <button className="rd-btn is-primary" onClick={handleAddTemplate} disabled={addLoading}>
                 {addLoading ? '儲存中...' : '儲存'}
               </button>
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )

@@ -66,19 +66,11 @@ export default function ChangelogModal({ onClose }: Props) {
           ))}
         </div>
 
-        <div style={{
-          borderTop: '1px solid #1e293b',
-          padding: '12px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          color: '#64748b',
-          fontSize: 12,
-        }}>
-          <span>目前版本：<strong style={{ color: '#a5b4fc' }}>v{APP_VERSION}</strong></span>
+        <div className="rd-modal-f">
+          <span className="rd-modal-f-note">目前版本：<strong style={{ color: 'var(--rd-accent-2, #a5b4fc)' }}>v{APP_VERSION}</strong></span>
           <button
+            className="rd-btn is-primary"
             onClick={onClose}
-            style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
           >
             關閉
           </button>

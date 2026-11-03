@@ -60,34 +60,30 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
 
   return createPortal(
     <div
+      className="rd-modal-back"
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ zIndex: 10010 }}
     >
       <div
+        className="rd-modal" role="dialog" aria-modal="true"
         onClick={e => e.stopPropagation()}
-        style={{ background: '#1e293b', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', width: 520, maxWidth: '95vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}
+        style={{ width: 560, maxHeight: '82vh' }}
       >
         {/* Header */}
-        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontWeight: 600, fontSize: 15 }}>帳號池 — {title}</span>
-          <span style={{ flex: 1 }} />
-          <button className="btn-ghost" onClick={onClose} style={{ padding: '2px 8px', fontSize: 16 }}>關閉</button>
+        <div className="rd-modal-h">
+          <span>帳號池 — {title}</span>
+          <button className="rd-modal-x" onClick={onClose}>關閉</button>
         </div>
 
         {/* Filters */}
         {/* ⚠️ 環境分頁。兩邊是完全獨立的帳號池（網域不同），不是同一批的篩選，
             所以做成分頁——跟 URL 帳號池那頁同一套心智模型，不要在這裡另創一種。 */}
-        <div style={{ padding: '10px 20px 0', display: 'flex', gap: 4 }}>
+        <div className="rd-tabs rd-modal-tabs" role="tablist">
           {POOL_ENVS.map(e => (
             <button
               key={e} type="button" onClick={() => setPoolEnv(e)}
               data-testid={`pool-picker-env-${e}`}
-              style={{
-                padding: '5px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                border: `1px solid ${poolEnv === e ? '#2563eb' : '#2d3f55'}`,
-                background: poolEnv === e ? '#2563eb' : 'transparent',
-                color: poolEnv === e ? '#fff' : '#94a3b8',
-              }}
+              className="rd-tab" role="tab" aria-selected={poolEnv === e}
             >
               {POOL_LABEL[e]}
               <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, opacity: .75 }}>
@@ -97,13 +93,13 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
           ))}
         </div>
 
-        <div style={{ padding: '10px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--rd-line)', display: 'flex', gap: 12, alignItems: 'center' }}>
           <input
             autoFocus
             placeholder="搜尋使用者名稱或帳號..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 1 }}
           />
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={hideUsed} onChange={e => setHideUsed(e.target.checked)} />
@@ -139,8 +135,7 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
                       </td>
                       <td style={{ padding: '7px 12px', textAlign: 'right' }}>
                         <button
-                          className="btn-ghost"
-                          style={{ fontSize: 12, padding: '3px 10px', color: '#2563eb' }}
+                          className="rd-btn rd-btn--sm"
                           onClick={() => handleSelect(e)}
                         >
                           選取
@@ -155,7 +150,7 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '10px 20px', borderTop: '1px solid #f3f4f6', fontSize: 12, color: '#64748b' }}>
+        <div className="rd-modal-f" style={{ justifyContent: 'flex-start' }}>
           共 {filtered.length} 個帳號
         </div>
       </div>

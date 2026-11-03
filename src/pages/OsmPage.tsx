@@ -343,24 +343,21 @@ function GameTypeChannelsModal({ type, channelResults, onClose }: {
 
   return createPortal(
     <div
+      className="rd-modal-back"
       onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(3,7,18,0.72)',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 16px 24px',
-      }}
+      style={{ alignItems: 'flex-start', padding: '8vh 16px 24px' }}
     >
       <div
+        className="rd-modal" role="dialog" aria-modal="true"
         onClick={e => e.stopPropagation()}
-        style={{
-          width: 'min(560px, 100%)', background: '#111c2e', border: '1px solid #334155',
-          borderRadius: 12, boxShadow: '0 18px 48px rgba(0,0,0,0.55)', overflow: 'hidden',
-          display: 'flex', flexDirection: 'column', maxHeight: '80vh',
-        }}
+        style={{ width: 'min(560px, 100%)', maxHeight: '80vh' }}
       >
-        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #24344a', display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#93c5fd', marginBottom: 5, wordBreak: 'break-all' }}>{type}</div>
-            <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.65 }}>
+        <div className="rd-modal-h">
+          <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', wordBreak: 'break-all' }}>{type}</span>
+          <button type="button" className="rd-modal-x" onClick={onClose} aria-label="關閉">關閉</button>
+        </div>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--rd-line)' }}>
+            <div style={{ fontSize: 12, color: 'var(--rd-fg-2)', lineHeight: 1.65 }}>
               {groups.length === 0 ? (
                 <>目前沒有任何渠道有這個機種</>
               ) : (
@@ -373,19 +370,6 @@ function GameTypeChannelsModal({ type, channelResults, onClose }: {
                 </>
               )}
             </div>
-          </div>
-          <button
-            type="button" onClick={onClose} aria-label="關閉"
-            style={{
-              background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6,
-              width: 26, height: 26, flex: '0 0 auto', cursor: 'pointer', fontSize: 15, padding: 0,
-              // × 這個字元在 em box 裡本來就偏下，靠 lineHeight 對不準（使用者回報過），
-              // 用 flex 置中才會真的在框框正中間
-              display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
         </div>
 
         {totalCount > 0 && (
