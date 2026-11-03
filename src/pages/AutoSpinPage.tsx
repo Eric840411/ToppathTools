@@ -1284,11 +1284,11 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                    用 auto-fit 不寫死三欄：這區塊在窄視窗會自動疊回去，
                    不然三欄擠在一起每欄都放不下（跟訊源欄那次同一個教訓）。 */
                 <div className="autospin-run-cards">
-                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                  <section className="rd-xrun-card" style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
                   {modeToggle}
                   {runMode === 'server' && (
-                    <div style={{ fontSize: 11, color: '#94a3b8', background: '#162032', border: '1px solid #2d3f55', borderRadius: 7, padding: '6px 9px', lineHeight: 1.5 }}>
+                    <div className="rd-xrun-sub" style={{ fontSize: 11, color: '#94a3b8', background: '#162032', border: '1px solid #2d3f55', borderRadius: 7, padding: '6px 9px', lineHeight: 1.5 }}>
                       伺服器端模式直接在後端主機執行，不需要挑 Agent。下方選項維持顯示但停用，切回「遠端 Agent」即可恢復。
                     </div>
                   )}
@@ -1307,7 +1307,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                       </button>
                     </div>
                     {hubAgents.length === 0 ? (
-                      <div style={{ padding: 10, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
+                      <div className="rd-xrun-empty" style={{ padding: 10, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
                         沒有可用 agent。在機器執行 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.sh</code>（Mac）或 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.bat</code>（Windows）並完成配對後會出現在這裡。
                       </div>
                     ) : (
@@ -1320,7 +1320,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                             資訊不能因為換了控制項就消失。 */
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}
-                          style={{ width: '100%', background: '#16233a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', padding: '6px 9px', fontSize: 13 }}>
+                          className="rd-xrun-input" style={{ width: '100%', background: '#16233a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', padding: '6px 9px', fontSize: 13 }}>
                           <option value=''>— 選擇 Agent —</option>
                           {hubAgents.map(a => (
                             /* 忙碌的直接 disabled——卡片式原本靠 onClick 擋，
@@ -1357,7 +1357,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                   </section>
 
 
-                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                  <section className="rd-xrun-card" style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行控制</div>
                   {/* ⚠️ 伺服器端模式**沿用同一張卡**，只換裡面的按鈕。
                       原本切模式會把整個左半邊換成另一組完全不同的版面——
@@ -1456,7 +1456,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     </span>
                     {agentSessionId && <span style={{ fontSize: 11, color: 'var(--cr-cyan)' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
 
-                    <span style={{ width: 1, height: 20, background: '#2d3f55', margin: '0 2px' }} />
+                    <span className="rd-xrun-sep" style={{ width: 1, height: 20, background: '#2d3f55', margin: '0 2px' }} />
 
                     {/* Live Spin Interval — 併進同一列，跟 mockup 一致 */}
                     <span style={{ fontSize: 12, color: '#94a3b8' }}>Spin 間隔</span>
@@ -1513,12 +1513,12 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                 }
                 const catBg: Partial<Record<LogCategory, string>> = { spin: 'rgba(117,215,207,0.06)' }
                 return (
-                  <div className="autospin-log-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+                  <div className="autospin-log-panel rd-xrun-log" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
                     {/* ── 單一工具列（2026-09-02，照 CodeX 的設計改）──────────────────
                         原本是「標題列 + 類別晶片列 + pinus 晶片列」共三排，在這個高度下
                         光工具列就吃掉一半，日誌本體只剩約 120px——使用者原話「日誌能見度很小」。
                         收成一排，pinus 那組改成點開才展開（平常只顯示一顆帶數量的按鈕）。 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                    <div className="rd-xrun-bar" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>執行日誌</span>
                       <span style={{ fontSize: 11, color: '#64748b' }}
                         title={`畫面最多保留最近 ${MAX_VISIBLE_LOGS.toLocaleString()} 行；超過的會被捨棄。要完整紀錄請用下方的「完整紀錄檔」`}>
@@ -1545,7 +1545,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
                       <div style={{ flex: 1 }} />
                       <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋…"
-                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 120 }} />
+                        className="rd-xrun-input" style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 120 }} />
                       <button className={`cr-pill${autoScrollLog ? ' cr-pill--active' : ''}`}
                         onClick={() => setAutoScrollLog(v => {
                           // 關掉的當下記住現在幾行——之後才算得出「暫停期間新增了多少」
@@ -1600,14 +1600,14 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     )}
 
                     {/* 表頭：時間／類別／訊息。原本是一整行純文字，掃起來只能靠顏色 */}
-                    <div style={{ display: 'flex', gap: 8, padding: '4px 12px', background: '#101827', borderBottom: '1px solid #2d3f55', fontSize: 10, color: 'var(--cr-violet)', fontWeight: 700, letterSpacing: '.04em' }}>
+                    <div className="rd-xrun-head" style={{ display: 'flex', gap: 8, padding: '4px 12px', background: '#101827', borderBottom: '1px solid #2d3f55', fontSize: 10, color: 'var(--cr-violet)', fontWeight: 700, letterSpacing: '.04em' }}>
                       <span style={{ width: 66, flexShrink: 0 }}>時間</span>
                       <span style={{ width: 52, flexShrink: 0 }}>類別</span>
                       <span style={{ flex: 1, minWidth: 0 }}>訊息</span>
                     </div>
 
                     <div ref={logBoxRef}
-                      style={{ flex: 1, minHeight: 0, background: '#0f172a', overflowY: 'auto', fontSize: 11, lineHeight: 1.65 }}>
+                      className="rd-xrun-body" style={{ flex: 1, minHeight: 0, background: '#0f172a', overflowY: 'auto', fontSize: 11, lineHeight: 1.65 }}>
                       {rawLogs.length === 0
                         ? <div style={{ color: '#475569', padding: '8px 12px' }}>等待啟動...</div>
                         : visible.length === 0
@@ -1638,7 +1638,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                         分開是刻意的：一顆給「我現在看到的」、一顆給「全部」。
                         原本只有一顆「下載」，拿的是畫面上被截斷過的資料，
                         使用者會以為那是完整紀錄——那才是真正會害人的地方。 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#162032', borderTop: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                    <div className="rd-xrun-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#162032', borderTop: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 10.5, color: '#64748b', flex: 1, minWidth: 160 }}>
                         「依目前篩選導出」給你畫面上這些；「完整紀錄檔」給你整場的原始紀錄（伺服器保留 14 天）
                       </span>

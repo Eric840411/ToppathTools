@@ -434,7 +434,7 @@ export function SystemAdminPage() {
                     </div>
                   </div>
                   {editTarget.hasPIN && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#dc2626', marginBottom: 16, cursor: 'pointer' }}>
+                    <label className="rd-danger" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#dc2626', marginBottom: 16, cursor: 'pointer' }}>
                       <input type="checkbox" checked={editForm.clearPin}
                         onChange={e => setEditForm(p => ({ ...p, clearPin: e.target.checked, pin: '' }))} />
                       清除 PIN（下次登入不需要 PIN）

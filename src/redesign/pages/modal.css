@@ -576,3 +576,38 @@
 :root[data-ui="redesign"] .rd-modal-b :is(.rd-modal-stack, .rd-form-grid + *) > label:has(> input[type="checkbox"]),
 :root[data-ui="redesign"] .rd-modal-b > label:has(> input[type="checkbox"]) { margin-left: 110px !important; }
 @media (max-width: 640px) { :root[data-ui="redesign"] .rd-modal-b label:has(> input[type="checkbox"]) { margin-left: 0 !important; } }
+
+/* ── 1103 CodeX 第三輪 ── */
+/* AutoSpin 執行監控（只動修仙版；普通版原樣，已經 CodeX 審過）：執行模式／執行控制卡、日誌面板的工具列、表頭、內容、底部列
+   原本行內寫死舊藍黑（#0f172a／#162032／#101827）與藍灰框（#2d3f55），換成墨綠 tokens */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 2%), var(--rd-panel)) !important;
+  border-color: color-mix(in srgb, var(--rd-line-2) 80%, transparent) !important; border-radius: 3px !important;
+  box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.rd-xrun-sub, .rd-xrun-card code) {
+  background: color-mix(in srgb, var(--rd-bg) 55%, transparent) !important; border-color: var(--rd-line) !important; color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-empty { border-color: var(--rd-line-2) !important; color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-input {
+  background: var(--rd-bg-2) !important; border-color: var(--rd-line-2) !important; color: var(--rd-fg) !important; box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-sep { background: var(--rd-line-2) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-log { border-color: var(--rd-line-2) !important; border-radius: 3px !important; background: var(--rd-bg) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-bar {
+  background: linear-gradient(180deg, var(--rd-panel-2), var(--rd-panel)) !important; border-color: var(--rd-line) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-head { background: var(--rd-bg-2) !important; border-color: var(--rd-line) !important; color: var(--rd-ornament) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-body { background: color-mix(in srgb, var(--rd-bg) 85%, #000) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-log .cr-pill:not(.cr-pill--active) {
+  background: var(--rd-bg-2) !important; border-color: var(--rd-line-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-log .cr-pill:not(.cr-pill--active):hover:not(:disabled) { border-color: var(--rd-accent) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .rd-xrun-log .rd-filterbar { background: color-mix(in srgb, var(--rd-bg) 70%, transparent) !important; }
+
+/* 錄製腳本工作台「3. 試跑與回寫」：長提示自己換行，「填寫腳本名稱」鈕另起一列、留間距（兩個皮） */
+:root[data-ui="redesign"] .uat-multi-workbench .uat-multi-alert { line-height: 1.6; }
+:root[data-ui="redesign"] .uat-multi-workbench .uat-multi-alert > button { display: flex; width: fit-content; margin: 10px 0 0 !important; }
+
+/* 清除 PIN 這類破壞性勾選項：維持異常色（標籤自己帶 rd-danger） */
+:root[data-ui="redesign"] .rd-modal-b label.rd-danger { color: var(--rd-fail) !important; }
