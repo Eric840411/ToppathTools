@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.74.4'
+export const APP_VERSION = '5.74.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.74.5', date: '2026-11-03', changes: ["style(OSM 版號同步)：同一列兩個半寬面板（OSM／LuckyLink、Toppath／ImageRecon）高度一致，空狀態框跟著撐滿（使用者 1103：高度不統一），兩版"] },
   { version: '5.74.4', date: '2026-11-03', changes: ["change(修仙版側欄)：移除「背景境界 玄月／赤霄」切換（使用者 1103：不需要）；背景固定玄月，之前選過赤霄的帳號也回到玄月"] },
   { version: '5.74.3', date: '2026-11-03', changes: ["style(修仙裝飾減量＋OSM 版號同步按鈕，使用者與 CodeX 意見)：OSM 版號同步各面板的「取得元件版本／取得 SAS/MML/G2S 版本／取得最新版本／一鍵全部取得」改回跟「全部同步」同一種實心按鈕（使用者 1103：跟機台 Dashboard 格式不同），兩版；目標版本 & 告警設定的機種列、標籤、Lark 網址框修仙版改墨綠（App.css 寫死的藍黑沒換）；空狀態拿掉舊仙俠提示字後方的旋轉法陣。裝飾層依 CodeX 意見減量：UAT 面板角紋誤鋪整頁修正、空狀態印記改淡且放文字上方、膠囊拿掉常駐外光、面板底色與框線調暗、次要按鈕不加角飾、頁首標題線改細金雙線、側欄搜尋與底部卡片補玉色描邊、靈脈線縮到右下"] },
   { version: '5.74.2', date: '2026-11-03', changes: ["style(AutoSpin 執行模式切換)：修仙版未選中的「伺服器端（fallback）」改墨綠底與綠系邊框（只加 class）"] },

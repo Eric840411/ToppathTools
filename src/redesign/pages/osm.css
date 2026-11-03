@@ -215,3 +215,11 @@
 :root[data-ui="redesign"] .main-content .btn-ghost.cfg-btn--danger { color: #f87171; border-color: color-mix(in srgb, #f87171 55%, transparent); }
 :root[data-ui="redesign"] .main-content .btn-ghost.cfg-btn--danger:hover:not(:disabled) { color: #fca5a5; border-color: #f87171; }
 :root[data-ui="redesign"] .main-content .cfg-btn.cfg-add { width: 100%; justify-content: flex-start; }
+
+/* 同一列的兩個半寬面板高度要一致（使用者 1103：Toppath 跟 ImageRecon 高度不統一——空狀態字數換行不同就一高一低）。
+   面板拉滿該列高度、內容區吃剩下的空間，空狀態框跟著撐高 */
+@media (min-width: 1100px) {
+  :root[data-ui="redesign"] .osm-page > .osm-section--half { align-self: stretch; display: flex; flex-direction: column; }
+  :root[data-ui="redesign"] .osm-page > .osm-section--half > :is(.osm-empty, .osm-table-wrap, .table-wrap) { flex: 1 1 auto; }
+  :root[data-ui="redesign"] .osm-page > .osm-section--half > .osm-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+}
