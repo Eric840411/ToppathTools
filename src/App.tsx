@@ -434,7 +434,8 @@ function App() {
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
   const [navQuery, setNavQuery] = useState('')
-  const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
+  // 背景境界切換已移除（使用者 1103：不需要）；固定玄月。之前選過赤霄的人也回到玄月，不會卡在沒有開關可切回的狀態
+  const realm = 'moon' as const
   const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'xianxia' ? 'xianxia' : 'classic')
   // 動畫一律開啟，不提供關閉開關（使用者 1102：「強制開啟，不做關閉功能」）。
   // 只剩系統的「減少動態」（無障礙設定）會讓全站停：掛 html.rd-no-motion，CSS／動態圖／突破特效都看這個
@@ -973,15 +974,6 @@ function App() {
 
         {/* Bottom: user + AI settings */}
         <div className="sidebar-bottom">
-          {themeMode === 'xianxia' && (
-            <div className="sidebar-realm-switch" aria-label="背景境界">
-              <span>背景境界</span>
-              <div>
-                <button type="button" className={realm === 'moon' ? 'is-active' : ''} onClick={() => setRealm('moon')}>玄月</button>
-                <button type="button" className={realm === 'ember' ? 'is-active' : ''} onClick={() => setRealm('ember')}>赤霄</button>
-              </div>
-            </div>
-          )}
           <button
             type="button"
             onClick={() => setShowChangelog(true)}
