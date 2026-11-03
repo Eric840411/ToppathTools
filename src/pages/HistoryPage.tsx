@@ -164,6 +164,20 @@ const FEATURE_COLORS: Record<string, string> = {
   'egm-daycount': '#eab308',
 }
 
+/** 篩選區的功能分組（使用者 1103：35 個功能攤成一片看不出差異）。只影響排列，不影響篩選。
+ *  新增功能沒放進任何一組時會自動落到「文件與其他」，不會從篩選消失 */
+const FEATURE_GROUPS: { label: string; keys: string[] }[] = [
+  { label: 'Meegle', keys: ['meegle-batch-create', 'meegle-batch-comment', 'meegle-batch-status', 'meegle-batch-edit', 'meegle-backfill', 'meegle-account', 'jira', 'jira-comment'] },
+  { label: 'OSM 版本', keys: ['osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'osm-config-compare', 'osm-releases'] },
+  { label: '機台與對帳', keys: ['machine-test', 'ui-screenshot', 'scripted-bet', 'autospin', 'live-ledger', 'meter-reconcile', 'egm-daycount'] },
+  { label: 'Game Show', keys: ['gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2'] },
+  { label: '文件與其他', keys: ['testcase', 'image-check', 'weekly-report', 'lark-notify'] },
+]
+const GROUPED_KEYS = new Set(FEATURE_GROUPS.flatMap(g => g.keys))
+const FEATURE_GROUPS_FULL = FEATURE_GROUPS.map((g, i) => i === FEATURE_GROUPS.length - 1
+  ? { ...g, keys: [...g.keys, ...Object.keys(FEATURE_LABELS).filter(k => !GROUPED_KEYS.has(k))] }
+  : g).map(g => ({ ...g, keys: g.keys.filter(k => k in FEATURE_LABELS) }))
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts
   const m = Math.floor(diff / 60000)
@@ -183,7 +197,7 @@ const PAGE_SIZE = 10
 
 export function HistoryPage() {
   const [records, setRecords] = useState<HistoryRecord[]>([])
-  const [days, setDays] = useState<DaysFilter>(7)
+  const [days, setDays] = useState<DaysFilter>(1) // 預設今日（使用者 1103）
   const [feature, setFeature] = useState<FeatureFilter>('all')
   const [loading, setLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -228,34 +242,54 @@ export function HistoryPage() {
 
       <section className="section-card lst-panel lst-hist-panel">
         {/* Filters */}
-        <div className="lst-toolbar lst-hist-filters">
-          {/* Days */}
-          {([1, 3, 7] as DaysFilter[]).map(d => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDays(d)}
-              className="lst-chip"
-              aria-pressed={days === d}
-            >
-              {d === 1 ? '今日' : `${d} 天`}
-            </button>
-          ))}
+        <div className="lst-hist-filters2">
+          <div className="lst-hist-bar">
+            {/* 時間：分段切換（跟下面的功能標籤分開，一眼看得出是兩種篩選） */}
+            <div className="lst-seg" role="group" aria-label="時間範圍">
+              {([1, 3, 7] as DaysFilter[]).map(d => (
+                <button key={d} type="button" onClick={() => setDays(d)} aria-pressed={days === d}>
+                  {d === 1 ? '今日' : `${d} 天`}
+                </button>
+              ))}
+            </div>
+            <div className="lst-hist-cur">
+              目前篩選：<b>{days === 1 ? '今日' : `${days} 天`}</b>
+              {' · '}
+              {feature === 'all'
+                ? <b>全部功能</b>
+                : <span className="lst-hist-tag" style={{ ['--c' as string]: FEATURE_COLORS[feature] ?? DEFAULT_FEATURE_COLOR }}>{FEATURE_LABELS[feature]}</span>}
+              {feature !== 'all' && <button type="button" className="lst-link" onClick={() => setFeature('all')}>清除</button>}
+            </div>
+          </div>
 
-          <span className="lst-sep" aria-hidden="true" />
-
-          {/* Feature */}
-          {(['all', ...Object.keys(FEATURE_LABELS)] as FeatureFilter[]).map(f => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFeature(f)}
-              className="lst-chip"
-              aria-pressed={feature === f}
-            >
-              {f === 'all' ? '全部' : FEATURE_LABELS[f]}
-            </button>
-          ))}
+          {/* 功能：依模組分組，每顆前面的色點跟下方紀錄標籤同色 */}
+          <div className="lst-hist-groups">
+            <div className="lst-hist-grp">
+              <div className="lst-hist-gl">功能</div>
+              <div className="lst-chips">
+                <button type="button" className="lst-chip lst-fchip" onClick={() => setFeature('all')} aria-pressed={feature === 'all'}>全部</button>
+              </div>
+            </div>
+            {FEATURE_GROUPS_FULL.map(g => (
+              <div key={g.label} className="lst-hist-grp">
+                <div className="lst-hist-gl">{g.label}</div>
+                <div className="lst-chips">
+                  {g.keys.map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setFeature(f as FeatureFilter)}
+                      className="lst-chip lst-fchip"
+                      style={{ ['--c' as string]: FEATURE_COLORS[f] ?? DEFAULT_FEATURE_COLOR }}
+                      aria-pressed={feature === f}
+                    >
+                      <i aria-hidden="true" />{FEATURE_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="lst-hist-body">

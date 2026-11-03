@@ -301,3 +301,37 @@
   color: color-mix(in srgb, var(--c) 62%, #fff);
   background: color-mix(in srgb, var(--c) 18%, transparent); border-color: color-mix(in srgb, var(--c) 60%, transparent);
 }
+
+/* ══ 操作歷史篩選改版（使用者 1103 確認 mockup）：時間分段切換＋功能依模組分組、色點對應紀錄標籤、上方目前篩選 ══ */
+.lst-hist-filters2 { padding-bottom: 6px; border-bottom: 1px solid var(--rd-line, #22304a); margin-bottom: 12px; }
+.lst-hist-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px solid var(--rd-line, #22304a); }
+.lst-seg { display: inline-flex; padding: 3px; border-radius: 8px; border: 1px solid var(--rd-line-2, #2c3d5c); background: color-mix(in srgb, var(--rd-bg, #070b14) 80%, transparent); }
+.lst-seg button { border: 0; background: none; color: var(--rd-fg-2, #a8b5c8); padding: 6px 16px; border-radius: 6px; font-size: 13.5px; cursor: pointer; }
+.lst-seg button:hover { color: var(--rd-fg, #e6edf7); }
+.lst-seg button[aria-pressed="true"] { background: var(--rd-accent, #4c8dff); color: #04121a; font-weight: 700; }
+.lst-hist-cur { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--rd-fg-2, #a8b5c8); }
+.lst-hist-cur b { color: var(--rd-fg, #e6edf7); }
+.lst-hist-tag {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: color-mix(in srgb, var(--c) 55%, #fff); background: color-mix(in srgb, var(--c) 16%, transparent); border: 1px solid color-mix(in srgb, var(--c) 50%, transparent);
+}
+.lst-hist-tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.lst-hist-groups { display: grid; gap: 8px; }
+.lst-hist-grp { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; }
+.lst-hist-gl { font-size: 12px; color: var(--rd-fg-3, #6f7f98); padding-top: 6px; letter-spacing: .05em; }
+.lst-fchip { display: inline-flex; align-items: center; gap: 6px; }
+.lst-fchip i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.lst-fchip[aria-pressed="true"][style] {
+  background: color-mix(in srgb, var(--c) 24%, transparent) !important; border-color: var(--c) !important; color: #fff !important;
+  box-shadow: inset 0 0 0 1px var(--c) !important; font-weight: 700;
+}
+:root[data-theme-mode="xianxia"] .lst-hist-gl { color: var(--rd-ornament, #d6b770); }
+:root[data-theme-mode="xianxia"] .lst-seg { border-radius: 3px; }
+:root[data-theme-mode="xianxia"] .lst-seg button { border-radius: 2px; }
+@media (max-width: 760px) { .lst-hist-grp { grid-template-columns: minmax(0, 1fr); gap: 4px; } .lst-hist-gl { padding-top: 0; } }
+/* 內距跟原本 .lst-toolbar 一樣；修仙版的按鈕通用樣式會把分段選中的填色洗掉，壓回來 */
+.lst-hist-filters2 { padding: 14px 16px 10px; }
+:root[data-ui="redesign"] .main-content .lst-seg button[aria-pressed="true"] {
+  background: var(--rd-accent, #4c8dff) !important; color: #04121a !important; font-weight: 700; box-shadow: none !important;
+}
+:root[data-ui="redesign"] .main-content .lst-seg button:not([aria-pressed="true"]) { background: none !important; box-shadow: none !important; }
