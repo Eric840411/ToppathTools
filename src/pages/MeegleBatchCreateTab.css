@@ -234,6 +234,11 @@
 }
 .mb-status--bad { color: var(--mb-bad); }
 .mb-status--info { color: var(--mb-info); }
+/* 圓點底色要直接指定：i 自己的 color 是深色字（給 ! / i 用），background: currentColor 會變成深藍點、字也看不見（11-03 走查） */
+.mb-status--ok i { background: var(--mb-ok); }
+.mb-status--bad i { background: var(--mb-bad); }
+.mb-status--info i { background: var(--mb-info); }
+.mb-status--pending i { background: var(--mb-pending); }
 .mb-status--pending { color: var(--mb-pending); }
 .mb-status--muted { color: var(--mb-muted); font-weight: 400; font-size: 12px; }
 

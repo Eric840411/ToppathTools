@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.75.3'
+export const APP_VERSION = '5.75.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.75.4', date: '2026-11-03', changes: ["fix(Meegle 開單 檢查欄圖示)：可送出的綠點、被擋的紅色 !、已開過的藍色 i 原本 background: currentColor 吃到自己的深色字色，變成深藍點、符號看不見；改成各自指定底色，兩版共用（11-03 Meegle 全流程走查發現）"] },
   { version: '5.75.3', date: '2026-11-03', changes: ["style(修仙版側欄子頁籤)：子頁籤改回原功能名（OSM Tools 13 項、Game Show 3 項不再顯示靈脈校準／試煉玉簡等修仙詞），側欄、收合選單、搜尋、頁首副標與麵包屑一致；頂層群組名稱不變（使用者 1103）"] },
   { version: '5.75.2', date: '2026-11-03', changes: ["style(修仙版藍黑殘色全站清除，使用者 1103 反覆截到漏網)：新增 scripts/ui-checks/xianxia-navy-sweep.mjs——逐頁（含 Game Show iframe、分頁、展開區、新增／編輯彈窗）讀每個可見元素的實際底色／邊框／字色，抓色相 195–240° 的藍黑；先用拿掉修正的版本驗證它會紅。依結果在 xianxia.css 補 369 行覆蓋（舊仙俠把表格字一律蓋灰也修正、OSM 黃色警示格恢復），30 頁掃完 0 筆；語意藍（狀態、角色色、Local Agent Ready 等）保留。server/static/redesign-frame.css 補 Bonus V2 iframe 6 行（要合併重啟才生效）。普通版不變"] },
   { version: '5.75.1', date: '2026-11-03', changes: ["style(OSM 版號同步 排程設定)：展開的排程設定框修仙版殘留藍黑（App.css 寫死），改用主題色兩版共用；Webhook／Cron 標籤欄固定寬、輸入框左緣對齊（使用者 1103）"] },
