@@ -223,3 +223,17 @@
   :root[data-ui="redesign"] .osm-page > .osm-section--half > :is(.osm-empty, .osm-table-wrap, .table-wrap) { flex: 1 1 auto; }
   :root[data-ui="redesign"] .osm-page > .osm-section--half > .osm-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 }
+
+/* 排程設定（展開在目標版本列下方）：App.css 寫死藍黑 #0f172a／#2d3f55，修仙版漏換（使用者 1103 截圖）；
+   改用主題 token 兩版共用。標籤欄固定寬，Webhook 與 Cron 兩個輸入框左緣對齊 */
+:root[data-ui="redesign"] .osm-alert-config {
+  background: color-mix(in srgb, var(--rd-bg) 70%, transparent) !important; border-color: var(--rd-line) !important;
+  box-shadow: var(--rd-well);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-alert-config { border-radius: 3px !important; }
+:root[data-ui="redesign"] .osm-alert-config-label { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .osm-alert-config-label input[type=checkbox] { accent-color: var(--rd-accent); }
+:root[data-ui="redesign"] .osm-alert-config-row > .osm-alert-config-label:first-child:not(:has(input)) { flex: 0 0 120px; }
+:root[data-ui="redesign"] .osm-alert-config-row > .osm-lark-url-input { flex: 1 1 auto; min-width: 0; }
+:root[data-ui="redesign"] .osm-alert-cron-hint { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .osm-alert-cron-hint code { background: var(--rd-panel-2) !important; color: var(--rd-fg-2) !important; border: 1px solid var(--rd-line); }

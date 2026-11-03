@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.75.0'
+export const APP_VERSION = '5.75.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.75.1', date: '2026-11-03', changes: ["style(OSM 版號同步 排程設定)：展開的排程設定框修仙版殘留藍黑（App.css 寫死），改用主題色兩版共用；Webhook／Cron 標籤欄固定寬、輸入框左緣對齊（使用者 1103）"] },
   { version: '5.75.0', date: '2026-11-03', changes: ["change(操作歷史紀錄 篩選改版，使用者 1103 確認 mockup)：時間改分段切換（今日／3 天／7 天），預設改為今日；35 個功能依模組分組（Meegle／OSM 版本／機台與對帳／Game Show／文件與其他），每顆前面色點與下方紀錄標籤同色，選中用該功能顏色填底；上方一行顯示目前篩選＋清除。篩選邏輯不變（時間單選、功能單選）；之後新增的功能沒分組會自動落到文件與其他"] },
   { version: '5.74.6', date: '2026-11-03', changes: ["style(彈窗關閉鈕)：底部操作列已有按鈕的彈窗，標題列右上的「關閉」收掉，只留一個（使用者 1103）；底部沒按鈕的（帳號池選取、文件預覽）保留右上關閉"] },
   { version: '5.74.5', date: '2026-11-03', changes: ["style(OSM 版號同步)：同一列兩個半寬面板（OSM／LuckyLink、Toppath／ImageRecon）高度一致，空狀態框跟著撐滿（使用者 1103：高度不統一），兩版"] },
