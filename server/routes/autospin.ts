@@ -2843,11 +2843,11 @@ router.put('/api/autospin/reconcile/config', (req, res) => {
  *    （同樣的 backendservertest / qat-cp / 873 / 帳密），**而且兩邊打的是同一組 API**
  *    （`/egm/reports/gameRecordList`）。等於使用者被要求重填一份已經存在的設定。
  *
- *    所以改成直接讀共用設定，依環境取 `osm_` 或 `gcp_` 前綴那組。
+ *    所以改成直接讀共用設定，依 profile 取 `qat_osm_` 或 `qat_gcp_` 那組（v5.76.0 起依環境分組）。
  *
- * ⚠️ `reconcile_config` 仍然優先：它存的是登入後拿到的 token/lastlogintime
- *    （見 `/reconcile/login`），那是這支自己維護的登入狀態，不能被共用設定蓋掉。
- *    共用設定只補「連線目標與帳密」這些底層欄位。
+ * ⚠️ v5.76.3 起 `reconcile_config` **不再讀**（原本疊在共用設定上面）：它只有一組、不分 OSM／GCP，
+ *    兩個 profile 又共用同一個網址，會互相蓋掉 origin／帳密／channel／token。登入狀態改存在 qat_{profile}_。
+ *    共用設定改成依環境分組：這支固定讀 `qat_osm_`／`qat_gcp_`。
  */
 type ReconcileEnv = 'osm' | 'gcp'
 
@@ -2877,16 +2877,9 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   // 而共用設定裡沒有這個欄位（Meter 那支是自己組的）
   if (cfg.origin && !cfg.referer) cfg.referer = cfg.origin.replace(/\/?$/, '/')
 
-  const own = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
-  // 自己的表存的是另一組登入狀態：它指向的後台跟共用設定不同時整組不用，
-  // 否則網址／token 會跨環境混在一起（CodeX 1104）
-  const ownBase = own.find(r => r.key === 'base_url')?.value || ''
-  const norm = (u: string) => u.replace(/\/+$/, '').toLowerCase()
-  // QAT 共用設定沒有網址、或自己的表沒記網址（token 不知道是哪個後台發的）→ 都不用；缺設定就是缺設定（CodeX 1104 P1）
-  if (ownBase && cfg.base_url && norm(ownBase) === norm(cfg.base_url)) {
-    for (const r of own) if (r.value) cfg[r.key] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value
-  }
-
+  // v5.76.3 起**不再疊加 reconcile_config**：那張表只有一組、不分 OSM／GCP，而兩個 profile 共用同一個
+  // backendservertest 網址——用網址比對擋不住，選 GCP 會被蓋成 OSM 的 origin／帳密／channel（CodeX 1104 P1）。
+  // 執行路徑只讀寫 qat_{profile}_；reconcile_config 留著不刪（歷史資料），但不再讀
   return cfg
 }
 
@@ -2903,8 +2896,7 @@ function reconcileHeaders(cfg: Record<string, string>) {
 }
 
 // Helper: login and refresh token
-// 登入拿到的 token 存回「QAT＋這個 profile」那組共用設定（綁定來源，OSM／GCP 不互借）；
-// reconcile_config 只在它記的網址跟這次登入的網址相同時才一起更新（v5.76.1，CodeX review P1）
+// 登入拿到的 token 只存回「QAT＋這個 profile」那組共用設定（OSM／GCP 不互借；v5.76.3 起不再同步 reconcile_config）
 async function reconcileLogin(cfg: Record<string, string>, env: ReconcileEnv): Promise<{ token: string; lastlogintime: string } | null> {
   if (!cfg.base_url) return null
   const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
@@ -2922,11 +2914,6 @@ async function reconcileLogin(cfg: Record<string, string>, env: ReconcileEnv): P
       const llt = d.data.lastLoginTime ?? ''
       saveMeterConfigValue('qat', env, 'token', token)
       saveMeterConfigValue('qat', env, 'lastlogintime', String(llt))
-      const ownBase = (db.prepare("SELECT value FROM reconcile_config WHERE key = 'base_url'").get() as { value: string } | undefined)?.value || ''
-      if (ownBase && ownBase.replace(/\/+$/, '').toLowerCase() === cfg.base_url.replace(/\/+$/, '').toLowerCase()) {
-        db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('token', encryptSecret(token))
-        db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('lastlogintime', String(llt))
-      }
       return { token, lastlogintime: String(llt) }
     }
     return null
