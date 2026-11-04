@@ -71,6 +71,10 @@ export function classifyLegacySet(cfg: Record<string, string>): MeterEnv | null 
 }
 
 const MIGRATED_KEY = '__env_split_v1'
+/** Live Ledger 讀這組後台設定的那個來源（server/live-ledger-fetch.ts）。 */
+export const LEDGER_SOURCE = 'gameRecordList'
+/** 舊 OSM 設定其實是 UAT 時，QAT gameRecordList 被清掉的水位原值（回補用）。 */
+export const SUSPECT_KEY = '__qat_ledger_suspect_since_split'
 /** 沒辦法判定環境的舊設定，記下它的網址給畫面提示（不是機密，不含帳密）。 */
 const unclassifiedKey = (profile: MeterProfile) => `__legacy_unclassified_${profile}`
 
@@ -105,9 +109,16 @@ export function migrateMeterConfigEnvOn(db: Db): { moved: string[]; skipped: str
       moved.push(`${profile}→${env}`)
       // 舊 osm_ 其實是 UAT：Live Ledger 的 QAT 這段時間抓的是 UAT 後台，水位不能沿用（CodeX 1104）。
       // 只清水位讓它重新起算；已經抓進來的資料不在這裡刪，要人看過時段再處理
+      // 只動走這組設定的來源（gameRecordList）；LuckyLink 的 poolChangeReport／awardsReport 是獨立來源，不碰（CodeX 1104 P1）。
+      // 刪之前把原本的水位整份記下來，之後要回補那段時間才有依據
       if (env === 'uat' && profile === 'osm') {
-        try { db.prepare("DELETE FROM recon_watermark WHERE env = 'qat'").run() } catch { /* 表還沒建就沒有水位 */ }
-        db.prepare('INSERT OR REPLACE INTO meter_reconcile_config (key, value) VALUES (?, ?)').run('__qat_ledger_suspect_since_split', String(Date.now()))
+        let old: unknown[] = []
+        try {
+          old = db.prepare("SELECT env, source, scope, cursorTs, updatedAt FROM recon_watermark WHERE env = 'qat' AND source = ?").all(LEDGER_SOURCE)
+          db.prepare("DELETE FROM recon_watermark WHERE env = 'qat' AND source = ?").run(LEDGER_SOURCE)
+        } catch { /* 表還沒建就沒有水位 */ }
+        db.prepare('INSERT OR REPLACE INTO meter_reconcile_config (key, value) VALUES (?, ?)')
+          .run(SUSPECT_KEY, JSON.stringify({ at: Date.now(), watermarks: old }))
       }
     }
     db.prepare('INSERT INTO meter_reconcile_config (key, value) VALUES (?, ?)').run(MIGRATED_KEY, String(Date.now()))

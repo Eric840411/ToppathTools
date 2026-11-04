@@ -2881,7 +2881,8 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   // 否則網址／token 會跨環境混在一起（CodeX 1104）
   const ownBase = own.find(r => r.key === 'base_url')?.value || ''
   const norm = (u: string) => u.replace(/\/+$/, '').toLowerCase()
-  if (!ownBase || !cfg.base_url || norm(ownBase) === norm(cfg.base_url)) {
+  // QAT 共用設定沒有網址、或自己的表沒記網址（token 不知道是哪個後台發的）→ 都不用；缺設定就是缺設定（CodeX 1104 P1）
+  if (ownBase && cfg.base_url && norm(ownBase) === norm(cfg.base_url)) {
     for (const r of own) if (r.value) cfg[r.key] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value
   }
 
@@ -2973,10 +2974,10 @@ async function fetchBackendRecords(
   const channel = cfg.channelId || '873'
   const playerstudioid = cfg.playerstudioid || 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,ALL'
 
-  // 連 token 跟帳密都沒有 → 這不是「查無資料」，是根本沒辦法查。
+  // 連 token 跟帳密都沒有（或連網址都沒有，v5.76.0 起不退回寫死的 QAT 網址）→ 這不是「查無資料」，是根本沒辦法查。
   // 正式環境最常見的情況：`meter_reconcile_config` 從來沒在那個環境設定過
   // （本機跟 Spug 的 DB 是分開的），於是每次查詢都靜默回 0 筆。
-  if (!cfg.token && !cfg.login_password) {
+  if (!cfg.base_url || (!cfg.token && !cfg.login_password)) {
     return {
       records: [],
       error: {
@@ -3096,7 +3097,7 @@ router.post('/api/autospin/reconcile/test', async (req, res) => {
     //    這兩種的下一步完全不同：前者要去把設定建起來，後者是改帳密。
     //    先前兩種都回「自動登入失敗，請確認帳密」，在全新環境上等於把人
     //    導去檢查一組根本還不存在的帳密。
-    if (!cfg.token && !cfg.login_password) {
+    if (!cfg.base_url || (!cfg.token && !cfg.login_password)) {
       return res.json({ ok: false, message: '這個環境還沒有後台連線設定。請先到「Performance Meter 對帳」頁面設定並測試登入。' })
     }
     if (!cfg.token && autoLoginEnabled(cfg)) {

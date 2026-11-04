@@ -112,32 +112,37 @@ export function MeterReconcilePage() {
 
   useEffect(() => { loadConfig('osm', env); loadConfig('gcp', env) }, [env])
 
+  // 儲存／測試從按下那一刻就固定環境與序號：途中切了環境，結果不能填進另一個環境的畫面（CodeX 1104 P1）
   async function saveConfig(profile: 'osm' | 'gcp') {
+    const seq = envSeq.current, forEnv = env
     setSavingCfg(profile)
     const cfg = profile === 'osm' ? osmConfig : gcpConfig
     try {
       const res = await fetch('/api/osm/meter-reconcile/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          env, profile, base_url: cfg.base_url, origin: cfg.origin, channelId: cfg.channelId,
+          env: forEnv, profile, base_url: cfg.base_url, origin: cfg.origin, channelId: cfg.channelId,
           login_username: cfg.login_username, login_password: cfg.login_password,
         }),
       })
       const d = await res.json()
+      if (seq !== envSeq.current) return
       setCfgMsg({ profile, text: d.ok ? '已儲存' : `失敗：${d.message}`, ok: !!d.ok })
-      await loadConfig(profile)
+      await loadConfig(profile, forEnv)
     } finally {
       setSavingCfg(null)
     }
   }
 
   async function testConfig(profile: 'osm' | 'gcp') {
+    const seq = envSeq.current, forEnv = env
     setTestingCfg(profile)
     try {
       const res = await fetch('/api/osm/meter-reconcile/test', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ env, profile }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ env: forEnv, profile }),
       })
       const d = await res.json()
+      if (seq !== envSeq.current) return
       setCfgMsg({ profile, text: d.message ?? (d.ok ? '成功' : '失敗'), ok: !!d.ok })
     } finally {
       setTestingCfg(null)
