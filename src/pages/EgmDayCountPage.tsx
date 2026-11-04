@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { type MeterEnv, METER_ENV_LABEL, readMeterEnv, writeMeterEnv } from './meter-env'
 
 interface EgmDayCountField {
   key: string
@@ -40,6 +41,9 @@ function fmt(n: number | undefined | null, digits = 2): string {
 interface GameTypeOption { name: string; gameTag: string; id: number }
 
 export function EgmDayCountPage() {
+  // 環境（QAT／UAT），跟 Performance Meter 共用後台設定；切換時丟掉還沒回來的舊請求
+  const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('daycount'))
+  const envSeq = useRef(0)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [dayBoundary, setDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
   const [allChannels, setAllChannels] = useState(false)
@@ -49,27 +53,39 @@ export function EgmDayCountPage() {
   const [result, setResult] = useState<EgmDayCountResult | null>(null)
   const [error, setError] = useState('')
 
+  function setEnv(next: MeterEnv) {
+    if (next === env) return
+    envSeq.current++
+    writeMeterEnv('daycount', next)
+    setEnvState(next)
+    setResult(null); setError(''); setLoading(false); setGameType(''); setGameTypes([])
+  }
+
   useEffect(() => {
-    fetch('/api/osm/meter-reconcile/game-types')
+    const seq = envSeq.current
+    fetch(`/api/osm/meter-reconcile/game-types?env=${env}`)
       .then(r => r.json())
-      .then(d => { if (d.ok) setGameTypes(d.gameTypes ?? []) })
+      .then(d => { if (seq === envSeq.current && d.ok) setGameTypes(d.gameTypes ?? []) })
       .catch(() => {})
-  }, [])
+  }, [env])
 
   async function handleQuery() {
     setLoading(true); setError(''); setResult(null)
+    const seq = envSeq.current
     try {
       const res = await fetch('/api/osm/meter-reconcile/egm-daycount', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, dayBoundary, allChannels, gameType }),
+        body: JSON.stringify({ env, date, dayBoundary, allChannels, gameType }),
       })
       const d = await res.json()
+      if (seq !== envSeq.current) return
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
       setResult(d)
     } catch (e) {
+      if (seq !== envSeq.current) return
       setError(`查詢失敗：${e}`)
     } finally {
-      setLoading(false)
+      if (seq === envSeq.current) setLoading(false)
     }
   }
 
@@ -78,6 +94,14 @@ export function EgmDayCountPage() {
       {/* 新版（原型 v7）：查詢條件收成一列，篩選說明降成底下一行小字；結果每一塊都是原型面板、表格貼在標題帶下。樣式在 redesign/pages/settings.css */}
       <section className="section-card st-card st-q">
         <div className="st-q-row">
+          <div className="st-q-f">
+            <span className="st-q-l">環境</span>
+            <div className="rd-tabs st-seg">
+              {(['qat', 'uat'] as const).map(e => (
+                <button key={e} type="button" className="rd-tab" aria-pressed={env === e} onClick={() => setEnv(e)}>{METER_ENV_LABEL[e]}</button>
+              ))}
+            </div>
+          </div>
           <div className="st-q-f">
             <label className="st-q-l" htmlFor="egm-date">日期</label>
             <input id="egm-date" className="lst-field" type="date" value={date} onChange={e => setDate(e.target.value)} />

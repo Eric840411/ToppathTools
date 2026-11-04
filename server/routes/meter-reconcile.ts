@@ -1,15 +1,28 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
-import { encryptSecret, decryptSecret, isSecretConfigKey } from '../secret-crypto.js'
+import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
 import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
 
 export const router = Router()
 
 // ─── Performance Meter 對帳 ──────────────────────────────────────────────────
 // 比對 OSM/GCP EGM Metering 的 Coin Out 與 Game Record + Jackpot Abnormality 加總，
-// 驗證兩邊數字是否完全一致。憑證存在 meter_reconcile_config（key 前綴 osm_/gcp_ 區分兩組後台）。
+// 驗證兩邊數字是否完全一致。憑證存在 meter_reconcile_config，依環境×後台分四組（見 server/meter-config.ts）。
 
-type Profile = 'osm' | 'gcp'
+type Profile = MeterProfile
+export { loadMeterConfig }
+
+// 舊 osm_／gcp_ 搬到 {env}_{profile}_（只跑一次）
+try {
+  const m = migrateMeterConfigEnv()
+  if (m.moved.length || m.skipped.length) console.log(`[meter-config] 環境拆分：搬移 ${m.moved.join(', ') || '無'}；未搬 ${m.skipped.join(', ') || '無'}`)
+} catch (e) { console.error('[meter-config] 環境拆分失敗', e) }
+
+/** QAT 才有預設 channel（873／892）；UAT 沒填就是沒填，不能拿 QAT 的值去查。 */
+function channelOf(env: MeterEnv, profile: Profile, cfg: Record<string, string>): string {
+  if (cfg.channel_id) return cfg.channel_id
+  return env === 'qat' ? (profile === 'osm' ? '873' : '892') : ''
+}
 
 /** 查詢日期的隔天（用於 dateTime[] 上界／gaming day 邊界跨日計算）。 */
 function nextDateStr(date: string): string {
@@ -34,21 +47,6 @@ function toUtcIso(dateStr: string, hh: number, mm = 0, ss = 0): string {
 // 所以 WIN/LOSE、RTP 一律用 coinIn/coinOut/jackpotWins 現算，不要直接讀 hourly row 的欄位 2/26。
 const FIELD = { gamesPlayed: '5', coinIn: '6', coinOut: '10', jackpotWins: '29' } as const
 
-export function loadMeterConfig(profile: Profile): Record<string, string> {
-  const rows = db.prepare('SELECT key, value FROM meter_reconcile_config WHERE key LIKE ?').all(`${profile}_%`) as { key: string; value: string }[]
-  const cfg: Record<string, string> = {}
-  for (const r of rows) {
-    const k = r.key.slice(profile.length + 1)
-    cfg[k] = isSecretConfigKey(k) ? decryptSecret(r.value) : r.value
-  }
-  return cfg
-}
-
-function saveMeterConfigValue(profile: Profile, key: string, value: string) {
-  // token／password 加密存放（資安審查 2026-10-19）
-  db.prepare('INSERT OR REPLACE INTO meter_reconcile_config (key, value) VALUES (?, ?)').run(`${profile}_${key}`, isSecretConfigKey(key) ? encryptSecret(value) : value)
-}
-
 function meterHeaders(cfg: Record<string, string>) {
   return {
     'accept': 'application/json, text/plain, */*',
@@ -60,8 +58,9 @@ function meterHeaders(cfg: Record<string, string>) {
   }
 }
 
-async function meterLogin(profile: Profile, cfg: Record<string, string>): Promise<string | null> {
-  const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
+async function meterLogin(env: MeterEnv, profile: Profile, cfg: Record<string, string>): Promise<string | null> {
+  if (!cfg.base_url) return null
+  const baseUrl = cfg.base_url.replace(/\/$/, '')
   try {
     const r = await fetch(`${baseUrl}/auth/login`, {
       method: 'POST',
@@ -70,8 +69,8 @@ async function meterLogin(profile: Profile, cfg: Record<string, string>): Promis
     })
     const d = await r.json() as { code?: number; data?: { token?: string; lastLoginTime?: number } }
     if (d.code === 20000 && d.data?.token) {
-      saveMeterConfigValue(profile, 'token', d.data.token)
-      saveMeterConfigValue(profile, 'lastlogintime', String(d.data.lastLoginTime ?? ''))
+      saveMeterConfigValue(env, profile, 'token', d.data.token)
+      saveMeterConfigValue(env, profile, 'lastlogintime', String(d.data.lastLoginTime ?? ''))
       return d.data.token
     }
     return null
@@ -79,15 +78,16 @@ async function meterLogin(profile: Profile, cfg: Record<string, string>): Promis
 }
 
 /** GET 呼叫，token 過期（code 40200）時自動重新登入一次再重試。 */
-async function meterGet(profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
-  const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
+async function meterGet(env: MeterEnv, profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
+  if (!cfg.base_url) throw new Error(missingConfigMessage(env, profile))
+  const baseUrl = cfg.base_url.replace(/\/$/, '')
   let headers = meterHeaders(cfg)
   let r = await fetch(`${baseUrl}${path}?${params}`, { method: 'GET', headers })
   let d = await r.json() as { code?: number }
   if (d.code === 40200) {
-    const newToken = await meterLogin(profile, cfg)
+    const newToken = await meterLogin(env, profile, cfg)
     if (newToken) {
-      cfg = loadMeterConfig(profile)
+      cfg = loadMeterConfig(env, profile)
       headers = meterHeaders(cfg)
       r = await fetch(`${baseUrl}${path}?${params}`, { method: 'GET', headers })
       d = await r.json()
@@ -97,15 +97,16 @@ async function meterGet(profile: Profile, cfg: Record<string, string>, path: str
 }
 
 /** POST 呼叫（gameRecordList 是 POST + query string 參數的舊風格 API）。*/
-export async function meterPost(profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
-  const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
+export async function meterPost(env: MeterEnv, profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
+  if (!cfg.base_url) throw new Error(missingConfigMessage(env, profile))
+  const baseUrl = cfg.base_url.replace(/\/$/, '')
   let headers = meterHeaders(cfg)
   let r = await fetch(`${baseUrl}${path}?${params}`, { method: 'POST', headers })
   let d = await r.json() as { code?: number }
   if (d.code === 40200) {
-    const newToken = await meterLogin(profile, cfg)
+    const newToken = await meterLogin(env, profile, cfg)
     if (newToken) {
-      cfg = loadMeterConfig(profile)
+      cfg = loadMeterConfig(env, profile)
       headers = meterHeaders(cfg)
       r = await fetch(`${baseUrl}${path}?${params}`, { method: 'POST', headers })
       d = await r.json()
@@ -116,12 +117,17 @@ export async function meterPost(profile: Profile, cfg: Record<string, string>, p
 
 // ─── 設定 API ───────────────────────────────────────────────────────────────
 
-// GET /api/osm/meter-reconcile/config?profile=osm|gcp — 讀取設定（密碼/token 不回傳明文）
+// GET /api/osm/meter-reconcile/config?env=qat|uat&profile=osm|gcp — 讀取設定（密碼/token 不回傳明文）
 router.get('/api/osm/meter-reconcile/config', (req, res) => {
+  const env = parseMeterEnv(req.query.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   const profile = (req.query.profile as string) === 'gcp' ? 'gcp' : 'osm'
-  const cfg = loadMeterConfig(profile)
+  const cfg = loadMeterConfig(env, profile)
   res.json({
     ok: true,
+    env,
+    // 舊版只有一組設定、又判斷不出屬於哪個環境時沒有搬移，畫面要提示重填
+    legacyUnclassified: legacyUnclassified(profile),
     base_url: cfg.base_url || '',
     origin: cfg.origin || '',
     channelId: cfg.channel_id || '',
@@ -137,21 +143,28 @@ router.put('/api/osm/meter-reconcile/config', (req, res) => {
     profile?: string; base_url?: string; origin?: string; channelId?: string
     login_username?: string; login_password?: string
   }
+  const env = parseMeterEnv((req.body as { env?: unknown })?.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   if (profile !== 'osm' && profile !== 'gcp') return res.status(400).json({ ok: false, message: 'profile 需為 osm 或 gcp' })
-  if (typeof base_url === 'string') saveMeterConfigValue(profile, 'base_url', base_url)
-  if (typeof origin === 'string') saveMeterConfigValue(profile, 'origin', origin)
-  if (typeof channelId === 'string') saveMeterConfigValue(profile, 'channel_id', channelId)
-  if (typeof login_username === 'string') saveMeterConfigValue(profile, 'login_username', login_username)
-  if (typeof login_password === 'string' && login_password) saveMeterConfigValue(profile, 'login_password', login_password)
+  // 網址改了，舊 token 是別的後台發的，不能再用
+  const prevBase = loadMeterConfig(env, profile).base_url || ''
+  if (typeof base_url === 'string' && base_url !== prevBase) { saveMeterConfigValue(env, profile, 'token', ''); saveMeterConfigValue(env, profile, 'lastlogintime', '') }
+  if (typeof base_url === 'string') saveMeterConfigValue(env, profile, 'base_url', base_url)
+  if (typeof origin === 'string') saveMeterConfigValue(env, profile, 'origin', origin)
+  if (typeof channelId === 'string') saveMeterConfigValue(env, profile, 'channel_id', channelId)
+  if (typeof login_username === 'string') saveMeterConfigValue(env, profile, 'login_username', login_username)
+  if (typeof login_password === 'string' && login_password) saveMeterConfigValue(env, profile, 'login_password', login_password)
   res.json({ ok: true })
 })
 
 // POST /api/osm/meter-reconcile/test — 測試登入
 router.post('/api/osm/meter-reconcile/test', async (req, res) => {
+  const env = parseMeterEnv((req.body as { env?: unknown })?.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   const profile = (req.body as { profile?: string })?.profile === 'gcp' ? 'gcp' : 'osm'
-  const cfg = loadMeterConfig(profile)
-  if (!cfg.base_url) return res.status(400).json({ ok: false, message: '尚未設定後台網址' })
-  const token = await meterLogin(profile, cfg)
+  const cfg = loadMeterConfig(env, profile)
+  if (!cfg.base_url) return res.status(400).json({ ok: false, message: missingConfigMessage(env, profile) })
+  const token = await meterLogin(env, profile, cfg)
   if (token) res.json({ ok: true, message: '✅ 登入成功' })
   else res.status(400).json({ ok: false, message: '登入失敗，請確認帳號密碼與網址設定' })
 })
@@ -159,10 +172,13 @@ router.post('/api/osm/meter-reconcile/test', async (req, res) => {
 // GET /api/osm/meter-reconcile/game-types — 給 Egm DayCount 對帳的 Game Type 篩選下拉選單用。
 // /public/gameNameAlias 是公開端點，不需要登入 token（已用真實請求確認），直接 fetch，不走 meterGet。
 router.get('/api/osm/meter-reconcile/game-types', async (req, res) => {
+  const env = parseMeterEnv(req.query.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   try {
-    const cfg = loadMeterConfig('osm')
-    const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
-    const channelId = cfg.channel_id || '873'
+    const cfg = loadMeterConfig(env, 'osm')
+    if (!cfg.base_url) return res.json({ ok: false, message: missingConfigMessage(env, 'osm'), gameTypes: [] })
+    const baseUrl = cfg.base_url.replace(/\/$/, '')
+    const channelId = channelOf(env, 'osm', cfg)
     const r = await fetch(`${baseUrl}/public/gameNameAlias?channelId=${encodeURIComponent(channelId)}`)
     const d = await r.json() as { data?: { name: string; gameTag: string; id: number }[] }
     res.json({ ok: true, gameTypes: d.data ?? [] })
@@ -179,17 +195,20 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     date?: string; dayBoundary?: string; allChannels?: boolean; gameType?: string
   }
   if (!date) return res.status(400).json({ ok: false, message: 'date 為必填' })
+  const env = parseMeterEnv((req.body as { env?: unknown })?.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   const gameType = gameTypeFilter || ''
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
   const apiDateType = boundary === 'calendar' ? '1' : '0'
   const isall = allChannels ? 'true' : 'false'
-  const cfg = loadMeterConfig('osm')
+  const cfg = loadMeterConfig(env, 'osm')
   if (!cfg.base_url) {
-    return res.status(400).json({ ok: false, message: '尚未設定 OSM 後台連線資訊，請先在下方「後台設定」填寫' })
+    return res.status(400).json({ ok: false, message: missingConfigMessage(env, 'osm') })
   }
+  if (!allChannels && !channelOf(env, 'osm', cfg)) return res.status(400).json({ ok: false, message: `${env.toUpperCase()} 的 OSM（CP）後台沒有填 Channel ID` })
   // channelId=873 是「Player Channel: np +11」那個預設範圍；後台「All」勾選時實際送出的請求
   // 是 channelId=0 + isall=true（已用真實 Network request 截圖確認，不是拿掉 playerstudioid）。
-  const channelId = allChannels ? '0' : (cfg.channel_id || '873')
+  const channelId = allChannels ? '0' : channelOf(env, 'osm', cfg)
   // playerstudioid 這組固定清單已用真實查詢驗證可以精準對上「np +11」那個預設範圍，All 模式下
   // 後台一樣有帶這個參數（沒有拿掉），只是 channelId／isall 變了。
   const playerstudioid = 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL'
@@ -208,7 +227,10 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     if (playerstudioid) dcParams.set('playerstudioid', playerstudioid)
     dcParams.append('dateTime[]', date); dcParams.append('dateTime[]', date)
     dcParams.append('date[]', date); dcParams.append('date[]', date)
-    const dc = await meterGet('osm', cfg, '/egm/reports/gameCount', dcParams)
+    const dc = await meterGet(env, 'osm', cfg, '/egm/reports/gameCount', dcParams)
+    // 回應無效（登入失敗、網址錯）不能被 num() 轉成 0——三邊都是 0 會顯示成「一致」（1104 走查 UAT 沒密碼時實測）
+    const dcBad = apiProblem('Egm DayCount', dc, d => typeof d.data === 'object' && d.data !== null)
+    if (dcBad) return res.status(502).json({ ok: false, message: `${env.toUpperCase()} 後台回應無效：${dcBad}（帳密或網址可能不對，請到 Performance Meter 頁測試登入）` })
     const dcRow = dc?.data?.items?.[0] ?? dc?.data?.sumData ?? {}
     const egmDayCount = {
       betUsers: num(dcRow.betUsers), betNumber: num(dcRow.betTimes), betAmount: num(dcRow.bet),
@@ -226,7 +248,9 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     })
     udParams.append('dateTime[]', date); udParams.append('dateTime[]', date)
     udParams.append('date[]', date); udParams.append('date[]', date)
-    const ud = await meterGet('osm', cfg, '/egm/reports/playerMachineCount', udParams)
+    const ud = await meterGet(env, 'osm', cfg, '/egm/reports/playerMachineCount', udParams)
+    const udBad = apiProblem('User Detail', ud, d => typeof d.data === 'object' && d.data !== null)
+    if (udBad) return res.status(502).json({ ok: false, message: `${env.toUpperCase()} 後台回應無效：${udBad}` })
     type UdRow = {
       playerId?: string; playerName?: string; clientMachineName?: string
       win?: string; betTimes?: string; bet?: string
@@ -248,7 +272,9 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
       gameType, bgType: '0', isall, channelId,
     })
     jrParams.append('dateTime[]', jrWindowStart); jrParams.append('dateTime[]', jrWindowEnd)
-    const jr = await meterGet('osm', cfg, '/egm/reports/jackpotRecordList', jrParams)
+    const jr = await meterGet(env, 'osm', cfg, '/egm/reports/jackpotRecordList', jrParams)
+    const jrBad = apiProblem('Jackpot Record', jr, d => typeof d.data === 'object' && d.data !== null)
+    if (jrBad) return res.status(502).json({ ok: false, message: `${env.toUpperCase()} 後台回應無效：${jrBad}` })
     type JrRow = { userid?: string; username?: string; clientMachineName?: string; bet?: number; jackpotamount?: number; payoutTime?: string }
     const jrItemsAll: JrRow[] = jr?.data?.items ?? []
     const jrTotal: number = jr?.data?.total ?? jrItemsAll.length
@@ -317,7 +343,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
 
     addHistory(
       'egm-daycount',
-      `Egm DayCount 對帳（OSM）`,
+      `Egm DayCount 對帳（${env.toUpperCase()}・OSM）`,
       `${date}（${boundary === 'gaming' ? 'Gaming Day' : '自然日'}${allChannels ? '／All' : ''}${gameType ? `／${gameType}` : ''}）— ${allPass ? '✅ 一致' : `❌ ${comparison.filter(c => !c.pass).length} 個欄位不一致`}`,
       result,
     )
@@ -351,12 +377,15 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
   const dayStartHour = boundary === 'calendar' ? 0 : 6
   const apiDateType = boundary === 'calendar' ? '1' : '0'
+  const env = parseMeterEnv((req.body as { env?: unknown })?.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   const profile: Profile = source === 'gcp' ? 'gcp' : 'osm'
-  const cfg = loadMeterConfig(profile)
+  const cfg = loadMeterConfig(env, profile)
   if (!cfg.base_url) {
-    return res.status(400).json({ ok: false, message: `尚未設定 ${profile.toUpperCase()} 後台連線資訊，請先在下方「後台設定」填寫` })
+    return res.status(400).json({ ok: false, message: missingConfigMessage(env, profile) })
   }
-  const channelId = cfg.channel_id || (profile === 'osm' ? '873' : '892')
+  const channelId = channelOf(env, profile, cfg)
+  if (!channelId) return res.status(400).json({ ok: false, message: `${env.toUpperCase()} 的 ${profile === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} 後台沒有填 Channel ID` })
   const perfPath = profile === 'osm' ? '/egm/meter/egmPerformanceMeter' : '/egm/gsameter/egmPerformanceMeter'
 
   try {
@@ -375,7 +404,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     hourParams.append('date[]', date)
     hourParams.append('date[]', date)
     if (profile === 'gcp') hourParams.append('bgType', '2')
-    const hourData = await meterGet(profile, cfg, `${perfPath.replace('egmPerformanceMeter', 'egmMeterHourList')}`, hourParams)
+    const hourData = await meterGet(env, profile, cfg, `${perfPath.replace('egmPerformanceMeter', 'egmMeterHourList')}`, hourParams)
     const hourItems: Record<string, unknown>[] = hourData?.data?.items ?? []
     let meterRow: Record<string, unknown> | null = null
     let baselineRow: Record<string, unknown> | null = null
@@ -414,7 +443,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       dailyParams.append('date[]', date)
       dailyParams.append('date[]', date)
       if (profile === 'gcp') dailyParams.append('bgType', '2')
-      const dailyData = await meterGet(profile, cfg, perfPath, dailyParams)
+      const dailyData = await meterGet(env, profile, cfg, perfPath, dailyParams)
       meterRow = dailyData?.data?.items?.[0] ?? null
       baselineRow = null
     }
@@ -461,7 +490,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     })
     grParams.append('dateTime[]', windowStartIso)
     grParams.append('dateTime[]', windowEndIso)
-    const grData = await meterPost(profile, cfg, '/egm/reports/gameRecordList', grParams)
+    const grData = await meterPost(env, profile, cfg, '/egm/reports/gameRecordList', grParams)
     { const pr = apiProblem('Game Record', grData, METER_VALID.gameRecord); if (pr) apiProblems.push(pr) }
     const grSum = grData?.data?.sumData ?? {}
     // betRewardCredits = 泥碼下注額（sumData.bet_nima，已用真實 API 回應核對過欄位名稱）
@@ -484,7 +513,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     })
     jpParams.append('dateTime[]', windowStartIso)
     jpParams.append('dateTime[]', windowEndIso)
-    const jpData = await meterPost(profile, cfg, '/abnormality/getHandPayRecord', jpParams)
+    const jpData = await meterPost(env, profile, cfg, '/abnormality/getHandPayRecord', jpParams)
     { const pr = apiProblem('Jackpot Abnormality', jpData, METER_VALID.handPay); if (pr) apiProblems.push(pr) }
     type HandPayItem = { handpay?: number; payoutTime?: string; betTime?: string; username?: string }
     const jpItemsAll: HandPayItem[] = jpData?.data?.items ?? []
@@ -534,7 +563,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
 
     addHistory(
       'meter-reconcile',
-      `${machineName}（${profile.toUpperCase()}）`,
+      `${machineName}（${env.toUpperCase()}・${profile.toUpperCase()}）`,
       meterHistoryLine(`${date}（${customStartMatch ? `${customStartMatch[0]} 起算` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）`, verdict, delta),
       result,
     )

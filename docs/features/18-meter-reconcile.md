@@ -37,7 +37,7 @@
 
 **dateTime[] 真正格式是 ISO UTC**（已用後台 Game Record 頁面的 DevTools Network 截圖反推驗證）：例如 `2026-07-26T22:00:00.000Z`，不是單純日期字串或空白分隔的 `"YYYY-MM-DD HH:mm:ss"`。使用者操作介面的時區固定是 UTC+8（本地 06:00 = UTC 前一天 22:00）。`toUtcIso(dateStr, hh, mm, ss)` 函式負責這個轉換。
 
-OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
+OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證存在 `meter_reconcile_config` 表，登入 token 過期時自動重新登入一次再重試。**v5.76.0 起依環境×後台分四組**（`qat_osm_`／`qat_gcp_`／`uat_osm_`／`uat_gcp_`），見下方「QAT／UAT 環境切換」。
 
 ### 使用者操作
 | 操作 | 說明 |
@@ -70,3 +70,14 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - Origin：`https://uat-cp.osmslot.org`
 - Channel ID：`4186`
 （QAT 是 `https://backendservertest.osmslot.org`／`qat-cp`／873）
+
+## QAT／UAT 環境切換（v5.76.0，使用者 1104 要求；CodeX 確認做法）
+
+- **畫面**：Performance Meter、Egm DayCount 查詢列最前面加「環境 QAT｜UAT」（使用者選放上面，跟 Meegle 測試／正式空間同一種位置）；後台設定標題顯示目前環境，切換後顯示那一組。各頁各自記住上次選的環境（localStorage，讀不到就 QAT）
+- **為什麼要拆**：原本只有 `osm_`／`gcp_` 一組，Meter、DayCount、AutoSpin 對帳台、Live Ledger 共用。使用者為了查 UAT 把 OSM 那組改成 UAT 網址，等於 AutoSpin／Live Ledger 也跟著打到 UAT
+- **不跨環境借值**：某環境沒設定＝沒設定，回「尚未設定 UAT 的 OSM（CP）後台連線」；寫死的 QAT 網址 fallback 已移除。Channel ID 只有 QAT 保留預設（873／892），UAT 沒填就擋下
+- **API**：config（GET/PUT）、test、game-types、egm-daycount、query 都收 `env`（`qat`／`uat`）；沒帶＝qat（舊呼叫端相容），亂帶 → 400。改 Base URL 時清掉該組 token（是別的後台發的）
+- **固定讀 QAT 的**：AutoSpin 對帳台（`loadReconcileConfig` 讀 `qat_{osm|gcp}_`；自己的 `reconcile_config` 指向的網址跟共用設定不同時整組不用）、Live Ledger（`PROFILE_OF` 的 uat 仍是 null，CodeX：設定存在≠驗證可用，之後另開）
+- **一次性搬移**（`server/meter-config-core.ts` 的 `migrateMeterConfigEnvOn`，transaction＋`__env_split_v1` 標記）：舊 `osm_`／`gcp_` 用 **hostname 比對已知清單**判定環境（backendservertest／qat-cp／qat-nc＝QAT，uat-backendservertest／uat-cp／uat-nc＝UAT），不用「有沒有 uat- 字樣」。未知、空值、base_url 與 origin 不同環境 → 不搬，記 `__legacy_unclassified_{profile}`（只存網址），畫面提示重填。目標環境已有設定不覆蓋；舊 key 保留不刪、不再讀
+- **舊 OSM 那組其實是 UAT 時**：Live Ledger 的 QAT 那段時間抓的是 UAT 後台 → 搬移時清掉 `recon_watermark` 的 qat 水位讓它重新起算，並記 `__qat_ledger_suspect_since_split`。**已經抓進來的資料沒有刪**，要看那段時段再決定（待辦）
+- **測試**：`npx tsx server/meter-config.test.ts`（25 條：env 參數、hostname 判定、截圖那種情況的搬移、重啟不重搬、不覆蓋、未知留提示、LIKE 底線）；把判定改回「有沒有 uat-」會紅 5 條

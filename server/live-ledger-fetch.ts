@@ -36,7 +36,8 @@ import {
 const PROFILE_OF: Record<ReconEnv, 'osm' | 'gcp' | null> = {
   qat: 'osm',
   // ⚠️ UAT 目前**沒有**後台連線設定（meter_reconcile_config 只有 osm_/gcp_ 兩組，
-  //    兩組都指向 QAT 的 backendservertest）。留 null 讓它明確回 missing_config，
+  //    兩組都指向 QAT 的 backendservertest）。v5.76.0 起設定已拆成 qat_／uat_ 兩組，但 UAT 的
+  //    Live Ledger 還沒驗證過（CodeX 1104：設定存在≠可用），先維持 null。留 null 讓它明確回 missing_config，
   //    不要靜默回 0 筆——那正是 v4.89.0 修掉的那個坑。
   uat: null,
 }
@@ -143,7 +144,8 @@ export async function fetchBackendForScope(
     return o
   }
 
-  const cfg = loadMeterConfig(profile)
+  // 環境跟後台是兩個軸：env 決定讀哪一組設定（qat_／uat_），不會跨環境借值
+  const cfg = loadMeterConfig(env, profile)
   if (!cfg.base_url && !cfg.login_username) {
     const o: FetchOutcome = {
       ok: false, fetched: 0, upserted: 0, pages: 0, errKind: 'missing_config',
@@ -221,7 +223,7 @@ async function fetchOneWindow(
 
     let data: any
     try {
-      data = await meterPost(profile, cfg, '/egm/reports/gameRecordList', params)
+      data = await meterPost(env, profile, cfg, '/egm/reports/gameRecordList', params)
     } catch (e) {
       // 見檔頭第 3 點：整批放棄，不回傳已抓到的部分
       const o: FetchOutcome = {
@@ -676,7 +678,8 @@ export function stopLiveLedgerLoop(): void {
 export async function probeServerClock(env: ReconEnv): Promise<number | null> {
   const profile = PROFILE_OF[env]
   if (!profile) return null
-  const cfg = loadMeterConfig(profile)
+  // 環境跟後台是兩個軸：env 決定讀哪一組設定（qat_／uat_），不會跨環境借值
+  const cfg = loadMeterConfig(env, profile)
   const base = (cfg.base_url || '').replace(/\/$/, '')
   if (!base) return null
   try {

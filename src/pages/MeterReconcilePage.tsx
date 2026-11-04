@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { type MeterEnv, METER_ENV_LABEL, METER_PLACEHOLDER, readMeterEnv, writeMeterEnv } from './meter-env'
 
 interface MeterInfo {
   coinIn: number
@@ -65,6 +66,10 @@ function fmt(n: number | undefined | null, digits = 2): string {
 }
 
 export function MeterReconcilePage() {
+  // 環境（QAT／UAT）：決定查哪個後台、後台設定顯示哪一組。放在查詢列最前面（使用者 1104 選）
+  const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('meter'))
+  // 切環境時，還沒回來的舊請求不能蓋掉新畫面（CodeX 1104）
+  const envSeq = useRef(0)
   const [machineName, setMachineName] = useState('')
   const [source, setSource] = useState<'osm' | 'gcp'>('osm')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -80,10 +85,23 @@ export function MeterReconcilePage() {
   const [savingCfg, setSavingCfg] = useState<'osm' | 'gcp' | null>(null)
   const [testingCfg, setTestingCfg] = useState<'osm' | 'gcp' | null>(null)
   const [cfgMsg, setCfgMsg] = useState<{ profile: 'osm' | 'gcp'; text: string; ok: boolean } | null>(null)
+  const [legacy, setLegacy] = useState<{ osm: string | null; gcp: string | null }>({ osm: null, gcp: null })
 
-  async function loadConfig(profile: 'osm' | 'gcp') {
-    const res = await fetch(`/api/osm/meter-reconcile/config?profile=${profile}`)
+  function setEnv(next: MeterEnv) {
+    if (next === env) return
+    envSeq.current++
+    writeMeterEnv('meter', next)
+    setEnvState(next)
+    setResult(null); setError(''); setLoading(false); setCfgMsg(null)
+    setOsmConfig(EMPTY_CFG); setGcpConfig(EMPTY_CFG)
+  }
+
+  async function loadConfig(profile: 'osm' | 'gcp', forEnv: MeterEnv = env) {
+    const seq = envSeq.current
+    const res = await fetch(`/api/osm/meter-reconcile/config?env=${forEnv}&profile=${profile}`)
     const d = await res.json()
+    if (seq !== envSeq.current) return
+    setLegacy(l => ({ ...l, [profile]: d.legacyUnclassified ?? null }))
     const setter = profile === 'osm' ? setOsmConfig : setGcpConfig
     setter({
       base_url: d.base_url || '', origin: d.origin || '', channelId: d.channelId || '',
@@ -92,7 +110,7 @@ export function MeterReconcilePage() {
     })
   }
 
-  useEffect(() => { loadConfig('osm'); loadConfig('gcp') }, [])
+  useEffect(() => { loadConfig('osm', env); loadConfig('gcp', env) }, [env])
 
   async function saveConfig(profile: 'osm' | 'gcp') {
     setSavingCfg(profile)
@@ -101,7 +119,7 @@ export function MeterReconcilePage() {
       const res = await fetch('/api/osm/meter-reconcile/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profile, base_url: cfg.base_url, origin: cfg.origin, channelId: cfg.channelId,
+          env, profile, base_url: cfg.base_url, origin: cfg.origin, channelId: cfg.channelId,
           login_username: cfg.login_username, login_password: cfg.login_password,
         }),
       })
@@ -117,7 +135,7 @@ export function MeterReconcilePage() {
     setTestingCfg(profile)
     try {
       const res = await fetch('/api/osm/meter-reconcile/test', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ env, profile }),
       })
       const d = await res.json()
       setCfgMsg({ profile, text: d.message ?? (d.ok ? '成功' : '失敗'), ok: !!d.ok })
@@ -129,18 +147,21 @@ export function MeterReconcilePage() {
   async function handleQuery() {
     if (!machineName.trim()) { setError('請輸入機台名稱'); return }
     setLoading(true); setError(''); setResult(null)
+    const seq = envSeq.current
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined }),
+        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined }),
       })
       const d = await res.json()
+      if (seq !== envSeq.current) return
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
       setResult(d)
     } catch (e) {
+      if (seq !== envSeq.current) return
       setError(`查詢失敗：${e}`)
     } finally {
-      setLoading(false)
+      if (seq === envSeq.current) setLoading(false)
     }
   }
 
@@ -157,6 +178,14 @@ export function MeterReconcilePage() {
       {/* Query bar */}
       <section className="section-card st-card st-q">
         <div className="st-q-row">
+          <div className="st-q-f">
+            <span className="st-q-l">環境</span>
+            <div className="rd-tabs st-seg">
+              {(['qat', 'uat'] as const).map(e => (
+                <button key={e} type="button" className="rd-tab" aria-pressed={env === e} onClick={() => setEnv(e)}>{METER_ENV_LABEL[e]}</button>
+              ))}
+            </div>
+          </div>
           <div className="st-q-f st-q-f--grow">
             <label className="st-q-l" htmlFor="pm-machine">機台名稱（Client Machine Name）</label>
             <input id="pm-machine" className="lst-field" value={machineName} onChange={e => setMachineName(e.target.value)}
@@ -329,7 +358,12 @@ export function MeterReconcilePage() {
 
       {/* Backend config */}
       <details className="section-card st-card st-details" open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}>
-        <summary>後台設定（OSM / GCP 兩組後台連線資訊）</summary>
+        <summary>後台設定 · {METER_ENV_LABEL[env]}（OSM / GCP 兩組後台連線資訊；QAT、UAT 各存一組，跟著上方環境切換）</summary>
+        {(legacy.osm || legacy.gcp) && (
+          <p className="st-msg-err" style={{ margin: '8px 0 0' }}>
+            舊版只有一組設定，其中 {[legacy.osm && `OSM（${legacy.osm || '空白網址'}）`, legacy.gcp && `GCP（${legacy.gcp || '空白網址'}）`].filter(Boolean).join('、')} 判斷不出是 QAT 還是 UAT，沒有自動搬過來，請在對應環境重新填寫。
+          </p>
+        )}
         <div className="st-cfg-grid">
           {(['osm', 'gcp'] as const).map(profile => {
             const cfg = profile === 'osm' ? osmConfig : gcpConfig
@@ -338,9 +372,9 @@ export function MeterReconcilePage() {
               <div key={profile} className="st-cfg">
                 <div className="st-cfg-h">{profile === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}</div>
                 {([
-                  ['base_url', 'Base URL', 'https://backendservertest.osmslot.org'],
-                  ['origin', 'Origin', profile === 'osm' ? 'https://qat-cp.osmslot.org' : 'https://qat-nc.osmslot.org'],
-                  ['channelId', 'Channel ID', profile === 'osm' ? '873' : '892'],
+                  ['base_url', 'Base URL', METER_PLACEHOLDER[env][profile].base_url],
+                  ['origin', 'Origin', METER_PLACEHOLDER[env][profile].origin],
+                  ['channelId', 'Channel ID', METER_PLACEHOLDER[env][profile].channelId],
                   ['login_username', '登入帳號', ''],
                   ['login_password', '登入密碼（留空＝不變更）', ''],
                 ] as const).map(([key, label, ph]) => (

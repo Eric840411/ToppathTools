@@ -9,7 +9,7 @@
 **路由**：`POST /api/osm/meter-reconcile/egm-daycount`（目前只支援 OSM，沒有 GCP 對應版本）｜**歷史紀錄 feature key**：`egm-daycount`
 
 ### 功能說明
-比對後台 `Egm DayCount`（`/egm/reports/gameCount`，一天一列彙總報表）與 `User Detail`（`/egm/reports/playerMachineCount`，player+machine 逐筆列）算出的值是否一致，Jackpot Amount 另外對照 `Jackpot Record`（`/egm/reports/jackpotRecordList`，逐筆中獎紀錄）。原本是 Performance Meter 對帳頁面內的第二個分頁，後來拆成獨立頁面。三支 API 皆已用真實 Network request 截圖確認（`backendservertest.osmslot.org`，跟 `meter_reconcile_config` 裡存的 OSM 帳密同一組，共用同一組後台設定，沒有自己的設定 UI）。
+比對後台 `Egm DayCount`（`/egm/reports/gameCount`，一天一列彙總報表）與 `User Detail`（`/egm/reports/playerMachineCount`，player+machine 逐筆列）算出的值是否一致，Jackpot Amount 另外對照 `Jackpot Record`（`/egm/reports/jackpotRecordList`，逐筆中獎紀錄）。原本是 Performance Meter 對帳頁面內的第二個分頁，後來拆成獨立頁面。三支 API 皆已用真實 Network request 截圖確認（`backendservertest.osmslot.org`，跟 `meter_reconcile_config` 裡存的 OSM 帳密同一組，共用同一組後台設定，沒有自己的設定 UI）。**v5.76.0 起查詢列最前面有「環境 QAT｜UAT」**，讀對應環境那組 OSM（CP）設定（設定仍在 Performance Meter 頁填）；Game Type 下拉也跟著環境重抓。細節見 `18-meter-reconcile.md`「QAT／UAT 環境切換」。
 
 **欄位對應**（已用真實查詢驗證全部吻合，`allPass: true`）：
 | 顯示欄位 | gameCount（Egm DayCount）| 對照來源 |
@@ -43,3 +43,5 @@
 | 查看 User Detail 逐筆明細 | 可展開查看每一筆 player+machine 紀錄，標示哪些被排除在 Total Bet User 計數外 |
 
 ---
+
+**v5.76.0 回應無效要報錯**：三支 API（gameCount／playerMachineCount／jackpotRecordList）回的 code 不是 20000 或沒有 data → 回 502「後台回應無效」。原本 `num()` 把登入失敗（code 40200）轉成 0，三邊都是 0 就顯示「一致 8/8」——1104 走查 UAT 沒填密碼時實測到。

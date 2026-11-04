@@ -2855,7 +2855,9 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
 
   // 先鋪共用設定（依環境挑前綴），再讓自己的表覆蓋上去
   const shared = db.prepare('SELECT key, value FROM meter_reconcile_config').all() as { key: string; value: string }[]
-  const prefix = `${env}_`
+  // v5.76.0 起共用設定依環境分組（server/meter-config.ts）；這支一直是 QAT 用，固定讀 qat_ 那組，
+  // 使用者把 Meter 頁切到 UAT 也不會影響這裡
+  const prefix = `qat_${env}_`
   // ⚠️ 兩張表的 key 命名不一樣，必須明確對應。共用設定是 snake_case
   //    （osm_channel_id），這支讀的是 camelCase（cfg.channelId）——
   //    不轉的話 channelId 永遠是 undefined、fallback 到寫死的 '873'。
@@ -2875,7 +2877,13 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   if (cfg.origin && !cfg.referer) cfg.referer = cfg.origin.replace(/\/?$/, '/')
 
   const own = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
-  for (const r of own) if (r.value) cfg[r.key] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value
+  // 自己的表存的是另一組登入狀態：它指向的後台跟共用設定不同時整組不用，
+  // 否則網址／token 會跨環境混在一起（CodeX 1104）
+  const ownBase = own.find(r => r.key === 'base_url')?.value || ''
+  const norm = (u: string) => u.replace(/\/+$/, '').toLowerCase()
+  if (!ownBase || !cfg.base_url || norm(ownBase) === norm(cfg.base_url)) {
+    for (const r of own) if (r.value) cfg[r.key] = isSecretConfigKey(r.key) ? decryptSecret(r.value) : r.value
+  }
 
   return cfg
 }
