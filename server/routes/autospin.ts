@@ -30,6 +30,7 @@ import { randomBytes, randomUUID } from 'crypto'
 import { createAgentStartAuth } from '../autospin-start-auth.js'
 import { safeChildPath, IMAGE_EXTS } from '../lib/safe-path.js'
 import { encryptSecret, decryptSecret, isSecretConfigKey } from '../secret-crypto.js'
+import { saveMeterConfigValue } from '../meter-config.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
@@ -2902,7 +2903,10 @@ function reconcileHeaders(cfg: Record<string, string>) {
 }
 
 // Helper: login and refresh token
-async function reconcileLogin(cfg: Record<string, string>): Promise<string | null> {
+// 登入拿到的 token 存回「QAT＋這個 profile」那組共用設定（綁定來源，OSM／GCP 不互借）；
+// reconcile_config 只在它記的網址跟這次登入的網址相同時才一起更新（v5.76.1，CodeX review P1）
+async function reconcileLogin(cfg: Record<string, string>, env: ReconcileEnv): Promise<{ token: string; lastlogintime: string } | null> {
+  if (!cfg.base_url) return null
   const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
   const loginPath = cfg.login_path || '/auth/login'
   const payload = { username: cfg.login_username || 'admin', password: cfg.login_password || '' }
@@ -2916,9 +2920,14 @@ async function reconcileLogin(cfg: Record<string, string>): Promise<string | nul
     if (d.code === 20000 && d.data?.token) {
       const token = d.data.token
       const llt = d.data.lastLoginTime ?? ''
-      db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('token', encryptSecret(token))
-      db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('lastlogintime', llt)
-      return token
+      saveMeterConfigValue('qat', env, 'token', token)
+      saveMeterConfigValue('qat', env, 'lastlogintime', String(llt))
+      const ownBase = (db.prepare("SELECT value FROM reconcile_config WHERE key = 'base_url'").get() as { value: string } | undefined)?.value || ''
+      if (ownBase && ownBase.replace(/\/+$/, '').toLowerCase() === cfg.base_url.replace(/\/+$/, '').toLowerCase()) {
+        db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('token', encryptSecret(token))
+        db.prepare('INSERT OR REPLACE INTO reconcile_config (key, value) VALUES (?, ?)').run('lastlogintime', String(llt))
+      }
+      return { token, lastlogintime: String(llt) }
     }
     return null
   } catch { return null }
@@ -3020,7 +3029,7 @@ async function fetchBackendRecords(
       // Token expired → auto re-login once
       if (d.code === 40200 && cfg.auto_login !== 'false' && !reloginDone) {
         console.warn('[reconcile] token 過期，嘗試自動重新登入')
-        const newToken = await reconcileLogin(cfg)
+        const newToken = await reconcileLogin(cfg, env)
         if (!newToken) {
           console.warn('[reconcile] 自動重新登入失敗——帳密可能不對，或登入路徑不同')
           error = {
@@ -3032,8 +3041,9 @@ async function fetchBackendRecords(
         }
         if (newToken) {
           // ⚠️ 重讀時要沿用同一個環境。用預設值會在 GCP 情境下把設定換成 OSM，
-          //    而且只在 token 過期那一刻才發生，極難重現
-          cfg = loadReconcileConfig(env)
+          //    而且只在 token 過期那一刻才發生，極難重現。
+          //    重讀後**直接用這次登入拿到的 token**：重讀可能被別的來源蓋回舊 token（CodeX 1104 P1）
+          cfg = { ...loadReconcileConfig(env), token: newToken.token, lastlogintime: newToken.lastlogintime }
           headers = reconcileHeaders(cfg)
           reloginDone = true
           page-- // retry this page
@@ -3101,8 +3111,9 @@ router.post('/api/autospin/reconcile/test', async (req, res) => {
       return res.json({ ok: false, message: '這個環境還沒有後台連線設定。請先到「Performance Meter 對帳」頁面設定並測試登入。' })
     }
     if (!cfg.token && autoLoginEnabled(cfg)) {
-      const t = await reconcileLogin(cfg)
+      const t = await reconcileLogin(cfg, env)
       if (!t) return res.json({ ok: false, message: '自動登入失敗，請確認帳密是否正確，或手動填入 token' })
+      cfg.token = t.token; cfg.lastlogintime = t.lastlogintime
     }
     // Test: fetch 1 record for last hour
     const now = new Date()

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.76.1'
+export const APP_VERSION = '5.76.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.76.2', date: '2026-11-04', changes: ["fix(AutoSpin 對帳台 自動重新登入，CodeX review 45b5216 P1)：token 過期重登時新 token 只寫進 reconcile_config（沒記網址），重讀設定時被 5.76.1 的規則丟掉、又拿舊 token 去打 → 40200 對帳失敗。改成登入結果存回 QAT＋該 profile 那組共用設定（OSM／GCP 不互借），reconcile_config 只在網址相同時一起更新；重試直接用這次拿到的 token。測試連線那支也一樣。真 QAT 後台驗：舊表空／舊表指 UAT＋共用 token 過期 → 重登成功查到資料、GCP token 不動；注入舊寫法 → 40200，紅"] },
   { version: '5.76.1', date: '2026-11-04', changes: ["fix(QAT／UAT 環境切換，CodeX review 4c24bf2 三個 P1)：①AutoSpin 對帳台在 QAT 共用設定不存在時，舊 reconcile_config 指向 UAT 仍會被整組採用→改成共用設定有網址且兩邊網址一致才用，沒網址的 token 不借、沒網址一律回未設定；②Performance Meter 儲存／測試登入途中切環境，完成後把 QAT 的值填進 UAT 畫面（再按儲存就污染 UAT）→從按下那刻固定環境與序號；③搬移時清水位原本刪掉所有 QAT 來源（連 LuckyLink 的 poolChangeReport／awardsReport）→只清 gameRecordList，並把原值存起來給回補用。三項都在真 server（3999＋worktree worker 3998）注入舊寫法驗紅、修正後驗綠"] },
   { version: '5.76.0', date: '2026-11-04', changes: ["feat(Performance Meter／Egm DayCount QAT／UAT 環境切換，使用者 1104 要求、CodeX 確認做法)：查詢列最前面加「環境 QAT｜UAT」，後台設定 QAT、UAT 各存一組、跟著切換。原本只有一組，改成 UAT 網址時 AutoSpin 對帳台與 Live Ledger 也會跟著打到 UAT——現在這兩個固定讀 QAT 那組。某環境沒設定就顯示未設定，不借另一個環境的值、也不再退回寫死的 QAT 網址；切環境時舊請求不會蓋掉新畫面。舊設定啟動時依網址 hostname 自動歸到 QAT 或 UAT（判斷不出來的不搬、畫面提示重填），舊 OSM 那組若是 UAT 會一併清掉 Live Ledger 的 QAT 水位。順修 Egm DayCount：後台回應無效（登入失敗、網址錯）原本被當成 0，三邊都是 0 就顯示「一致 8/8」，改成直接報錯（走查 UAT 沒填密碼時實測）。server/ 有改，要重啟才生效"] },
   { version: '5.75.4', date: '2026-11-03', changes: ["fix(Meegle 開單 檢查欄圖示)：可送出的綠點、被擋的紅色 !、已開過的藍色 i 原本 background: currentColor 吃到自己的深色字色，變成深藍點、符號看不見；改成各自指定底色，兩版共用（11-03 Meegle 全流程走查發現）"] },

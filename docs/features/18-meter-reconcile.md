@@ -83,3 +83,4 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - **測試**：`npx tsx server/meter-config.test.ts`（25 條：env 參數、hostname 判定、截圖那種情況的搬移、重啟不重搬、不覆蓋、未知留提示、LIKE 底線）；把判定改回「有沒有 uat-」會紅 5 條
 - **v5.76.1（CodeX review 三個 P1）**：AutoSpin 對帳台只在「QAT 共用設定有網址、且 reconcile_config 記的網址一樣」時才用 reconcile_config（沒網址的 token 不知道是誰發的，不借）；Meter 頁儲存／測試登入從按下那刻固定環境與序號；清水位只清 `gameRecordList`（LuckyLink 的 poolChangeReport／awardsReport 是獨立來源），原值存在 `__qat_ledger_suspect_since_split`（JSON：時間＋被清掉的水位列）給回補用
 - **真 server 驗證注意**：3999 的 server 會把 `/api/autospin/*` 轉給 `WORKER_URL`（預設 127.0.0.1:3010＝本機 pm2 的主 repo worker、讀主 repo DB）。驗 worktree 的 AutoSpin 路由要另起 `WORKER_PORT=3998` 的 worker 並設 `WORKER_URL`，否則測到的是舊程式
+- **v5.76.2**：AutoSpin 對帳台 `reconcileLogin(cfg, env)` 的 token 存回 `qat_{env}_token／lastlogintime`（綁 QAT＋profile），reconcile_config 只在網址相同時一起更新；token 過期重試直接用這次登入回傳的 token，不靠重讀
