@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -41,6 +41,14 @@ eq('Meter 讀不到', st({ ...ok, meter: null }, 0), 'unreadable')
 // 注額未知（null）只比次數，不能當 0 去比金額
 eq('AutoSpin 注額未知只比次數', st({ ...ok, as: s(10, null), asSinceT0: s(8, null) }, 0), 'match')
 eq('金額對不上也算', st({ ...ok, gr: s(10, 120) }, MISMATCH_ROUNDS), 'mismatch')
+
+// CodeX cd8a8b0 的三項
+eq('05 為 null 不建起點', parseMeterItem({ meterData: { data: { '05': null, '00': 100, Denom: 0.01 } } }), null)
+eq('00 為空字串不建起點', parseMeterItem({ meterData: { data: { '05': 1, '00': '', Denom: 0.01 } } }), null)
+eq('字串數字照收', parseMeterItem({ meterData: { data: { '05': '3', '00': '10', Denom: '0.01' }, upTime: 1 } })?.gamesPlayed, 3)
+eq('Meter 窗口終點＝upTime', meterWindowEnd({ upTime: 1000 }, 5000), 1000)
+eq('upTime 缺就用讀取時間', meterWindowEnd({ upTime: 0 }, 5000), 5000)
+eq('跨頁重複的局只算一次', dedupeByOrderId([{ orderId: 'a' }, { orderId: 'b' }, { orderId: 'a' }]).length, 2)
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)

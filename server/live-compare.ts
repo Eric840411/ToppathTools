@@ -17,7 +17,7 @@ import { guardFetchedRows } from './live-ledger.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus,
+  parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId,
 } from './live-compare-core.js'
 
 /** QAT 渠道號 → 後台網站代號（2026-11-04 實測：用 qat-{site}.osmslot.org 當 origin 登入，回傳的 lastLoginChannelId 就是這個號碼）。 */
@@ -122,6 +122,8 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
   const cfg = loadMeterConfig('qat', 'osm')
   if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
   const collected: unknown[] = []
+  // 上界在開始前固定一次，翻頁時不能每頁各取一次 now
+  const toIso = new Date(Date.now() + 60_000).toISOString()
   for (let page = 1; page <= GR_MAX_PAGES; page++) {
     const params = new URLSearchParams({
       clientMachineName: '', playerId: '', playerName: username, orderId: '',
@@ -130,7 +132,7 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
       bgType: '0', dataType: '0', isall: 'true', channelId: '0',
     })
     params.append('dateTime[]', new Date(fromMs - 60_000).toISOString())
-    params.append('dateTime[]', new Date(Date.now() + 60_000).toISOString())
+    params.append('dateTime[]', toIso)
     let d: any
     try { d = await meterPost('qat', 'osm', cfg, '/egm/reports/gameRecordList', params) } catch (e) { return { error: `Game Record 讀取失敗：${e}` } }
     if (d?.code && d.code !== 20000) return { error: `Game Record 回 code=${d.code}` }
@@ -144,8 +146,7 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
   const guard = guardFetchedRows(collected, username)
   if (!guard.ok) return { error: guard.message || 'Game Record 回傳內容不符' }
   const byGmid = new Map<string, Array<{ t: number; bet: number }>>()
-  for (const r of guard.rows) {
-    if (!r) continue
+  for (const r of dedupeByOrderId(guard.rows.filter((x): x is NonNullable<typeof x> => !!x))) {
     const g = byGmid.get(r.gmid) ?? []
     g.push({ t: r.betTimePrecise, bet: r.bet })
     byGmid.set(r.gmid, g)
@@ -259,13 +260,13 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
   await Promise.all([...users].map(async ([u, from]) => { grByUser.set(u, await gameRecordsOf(u, from)) }))
   const grReadAt = Date.now()
 
-  const asOf = (sessionId: string, gmid: string, from: number): SideValue & { betKnown: number } => {
+  const asOf = (sessionId: string, gmid: string, from: number, to = Number.MAX_SAFE_INTEGER): SideValue & { betKnown: number } => {
     const a = db.prepare(`
       SELECT COUNT(*) n, SUM(CASE WHEN betSource<>'' THEN 1 ELSE 0 END) known,
              SUM(CASE WHEN betSource<>'' THEN betAmount ELSE 0 END) bet
-      FROM recon_spin WHERE env='qat' AND sessionId=? AND gmid=? AND observedAt>=?
+      FROM recon_spin WHERE env='qat' AND sessionId=? AND gmid=? AND observedAt>=? AND observedAt<=?
         AND COALESCE(outcome,'') NOT IN ${NON_ROUND}
-    `).get(sessionId, gmid, from) as { n: number; known: number | null; bet: number | null }
+    `).get(sessionId, gmid, from, to) as { n: number; known: number | null; bet: number | null }
     const known = a.known ?? 0
     // 有任何一局不知道注額，總額就不能算（顯示「—」），次數照算。betAmount 沒推出來時存的是 0，要看 betSource
     return { count: a.n, amount: a.n === 0 ? 0 : known === a.n ? Math.round((a.bet ?? 0) * 100) / 100 : null, betKnown: known }
@@ -276,7 +277,9 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
     const cached = !!reading?.useCache
     const asReadAt = Date.now()
     const as: LiveCompareRow['as'] = { ...asOf(m.sessionId, m.gmid, m.startedAt), readAt: asReadAt }
-    const asSinceT0 = base ? asOf(m.sessionId, m.gmid, base.t0) : null
+    // Meter 那段：起點 t0 到這次 Meter 的 upTime（快取／讀不到時不比，算到現在只給畫面參考）
+    const meterEnd = reading && !reading.useCache ? meterWindowEnd(reading, meterReadAt) : undefined
+    const asSinceT0 = base ? asOf(m.sessionId, m.gmid, base.t0, meterEnd) : null
     let gr: LiveCompareRow['gr'] = null, grError: string | undefined
     let meter: LiveCompareRow['meter'] = null
 

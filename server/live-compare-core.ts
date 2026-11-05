@@ -35,7 +35,9 @@ export interface Baseline {
 export function parseMeterItem(item: Record<string, unknown>): MeterReading | null {
   const md = (item?.meterData ?? {}) as Record<string, unknown>
   const d = (md.data ?? {}) as Record<string, unknown>
-  const gp = Number(d['05']), ci = Number(d['00']), den = Number(d['Denom'])
+  // ⚠️ 先驗原值：Number(null)／Number('') 都是 0，缺值會被當成「累計 0」建出假起點（CodeX cd8a8b0 P2）
+  const num = (v: unknown) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? Number(v) : NaN
+  const gp = num(d['05']), ci = num(d['00']), den = num(d['Denom'])
   if (!Number.isFinite(gp) || !Number.isFinite(ci) || !Number.isFinite(den) || den <= 0) return null
   const up = Number(md.upTime)
   return {
@@ -100,4 +102,23 @@ export function decideStatus(x: EvalInput, r: EvalResult, streak: number): Compa
   if (x.meterCached) return 'cache'
   if (x.meter == null) return 'unreadable'
   return 'match'
+}
+
+/**
+ * Meter 差值的窗口終點＝這次 Meter 的 upTime。
+ * ⚠️ AutoSpin 要截在同一個終點，不能算到查詢當下——Meter 只反映到 upTime，
+ *    之後才跑的局會被當成「AutoSpin 多一局」，連續兩輪就變成假的不一致（CodeX cd8a8b0 P1）。
+ *    upTime 缺（0）就用讀取時間。
+ */
+export function meterWindowEnd(reading: Pick<MeterReading, 'upTime'>, readAt: number): number {
+  return reading.upTime > 0 ? reading.upTime : readAt
+}
+
+/**
+ * Game Record 分頁去重。⚠️ 跑的當下一直有新局寫入，新到舊排序的分頁會往後推，
+ * 同一筆跨兩頁出現——不去重 201 局會算成 202 局（CodeX cd8a8b0 P2）。
+ */
+export function dedupeByOrderId<T extends { orderId: string }>(rows: T[]): T[] {
+  const seen = new Set<string>()
+  return rows.filter(r => (seen.has(r.orderId) ? false : (seen.add(r.orderId), true)))
 }
