@@ -27,7 +27,7 @@ export interface ChainRound {
   token: string
   betAt: number      // ms
   payoutAt: number   // ms
-  bet: number
+  bet: number | null
   betNima: number
   win: number
   before: number | null
@@ -85,7 +85,9 @@ export function normalizeRound(r: Record<string, unknown>): ChainRound | null {
   const gmid = String(r.uid ?? '')
   const userid = String(r.userid ?? '')
   const betT = num(r.bet_time_precise), bet = num(r.bet)
-  if (!orderId || !gmid || betT == null || bet == null) return null
+  // ⚠️ 缺 bet 不能丟掉整局（分母會少、剩下的顯示全過——CodeX 555b858 P1），保留成未檢查。
+  //    缺 bet_time_precise 的批次在上游 guardFetchedRows 就整批拒收，這裡不會遇到。
+  if (!orderId || !gmid || betT == null) return null
   const jpParts = [r.handpayamount, r.jackpotamount, r.jackpot_amount, r.jppoolrates_result1, r.jppoolrates_result2, r.jppoolrates_result3, r.jppoolrates_result4, r.jppoolrates_result5]
   return {
     orderId, gmid, userid,
@@ -126,7 +128,7 @@ export type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown' | 'wait'
 export interface RoundCheck {
   orderId: string
   betAt: number
-  bet: number
+  bet: number | null
   betNima: number | null
   win: number | null
   before: number | null
@@ -207,7 +209,9 @@ export function checkChains(roundsIn: ChainRound[], creditsIn: CreditTx[], gmid:
       noNima: ins.length === 1 && ins[0].nima === 0,
       now,
     }))
-    if (checks.some(c => c.verdict === 'wait')) pending = true
+    // ⚠️ 有任何一局沒檢查（等待入帳、缺欄位、JP），這一段就不能標「通過」（CodeX 555b858 P2）
+    const notOk = checks.filter(c => c.verdict === 'wait' || c.verdict === 'unknown' || c.verdict === 'jp').length
+    if (notOk) { notes.push(`有 ${notOk} 局未完成檢查`); pending = true }
     const anomaly = checks.some(c => c.verdict === 'anomaly')
     sessions.push({
       key: k, gmid, token: k.split('|')[1],
@@ -234,7 +238,9 @@ function checkRound(r: ChainRound, o: { prev: ChainRound | null; first: CreditTx
   const breakAt = (msg: string, at: number) => (o.now - at < CHAIN_GRACE_MS ? wait.push(`${msg}（等待入帳）`) : hard.push(`${msg}（可能漏局或餘額錯）`))
 
   // 泥碼（跟 JP 無關，JP 局也驗）
+  if (r.bet == null) unchecked.push('缺 Bet，泥碼範圍、餘額公式與 Lose/Win 未檢查')
   if (r.betNima == null) unchecked.push('缺 Bet Reward Credits，泥碼未檢查')
+  else if (r.bet == null) { /* 上面已記 */ }
   else if (r.betNima < -BAL_EPS || r.betNima > r.bet + BAL_EPS) hard.push(`Bet Reward Credits ${f(r.betNima)} 不在 0～Bet ${f(r.bet)} 之間`)
   else if (o.noNima && r.betNima > BAL_EPS) hard.push(`這次進機台沒帶泥碼，Bet Reward Credits 卻是 ${f(r.betNima)}`)
 
@@ -249,7 +255,7 @@ function checkRound(r: ChainRound, o: { prev: ChainRound | null; first: CreditTx
   else {
     if (o.last && r.after != null && off(r.after, o.last.amount)) breakAt(`末局 Balance After ${f(r.after)} ≠ 轉出 ${f(o.last.amount)}`, o.last.at)
     if (r.win == null) unchecked.push('缺 Payout，餘額公式與 Lose/Win 未檢查')
-    else {
+    else if (r.bet != null) {
       if (r.before != null && r.after != null) {
         const want = r.before - r.bet + r.win
         if (off(r.after, want)) hard.push(`After ${f(r.after)} ≠ Before − Bet ＋ Payout ＝ ${f(want)}`)

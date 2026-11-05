@@ -558,7 +558,7 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
   **中 JP（handpay／jppoolrates>0）的局 After 端不驗**（同事 1105：測試不設 handpay）。
 - **等待入帳**：前後局／首尾的斷點 2 分鐘內（`CHAIN_GRACE_MS`）算等待入帳（Game Record 會晚到），超過才算異常。
 - **缺欄位不補 0**：缺 Bet Reward Credits／Payout／Lose/Win／Balance 的局標「未檢查」，不算通過；
-  有任何一局未檢查（含 JP），整體顯示「部分未檢查」不顯示綠燈。
+  有任何一局未檢查（含 JP、缺 Bet），該段標待確認、整體顯示「部分未檢查」，不顯示綠燈；缺 Bet 的局保留不丟（v5.78.2）。
 - 「999,964 下一局變 1,000,000」這種是離開機台再進來（帶入上限），屬於兩次進機台，不是斷鏈。
 - 查詢往回多抓 2 小時（進機台通常在開跑前），只列這一輪開跑後有下注的那幾次進機台。
 - **還沒做**：泥碼扣法（優先扣、remain_nima 遞減）與寶箱中途轉帳——等真樣本。

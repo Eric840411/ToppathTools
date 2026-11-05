@@ -87,6 +87,18 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
   eq('缺 Lose/Win＋泥碼 → 一局都不算通過', sm.ok, 0)
   eq('缺欄位 → 未檢查', sm.unknown, 4)
   eq('缺欄位 → 不是異常', sm.anomaly, 0)
+  // 每一段都有未檢查的局 → 段落不能標通過（CodeX 555b858 P2）
+  eq('缺欄位 → 每段都不是通過', run(rs, C0).sessions.map(s => s.verdict), ['pending', 'pending', 'pending'])
+}
+{ // 缺 Bet：整局不能被丟掉，分母要在（CodeX 555b858 P1）
+  const raws = clone(fx.gameRecord.filter(r => r.uid === DFDC))
+  const one = raws.find(r => r.win === 5)!; delete one.bet
+  const rs = raws.map(normalizeRound).filter((x): x is ChainRound => !!x)
+  const x = run(rs, C0)
+  const sm = summarize(x)
+  eq('缺 Bet → 局數不少', sm.rounds, 4)
+  eq('缺 Bet → 那局未檢查', sm.unknown, 1)
+  eq('缺 Bet → 那段不是通過', x.sessions[1].verdict, 'pending')
 }
 { // 重複（分頁重疊）→ 去重後照樣通過
   const x = run([...R0, ...clone(R0)], C0)
@@ -130,6 +142,7 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
   const x = run(rs, C0)
   eq('JP 局不判異常', x.sessions[1].rounds[0].verdict, 'jp')
   eq('JP 局不算進通過（畫面不能全綠）', summarize(x).ok, 3)
+  eq('含 JP 那段不是通過', x.sessions[1].verdict, 'pending')
 }
 { // 同時間兩局 → 順序不唯一
   const rs = clone(R0); const s0 = base.sessions[0]

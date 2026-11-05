@@ -27,7 +27,7 @@ interface Row {
 }
 type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown' | 'wait'
 interface RoundCheck {
-  orderId: string; betAt: number; bet: number; betNima: number | null; win: number | null
+  orderId: string; betAt: number; bet: number | null; betNima: number | null; win: number | null
   before: number | null; after: number | null; playerWin: number | null
   verdict: RoundVerdict; problems: string[]
 }
