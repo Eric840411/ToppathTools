@@ -240,7 +240,7 @@ function Detail({ r }: { r: Row }) {
               <p>Game Record（全部玩家）　{fmtN(r.win.backend.grCount)} 局</p>
               <p>Jackpot Abnormality（handpay）　{fmtN(r.win.backend.handpayCount)} 筆・注額 {fmtA(r.win.backend.handpayBet)}{r.win.backend.handpayAmount ? `・JP ${fmtA(r.win.backend.handpayAmount)}` : ''}</p>
               <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}</p>
-              {r.win.t0Absorbed > 0 && <p className="lc-muted">起點時有 {r.win.t0Absorbed} 局正在進行（下注在前、派彩在後），Meter 算在這一段</p>}
+              {r.win.t0Absorbed > 0 && <p className="lc-muted">差額可由起點時正在進行的 {r.win.t0Absorbed} 局解釋（下注在前、派彩在後；是推算，不是逐單入帳證明）</p>}
               {r.win.conflicts > 0 && <p className="lc-muted">同一單號在 Game Record 與 handpay 的注額不一致：{r.win.conflicts} 筆</p>}
             </> : <p>{r.winError ? `後台查詢失敗：${r.winError}` : '—'}</p>}
           </> : <p>{r.meterCached ? `快取值（停在 ${r.cacheHourStr || '?'}），不設起點` : (r.meterError || (r.t0 == null ? '尚未設起點' : 'Meter 快照要收到滿 3 分鐘才比（等 Game Record 入帳）'))}</p>}
