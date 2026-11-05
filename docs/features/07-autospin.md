@@ -554,7 +554,11 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
   Lose/Win＝Payout−Bet；0≤Bet Reward Credits≤Bet，這次轉入沒帶泥碼（nima＝0）時每局必須是 0。
   泥碼已含在 Bet 裡（09-17 確認），公式不重加。
 - **不判錯、標待確認**：找不到轉入（在查詢起點前）、尚未取得轉出、同一次進機台多筆轉入／轉出、兩局下注時間相同；
-  roundid 拆不出 token 的局＝不可判定。**中 JP（handpay／jppoolrates>0）的局 After 端不驗**（同事 1105：測試不設 handpay）。
+  後兩種會**停用**首尾與前後局規則，只驗每局自己（v5.78.1）。roundid 拆不出 token 的局＝未檢查。
+  **中 JP（handpay／jppoolrates>0）的局 After 端不驗**（同事 1105：測試不設 handpay）。
+- **等待入帳**：前後局／首尾的斷點 2 分鐘內（`CHAIN_GRACE_MS`）算等待入帳（Game Record 會晚到），超過才算異常。
+- **缺欄位不補 0**：缺 Bet Reward Credits／Payout／Lose/Win／Balance 的局標「未檢查」，不算通過；
+  有任何一局未檢查（含 JP），整體顯示「部分未檢查」不顯示綠燈。
 - 「999,964 下一局變 1,000,000」這種是離開機台再進來（帶入上限），屬於兩次進機台，不是斷鏈。
 - 查詢往回多抓 2 小時（進機台通常在開跑前），只列這一輪開跑後有下注的那幾次進機台。
 - **還沒做**：泥碼扣法（優先扣、remain_nima 遞減）與寶箱中途轉帳——等真樣本。

@@ -23,7 +23,9 @@ eq('fixture 每局都拆得出進機台編號', R0.filter(r => !r.token).length,
 
 const DFDC = '873-DFDCGRAND-0144'
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
-const run = (rs: ChainRound[], cs: CreditTx[], gmid = DFDC) => checkChains(rs, cs, gmid)
+/** 預設在資料之後一天檢查（斷點都超過寬限）；要測「剛發生」就傳 now */
+const LATER = Date.UTC(2026, 10, 5)
+const run = (rs: ChainRound[], cs: CreditTx[], gmid = DFDC, now = LATER) => checkChains(rs, cs, gmid, now)
 
 // ── 真資料全過 ──
 for (const gmid of [...new Set(R0.map(r => r.gmid))]) {
@@ -63,7 +65,28 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
 { // 漏一局（中間那局不見）→ 下一局接不上
   const rs = clone(R0).filter(r => r.orderId !== base.sessions[0].rounds[0].orderId)
   const s = run(rs, C0).sessions[0]
-  eq('漏首局 → 首局對不上轉入', s.rounds[0].problems.some(p => p.includes('轉入')), true)
+  eq('漏首局（過了寬限）→ 異常', s.rounds[0].verdict, 'anomaly')
+  eq('漏首局 → 紅在首局對轉入', s.rounds[0].problems.some(p => p.includes('轉入')), true)
+  // 剛發生：可能只是 Game Record 晚到，不判錯
+  const fresh = run(rs, C0, DFDC, s.rounds[0].betAt + 30_000).sessions[0]
+  eq('漏首局（剛發生）→ 等待入帳', fresh.rounds[0].verdict, 'wait')
+  eq('漏首局（剛發生）→ 段落待確認', fresh.verdict, 'pending')
+}
+{ // 轉出已到、最後一局 Game Record 晚到（CodeX 3f471e7 P1）
+  const s0 = base.sessions[0]
+  const rs = clone(R0).filter(r => r.orderId !== s0.rounds[1].orderId)
+  const fresh = run(rs, C0, DFDC, (s0.outAt ?? 0) + 30_000).sessions[0]
+  eq('末局晚到（剛轉出）→ 不判異常', fresh.rounds[0].verdict, 'wait')
+  eq('末局晚到（過了寬限）→ 異常', run(rs, C0).sessions[0].rounds[0].verdict, 'anomaly')
+}
+{ // 缺欄位不能補 0 假通過（CodeX 3f471e7 P1）
+  const raws = clone(fx.gameRecord.filter(r => r.uid === DFDC))
+  for (const r of raws) { delete r.playerWin; delete r.bet_nima }
+  const rs = raws.map(normalizeRound).filter((x): x is ChainRound => !!x)
+  const sm = summarize(run(rs, C0))
+  eq('缺 Lose/Win＋泥碼 → 一局都不算通過', sm.ok, 0)
+  eq('缺欄位 → 未檢查', sm.unknown, 4)
+  eq('缺欄位 → 不是異常', sm.anomaly, 0)
 }
 { // 重複（分頁重疊）→ 去重後照樣通過
   const x = run([...R0, ...clone(R0)], C0)
@@ -84,6 +107,13 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
   const s0 = base.sessions[0]
   const extra = { ...C0.find(c => c.gmid === DFDC && c.dir === 'in' && c.token === s0.token)!, at: 1, amount: 36 }
   eq('兩筆轉入 → 待確認', run(R0, [...C0, extra]).sessions[0].verdict, 'pending')
+  // 中途轉入 36（寶箱類）：第二局起餘額都多 36——規則要停用，不能報斷鏈（CodeX 3f471e7 P2）
+  const rs = clone(R0); const r2 = rs.find(r => r.orderId === s0.rounds[1].orderId)!
+  r2.before! += 36; r2.after! += 36
+  const mid = { ...extra, at: s0.rounds[1].betAt - 1000 }
+  const x = run(rs, [...C0, mid]).sessions[0]
+  eq('中途轉入 → 不報異常', x.rounds.map(r => r.verdict), ['ok', 'ok'])
+  eq('中途轉入 → 待確認', x.verdict, 'pending')
 }
 { // 沒帶泥碼卻扣了泥碼
   const rs = clone(R0); rs.find(r => r.gmid === DFDC)!.betNima = 10
@@ -99,11 +129,16 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
   r.hasJp = true; r.after = (r.after ?? 0) + 50000
   const x = run(rs, C0)
   eq('JP 局不判異常', x.sessions[1].rounds[0].verdict, 'jp')
+  eq('JP 局不算進通過（畫面不能全綠）', summarize(x).ok, 3)
 }
 { // 同時間兩局 → 順序不唯一
   const rs = clone(R0); const s0 = base.sessions[0]
   rs.find(r => r.orderId === s0.rounds[1].orderId)!.betAt = s0.rounds[0].betAt
   eq('同時間兩局 → 待確認', run(rs, C0).sessions[0].verdict, 'pending')
+  // 同時間時排序可能顛倒，首尾也不能比（CodeX 3f471e7 P2）
+  const sw = rs.find(r => r.orderId === s0.rounds[1].orderId)!
+  sw.orderId = '0' + sw.orderId   // 讓它排到前面
+  eq('同時間兩局排序顛倒 → 不報異常', summarize(run(rs, C0)).anomaly, 0)
 }
 { // roundid 拆不出編號 → 不可判定，不判錯
   const raw = clone(fx.gameRecord.find(r => r.uid === DFDC)!); raw.roundid = 'xxx'

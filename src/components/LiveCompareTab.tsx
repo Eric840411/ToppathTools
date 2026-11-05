@@ -25,9 +25,9 @@ interface Row {
   grMinusAs: Side; meterMinusAs: Side
   chain: Chain | null; chainError?: string
 }
-type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown'
+type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown' | 'wait'
 interface RoundCheck {
-  orderId: string; betAt: number; bet: number; betNima: number; win: number
+  orderId: string; betAt: number; bet: number; betNima: number | null; win: number | null
   before: number | null; after: number | null; playerWin: number | null
   verdict: RoundVerdict; problems: string[]
 }
@@ -37,7 +37,7 @@ interface SessionCheck {
   verdict: 'ok' | 'anomaly' | 'pending'; notes: string[]; rounds: RoundCheck[]
 }
 interface Chain {
-  summary: { rounds: number; ok: number; anomaly: number; jp: number; unknown: number; sessions: number; sessionsPending: number }
+  summary: { rounds: number; ok: number; anomaly: number; jp: number; unknown: number; wait: number; sessions: number; sessionsPending: number }
   sessions: SessionCheck[]; unkeyed: RoundCheck[]
 }
 interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; error?: string; message?: string }
@@ -45,7 +45,7 @@ interface Resp { ok: boolean; running: boolean; startedAt: number | null; polled
 const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '不一致', cache: '快取不可比', unreadable: '讀不到' }
 const STATUS_ORDER: Status[] = ['match', 'pending', 'mismatch', 'cache', 'unreadable']
 const INTERVALS = [30, 60] as const
-const ROUND_LABEL: Record<RoundVerdict, string> = { ok: '通過', anomaly: '異常', jp: '含 JP 未檢查', unknown: '不可判定' }
+const ROUND_LABEL: Record<RoundVerdict, string> = { ok: '通過', anomaly: '異常', jp: '含 JP 未檢查', unknown: '未檢查', wait: '等待入帳' }
 const SESSION_LABEL: Record<SessionCheck['verdict'], string> = { ok: '通過', anomaly: '異常', pending: '待確認' }
 /** 逐局檢查的整體標示：有異常 > 有待確認 > 全通過 */
 function chainStatus(r: Row): { cls: Status; text: string; sub: string } {
@@ -53,8 +53,11 @@ function chainStatus(r: Row): { cls: Status; text: string; sub: string } {
   const s = r.chain.summary
   if (s.rounds === 0) return { cls: 'cache', text: '尚無局', sub: '' }
   if (s.anomaly) return { cls: 'mismatch', text: `異常 ${s.anomaly} 局`, sub: `共 ${s.rounds} 局` }
-  if (s.sessionsPending + s.unknown) return { cls: 'pending', text: '待確認', sub: `${s.ok}/${s.rounds} 局通過` }
-  return { cls: 'match', text: '通過', sub: `${s.ok}/${s.rounds} 局${s.jp ? `・JP ${s.jp}` : ''}` }
+  if (s.wait) return { cls: 'pending', text: '等待入帳', sub: `${s.ok}/${s.rounds} 局通過` }
+  if (s.sessionsPending) return { cls: 'pending', text: '待確認', sub: `${s.ok}/${s.rounds} 局通過` }
+  // ⚠️ 有沒檢查的局（JP、缺欄位）就不能顯示綠燈「通過」（CodeX 3f471e7 P2）
+  if (s.ok < s.rounds) return { cls: 'pending', text: '部分未檢查', sub: `${s.ok}/${s.rounds} 局通過` }
+  return { cls: 'match', text: '通過', sub: `${s.ok}/${s.rounds} 局` }
 }
 
 const fmtN = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('en-US')
@@ -257,8 +260,8 @@ function ChainDetail({ r }: { r: Row }) {
         <span className="lc-chain-sum">
           <span className="lc-pill is-match">通過 {s.ok}</span>
           <span className="lc-pill is-mismatch">異常 {s.anomaly}</span>
-          <span className="lc-pill is-pending">待確認 {s.sessionsPending} 段・不可判定 {s.unknown} 局</span>
-          {s.jp > 0 && <span className="lc-pill">含 JP 未檢查 {s.jp}</span>}
+          <span className="lc-pill is-pending">待確認 {s.sessionsPending} 段・等待入帳 {s.wait} 局</span>
+          {(s.unknown + s.jp) > 0 && <span className="lc-pill">未檢查 {s.unknown + s.jp} 局{s.jp ? `（含 JP ${s.jp}）` : ''}</span>}
           <span className="lc-muted">共 {s.rounds} 局、{s.sessions} 次進機台</span>
         </span>
         <label className="lc-only-bad"><input type="checkbox" checked={onlyBad} onChange={e => setOnlyBad(e.target.checked)} />只看有問題的</label>

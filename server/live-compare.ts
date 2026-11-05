@@ -334,7 +334,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       else if (!g || 'error' in g) chainError = grError
       else if (!c || 'error' in c) chainError = c && 'error' in c ? c.error : 'Player Credit Log 讀取失敗'
       else {
-        const all = checkChains(g.rounds, c.credits, m.gmid)
+        const all = checkChains(g.rounds, c.credits, m.gmid, grReadAt)
         const mine = (r: RoundCheck) => r.betAt >= m.startedAt
         const x = { sessions: all.sessions.filter(s => s.rounds.some(mine)), unkeyed: all.unkeyed.filter(mine) }
         chain = { summary: summarize(x), ...x }

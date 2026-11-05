@@ -93,8 +93,8 @@ export function normalizeRound(r: Record<string, unknown>): ChainRound | null {
     betAt: betT * 1000,
     payoutAt: (num(r.payout_precise) ?? betT) * 1000,
     bet,
-    betNima: num(r.bet_nima) ?? 0,
-    win: num(r.win) ?? 0,
+    betNima: num(r.bet_nima),
+    win: num(r.win),
     before: num(r.bet_coin_now),
     after: num(r.payout_coin_now),
     playerWin: num(r.playerWin),
@@ -113,20 +113,27 @@ export function normalizeCredit(r: Record<string, unknown>): CreditTx | null {
   return { gmid, userid, token: p.token, dir: p.dir, amount: Math.abs(amount), nima: Math.abs(num(r.nima) ?? 0), at, reference }
 }
 
-export type CheckKind = 'row' | 'loseWin' | 'nima' | 'chain' | 'first' | 'last'
-export type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown'
+/**
+ * 前後局／首尾對不上時，多久內算「等待入帳」而不是異常。
+ * Game Record 會晚到（轉出已經記了、最後一局還沒進來），剛發生的斷點不能直接判錯（CodeX 3f471e7 P1）；
+ * 超過這段時間還接不上，就是漏局或餘額錯——Game Record 漏局正是這個檢查要抓的東西，所以不能永遠待確認。
+ */
+export const CHAIN_GRACE_MS = 120_000
+
+/** ok 通過｜anomaly 異常｜jp 含 JP 未檢查｜unknown 缺欄位／拆不出編號｜wait 剛發生的斷點，等入帳 */
+export type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown' | 'wait'
 
 export interface RoundCheck {
   orderId: string
   betAt: number
   bet: number
-  betNima: number
-  win: number
+  betNima: number | null
+  win: number | null
   before: number | null
   after: number | null
   playerWin: number | null
   verdict: RoundVerdict
-  /** 每條沒過的規則一句話 */
+  /** 每條沒過或沒檢查的規則一句話 */
   problems: string[]
 }
 
@@ -151,9 +158,9 @@ const f = (n: number | null) => n == null ? '—' : n.toLocaleString('en-US', { 
 
 /**
  * 一台機台、一個帳號的所有局＋所有轉帳 → 依 session 分組檢查。
- * rounds／credits 要是同一台（gmid）同一個帳號；其他的會被略過。
+ * rounds／credits 要是同一台（gmid）同一個帳號；其他的會被略過。`now` 用來判斷斷點是不是剛發生（等入帳）。
  */
-export function checkChains(roundsIn: ChainRound[], creditsIn: CreditTx[], gmid: string): { sessions: SessionCheck[]; unkeyed: RoundCheck[] } {
+export function checkChains(roundsIn: ChainRound[], creditsIn: CreditTx[], gmid: string, now: number): { sessions: SessionCheck[]; unkeyed: RoundCheck[] } {
   // 去重（分頁會重複）＋只留這台
   const seen = new Set<string>()
   const rounds = roundsIn.filter(r => r.gmid === gmid && !seen.has(r.orderId) && (seen.add(r.orderId), true))
@@ -181,67 +188,79 @@ export function checkChains(roundsIn: ChainRound[], creditsIn: CreditTx[], gmid:
     const outs = g.credits.filter(c => c.dir === 'out')
     const notes: string[] = []
     let pending = false
-    if (ins.length > 1 || outs.length > 1) { notes.push(`這次進機台有 ${ins.length} 筆轉入、${outs.length} 筆轉出，不硬湊，待確認`); pending = true }
-    if (ins.length === 0) { notes.push('查詢範圍內找不到轉入紀錄（可能在查詢起點之前），無法驗首局'); pending = true }
-    // 沒有轉出不叫「進行中」：可能還在玩，也可能是跨日截斷／晚到（CodeX 1105）
-    if (outs.length === 0) { notes.push('尚未取得轉出紀錄，末局未檢查'); pending = true }
-    // 同一毫秒兩局時順序不唯一，鏈不可判
+    // ⚠️ 歧義時「停用」受影響的規則，不是標待確認後照樣硬比（CodeX 3f471e7 P2：中途多一筆轉入會被報斷鏈）
+    const multi = ins.length > 1 || outs.length > 1
+    if (multi) { notes.push(`這次進機台有 ${ins.length} 筆轉入、${outs.length} 筆轉出（可能是寶箱或中途轉帳），前後局與首尾不檢查，只驗每局自己`); pending = true }
     const tie = rs.some((r, i) => i > 0 && r.betAt === rs[i - 1].betAt)
-    if (tie) { notes.push('有兩局下注時間相同，順序不唯一，前後局不檢查'); pending = true }
+    if (tie) { notes.push('有兩局下注時間相同，順序不唯一，前後局與首尾不檢查'); pending = true }
+    const ordered = !multi && !tie
+    if (!multi && ins.length === 0) { notes.push('查詢範圍內找不到轉入紀錄（可能在查詢起點之前），首局未檢查'); pending = true }
+    // 沒有轉出不叫「進行中」：可能還在玩，也可能是跨日截斷／晚到（CodeX 1105）
+    if (!multi && outs.length === 0) { notes.push('尚未取得轉出紀錄，末局未檢查'); pending = true }
 
-    const inTx = ins.length === 1 ? ins[0] : null
-    const outTx = outs.length === 1 ? outs[0] : null
-    const checks = rs.map((r, i) => checkRound(r, i === 0 ? null : rs[i - 1], {
+    const inTx = ordered && ins.length === 1 ? ins[0] : null
+    const outTx = ordered && outs.length === 1 ? outs[0] : null
+    const checks = rs.map((r, i) => checkRound(r, {
+      prev: ordered && i > 0 ? rs[i - 1] : null,
       first: i === 0 ? inTx : null,
       last: i === rs.length - 1 ? outTx : null,
-      noNima: inTx != null && inTx.nima === 0 && ins.length === 1,
-      chainOk: !tie,
+      noNima: ins.length === 1 && ins[0].nima === 0,
+      now,
     }))
+    if (checks.some(c => c.verdict === 'wait')) pending = true
     const anomaly = checks.some(c => c.verdict === 'anomaly')
     sessions.push({
       key: k, gmid, token: k.split('|')[1],
-      inAmount: inTx?.amount ?? null, inAt: inTx?.at ?? null,
-      outAmount: outTx?.amount ?? null, outAt: outTx?.at ?? null,
+      inAmount: inTx?.amount ?? (ins.length === 1 ? ins[0].amount : null), inAt: ins.length === 1 ? ins[0].at : null,
+      outAmount: outTx?.amount ?? (outs.length === 1 ? outs[0].amount : null), outAt: outs.length === 1 ? outs[0].at : null,
       verdict: anomaly ? 'anomaly' : pending ? 'pending' : 'ok',
       notes, rounds: checks,
     })
   }
   sessions.sort((a, b) => (a.rounds[0]?.betAt ?? 0) - (b.rounds[0]?.betAt ?? 0))
-  const unkeyed = unkeyedRounds.map(r => ({ ...checkRound(r, null, { first: null, last: null, noNima: false, chainOk: false }), verdict: 'unknown' as const }))
-    .map(c => ({ ...c, problems: ['roundid 拆不出進機台編號，前後局與轉帳無法檢查', ...c.problems] }))
+  const unkeyed = unkeyedRounds.map(r => {
+    const c = checkRound(r, { prev: null, first: null, last: null, noNima: false, now })
+    return { ...c, verdict: c.verdict === 'anomaly' ? 'anomaly' as const : 'unknown' as const, problems: ['roundid 拆不出進機台編號，前後局與轉帳未檢查', ...c.problems] }
+  })
   return { sessions, unkeyed }
 }
 
-function checkRound(r: ChainRound, prev: ChainRound | null, o: { first: CreditTx | null; last: CreditTx | null; noNima: boolean; chainOk: boolean }): RoundCheck {
-  const problems: string[] = []
-  let unknown = false
+function checkRound(r: ChainRound, o: { prev: ChainRound | null; first: CreditTx | null; last: CreditTx | null; noNima: boolean; now: number }): RoundCheck {
+  const hard: string[] = []      // 確定對不上
+  const wait: string[] = []      // 剛發生的斷點，等入帳
+  const unchecked: string[] = [] // 缺欄位或 JP，沒檢查
   const base = { orderId: r.orderId, betAt: r.betAt, bet: r.bet, betNima: r.betNima, win: r.win, before: r.before, after: r.after, playerWin: r.playerWin }
+  /** 斷點：剛發生算等待，超過寬限才算異常 */
+  const breakAt = (msg: string, at: number) => (o.now - at < CHAIN_GRACE_MS ? wait.push(`${msg}（等待入帳）`) : hard.push(`${msg}（可能漏局或餘額錯）`))
 
-  // 泥碼（JP 局也照驗，跟 JP 無關）
-  if (r.betNima < -BAL_EPS || r.betNima > r.bet + BAL_EPS) problems.push(`Bet Reward Credits ${f(r.betNima)} 不在 0～Bet ${f(r.bet)} 之間`)
-  else if (o.noNima && r.betNima > BAL_EPS) problems.push(`這次進機台沒帶泥碼，Bet Reward Credits 卻是 ${f(r.betNima)}`)
+  // 泥碼（跟 JP 無關，JP 局也驗）
+  if (r.betNima == null) unchecked.push('缺 Bet Reward Credits，泥碼未檢查')
+  else if (r.betNima < -BAL_EPS || r.betNima > r.bet + BAL_EPS) hard.push(`Bet Reward Credits ${f(r.betNima)} 不在 0～Bet ${f(r.bet)} 之間`)
+  else if (o.noNima && r.betNima > BAL_EPS) hard.push(`這次進機台沒帶泥碼，Bet Reward Credits 卻是 ${f(r.betNima)}`)
 
-  if (r.before == null || r.after == null) { unknown = true; problems.push('缺 Balance Before／After') }
+  if (r.before == null) unchecked.push('缺 Balance Before')
+  if (r.after == null) unchecked.push('缺 Balance After')
 
-  // 前後局、首尾：跟 JP 無關的那一側照驗
-  if (o.chainOk && prev && prev.after != null && r.before != null && off(r.before, prev.after)) {
-    problems.push(`Balance Before ${f(r.before)} ≠ 上一局 After ${f(prev.after)}`)
+  // Before 那一側（跟 JP 無關）
+  if (o.prev && o.prev.after != null && r.before != null && off(r.before, o.prev.after)) breakAt(`Balance Before ${f(r.before)} ≠ 上一局 After ${f(o.prev.after)}`, r.betAt)
+  if (o.first && r.before != null && off(r.before, o.first.amount)) breakAt(`首局 Balance Before ${f(r.before)} ≠ 轉入 ${f(o.first.amount)}`, r.betAt)
+
+  if (r.hasJp) unchecked.push('含 JP，After／Payout／Lose/Win 未檢查')
+  else {
+    if (o.last && r.after != null && off(r.after, o.last.amount)) breakAt(`末局 Balance After ${f(r.after)} ≠ 轉出 ${f(o.last.amount)}`, o.last.at)
+    if (r.win == null) unchecked.push('缺 Payout，餘額公式與 Lose/Win 未檢查')
+    else {
+      if (r.before != null && r.after != null) {
+        const want = r.before - r.bet + r.win
+        if (off(r.after, want)) hard.push(`After ${f(r.after)} ≠ Before − Bet ＋ Payout ＝ ${f(want)}`)
+      }
+      if (r.playerWin == null) unchecked.push('缺 Lose/Win，未檢查')
+      else if (off(r.playerWin, r.win - r.bet)) hard.push(`Lose/Win ${f(r.playerWin)} ≠ Payout − Bet ＝ ${f(r.win - r.bet)}`)
+    }
   }
-  if (o.first && r.before != null && off(r.before, o.first.amount)) problems.push(`首局 Balance Before ${f(r.before)} ≠ 轉入 ${f(o.first.amount)}`)
 
-  if (r.hasJp) {
-    // JP 局：After 端的公式與轉出先不驗
-    return { ...base, verdict: problems.length && !unknown ? 'anomaly' : 'jp', problems: problems.length ? problems : ['含 JP，未檢查'] }
-  }
-  if (o.last && r.after != null && off(r.after, o.last.amount)) problems.push(`末局 Balance After ${f(r.after)} ≠ 轉出 ${f(o.last.amount)}`)
-  if (r.before != null && r.after != null) {
-    const want = r.before - r.bet + r.win
-    if (off(r.after, want)) problems.push(`After ${f(r.after)} ≠ Before − Bet ＋ Payout ＝ ${f(want)}`)
-  }
-  if (r.playerWin != null && off(r.playerWin, r.win - r.bet)) problems.push(`Lose/Win ${f(r.playerWin)} ≠ Payout − Bet ＝ ${f(r.win - r.bet)}`)
-
-  const hard = problems.filter(p => p !== '缺 Balance Before／After')
-  return { ...base, verdict: hard.length ? 'anomaly' : unknown ? 'unknown' : 'ok', problems }
+  const verdict: RoundVerdict = hard.length ? 'anomaly' : wait.length ? 'wait' : r.hasJp ? 'jp' : unchecked.length ? 'unknown' : 'ok'
+  return { ...base, verdict, problems: [...hard, ...wait, ...unchecked] }
 }
 
 export interface ChainSummary {
@@ -250,6 +269,7 @@ export interface ChainSummary {
   anomaly: number
   jp: number
   unknown: number
+  wait: number
   sessions: number
   sessionsPending: number
 }
@@ -262,6 +282,7 @@ export function summarize(x: { sessions: SessionCheck[]; unkeyed: RoundCheck[] }
     anomaly: all.filter(r => r.verdict === 'anomaly').length,
     jp: all.filter(r => r.verdict === 'jp').length,
     unknown: all.filter(r => r.verdict === 'unknown').length,
+    wait: all.filter(r => r.verdict === 'wait').length,
     sessions: x.sessions.length,
     sessionsPending: x.sessions.filter(s => s.verdict === 'pending').length,
   }
