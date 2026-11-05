@@ -540,8 +540,28 @@ session 在那個空窗裡看起來就像不存在。
 - **只支援 QAT**；UAT 沒有後台連線設定，回錯誤訊息。
 - Instant Meter 是整台累計，別人在玩也會增加——Meter 多出來不能直接當漏帳（明細有提示）。
 
+#### 逐局餘額檢查（v5.78.0）
+
+同事 1105：Game Record 的 Bet／Bet Reward Credits／Payout／Jackpot／Balance Before／After／Lose/Win 七欄都可能錯，
+要前後比對。規則 `server/live-compare-chain.ts`（回歸：`npx tsx server/live-compare-chain.test.ts`，
+fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個帳號整天真資料、已去識別化）。
+
+- **以「一次進機台」為單位**：Player Credit Log（`/egm/reports/rechargeRecordList`）的 `reference`＝gameid＋機台號＋userid＋token＋`-in／-ou`，
+  Game Record 的 `roundid`＝gameid＋gmid＋userid＋token——**同一串 token**，不靠時間配對。精確拆開比對，不比字串結尾。
+- **欄位**（1105 原始資料核對）：Balance Before＝`bet_coin_now`、After＝`payout_coin_now`、Payout＝`win`、
+  Bet Reward Credits＝`bet_nima`、Lose/Win＝`playerWin`。`begin/end_machine_coin` 是扣注後／派彩後，不是 Before／After。
+- **規則**：轉入金額＝首局 Before；每局 Before＝上一局 After；末局 After＝轉出金額；After＝Before−Bet＋Payout；
+  Lose/Win＝Payout−Bet；0≤Bet Reward Credits≤Bet，這次轉入沒帶泥碼（nima＝0）時每局必須是 0。
+  泥碼已含在 Bet 裡（09-17 確認），公式不重加。
+- **不判錯、標待確認**：找不到轉入（在查詢起點前）、尚未取得轉出、同一次進機台多筆轉入／轉出、兩局下注時間相同；
+  roundid 拆不出 token 的局＝不可判定。**中 JP（handpay／jppoolrates>0）的局 After 端不驗**（同事 1105：測試不設 handpay）。
+- 「999,964 下一局變 1,000,000」這種是離開機台再進來（帶入上限），屬於兩次進機台，不是斷鏈。
+- 查詢往回多抓 2 小時（進機台通常在開跑前），只列這一輪開跑後有下注的那幾次進機台。
+- **還沒做**：泥碼扣法（優先扣、remain_nima 遞減）與寶箱中途轉帳——等真樣本。
+
 **使用者操作**
 1. AutoSpin → 「即時對照」頁籤（只看目前帳號自己在跑的 session）
 2. 右上「更新頻率」30／60 秒、「重新整理」立即讀一次
-3. 每列「明細」展開：對照範圍、Meter 起點→現在算式、三邊讀取時間
+3. 每列「明細」展開：對照範圍、Meter 起點→現在算式、三邊讀取時間；下方「逐局餘額檢查」按每次進機台列七欄與沒過的規則，
+   預設「只看有問題的」，取消勾選看全部
 4. 渠道登入失敗時下方「渠道後台帳號」會自動展開，填一組 13 個渠道都能登入的帳號後儲存

@@ -23,12 +23,39 @@ interface Row {
   meterNow: { gamesPlayed: number; coinIn: number } | null
   denom: number | null
   grMinusAs: Side; meterMinusAs: Side
+  chain: Chain | null; chainError?: string
+}
+type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown'
+interface RoundCheck {
+  orderId: string; betAt: number; bet: number; betNima: number; win: number
+  before: number | null; after: number | null; playerWin: number | null
+  verdict: RoundVerdict; problems: string[]
+}
+interface SessionCheck {
+  key: string; gmid: string; token: string
+  inAmount: number | null; inAt: number | null; outAmount: number | null; outAt: number | null
+  verdict: 'ok' | 'anomaly' | 'pending'; notes: string[]; rounds: RoundCheck[]
+}
+interface Chain {
+  summary: { rounds: number; ok: number; anomaly: number; jp: number; unknown: number; sessions: number; sessionsPending: number }
+  sessions: SessionCheck[]; unkeyed: RoundCheck[]
 }
 interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; error?: string; message?: string }
 
 const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '不一致', cache: '快取不可比', unreadable: '讀不到' }
 const STATUS_ORDER: Status[] = ['match', 'pending', 'mismatch', 'cache', 'unreadable']
 const INTERVALS = [30, 60] as const
+const ROUND_LABEL: Record<RoundVerdict, string> = { ok: '通過', anomaly: '異常', jp: '含 JP 未檢查', unknown: '不可判定' }
+const SESSION_LABEL: Record<SessionCheck['verdict'], string> = { ok: '通過', anomaly: '異常', pending: '待確認' }
+/** 逐局檢查的整體標示：有異常 > 有待確認 > 全通過 */
+function chainStatus(r: Row): { cls: Status; text: string; sub: string } {
+  if (!r.chain) return { cls: 'unreadable', text: '讀不到', sub: r.chainError ? '見明細' : '' }
+  const s = r.chain.summary
+  if (s.rounds === 0) return { cls: 'cache', text: '尚無局', sub: '' }
+  if (s.anomaly) return { cls: 'mismatch', text: `異常 ${s.anomaly} 局`, sub: `共 ${s.rounds} 局` }
+  if (s.sessionsPending + s.unknown) return { cls: 'pending', text: '待確認', sub: `${s.ok}/${s.rounds} 局通過` }
+  return { cls: 'match', text: '通過', sub: `${s.ok}/${s.rounds} 局${s.jp ? `・JP ${s.jp}` : ''}` }
+}
 
 const fmtN = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('en-US')
 const fmtA = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -113,12 +140,13 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                 <th>GR − AS<small>次數／金額</small></th>
                 <th>Meter − AS<small>次數／金額</small></th>
                 <th>狀態</th>
+                <th>逐局檢查<small>Game Record 七欄</small></th>
                 <th aria-label="展開" />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={8} className="lc-empty">{data?.running ? '還沒有收到這一輪的 spin 紀錄，第一局跑完就會出現。' : '開始 AutoSpin 後，這裡會逐台列出三邊的數字。'}</td></tr>
+                <tr><td colSpan={9} className="lc-empty">{data?.running ? '還沒有收到這一輪的 spin 紀錄，第一局跑完就會出現。' : '開始 AutoSpin 後，這裡會逐台列出三邊的數字。'}</td></tr>
               )}
               {rows.map(r => {
                 const key = `${r.sessionId}|${r.gmid}`
@@ -133,10 +161,11 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                       <td className={diffCls(r.grMinusAs)}>{fmtD(r.grMinusAs.count)}<small>{fmtD(r.grMinusAs.amount, true)}</small></td>
                       <td className={diffCls(r.meterMinusAs)}>{r.meterCached ? <>—<small>不可比</small></> : <>{fmtD(r.meterMinusAs.count)}<small>{fmtD(r.meterMinusAs.amount, true)}</small></>}</td>
                       <td><span className={`lc-pill is-${r.status}`}>{STATUS_LABEL[r.status]}</span><small className="lc-reason">{shortReason(r)}</small></td>
+                      <td><ChainCell r={r} /></td>
                       <td><button type="button" className="btn-ghost lc-x" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : key)}>{isOpen ? '收合' : '明細'}</button></td>
                     </tr>
                     {isOpen && (
-                      <tr className="lc-detail-row"><td colSpan={8}><Detail r={r} /></td></tr>
+                      <tr className="lc-detail-row"><td colSpan={9}><Detail r={r} /></td></tr>
                     )}
                   </Fragment>
                 )
@@ -201,7 +230,79 @@ function Detail({ r }: { r: Row }) {
           {r.as.count != null && r.as.amount == null && <p className="lc-muted">AutoSpin 只有 {r.as.betKnown}/{r.as.count} 局推得出注額，下注總額不計算</p>}
         </div>
       </div>
+      <ChainDetail r={r} />
     </div>
+  )
+}
+
+function ChainCell({ r }: { r: Row }) {
+  const c = chainStatus(r)
+  return <><span className={`lc-pill is-${c.cls}`}>{c.text}</span><small className="lc-reason">{c.sub}</small></>
+}
+
+/**
+ * 逐局餘額檢查：以「一次進機台」為一段，列 Game Record 七欄與沒過的規則。
+ * 規則在 server/live-compare-chain.ts。
+ */
+function ChainDetail({ r }: { r: Row }) {
+  const [onlyBad, setOnlyBad] = useState(true)
+  if (!r.chain) return <div className="lc-chain"><h4>逐局餘額檢查</h4><p className="lc-muted">讀不到：{r.chainError || '—'}</p></div>
+  const c = r.chain, s = c.summary
+  const bad = (x: RoundCheck) => x.verdict !== 'ok'
+  const sessions = onlyBad ? c.sessions.filter(x => x.verdict !== 'ok' || x.rounds.some(bad)) : c.sessions
+  return (
+    <div className="lc-chain">
+      <div className="lc-chain-h">
+        <h4>逐局餘額檢查</h4>
+        <span className="lc-chain-sum">
+          <span className="lc-pill is-match">通過 {s.ok}</span>
+          <span className="lc-pill is-mismatch">異常 {s.anomaly}</span>
+          <span className="lc-pill is-pending">待確認 {s.sessionsPending} 段・不可判定 {s.unknown} 局</span>
+          {s.jp > 0 && <span className="lc-pill">含 JP 未檢查 {s.jp}</span>}
+          <span className="lc-muted">共 {s.rounds} 局、{s.sessions} 次進機台</span>
+        </span>
+        <label className="lc-only-bad"><input type="checkbox" checked={onlyBad} onChange={e => setOnlyBad(e.target.checked)} />只看有問題的</label>
+      </div>
+      <p className="lc-muted lc-chain-rule">每次進機台：轉入金額＝首局 Before；每局 Before＝上一局 After；末局 After＝轉出金額。每局：After＝Before − Bet ＋ Payout、Lose/Win＝Payout − Bet、0 ≤ Bet Reward Credits ≤ Bet（沒帶泥碼進機台時必須是 0）。</p>
+      {sessions.length === 0 && c.unkeyed.length === 0 && <p className="lc-muted">{s.rounds ? '全部通過。' : '這一輪還沒有 Game Record。'}</p>}
+      {sessions.map(x => (
+        <div key={x.key} className={`lc-sess is-${x.verdict}`}>
+          <div className="lc-sess-h">
+            <span className={`lc-pill is-${x.verdict === 'ok' ? 'match' : x.verdict === 'anomaly' ? 'mismatch' : 'pending'}`}>{SESSION_LABEL[x.verdict]}</span>
+            <span>轉入 {fmtA(x.inAmount)}{x.inAt ? `（${fmtT(x.inAt)}）` : ''}</span>
+            <span>→ {x.rounds.length} 局 →</span>
+            <span>轉出 {fmtA(x.outAmount)}{x.outAt ? `（${fmtT(x.outAt)}）` : ''}</span>
+            {x.notes.map(n => <span key={n} className="lc-muted">・{n}</span>)}
+          </div>
+          <RoundTable rows={onlyBad ? x.rounds.filter(bad) : x.rounds} />
+        </div>
+      ))}
+      {c.unkeyed.length > 0 && (
+        <div className="lc-sess is-pending">
+          <div className="lc-sess-h"><span className="lc-pill is-pending">不可判定</span><span>拆不出進機台編號的局</span></div>
+          <RoundTable rows={c.unkeyed} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RoundTable({ rows }: { rows: RoundCheck[] }) {
+  if (!rows.length) return null
+  return (
+    <table className="lc-rounds">
+      <thead><tr><th>下注時間</th><th>Bet</th><th>Bet Reward Credits</th><th>Payout</th><th>Balance Before</th><th>Balance After</th><th>Lose/Win</th><th>檢查</th></tr></thead>
+      <tbody>
+        {rows.map(x => (
+          <tr key={x.orderId} className={`is-${x.verdict}`}>
+            <td title={x.orderId}>{fmtT(x.betAt)}</td>
+            <td>{fmtA(x.bet)}</td><td>{fmtA(x.betNima)}</td><td>{fmtA(x.win)}</td>
+            <td>{fmtA(x.before)}</td><td>{fmtA(x.after)}</td><td>{fmtA(x.playerWin)}</td>
+            <td><b className={`lc-rv is-${x.verdict}`}>{ROUND_LABEL[x.verdict]}</b>{x.problems.length > 0 && x.verdict !== 'jp' && <small>{x.problems.join('；')}</small>}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 

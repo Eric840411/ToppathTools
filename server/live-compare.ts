@@ -20,6 +20,7 @@ import {
   parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
+import { normalizeRound, normalizeCredit, checkChains, summarize, type ChainRound, type CreditTx, type SessionCheck, type RoundCheck, type ChainSummary } from './live-compare-chain.js'
 
 /** QAT 渠道號 → 後台網站代號（2026-11-04 實測：用 qat-{site}.osmslot.org 當 origin 登入，回傳的 lastLoginChannelId 就是這個號碼）。 */
 const QAT_CHANNEL_SITE: Record<string, string> = {
@@ -29,6 +30,8 @@ const QAT_CHANNEL_SITE: Record<string, string> = {
 const METER_CACHE_MS = 15_000
 const GR_PAGE_SIZE = 200
 const GR_MAX_PAGES = 10
+/** 逐局餘額檢查要往回多抓多久：進機台（轉入）通常在 AutoSpin 開跑前，要抓得到那筆才驗得了首局 */
+const CHAIN_LOOKBACK_MS = 2 * 3600_000
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS live_compare_baseline (
@@ -118,7 +121,7 @@ async function meterListOf(channelId: string): Promise<{ items: Map<string, Reco
 // ─── Game Record ─────────────────────────────────────────────────────────────
 
 /** 本帳號在 [fromMs, now] 的所有局（全通道），依 gmid 分組。 */
-async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid: Map<string, Array<{ t: number; bet: number }>> } | { error: string }> {
+async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid: Map<string, Array<{ t: number; bet: number }>>; rounds: ChainRound[] } | { error: string }> {
   const cfg = loadMeterConfig('qat', 'osm')
   if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
   const collected: unknown[] = []
@@ -151,7 +154,43 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
     g.push({ t: r.betTimePrecise, bet: r.bet })
     byGmid.set(r.gmid, g)
   }
-  return { byGmid }
+  // 逐局餘額檢查用的完整欄位（guard 已確認全是本帳號）
+  const rounds = collected.map(x => normalizeRound(x as Record<string, unknown>)).filter((x): x is ChainRound => !!x)
+  return { byGmid, rounds }
+}
+
+// ─── Player Credit Log（進出機台轉帳）────────────────────────────────────────
+
+/** 後台查詢用的台北時間字串 YYYY-MM-DD HH:mm:ss */
+function tpeStr(ms: number): string {
+  return new Date(ms + 8 * 3600_000).toISOString().replace('T', ' ').slice(0, 19)
+}
+
+async function creditLogOf(username: string, fromMs: number): Promise<{ credits: CreditTx[] } | { error: string }> {
+  const cfg = loadMeterConfig('qat', 'osm')
+  if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
+  const collected: Record<string, unknown>[] = []
+  const toStr = tpeStr(Date.now() + 60_000)
+  for (let page = 1; page <= GR_MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      userId: '', account: username, page: String(page), pageSize: String(GR_PAGE_SIZE), type: '0', channelId: '873',
+      studioId: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL',
+    })
+    params.append('dateTime[]', tpeStr(fromMs))
+    params.append('dateTime[]', toStr)
+    let d: any
+    try { d = await meterPost('qat', 'osm', cfg, '/egm/reports/rechargeRecordList', params) } catch (e) { return { error: `Player Credit Log 讀取失敗：${e}` } }
+    if (d?.code && d.code !== 20000) return { error: `Player Credit Log 回 code=${d.code}` }
+    const items: Record<string, unknown>[] = d?.data?.items ?? d?.data?.list ?? []
+    collected.push(...items)
+    const total = Number(d?.data?.total ?? 0)
+    if (items.length < GR_PAGE_SIZE || (total > 0 && collected.length >= total)) break
+    if (page === GR_MAX_PAGES) return { error: `Player Credit Log 超過 ${GR_MAX_PAGES * GR_PAGE_SIZE} 筆，結果不完整` }
+  }
+  // 過濾條件沒生效（出現別的帳號）就整批不用
+  const foreign = collected.filter(r => String(r.account ?? '') !== username)
+  if (foreign.length) return { error: `Player Credit Log 回傳含非目標帳號（${foreign.length}/${collected.length} 筆），不採用` }
+  return { credits: collected.map(normalizeCredit).filter((x): x is CreditTx => !!x) }
 }
 
 // ─── 連續對不上幾輪 ─────────────────────────────────────────────────────────
@@ -198,6 +237,9 @@ export interface LiveCompareRow {
   denom: number | null
   grMinusAs: SideValue
   meterMinusAs: SideValue
+  /** 逐局餘額檢查（Game Record 七欄）；只列這一輪 AutoSpin 開跑後有下注的那幾次進機台 */
+  chain: { summary: ChainSummary; sessions: SessionCheck[]; unkeyed: RoundCheck[] } | null
+  chainError?: string
 }
 
 export interface LiveSessionRef { id: string; startedAt: number }
@@ -257,7 +299,11 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
     if (!p.m.username) continue
     users.set(p.m.username, Math.min(users.get(p.m.username) ?? Infinity, p.m.startedAt))
   }
-  await Promise.all([...users].map(async ([u, from]) => { grByUser.set(u, await gameRecordsOf(u, from)) }))
+  const clByUser = new Map<string, Awaited<ReturnType<typeof creditLogOf>>>()
+  await Promise.all([...users].map(async ([u, from]) => {
+    const [g, c] = await Promise.all([gameRecordsOf(u, from - CHAIN_LOOKBACK_MS), creditLogOf(u, from - CHAIN_LOOKBACK_MS)])
+    grByUser.set(u, g); clByUser.set(u, c)
+  }))
   const grReadAt = Date.now()
 
   for (const { m, base, reading, item, meterError, reason } of pending) {
@@ -278,6 +324,20 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       else {
         const inWin = (g.byGmid.get(m.gmid) ?? []).filter(r => r.t >= m.startedAt)
         gr = { count: inWin.length, amount: Math.round(inWin.reduce((acc, r) => acc + r.bet, 0) * 100) / 100, readAt: grReadAt }
+      }
+    }
+    let chain: LiveCompareRow['chain'] = null, chainError: string | undefined
+    {
+      const g = m.username ? grByUser.get(m.username) : undefined
+      const c = m.username ? clByUser.get(m.username) : undefined
+      if (!m.username) chainError = grError
+      else if (!g || 'error' in g) chainError = grError
+      else if (!c || 'error' in c) chainError = c && 'error' in c ? c.error : 'Player Credit Log 讀取失敗'
+      else {
+        const all = checkChains(g.rounds, c.credits, m.gmid)
+        const mine = (r: RoundCheck) => r.betAt >= m.startedAt
+        const x = { sessions: all.sessions.filter(s => s.rounds.some(mine)), unkeyed: all.unkeyed.filter(mine) }
+        chain = { summary: summarize(x), ...x }
       }
     }
     if (base && reading && !cached) {
@@ -313,6 +373,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       meterNow: reading ? { gamesPlayed: reading.gamesPlayed, coinIn: reading.coinIn } : null,
       denom: reading?.denom ?? base?.denom ?? null,
       grMinusAs: ev.grMinusAs, meterMinusAs: ev.meterMinusAs,
+      chain, chainError,
     })
   }
   return { rows }
