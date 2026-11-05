@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import LiveLedgerTab from '../components/LiveLedgerTab'
+import LiveCompareTab from '../components/LiveCompareTab'
 import { matchesLogFilterPre } from '../../shared/autospin-log-rules'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 import { PageActions } from '../redesign/PageActions'
@@ -165,7 +166,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
 export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {}) {
   /** 面板標題：修仙版古金襯線 + 角標，普通版乾淨無襯線 */
 
-  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'ledger' | 'run' | 'jpgroups'>('configs')
+  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'ledger' | 'run' | 'jpgroups' | 'live'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
   const [configs, setConfigs] = useState<AutospinConfig[]>([])
@@ -783,6 +784,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
         <button className={tabCls('ledger')} {...tabAttr('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
         <button className={tabCls('jpgroups')} {...tabAttr('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
         <button className={tabCls('run')} {...tabAttr('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>︎ 執行監控</button>
+        <button className={tabCls('live')} {...tabAttr('live')} onClick={() => setTab('live')}>即時對照</button>
       </div>
 
       {/* ── 對帳台（Live Ledger）───────────────────────────────────────────────
@@ -790,6 +792,9 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
            （reconcile_* / autospin_compare_*）**保留不動**——那是既有紀錄，
            混寫或刪除會讓兩邊都不可信。這裡只是把入口收掉。 */}
       {tab === 'ledger' && <LiveLedgerTab userLabel={userLabel} />}
+
+      {/* ── 即時對照：跑的當下逐台比 AutoSpin／Game Record／Instant Meter ── */}
+      {tab === 'live' && <LiveCompareTab userLabel={userLabel} />}
 
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
       {tab === 'configs' && (

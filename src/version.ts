@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.76.3'
+export const APP_VERSION = '5.77.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.77.0', date: '2026-11-05', changes: ["feat(AutoSpin 即時對照，同事 1104 要求、CodeX 出設計圖、使用者 1105 同意先做一版)：AutoSpin 新增「即時對照」頁籤，跑的當下逐台比三邊——AutoSpin 自己記的局數／下注（recon_spin）、Game Record（本帳號＋這台）、OSM Instant Meter（/egm/meter/egmMeterList，SAS 05 局數、00 Coin In×Denom）起點到現在的差值。狀態五種：一致／等待入帳（有差異、還沒連續 2 輪）／不一致／快取不可比（Meter 帶 useCache，只比 Game Record）／讀不到；每 30 秒（可改 60 秒）更新，可展開看對照範圍、Meter 起點→現在算式、三邊讀取時間。渠道依 gmid 前綴自動辨識，換 qat-{site} origin 分別登入 13 個 QAT 後台；主帳號只登得進自己渠道時可在頁籤下方填一組共用帳號（存 qat_osm_site_username／site_password，密碼加密）。Meter 起點＝第一次讀到即時值的 upTime，累計回退或 Denom 改變自動重設。只支援 QAT。server/ 有改，要重啟才生效"] },
   { version: '5.76.3', date: '2026-11-04', changes: ["fix(AutoSpin 對帳台 OSM／GCP 設定互蓋，CodeX review f7432ae P1)：舊 reconcile_config 只有一組、不分 OSM／GCP，兩個又共用同一個 backendservertest 網址，用網址比對擋不住——選 GCP 會被蓋成 OSM 的 origin／帳密／channel，重登後還把 OSM 的 token 寫進 GCP。改成執行路徑只讀寫 qat_{profile}_，不再疊加或同步 reconcile_config（表留著不刪）。真 QAT 後台驗：舊表存 OSM＋GCP token 過期 → GCP 用自己帳密重登成功、OSM token 不動；OSM 同樣；跑 5.76.2 的程式 → 重登失敗，紅"] },
   { version: '5.76.2', date: '2026-11-04', changes: ["fix(AutoSpin 對帳台 自動重新登入，CodeX review 45b5216 P1)：token 過期重登時新 token 只寫進 reconcile_config（沒記網址），重讀設定時被 5.76.1 的規則丟掉、又拿舊 token 去打 → 40200 對帳失敗。改成登入結果存回 QAT＋該 profile 那組共用設定（OSM／GCP 不互借），reconcile_config 只在網址相同時一起更新；重試直接用這次拿到的 token。測試連線那支也一樣。真 QAT 後台驗：舊表空／舊表指 UAT＋共用 token 過期 → 重登成功查到資料、GCP token 不動；注入舊寫法 → 40200，紅"] },
   { version: '5.76.1', date: '2026-11-04', changes: ["fix(QAT／UAT 環境切換，CodeX review 4c24bf2 三個 P1)：①AutoSpin 對帳台在 QAT 共用設定不存在時，舊 reconcile_config 指向 UAT 仍會被整組採用→改成共用設定有網址且兩邊網址一致才用，沒網址的 token 不借、沒網址一律回未設定；②Performance Meter 儲存／測試登入途中切環境，完成後把 QAT 的值填進 UAT 畫面（再按儲存就污染 UAT）→從按下那刻固定環境與序號；③搬移時清水位原本刪掉所有 QAT 來源（連 LuckyLink 的 poolChangeReport／awardsReport）→只清 gameRecordList，並把原值存起來給回補用。三項都在真 server（3999＋worktree worker 3998）注入舊寫法驗紅、修正後驗綠"] },

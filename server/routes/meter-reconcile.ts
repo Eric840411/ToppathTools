@@ -134,14 +134,17 @@ router.get('/api/osm/meter-reconcile/config', (req, res) => {
     login_username: cfg.login_username || '',
     hasPassword: !!cfg.login_password,
     hasToken: !!cfg.token,
+    // AutoSpin 即時對照用：13 個渠道後台共用的帳號（主帳號只看得到自己那個渠道時才需要）
+    site_username: cfg.site_username || '',
+    hasSitePassword: !!cfg.site_password,
   })
 })
 
 // PUT /api/osm/meter-reconcile/config — 儲存設定
 router.put('/api/osm/meter-reconcile/config', (req, res) => {
-  const { profile, base_url, origin, channelId, login_username, login_password } = req.body as {
+  const { profile, base_url, origin, channelId, login_username, login_password, site_username, site_password } = req.body as {
     profile?: string; base_url?: string; origin?: string; channelId?: string
-    login_username?: string; login_password?: string
+    login_username?: string; login_password?: string; site_username?: string; site_password?: string
   }
   const env = parseMeterEnv((req.body as { env?: unknown })?.env)
   if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
@@ -154,6 +157,8 @@ router.put('/api/osm/meter-reconcile/config', (req, res) => {
   if (typeof channelId === 'string') saveMeterConfigValue(env, profile, 'channel_id', channelId)
   if (typeof login_username === 'string') saveMeterConfigValue(env, profile, 'login_username', login_username)
   if (typeof login_password === 'string' && login_password) saveMeterConfigValue(env, profile, 'login_password', login_password)
+  if (typeof site_username === 'string') saveMeterConfigValue(env, profile, 'site_username', site_username)
+  if (typeof site_password === 'string' && site_password) saveMeterConfigValue(env, profile, 'site_password', site_password)
   res.json({ ok: true })
 })
 

@@ -4,6 +4,7 @@
  */
 import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
 import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-ledger-query.js'
+import { liveCompare } from '../live-compare.js'
 import { deliverNotice, queueFailedSides } from '../notify-outlet.js'
 
 /**
@@ -1869,6 +1870,22 @@ router.post('/api/autospin/agent/stop-all', (req, res) => {
     }
   }
   res.json({ ok: true })
+})
+
+// GET /api/autospin/live-compare?env=qat — 即時對照：目前帳號自己在跑的 session，逐台比三邊
+// 只看 x-user-label 自己的 session（跟 agent/status 同一套歸屬）；只讀，不寫後台
+router.get('/api/autospin/live-compare', async (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const env = req.query.env === 'uat' ? 'uat' : 'qat'
+  const sessions = [...agentSessions.values()]
+    .filter(s => s.status === 'running' && (s.userLabel || '') === userLabel)
+    .map(s => ({ id: s.id, startedAt: s.startedAt }))
+  try {
+    const r = await liveCompare(env, sessions)
+    res.json({ ok: true, env, running: sessions.length > 0, startedAt: sessions.length ? Math.min(...sessions.map(s => s.startedAt)) : null, polledAt: Date.now(), ...r })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `即時對照失敗：${e instanceof Error ? e.message : String(e)}` })
+  }
 })
 
 // GET /api/autospin/agent/status — frontend polls agent status

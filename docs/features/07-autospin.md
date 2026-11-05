@@ -515,3 +515,33 @@ session 在那個空窗裡看起來就像不存在。
 - 哪些區塊出現照欄位開關。用詞沿用 CodeX 定的（延遲推定、不出現 ok%）
 - 補送佇列不存 larkCard（定時彙總報告本來就不排補送）
 - 測試：`npx tsx server/autospin-report-lark-card.test.ts`（26）、`notify-outlet.test.ts`（larkCard 有給才用）；真伺服器試發送 Lark 回 ok
+### 即時對照（v5.77.0）
+
+跑的當下逐台比三邊，確認下注有沒有正確入帳（同事 1104 要求；版面 CodeX 出圖）。前端 `src/components/LiveCompareTab.tsx`，
+後端 `GET /api/autospin/live-compare?env=qat`（`server/live-compare.ts`），判定規則 `server/live-compare-core.ts`
+（回歸：`npx tsx server/live-compare-core.test.ts`）。
+
+| 來源 | 讀哪裡 | 窗口 |
+|---|---|---|
+| AutoSpin | `recon_spin`（outcome 為 not_started／no_bet 的不算一局；`betSource` 空＝注額未知） | 開跑起 |
+| Game Record | `/egm/reports/gameRecordList`，playerName＝Game URL 的 username、`isall=true&channelId=0`，再篩 uid＝gmid | 開跑起 |
+| Instant Meter | `/egm/meter/egmMeterList`，SAS `05`＝Games Played、`00`＝Coin In（×`Denom`） | Meter 起點起，跟**起點後的 AutoSpin** 比 |
+
+- **狀態**：一致／等待入帳（有差異但還沒連續 2 輪）／不一致（連續 2 輪，使用者 1105 同意）／快取不可比／讀不到。
+  能比的那幾邊對不上就先算等待入帳／不一致，Meter 是快取或某邊讀不到**不會蓋掉**另一邊真的對不上。
+- **快取不可比**：egmMeterList 對部分機台回 `meterData.useCache=true`＋`cacheHourStr`，數字是舊值。後台畫面沒有提示。
+  有人下注時 Meter 通常會更新（同事 1105），所以平常不太會出現；每輪重新判斷，不會卡住。
+- **Meter 起點**：第一次讀到這台**即時**值時記下（存 `live_compare_baseline`，t0＝後台 `upTime`），快取值不設起點。
+  累計回退或 Denom 改變自動重設。
+- **渠道**：13 個 QAT 渠道各自一個後台網站、同一台 API 主機（`base_url`）。依 gmid 前綴的渠道號換
+  `https://qat-{site}.osmslot.org` 當 origin 登入。實測 Performance Meter 那組帳號只登得進 CP（其他回 41104），
+  所以頁籤下方可填「渠道後台帳號」（`qat_osm_site_username`／`site_password`，密碼加密）；沒填就沿用主帳號。
+- **金額**：AutoSpin 有任何一局推不出注額，下注總額顯示「—」只比次數。讀不到一律「—」，不顯示 0。
+- **只支援 QAT**；UAT 沒有後台連線設定，回錯誤訊息。
+- Instant Meter 是整台累計，別人在玩也會增加——Meter 多出來不能直接當漏帳（明細有提示）。
+
+**使用者操作**
+1. AutoSpin → 「即時對照」頁籤（只看目前帳號自己在跑的 session）
+2. 右上「更新頻率」30／60 秒、「重新整理」立即讀一次
+3. 每列「明細」展開：對照範圍、Meter 起點→現在算式、三邊讀取時間
+4. 渠道登入失敗時下方「渠道後台帳號」會自動展開，填一組 13 個渠道都能登入的帳號後儲存
