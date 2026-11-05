@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
-  normalizeRound, normalizeCredit, checkChains, summarize, tokenFromRoundid, parseReference,
+  normalizeRound, normalizeRoundsStrict, normalizeCredit, checkChains, summarize, tokenFromRoundid, parseReference,
   type ChainRound, type CreditTx,
 } from './live-compare-chain.js'
 
@@ -159,6 +159,16 @@ const firstOf = (x: ReturnType<typeof run>, i = 0) => x.sessions[i]
   const x = run([r], [])
   eq('拆不出編號 → unknown', x.unkeyed.map(u => u.verdict), ['unknown'])
 }
+
+// ── 缺下注時間：整批拒收，不能少一局然後全綠（CodeX 7b20fc6 P1）──
+// 上游 guardFetchedRows 會把 null／'' 轉成 0 放行，所以這一層要自己擋
+for (const bad of [null, '', undefined]) {
+  const raws = clone(fx.gameRecord)
+  raws[0].bet_time_precise = bad as never
+  const x = normalizeRoundsStrict(raws)
+  eq(`下注時間 ${JSON.stringify(bad)} → 整批拒收`, 'error' in x, true)
+}
+eq('真資料整批收', 'rounds' in normalizeRoundsStrict(fx.gameRecord) && (normalizeRoundsStrict(fx.gameRecord) as { rounds: unknown[] }).rounds.length, fx.gameRecord.length)
 
 // ── 鍵要精確，不能只比結尾 ──
 eq('roundid 拆 token', tokenFromRoundid('dfdcgrand873-DFDCGRAND-01449000011a1a5c14a57', 'dfdcgrand', '873-DFDCGRAND-0144', '900001'), '1a1a5c14a57')

@@ -104,6 +104,17 @@ export function normalizeRound(r: Record<string, unknown>): ChainRound | null {
   }
 }
 
+/**
+ * 整批轉換：有任何一筆轉不出來（缺 order_id／uid／bet_time_precise）就整批拒收。
+ * ⚠️ 不能只丟掉那筆——分母變小、剩下的全綠（CodeX 7b20fc6 P1：上游 guard 把 null／'' 時間轉成 0 放行）。
+ */
+export function normalizeRoundsStrict(raw: Record<string, unknown>[]): { rounds: ChainRound[] } | { error: string } {
+  const rounds: ChainRound[] = []
+  let bad = 0
+  for (const x of raw) { const r = normalizeRound(x); if (r) rounds.push(r); else bad++ }
+  return bad ? { error: `Game Record 有 ${bad}/${raw.length} 筆缺單號／機台／下注時間，逐局檢查不做（避免少算局數）` } : { rounds }
+}
+
 export function normalizeCredit(r: Record<string, unknown>): CreditTx | null {
   const gmid = String(r.gmid ?? ''), userid = String(r.userid ?? ''), reference = String(r.reference ?? '')
   const p = parseReference(reference, gmid, userid)

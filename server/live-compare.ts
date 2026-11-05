@@ -20,7 +20,7 @@ import {
   parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
-import { normalizeRound, normalizeCredit, checkChains, summarize, type ChainRound, type CreditTx, type SessionCheck, type RoundCheck, type ChainSummary } from './live-compare-chain.js'
+import { normalizeRoundsStrict, normalizeCredit, checkChains, summarize, type ChainRound, type CreditTx, type SessionCheck, type RoundCheck, type ChainSummary } from './live-compare-chain.js'
 
 /** QAT 渠道號 → 後台網站代號（2026-11-04 實測：用 qat-{site}.osmslot.org 當 origin 登入，回傳的 lastLoginChannelId 就是這個號碼）。 */
 const QAT_CHANNEL_SITE: Record<string, string> = {
@@ -121,7 +121,7 @@ async function meterListOf(channelId: string): Promise<{ items: Map<string, Reco
 // ─── Game Record ─────────────────────────────────────────────────────────────
 
 /** 本帳號在 [fromMs, now] 的所有局（全通道），依 gmid 分組。 */
-async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid: Map<string, Array<{ t: number; bet: number }>>; rounds: ChainRound[] } | { error: string }> {
+async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid: Map<string, Array<{ t: number; bet: number }>>; chainRounds: ReturnType<typeof normalizeRoundsStrict> } | { error: string }> {
   const cfg = loadMeterConfig('qat', 'osm')
   if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
   const collected: unknown[] = []
@@ -155,8 +155,8 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
     byGmid.set(r.gmid, g)
   }
   // 逐局餘額檢查用的完整欄位（guard 已確認全是本帳號）
-  const rounds = collected.map(x => normalizeRound(x as Record<string, unknown>)).filter((x): x is ChainRound => !!x)
-  return { byGmid, rounds }
+  const chainRounds = normalizeRoundsStrict(collected as Record<string, unknown>[])
+  return { byGmid, chainRounds }
 }
 
 // ─── Player Credit Log（進出機台轉帳）────────────────────────────────────────
@@ -166,7 +166,7 @@ function tpeStr(ms: number): string {
   return new Date(ms + 8 * 3600_000).toISOString().replace('T', ' ').slice(0, 19)
 }
 
-async function creditLogOf(username: string, fromMs: number): Promise<{ credits: CreditTx[] } | { error: string }> {
+async function creditLogOf(username: string, fromMs: number): Promise<{ credits: CreditTx[]; badByGmid: Map<string, number> } | { error: string }> {
   const cfg = loadMeterConfig('qat', 'osm')
   if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
   const collected: Record<string, unknown>[] = []
@@ -190,7 +190,14 @@ async function creditLogOf(username: string, fromMs: number): Promise<{ credits:
   // 過濾條件沒生效（出現別的帳號）就整批不用
   const foreign = collected.filter(r => String(r.account ?? '') !== username)
   if (foreign.length) return { error: `Player Credit Log 回傳含非目標帳號（${foreign.length}/${collected.length} 筆），不採用` }
-  return { credits: collected.map(normalizeCredit).filter((x): x is CreditTx => !!x) }
+  // 轉不出來的轉帳不能靜默丟掉：記下是哪台的，那台整台不做逐局檢查（漏一筆轉入／轉出會讓判定失真）
+  const credits: CreditTx[] = [], badByGmid = new Map<string, number>()
+  for (const r of collected) {
+    const c = normalizeCredit(r)
+    if (c) credits.push(c)
+    else { const g = String(r.gmid ?? ''); badByGmid.set(g, (badByGmid.get(g) ?? 0) + 1) }
+  }
+  return { credits, badByGmid }
 }
 
 // ─── 連續對不上幾輪 ─────────────────────────────────────────────────────────
@@ -334,10 +341,14 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       else if (!g || 'error' in g) chainError = grError
       else if (!c || 'error' in c) chainError = c && 'error' in c ? c.error : 'Player Credit Log 讀取失敗'
       else {
-        const all = checkChains(g.rounds, c.credits, m.gmid, grReadAt)
+        const badCl = (c.badByGmid.get(m.gmid) ?? 0) + (c.badByGmid.get('') ?? 0)
+        if ('error' in g.chainRounds) { chainError = g.chainRounds.error }
+        else if (badCl) { chainError = `Player Credit Log 有 ${badCl} 筆這台（或缺機台）的轉帳解析不出來，逐局檢查不做` } else {
+        const all = checkChains(g.chainRounds.rounds, c.credits, m.gmid, grReadAt)
         const mine = (r: RoundCheck) => r.betAt >= m.startedAt
         const x = { sessions: all.sessions.filter(s => s.rounds.some(mine)), unkeyed: all.unkeyed.filter(mine) }
         chain = { summary: summarize(x), ...x }
+        }
       }
     }
     if (base && reading && !cached) {
