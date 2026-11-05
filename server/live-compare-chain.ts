@@ -86,7 +86,7 @@ export function normalizeRound(r: Record<string, unknown>): ChainRound | null {
   const userid = String(r.userid ?? '')
   const betT = num(r.bet_time_precise), bet = num(r.bet)
   // ⚠️ 缺 bet 不能丟掉整局（分母會少、剩下的顯示全過——CodeX 555b858 P1），保留成未檢查。
-  //    缺 bet_time_precise 的批次在上游 guardFetchedRows 就整批拒收，這裡不會遇到。
+  //    缺 bet_time_precise 會回 null——上游 guardFetchedRows 把 null／空字串轉成 0 放行，所以由 normalizeRoundsStrict 整批拒收。
   if (!orderId || !gmid || betT == null) return null
   const jpParts = [r.handpayamount, r.jackpotamount, r.jackpot_amount, r.jppoolrates_result1, r.jppoolrates_result2, r.jppoolrates_result3, r.jppoolrates_result4, r.jppoolrates_result5]
   return {
