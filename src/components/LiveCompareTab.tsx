@@ -18,7 +18,7 @@ interface Row {
   asSinceT0: (Side & { betKnown: number }) | null
   gr: (Side & { readAt: number }) | null; grError?: string
   meter: (Side & { readAt: number }) | null; meterError?: string
-  meterCached: boolean; cacheHourStr: string
+  meterCached: boolean; meterStale?: boolean; cacheHourStr: string
   meterStart: { gamesPlayed: number; coinIn: number } | null
   meterNow: { gamesPlayed: number; coinIn: number } | null
   denom: number | null
@@ -42,7 +42,7 @@ interface Chain {
 }
 interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; error?: string; message?: string }
 
-const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '不一致', cache: '快取不可比', unreadable: '讀不到' }
+const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '不一致', cache: 'Meter 不可比', unreadable: '讀不到' }
 const STATUS_ORDER: Status[] = ['match', 'pending', 'mismatch', 'cache', 'unreadable']
 const INTERVALS = [30, 60] as const
 const ROUND_LABEL: Record<RoundVerdict, string> = { ok: '通過', anomaly: '異常', jp: '含 JP 未檢查', unknown: '未檢查', wait: '等待入帳' }
@@ -130,7 +130,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
         </div>
 
         <div className="lc-banner is-info">渠道自動辨識（依機台編號前綴，13 個 QAT 後台）</div>
-        <div className="lc-banner is-warn">Instant Meter 為整台機台累計，可能包含其他玩家；快取值不參與比對。</div>
+        <div className="lc-banner is-warn">Instant Meter 為整台機台累計，可能包含其他玩家；快取值或 Meter 停更時不參與比對。</div>
 
         <div className="table-wrap lc-tbl-wrap">
           <table className="version-table lc-tbl">
@@ -160,7 +160,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                       <td><b className="lc-gmid">{r.gmid}</b><small>{r.clientMachineName || r.machineType}・{r.channelName}{r.meterKind && <>・{r.meterKind}</>}</small></td>
                       <td>{fmtN(r.as.count)}<small title={r.as.amount == null && r.as.count ? `${r.as.betKnown}/${r.as.count} 局推得出注額` : undefined}>{fmtA(r.as.amount)}</small></td>
                       <td>{r.gr ? <>{fmtN(r.gr.count)}<small>{fmtA(r.gr.amount)}</small></> : <>—<small>讀取失敗</small></>}</td>
-                      <td>{r.meter ? <>{fmtN(r.meter.count)}<small>{fmtA(r.meter.amount)}</small></> : <>—<small>{r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : '讀取失敗'}</small></>}</td>
+                      <td>{r.meter ? <>{fmtN(r.meter.count)}<small>{fmtA(r.meter.amount)}</small></> : <>—<small>{r.meterStale ? 'Meter 未更新' : r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : '讀取失敗'}</small></>}</td>
                       <td className={diffCls(r.grMinusAs)}>{fmtD(r.grMinusAs.count)}<small>{fmtD(r.grMinusAs.amount, true)}</small></td>
                       <td className={diffCls(r.meterMinusAs)}>{r.meterCached ? <>—<small>不可比</small></> : <>{fmtD(r.meterMinusAs.count)}<small>{fmtD(r.meterMinusAs.amount, true)}</small></>}</td>
                       <td><span className={`lc-pill is-${r.status}`}>{STATUS_LABEL[r.status]}</span><small className="lc-reason">{shortReason(r)}</small></td>
@@ -195,7 +195,7 @@ function diffCls(d: Side) {
 
 function shortReason(r: Row): string {
   if (r.status === 'pending') return '下一輪再確認'
-  if (r.status === 'cache') return r.cacheHourStr ? `停在 ${r.cacheHourStr}` : ''
+  if (r.status === 'cache') return r.meterStale ? 'Meter 未更新' : r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
   if (r.status === 'unreadable') return r.grError ? 'Game Record' : 'Instant Meter'
   return ''
 }

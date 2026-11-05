@@ -114,6 +114,17 @@ export function meterWindowEnd(reading: Pick<MeterReading, 'upTime'>, readAt: nu
   return reading.upTime > 0 ? reading.upTime : readAt
 }
 
+/** Meter 的 upTime 落後多久、而且之後 AutoSpin 已經有新局，就算「Meter 未更新」 */
+export const METER_STALE_MS = 120_000
+
+/**
+ * Meter 停更判定。⚠️ 窗口截在 upTime，Meter 停住時兩邊都只算到 upTime——0 對 0 會顯示假的「一致」
+ * （CodeX 2ac32e6 P2）。upTime 之後 AutoSpin 已有新局、且落後超過 METER_STALE_MS，就不拿 Meter 比，只比 Game Record。
+ */
+export function meterStale(upTime: number, readAt: number, spinsAfterUpTime: number): boolean {
+  return upTime > 0 && spinsAfterUpTime > 0 && readAt - upTime > METER_STALE_MS
+}
+
 /**
  * Game Record 分頁去重。⚠️ 跑的當下一直有新局寫入，新到舊排序的分頁會往後推，
  * 同一筆跨兩頁出現——不去重 201 局會算成 202 局（CodeX cd8a8b0 P2）。

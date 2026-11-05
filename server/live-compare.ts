@@ -17,7 +17,7 @@ import { guardFetchedRows } from './live-ledger.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId,
+  parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
 import { normalizeRoundsStrict, normalizeCredit, checkChains, summarize, type ChainRound, type CreditTx, type SessionCheck, type RoundCheck, type ChainSummary } from './live-compare-chain.js'
@@ -242,6 +242,8 @@ export interface LiveCompareRow {
   meter: (SideValue & { readAt: number }) | null
   meterError?: string
   meterCached: boolean
+  /** Meter 即時值但停更（upTime 之後已有新局），這輪不比 Meter */
+  meterStale: boolean
   cacheHourStr: string
   meterStart: { gamesPlayed: number; coinIn: number } | null
   meterNow: { gamesPlayed: number; coinIn: number } | null
@@ -325,6 +327,9 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
     // Meter 那段：起點 t0 到這次 Meter 的 upTime（快取／讀不到時不比，算到現在只給畫面參考）
     const meterEnd = reading && !reading.useCache ? meterWindowEnd(reading, meterReadAt) : undefined
     const asSinceT0 = base ? countSpins(db, 'qat', m.sessionId, m.gmid, base.t0, meterEnd ?? Number.MAX_SAFE_INTEGER, true) : null
+    // Meter 停更：upTime 之後 AutoSpin 已有新局、又落後太久 → 不拿 Meter 比，只比 Game Record（CodeX 2ac32e6 P2）
+    const afterUp = meterEnd != null ? countSpins(db, 'qat', m.sessionId, m.gmid, meterEnd, Number.MAX_SAFE_INTEGER, true).count ?? 0 : 0
+    const stale = meterEnd != null && meterStale(meterEnd, meterReadAt, afterUp)
     let gr: LiveCompareRow['gr'] = null, grError: string | undefined
     let meter: LiveCompareRow['meter'] = null
 
@@ -355,7 +360,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
         }
       }
     }
-    if (base && reading && !cached) {
+    if (base && reading && !cached && !stale) {
       meter = {
         count: reading.gamesPlayed - base.gamesPlayed,
         amount: Math.round((reading.coinIn - base.coinIn) * base.denom * 100) / 100,
@@ -363,12 +368,13 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       }
     }
 
-    const input = { as, asSinceT0, gr, meter, meterCached: cached }
+    const input = { as, asSinceT0, gr, meter, meterCached: cached || stale }
     const ev = evaluateSides(input)
     const streak = bumpStreak(`${m.sessionId}|${m.gmid}`, ev.differs)
     const status: CompareStatus = decideStatus(input, ev, streak)
     let why = reason ?? ''
     if (status === 'unreadable') why = grError || meterError || (!base ? '還沒讀到即時 Meter，無法設起點' : why)
+    else if (status === 'cache' && stale) why = `Instant Meter 停在 ${new Date(meterEnd! + 8 * 3600_000).toISOString().slice(11, 19)} 沒更新，之後 AutoSpin 已跑 ${afterUp} 局，這輪只比 Game Record`
     else if (status === 'cache') why = `Instant Meter 是快取值（停在 ${reading?.cacheHourStr || '?'}），只比 Game Record；變成即時值後才開始算 Meter 差值`
     else if (status === 'pending') why = '有差異，下一輪再確認'
     else if (status === 'mismatch') {
@@ -384,7 +390,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       clientMachineName: String(item?.clientMachineName ?? ''),
       meterKind: item?.bgType === 2 || item?.bgType === '2' ? 'GCP' : item?.bgType === 1 || item?.bgType === '1' ? 'OSM' : '',
       username: m.username, status, reason: why, startedAt: m.startedAt, t0: base?.t0 ?? null,
-      as, asSinceT0, gr, grError, meter, meterError, meterCached: cached, cacheHourStr: reading?.cacheHourStr ?? '',
+      as, asSinceT0, gr, grError, meter, meterError, meterCached: cached || stale, meterStale: stale, cacheHourStr: reading?.cacheHourStr ?? '',
       meterStart: base ? { gamesPlayed: base.gamesPlayed, coinIn: base.coinIn } : null,
       meterNow: reading ? { gamesPlayed: reading.gamesPlayed, coinIn: reading.coinIn } : null,
       denom: reading?.denom ?? base?.denom ?? null,

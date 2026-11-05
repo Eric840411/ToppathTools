@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -50,5 +50,17 @@ eq('Meter 窗口終點＝upTime', meterWindowEnd({ upTime: 1000 }, 5000), 1000)
 eq('upTime 缺就用讀取時間', meterWindowEnd({ upTime: 0 }, 5000), 5000)
 eq('跨頁重複的局只算一次', dedupeByOrderId([{ orderId: 'a' }, { orderId: 'b' }, { orderId: 'a' }]).length, 2)
 
+
+// ── Meter 停更不能假綠（CodeX 2ac32e6 P2）：upTime 停在起點、之後 AutoSpin 已跑 10 局、GR 對上 ──
+const up = 1_000_000
+eq('停更＋後面有局＋落後超過門檻 → 停更', meterStale(up, up + METER_STALE_MS + 1, 10), true)
+eq('剛更新不算停更', meterStale(up, up + 30_000, 10), false)
+eq('後面沒局不算停更（只是沒人玩）', meterStale(up, up + 3_600_000, 0), false)
+eq('upTime 缺不判停更', meterStale(0, up, 10), false)
+{
+  const staleIn: EvalInput = { as: s(10, 100), asSinceT0: s(0, 0), gr: s(10, 100), meter: s(0, 0), meterCached: false }
+  eq('舊寫法：停更時 0 對 0 會顯示一致（重現）', st(staleIn, 0), 'match')
+  eq('停更當成不可比 → 不顯示一致', st({ ...staleIn, meter: null, meterCached: true }, 0), 'cache')
+}
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)
