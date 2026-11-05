@@ -79,6 +79,10 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
     setLoading(true)
     try {
       const r = await fetch('/api/autospin/live-compare?env=qat', { headers })
+      // 後端還是舊版時這支路由不存在，會回 SPA 的 HTML——直接說要重啟，不要顯示 JSON 解析錯誤（11-05 同事在本機看到 Unexpected token '<'）
+      if (!(r.headers.get('content-type') || '').includes('application/json')) {
+        setErr('後端還沒更新到有「即時對照」的版本，要合併部署並重啟 server 後才能使用'); return
+      }
       const j = await r.json() as Resp
       if (!j.ok) { setErr(j.message || '讀取失敗'); return }
       setErr(''); setData(j)

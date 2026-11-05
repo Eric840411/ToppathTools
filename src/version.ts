@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.78.5'
+export const APP_VERSION = '5.78.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.78.6', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照)：後端還是舊版（沒有這支路由）時原本顯示「SyntaxError: Unexpected token <」，改成直接說要合併部署並重啟 server（同事 1105 在本機看到）'] },
   { version: '5.78.5', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照 Meter 停更假綠，CodeX review 2ac32e6 P2)：Meter 窗口截在 upTime，Meter 停住時兩邊都只算到 upTime，0 對 0 顯示「一致」。改成 upTime 之後 AutoSpin 已有新局、且落後超過 2 分鐘，這輪不比 Meter、只比 Game Record，狀態顯示「Meter 不可比・Meter 未更新」（原「快取不可比」改名，快取也歸這類）。另以 QAT GCP 機台 892-DRAGONLAW-0025（Fortune Pots - NCH 25）驗證單位：Game Record 全部玩家 571 局／下注 99,200／贏分 54,520，Instant Meter 05＝571、00×Denom(1)＝99,200、01＝54,520，完全一致'] },
   { version: '5.78.4', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照 GCP 機台，同事 1105)：Instant Meter 清單原本沒帶 bgType，後台只回 OSM 機台，GCP 機台（例：Lavie 的 GONGGONGLAIFU）都顯示「找不到這台」。改成帶 bgType=0 一次拿 OSM＋GCP，依每台的 bgType（1＝OSM、2＝GCP）在機台列標出機種。QAT 實測 892：不帶 264 台、=2 38 台、=0 302 台；/egm/gsameter/ 與 /egm/meter/ 回同一份，差別只在這個參數'] },
   { version: '5.78.3', date: '2026-11-05', changes: ['fix(逐局餘額檢查，CodeX review 7b20fc6 P1)：Game Record 下注時間是 null／空字串時，上游 guard 轉成 0 放行、逐局檢查再把那局丟掉，結果少一局一段、剩下全綠→改成整批拒收、整台顯示讀取錯誤。Player Credit Log 同理：這台有轉帳解析不出來就不做檢查，不靜默丟掉。拿掉修正驗過測試會紅（61 條）'] },
