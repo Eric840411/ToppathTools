@@ -76,5 +76,19 @@ r = await poll(T0 + 22 * MIN, T0 + 22 * MIN, 122, 7200)
 eq('解除後接續到最新可比快照', r.win.tStart, T0 + 9 * MIN)
 eq('累計 9 局', r.win.okCount, 9)
 
+// ── CodeX ebfb687 P1：一局跨起點不能讓大量差額永遠停在待確認 ──
+{
+  const db2 = new Database(':memory:'); ensureWindowTables(db2)
+  const b2 = { t0: T0, gamesPlayed: 0, coinIn: 0, denom: 1 }
+  const straddle: BackendRound = { orderId: 'st', betAt: T0 - 1000, payoutAt: T0 + 5000, bet: 1, source: 'gr', handpay: 0 }
+  const f2: BackendFetcher = async () => ({ gr: [straddle], handpay: [] })
+  const p2 = (now: number, gp: number) => evalMeterWindow(db2, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b2, reading: { upTime: now, gamesPlayed: gp, coinIn: gp, denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f2, now)
+  await p2(T0 + MIN, 100)
+  let x = await p2(T0 + 5 * MIN, 200)
+  eq('差 100 局 → 待確認（不是切點）', x.win.status, 'pending')
+  x = await p2(T0 + 6 * MIN, 300)
+  eq('同窗口第二次 → 逾期待查', x.win.status, 'overdue')
+}
+
 console.log(`live-compare-window-store: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }

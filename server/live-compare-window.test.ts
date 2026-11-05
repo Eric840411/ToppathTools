@@ -52,6 +52,18 @@ eq('窗口外的局不算', run([...gr0.rounds, { ...gr0.rounds[0], orderId: 'x1
   eq('前一段照下注時間對上', a.matched, true)
   eq('後一段不能再照派彩時間算一次', b.matched, false)
 }
+{ // CodeX ebfb687 P1：有邊界局 ≠ 差額是邊界局造成的
+  const r = { orderId: 'z', betAt: 5, payoutAt: 15, bet: 1, source: 'gr' as const, handpay: 0 }
+  const many = Array.from({ length: 50 }, (_, i) => ({ orderId: 'm' + i, betAt: 11 + i * 0.1, payoutAt: 11.05 + i * 0.1, bet: 1, source: 'gr' as const, handpay: 0 }))
+  const big = evaluateWindow({ t0: 10, t1: 20, meter: { count: 150, amount: 150 }, gr: [r, ...many], handpay: [] })
+  eq('跨 t0 一局、差 100 局 → 不是邊界', [big.matched, big.boundary], [false, false])
+  const one = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [], firstWindow: true })
+  eq('第一個窗口：跨起點一局、差剛好那一局 → 一致（算進這段）', [one.matched, one.t0Absorbed], [true, 1])
+  const later = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [] })
+  eq('之後的窗口：那局上一段算過，不能再吸收', later.matched, false)
+  const amt = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 60 }, gr: [r, ...many], handpay: [] })
+  eq('局數對得上但金額對不上 → 不能用邊界局解釋', [amt.matched, amt.boundary], [false, false])
+}
 { // CodeX bfb0623 P2：同單 GR 與 handpay 注額不一致不能被蓋掉
   const h = { ...gr0.rounds[0], source: 'handpay' as const, bet: 999 }
   const x = run(gr0.rounds, [...hp0.rounds, h])

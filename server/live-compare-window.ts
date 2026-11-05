@@ -65,16 +65,39 @@ export interface WindowResult {
    * 不能判錯也不能判對，換下一個快照再比（CodeX bfb0623 P1：不能每段各自挑下注／派彩時間，同一局會被兩段各算一次）。
    */
   boundary: boolean
+  /**
+   * 起點 t0 上「下注在 t0 前、派彩在 t0 後」、而 Meter 算進這一段的局數。差額**剛好**由這幾局解釋時算一致
+   * （Meter 在 t0 快照還沒算到它們，這一段算到了——每一局在整條帳上仍只算一次）。
+   */
+  t0Absorbed: number
   /** 同一單號在 GR 與 handpay 的注額不一致的筆數（有就不能判一致） */
   conflicts: number
   diff: WindowSide
+}
+
+/** 差額能不能剛好由切點上進行中的局解釋：A⊆起點那批（Meter 多算）、B⊆終點那批（Meter 少算），局數與金額都要對上。 */
+function explain(diff: WindowSide, s0: BackendRound[], s1: BackendRound[]): { a: number; b: number } | null {
+  if (s0.length + s1.length > 12) return null   // 太多就不猜
+  let best: { a: number; b: number } | null = null
+  for (let ma = 0; ma < 1 << s0.length; ma++) {
+    let ca = 0, va = 0
+    s0.forEach((r, i) => { if (ma >> i & 1) { ca++; va += r.bet } })
+    for (let mb = 0; mb < 1 << s1.length; mb++) {
+      let cb = 0, vb = 0
+      s1.forEach((r, i) => { if (mb >> i & 1) { cb++; vb += r.bet } })
+      if (ca - cb === diff.count && Math.abs(va - vb - diff.amount) <= EPS) {
+        if (!best || (cb === 0 && best.b > 0)) best = { a: ca, b: cb }   // 只靠起點那批就能解釋的優先
+      }
+    }
+  }
+  return best
 }
 
 /**
  * 窗口 (t0, t1] 的比對，**一律用下注時間切**。meter＝快照差值（Coin In 要 ×Denom 才是金額）。
  * 後台兩份依單號去重：同一單如果也進了 Game Record，只算一次——但注額要一致，不一致算衝突。
  */
-export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; gr: BackendRound[]; handpay: BackendRound[] }): WindowResult {
+export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; gr: BackendRound[]; handpay: BackendRound[]; firstWindow?: boolean }): WindowResult {
   const byId = new Map<string, BackendRound>()
   let conflicts = 0
   for (const r of x.gr) byId.set(r.orderId, r)
@@ -89,8 +112,20 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
   const byBet = all.filter(r => inWin(r.betAt))
   const hp = byBet.filter(r => r.source === 'handpay')
   const bet = sumSide(byBet)
-  const matched = conflicts === 0 && bet.count === x.meter.count && Math.abs(bet.amount - x.meter.amount) <= EPS
-  const straddles = (cut: number) => all.some(r => r.betAt <= cut && r.payoutAt > cut)
+  const diff = { count: x.meter.count - bet.count, amount: Math.round((x.meter.amount - bet.amount) * 100) / 100 }
+  let matched = conflicts === 0 && diff.count === 0 && Math.abs(diff.amount) <= EPS
+  let boundary = false, t0Absorbed = 0
+  // ⚠️ 「有邊界局」不等於「差額是邊界局造成的」：只有差額剛好由切點上的局解釋才放過（CodeX ebfb687 P1——
+  //    一局邊界局曾讓 100／200／300 局的差額永遠停在待確認）
+  if (!matched && conflicts === 0) {
+    // ⚠️ 起點那批只能在**第一個窗口**用：之後的起點是上一段對上的切點，那幾局上一段已經照下注時間算過，
+    //    再算進這一段就是同一局算兩次（CodeX bfb0623 P1 的重現）
+    const s0 = x.firstWindow ? all.filter(r => r.betAt <= x.t0 && r.payoutAt > x.t0) : []
+    const s1 = all.filter(r => r.betAt > x.t0 && r.betAt <= x.t1 && r.payoutAt > x.t1)
+    const e = explain(diff, s0, s1)
+    if (e && e.b === 0) { matched = true; t0Absorbed = e.a }   // 只有起點那批：Meter 這段算到了，帳上仍各算一次
+    else if (e) boundary = true                                 // 終點那批：等下一個快照
+  }
   return {
     meter: x.meter,
     backend: {
@@ -101,9 +136,10 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
       handpayAmount: Math.round(hp.reduce((a, r) => a + r.handpay, 0) * 100) / 100,
     },
     matched,
-    boundary: !matched && conflicts === 0 && (straddles(x.t1) || straddles(x.t0)),
+    boundary,
+    t0Absorbed,
     conflicts,
-    diff: { count: x.meter.count - bet.count, amount: Math.round((x.meter.amount - bet.amount) * 100) / 100 },
+    diff,
   }
 }
 

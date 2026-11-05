@@ -34,6 +34,8 @@ export interface WinView {
   meter: { count: number; amount: number } | null
   backend: WindowResult['backend'] | null
   boundary: boolean
+  /** 起點上進行中、算進這一段的局數 */
+  t0Absorbed: number
   conflicts: number
   /** 最新收到的 Meter 快照時間——窗口卡住（待確認／逾期）時，t1 之後到這裡都還沒檢查 */
   latestUp: number | null
@@ -82,7 +84,7 @@ export async function evalMeterWindow(
   }
   const view = (st: WindowState | null, r: WindowResult | null, meter: WinView['meter']): WinView => ({
     tStart: w.tStart, t1: st?.t1 ?? null, status: st?.status ?? 'pending', fails: st?.fails ?? 0, meter,
-    backend: r?.backend ?? null, boundary: r?.boundary ?? false, conflicts: r?.conflicts ?? 0, diff: r?.diff ?? null,
+    backend: r?.backend ?? null, boundary: r?.boundary ?? false, t0Absorbed: r?.t0Absorbed ?? 0, conflicts: r?.conflicts ?? 0, diff: r?.diff ?? null,
     latestUp: snaps.length ? Math.max(...snaps.map(x => x.upTime)) : null,
     okCount: w.okCount, okAmount: w.okAmount, checkedAt: w.checkedAt,
   })
@@ -106,7 +108,7 @@ export async function evalMeterWindow(
   const b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
   w.checkedAt = now
   if ('error' in b) { const st = nextState(same, t1, null); save(st, null); return { win: view(st, null, meter), error: b.error } }
-  const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay })
+  const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay, firstWindow: w.tStart === base.t0 })
   const st = nextState(same, t1, r)
   save(st, r)
   return { win: view(st, r, meter) }
