@@ -19,6 +19,7 @@ import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
   parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId,
 } from './live-compare-core.js'
+import { countSpins } from './live-compare-spins.js'
 
 /** QAT 渠道號 → 後台網站代號（2026-11-04 實測：用 qat-{site}.osmslot.org 當 origin 登入，回傳的 lastLoginChannelId 就是這個號碼）。 */
 const QAT_CHANNEL_SITE: Record<string, string> = {
@@ -28,7 +29,6 @@ const QAT_CHANNEL_SITE: Record<string, string> = {
 const METER_CACHE_MS = 15_000
 const GR_PAGE_SIZE = 200
 const GR_MAX_PAGES = 10
-const NON_ROUND = `('not_started','no_bet')`
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS live_compare_baseline (
@@ -260,26 +260,14 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
   await Promise.all([...users].map(async ([u, from]) => { grByUser.set(u, await gameRecordsOf(u, from)) }))
   const grReadAt = Date.now()
 
-  const asOf = (sessionId: string, gmid: string, from: number, to = Number.MAX_SAFE_INTEGER): SideValue & { betKnown: number } => {
-    const a = db.prepare(`
-      SELECT COUNT(*) n, SUM(CASE WHEN betSource<>'' THEN 1 ELSE 0 END) known,
-             SUM(CASE WHEN betSource<>'' THEN betAmount ELSE 0 END) bet
-      FROM recon_spin WHERE env='qat' AND sessionId=? AND gmid=? AND observedAt>=? AND observedAt<=?
-        AND COALESCE(outcome,'') NOT IN ${NON_ROUND}
-    `).get(sessionId, gmid, from, to) as { n: number; known: number | null; bet: number | null }
-    const known = a.known ?? 0
-    // 有任何一局不知道注額，總額就不能算（顯示「—」），次數照算。betAmount 沒推出來時存的是 0，要看 betSource
-    return { count: a.n, amount: a.n === 0 ? 0 : known === a.n ? Math.round((a.bet ?? 0) * 100) / 100 : null, betKnown: known }
-  }
-
   for (const { m, base, reading, item, meterError, reason } of pending) {
     const ch = channelOfGmid(m.gmid, '')
     const cached = !!reading?.useCache
     const asReadAt = Date.now()
-    const as: LiveCompareRow['as'] = { ...asOf(m.sessionId, m.gmid, m.startedAt), readAt: asReadAt }
+    const as: LiveCompareRow['as'] = { ...countSpins(db, 'qat', m.sessionId, m.gmid, m.startedAt, Number.MAX_SAFE_INTEGER, false), readAt: asReadAt }
     // Meter 那段：起點 t0 到這次 Meter 的 upTime（快取／讀不到時不比，算到現在只給畫面參考）
     const meterEnd = reading && !reading.useCache ? meterWindowEnd(reading, meterReadAt) : undefined
-    const asSinceT0 = base ? asOf(m.sessionId, m.gmid, base.t0, meterEnd) : null
+    const asSinceT0 = base ? countSpins(db, 'qat', m.sessionId, m.gmid, base.t0, meterEnd ?? Number.MAX_SAFE_INTEGER, true) : null
     let gr: LiveCompareRow['gr'] = null, grError: string | undefined
     let meter: LiveCompareRow['meter'] = null
 
