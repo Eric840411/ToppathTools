@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.78.3'
+export const APP_VERSION = '5.78.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.78.4', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照 GCP 機台，同事 1105)：Instant Meter 清單原本沒帶 bgType，後台只回 OSM 機台，GCP 機台（例：Lavie 的 GONGGONGLAIFU）都顯示「找不到這台」。改成帶 bgType=0 一次拿 OSM＋GCP，依每台的 bgType（1＝OSM、2＝GCP）在機台列標出機種。QAT 實測 892：不帶 264 台、=2 38 台、=0 302 台；/egm/gsameter/ 與 /egm/meter/ 回同一份，差別只在這個參數'] },
   { version: '5.78.3', date: '2026-11-05', changes: ['fix(逐局餘額檢查，CodeX review 7b20fc6 P1)：Game Record 下注時間是 null／空字串時，上游 guard 轉成 0 放行、逐局檢查再把那局丟掉，結果少一局一段、剩下全綠→改成整批拒收、整台顯示讀取錯誤。Player Credit Log 同理：這台有轉帳解析不出來就不做檢查，不靜默丟掉。拿掉修正驗過測試會紅（61 條）'] },
   { version: '5.78.2', date: '2026-11-05', changes: ['fix(逐局餘額檢查，CodeX review 555b858)：P1 缺 Bet 的局原本整局被丟掉，分母變少、剩下的顯示全過→保留成未檢查；P2 段落標籤只看等待入帳，缺欄位／JP 的段仍顯示綠色通過→有任何一局未完成檢查，該段標待確認。兩項拿掉修正都驗過測試會紅（57 條）'] },
   { version: '5.78.1', date: '2026-11-05', changes: ["fix(逐局餘額檢查，CodeX review 3f471e7 兩個 P1、兩個 P2)：①缺 Bet Reward Credits／Payout／Lose/Win 原本補 0 或略過，四局照樣「通過」→缺值保留、該局標「未檢查」；②轉出已到但最後一局 Game Record 晚到，前一局被當末局報異常→前後局／首尾的斷點 2 分鐘內算「等待入帳」，超過才算異常（Game Record 漏局正是要抓的，不能永遠待確認）；③同一次進機台多筆轉入／轉出（寶箱、中途轉帳）或兩局同時間，原本標待確認後仍照比首尾與前後局→直接停用這些規則、只驗每局自己；④有 JP／未檢查的局時整體仍顯示綠燈「通過」→改顯示「部分未檢查」。四項都把修正拿掉驗過測試會紅（52 條）"] },

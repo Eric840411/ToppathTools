@@ -12,7 +12,7 @@ type Status = 'match' | 'pending' | 'mismatch' | 'cache' | 'unreadable'
 interface Side { count: number | null; amount: number | null }
 interface Row {
   sessionId: string; gmid: string; machineType: string; channelId: string; channelName: string
-  clientMachineName: string; username: string; status: Status; reason: string
+  clientMachineName: string; meterKind: 'OSM' | 'GCP' | ''; username: string; status: Status; reason: string
   startedAt: number; t0: number | null
   as: Side & { betKnown: number; readAt: number }
   asSinceT0: (Side & { betKnown: number }) | null
@@ -157,7 +157,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                 return (
                   <Fragment key={key}>
                     <tr className={`lc-row is-${r.status}`}>
-                      <td><b className="lc-gmid">{r.gmid}</b><small>{r.clientMachineName || r.machineType}・{r.channelName}</small></td>
+                      <td><b className="lc-gmid">{r.gmid}</b><small>{r.clientMachineName || r.machineType}・{r.channelName}{r.meterKind && <>・{r.meterKind}</>}</small></td>
                       <td>{fmtN(r.as.count)}<small title={r.as.amount == null && r.as.count ? `${r.as.betKnown}/${r.as.count} 局推得出注額` : undefined}>{fmtA(r.as.amount)}</small></td>
                       <td>{r.gr ? <>{fmtN(r.gr.count)}<small>{fmtA(r.gr.amount)}</small></> : <>—<small>讀取失敗</small></>}</td>
                       <td>{r.meter ? <>{fmtN(r.meter.count)}<small>{fmtA(r.meter.amount)}</small></> : <>—<small>{r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : '讀取失敗'}</small></>}</td>
@@ -213,6 +213,7 @@ function Detail({ r }: { r: Row }) {
         <div className="lc-box">
           <h4>對照範圍</h4>
           <p>{r.username || '（無帳號）'} ／ {r.channelName} ・ {r.gmid}</p>
+          <p>Instant Meter：{r.meterKind === 'GCP' ? 'GCP Instant Meter' : r.meterKind === 'OSM' ? 'OSM Instant Meter' : '—'}</p>
           <p>AutoSpin／Game Record：{fmtT(r.startedAt)} 起</p>
           <p>Meter 差值：{r.t0 ? `${fmtT(r.t0)} 起` : '尚未設起點'}{r.asSinceT0 && <>（這段 AutoSpin {fmtN(r.asSinceT0.count)} 局）</>}</p>
         </div>

@@ -100,7 +100,9 @@ async function meterListOf(channelId: string): Promise<{ items: Map<string, Reco
       tk = lg
     }
     try {
-      const q = new URLSearchParams({ page: '1', pageSize: '1000', clientMachineName: '', channelId })
+      // ⚠️ bgType=0＝OSM＋GCP 全部。沒帶時只回 bgType 1（OSM），GCP 機台（例：Lavie 的 GONGGONGLAIFU）會「找不到這台」。
+      //    /egm/gsameter/egmMeterList 也是同一份，差別只在這個參數（2026-11-05 QAT 實測：892 渠道 不帶 264 台、=2 38 台、=0 302 台）
+      const q = new URLSearchParams({ page: '1', pageSize: '1000', clientMachineName: '', channelId, bgType: '0' })
       const r = await fetch(`${cfg.base_url.replace(/\/$/, '')}/egm/meter/egmMeterList?${q}`, {
         headers: { accept: 'application/json', origin, referer: `${origin}/`, token: tk.token, lastlogintime: tk.lastlogintime },
       })
@@ -223,6 +225,8 @@ export interface LiveCompareRow {
   channelId: string
   channelName: string
   clientMachineName: string
+  /** 機種：Instant Meter 清單的 bgType（1＝OSM、2＝GCP）；讀不到是 '' */
+  meterKind: 'OSM' | 'GCP' | ''
   username: string
   status: CompareStatus
   /** 給人看的一句話：為什麼是這個狀態 */
@@ -378,6 +382,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       sessionId: m.sessionId, gmid: m.gmid, machineType: m.machineType,
       channelId: ch, channelName: QAT_CHANNEL_SITE[ch]?.toUpperCase() ?? ch,
       clientMachineName: String(item?.clientMachineName ?? ''),
+      meterKind: item?.bgType === 2 || item?.bgType === '2' ? 'GCP' : item?.bgType === 1 || item?.bgType === '1' ? 'OSM' : '',
       username: m.username, status, reason: why, startedAt: m.startedAt, t0: base?.t0 ?? null,
       as, asSinceT0, gr, grError, meter, meterError, meterCached: cached, cacheHourStr: reading?.cacheHourStr ?? '',
       meterStart: base ? { gamesPlayed: base.gamesPlayed, coinIn: base.coinIn } : null,
