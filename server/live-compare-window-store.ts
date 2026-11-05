@@ -33,8 +33,10 @@ export interface WinView {
   fails: number
   meter: { count: number; amount: number } | null
   backend: WindowResult['backend'] | null
-  backendByPayout: WindowResult['backendByPayout'] | null
-  matchedBy: WindowResult['matchedBy']
+  boundary: boolean
+  conflicts: number
+  /** 最新收到的 Meter 快照時間——窗口卡住（待確認／逾期）時，t1 之後到這裡都還沒檢查 */
+  latestUp: number | null
   diff: WindowResult['diff'] | null
   /** 之前已經對上的窗口累計（從起點算） */
   okCount: number
@@ -80,7 +82,8 @@ export async function evalMeterWindow(
   }
   const view = (st: WindowState | null, r: WindowResult | null, meter: WinView['meter']): WinView => ({
     tStart: w.tStart, t1: st?.t1 ?? null, status: st?.status ?? 'pending', fails: st?.fails ?? 0, meter,
-    backend: r?.backend ?? null, backendByPayout: r?.backendByPayout ?? null, matchedBy: r?.matchedBy ?? null, diff: r?.diff ?? null,
+    backend: r?.backend ?? null, boundary: r?.boundary ?? false, conflicts: r?.conflicts ?? 0, diff: r?.diff ?? null,
+    latestUp: snaps.length ? Math.max(...snaps.map(x => x.upTime)) : null,
     okCount: w.okCount, okAmount: w.okAmount, checkedAt: w.checkedAt,
   })
   const save = (st: WindowState | null, r: WindowResult | null) => {

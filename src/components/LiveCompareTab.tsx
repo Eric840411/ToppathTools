@@ -28,11 +28,10 @@ interface Row {
 }
 /** Meter 固定窗口 (tStart, t1]：Meter 增量 vs 這台全部玩家 GR＋handpay（server/live-compare-window*.ts） */
 interface Win {
-  tStart: number; t1: number | null; status: 'match' | 'pending' | 'overdue'; fails: number
+  tStart: number; t1: number | null; status: 'match' | 'pending' | 'overdue' | 'boundary'; fails: number
   meter: { count: number; amount: number } | null
   backend: { count: number; amount: number; grCount: number; handpayCount: number; handpayBet: number; handpayAmount: number } | null
-  backendByPayout: { count: number; amount: number } | null
-  matchedBy: 'bet' | 'payout' | null
+  boundary: boolean; conflicts: number; latestUp: number | null
   diff: { count: number; amount: number } | null
   okCount: number; okAmount: number; checkedAt: number | null
 }
@@ -177,7 +176,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                       <td>{r.gr ? <>{fmtN(r.gr.count)}<small>{fmtA(r.gr.amount)}（{fmtD(r.grMinusAs.count)}）</small></> : <>—<small>讀取失敗</small></>}</td>
                       <td>{r.win?.meter ? <>{fmtN(r.win.meter.count)}<small>{fmtA(r.win.meter.amount)}</small></> : <>—<small>{r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : r.meterError ? '讀取失敗' : '快照未滿 3 分鐘'}</small></>}</td>
                       <td>{r.win?.backend ? <>{fmtN(r.win.backend.count)}<small>{fmtA(r.win.backend.amount)}{r.win.backend.handpayCount > 0 && <>・含 handpay {r.win.backend.handpayCount}</>}</small></> : <>—<small>{r.winError ? '讀取失敗' : '—'}</small></>}</td>
-                      <td className={r.win?.diff && !r.win.matchedBy ? diffCls(r.win.diff) : 'lc-diff'}>{r.win?.diff ? (r.win.matchedBy ? <>0<small>0.00{r.win.matchedBy === 'payout' ? '・照派彩時間' : ''}</small></> : <>{fmtD(r.win.diff.count)}<small>{fmtD(r.win.diff.amount, true)}</small></>) : <>—<small>—</small></>}</td>
+                      <td className={r.win?.diff ? diffCls(r.win.diff) : 'lc-diff'}>{r.win?.diff ? <>{fmtD(r.win.diff.count)}<small>{fmtD(r.win.diff.amount, true)}{r.win.conflicts > 0 && <>・單號衝突 {r.win.conflicts}</>}</small></> : <>—<small>—</small></>}</td>
                       <td><span className={`lc-pill is-${r.status}`}>{STATUS_LABEL[r.status]}</span><small className="lc-reason">{shortReason(r)}</small></td>
                       <td><ChainCell r={r} /></td>
                       <td><button type="button" className="btn-ghost lc-x" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : key)}>{isOpen ? '收合' : '明細'}</button></td>
@@ -209,7 +208,7 @@ function diffCls(d: Side) {
 }
 
 function shortReason(r: Row): string {
-  if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : '同窗口下一輪再查'
+  if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : r.win.status === 'boundary' ? '切點有局在進行' : '同窗口下一輪再查'
   if (r.status === 'mismatch') return `同窗口 ${r.win?.fails ?? 0} 次`
   if (r.status === 'cache') return r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
   if (r.status === 'unreadable') return r.meterError ? 'Instant Meter' : r.winError ? '後台查詢' : '—'
@@ -240,10 +239,12 @@ function Detail({ r }: { r: Row }) {
             {r.win.backend ? <>
               <p>Game Record（全部玩家）　{fmtN(r.win.backend.grCount)} 局</p>
               <p>Jackpot Abnormality（handpay）　{fmtN(r.win.backend.handpayCount)} 筆・注額 {fmtA(r.win.backend.handpayBet)}{r.win.backend.handpayAmount ? `・JP ${fmtA(r.win.backend.handpayAmount)}` : ''}</p>
-              <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}{r.win.matchedBy === 'payout' && r.win.backendByPayout ? `（照派彩時間 ${fmtN(r.win.backendByPayout.count)} 局，對上）` : ''}</p>
+              <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}</p>
+              {r.win.conflicts > 0 && <p className="lc-muted">同一單號在 Game Record 與 handpay 的注額不一致：{r.win.conflicts} 筆</p>}
             </> : <p>{r.winError ? `後台查詢失敗：${r.winError}` : '—'}</p>}
           </> : <p>{r.meterCached ? `快取值（停在 ${r.cacheHourStr || '?'}），不設起點` : (r.meterError || (r.t0 == null ? '尚未設起點' : 'Meter 快照要收到滿 3 分鐘才比（等 Game Record 入帳）'))}</p>}
           {r.win && r.win.okCount > 0 && <p className="lc-muted">之前已對上：{fmtN(r.win.okCount)} 局／{fmtA(r.win.okAmount)}</p>}
+          {r.win && r.win.status !== 'match' && r.win.t1 != null && r.win.latestUp != null && r.win.latestUp > r.win.t1 && <p className="lc-muted">{fmtT(r.win.t1)} 之後到 {fmtT(r.win.latestUp)} 還沒檢查（要等這個窗口對上才會接著比）</p>}
         </div>
         <div className="lc-box">
           <h4>來源讀取時間</h4>

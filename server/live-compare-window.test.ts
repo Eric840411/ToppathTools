@@ -38,11 +38,25 @@ eq('GR 漏一局 → 對不上', run(gr0.rounds.slice(1)).matched, false)
 eq('同一單也進了 GR → 只算一次', run([...gr0.rounds, { ...hp0.rounds[0], source: 'gr' }]).backend.count, 436)
 eq('分頁重複 → 單號去重', run([...gr0.rounds, ...gr0.rounds.slice(0, 5)]).matched, true)
 eq('窗口外的局不算', run([...gr0.rounds, { ...gr0.rounds[0], orderId: 'x1', betAt: W.t1 + 1000, payoutAt: W.t1 + 2000 }]).matched, true)
-{ // 邊界那一局：下注在 t1 之前、派彩在 t1 之後——Meter 若照派彩算也要對得上
+{ // 邊界那一局：下注在 t1 之前、派彩在 t1 之後，Meter 沒算到——不能判對也不能判錯
   const edge = { ...gr0.rounds[0], orderId: 'edge', betAt: W.t1 - 1000, payoutAt: W.t1 + 3000, bet: 25 }
   const x = run([...gr0.rounds, edge])
   eq('邊界局：照下注時間多一局', x.backend.count, 437)
-  eq('邊界局：照派彩時間對上', x.matchedBy, 'payout')
+  eq('邊界局：不算一致', x.matched, false)
+  eq('邊界局：標切點待確認', x.boundary, true)
+}
+{ // CodeX bfb0623 P1：同一局不能前一段照下注、後一段照派彩各算一次
+  const r = { orderId: 'z', betAt: 5, payoutAt: 15, bet: 1, source: 'gr' as const, handpay: 0 }
+  const a = evaluateWindow({ t0: 0, t1: 10, meter: { count: 1, amount: 1 }, gr: [r], handpay: [] })
+  const b = evaluateWindow({ t0: 10, t1: 20, meter: { count: 1, amount: 1 }, gr: [r], handpay: [] })
+  eq('前一段照下注時間對上', a.matched, true)
+  eq('後一段不能再照派彩時間算一次', b.matched, false)
+}
+{ // CodeX bfb0623 P2：同單 GR 與 handpay 注額不一致不能被蓋掉
+  const h = { ...gr0.rounds[0], source: 'handpay' as const, bet: 999 }
+  const x = run(gr0.rounds, [...hp0.rounds, h])
+  eq('同單注額衝突 → 不一致', x.matched, false)
+  eq('同單注額衝突 → 記一筆', x.conflicts, 1)
 }
 { // 缺欄位整批不比
   const bad = JSON.parse(JSON.stringify(fx.gameRecord)); delete bad[0].bet_time_precise
@@ -71,6 +85,10 @@ eq('補齊 → 解除', nextState(s2, 2_000, { matched: true }).status, 'match')
 eq('對上後換新窗口', chooseWindow({ t1: 2_000, fails: 0, status: 'match' }, snap(3_000, 0)), 3_000)
 eq('換窗口後失敗次數重算', nextState({ t1: 2_000, fails: 1, status: 'pending' }, 3_000, { matched: false }).fails, 1)
 eq('查詢不完整不算失敗', nextState(s1, 2_000, null), s1)
+const sb = nextState(s1, 2_000, { matched: false, boundary: true })
+eq('切點卡到進行中的局 → 不算失敗', [sb.status, sb.fails], ['boundary', 0])
+eq('切點待確認 → 換更新的快照', chooseWindow(sb, snap(3_000, 0)), 3_000)
+eq('切點待確認、沒有更新快照 → 留著', chooseWindow(sb, snap(1_500, 0)), 2_000)
 
 console.log(`live-compare-window: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }

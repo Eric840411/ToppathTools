@@ -59,31 +59,38 @@ export interface WindowResult {
   meter: WindowSide
   /** 後台（GR 全體＋handpay，單號去重）在窗口內的局，用下注時間切 */
   backend: WindowSide & { grCount: number; handpayCount: number; handpayBet: number; handpayAmount: number }
-  /** 同一批用派彩時間切——窗口邊界剛好有一局「下注在前、派彩在後」時，Meter 可能是照這個算 */
-  backendByPayout: WindowSide
   matched: boolean
-  /** 用哪一種切法對上的 */
-  matchedBy: 'bet' | 'payout' | null
+  /**
+   * 對不上、而且切點上剛好有局「下注在切點前、派彩在切點後」——Meter 照哪個時間算還沒確認，
+   * 不能判錯也不能判對，換下一個快照再比（CodeX bfb0623 P1：不能每段各自挑下注／派彩時間，同一局會被兩段各算一次）。
+   */
+  boundary: boolean
+  /** 同一單號在 GR 與 handpay 的注額不一致的筆數（有就不能判一致） */
+  conflicts: number
   diff: WindowSide
 }
 
 /**
- * 窗口 (t0, t1] 的比對。meter＝快照差值（Coin In 要 ×Denom 才是金額）。
- * 後台兩份依單號去重：同一單如果後來也進了 Game Record，只算一次。
+ * 窗口 (t0, t1] 的比對，**一律用下注時間切**。meter＝快照差值（Coin In 要 ×Denom 才是金額）。
+ * 後台兩份依單號去重：同一單如果也進了 Game Record，只算一次——但注額要一致，不一致算衝突。
  */
 export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; gr: BackendRound[]; handpay: BackendRound[] }): WindowResult {
   const byId = new Map<string, BackendRound>()
+  let conflicts = 0
   for (const r of x.gr) byId.set(r.orderId, r)
-  for (const r of x.handpay) if (!byId.has(r.orderId)) byId.set(r.orderId, r)
+  for (const r of x.handpay) {
+    const g = byId.get(r.orderId)
+    if (!g) byId.set(r.orderId, r)
+    else if (Math.abs(g.bet - r.bet) > EPS) conflicts++
+  }
   const all = [...byId.values()]
   const inWin = (t: number) => t > x.t0 && t <= x.t1
   const sumSide = (rs: BackendRound[]): WindowSide => ({ count: rs.length, amount: Math.round(rs.reduce((a, r) => a + r.bet, 0) * 100) / 100 })
   const byBet = all.filter(r => inWin(r.betAt))
-  const byPay = all.filter(r => inWin(r.payoutAt))
   const hp = byBet.filter(r => r.source === 'handpay')
-  const same = (a: WindowSide, b: WindowSide) => a.count === b.count && Math.abs(a.amount - b.amount) <= EPS
-  const bet = sumSide(byBet), pay = sumSide(byPay)
-  const matchedBy = same(x.meter, bet) ? 'bet' : same(x.meter, pay) ? 'payout' : null
+  const bet = sumSide(byBet)
+  const matched = conflicts === 0 && bet.count === x.meter.count && Math.abs(bet.amount - x.meter.amount) <= EPS
+  const straddles = (cut: number) => all.some(r => r.betAt <= cut && r.payoutAt > cut)
   return {
     meter: x.meter,
     backend: {
@@ -93,30 +100,33 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
       handpayBet: Math.round(hp.reduce((a, r) => a + r.bet, 0) * 100) / 100,
       handpayAmount: Math.round(hp.reduce((a, r) => a + r.handpay, 0) * 100) / 100,
     },
-    backendByPayout: pay,
-    matched: matchedBy != null,
-    matchedBy,
+    matched,
+    boundary: !matched && conflicts === 0 && (straddles(x.t1) || straddles(x.t0)),
+    conflicts,
     diff: { count: x.meter.count - bet.count, amount: Math.round((x.meter.amount - bet.amount) * 100) / 100 },
   }
 }
 
-export type WindowStatus = 'match' | 'pending' | 'overdue'
+/** boundary＝切點上有局在進行，換下一個快照再比 */
+export type WindowStatus = 'match' | 'pending' | 'overdue' | 'boundary'
 export interface WindowState { t1: number; fails: number; status: WindowStatus }
 
 /**
- * 下一輪要比哪個窗口。上一個窗口還沒對上（pending／overdue）就**留在同一個窗口**重查；
- * 對上了才往前換成最新可比的快照。
+ * 下一輪要比哪個窗口。對不上（pending／overdue）就**留在同一個窗口**重查；
+ * 對上了、或切點卡到進行中的局（boundary），才換成更新的可比快照。
  */
 export function chooseWindow(prev: WindowState | null, eligible: Snapshot | null): number | null {
-  if (prev && prev.status !== 'match') return prev.t1
+  if (prev && (prev.status === 'pending' || prev.status === 'overdue')) return prev.t1
+  if (prev?.status === 'boundary') return eligible && eligible.upTime > prev.t1 ? eligible.upTime : prev.t1
   return eligible ? eligible.upTime : prev?.t1 ?? null
 }
 
-/** 這一輪查完之後的狀態。查詢不完整（error）不算一次失敗，維持原狀。 */
-export function nextState(prev: WindowState | null, t1: number, result: { matched: boolean } | null): WindowState {
+/** 這一輪查完之後的狀態。查詢不完整（error）不算一次失敗，維持原狀；切點卡到進行中的局也不算失敗。 */
+export function nextState(prev: WindowState | null, t1: number, result: { matched: boolean; boundary?: boolean } | null): WindowState {
   const sameWin = prev != null && prev.t1 === t1
   if (!result) return sameWin ? prev! : { t1, fails: 0, status: 'pending' }
   if (result.matched) return { t1, fails: 0, status: 'match' }
+  if (result.boundary) return { t1, fails: 0, status: 'boundary' }
   const fails = (sameWin ? prev!.fails : 0) + 1
   return { t1, fails, status: fails >= OVERDUE_FAILS ? 'overdue' : 'pending' }
 }

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.79.0'
+export const APP_VERSION = '5.79.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.79.1', date: '2026-11-05', changes: ['fix(即時對照 固定窗口，CodeX review bfb0623 兩個 P1、一個 P2)：①每段原本各自挑下注或派彩時間，同一局可能被前後兩段各算一次、兩段都顯示一致→一律用下注時間切；切點上剛好有局在進行時標「切點待確認」、不算失敗、換下一個快照再比；②Game Record 短頁沒核對 total、handpay 缺機台的列被丟掉→都改成整輪不比；③同一單號在 GR 與 handpay 注額不一致原本無條件採 GR→算衝突、不能判一致。窗口卡住時畫面註明之後哪一段還沒檢查。回歸 37＋18 條，三項拿掉修正各自會紅'] },
   { version: '5.79.0', date: '2026-11-05', changes: ['change(AutoSpin 即時對照 判定改成比後台，同事 1105 要求 handpay＋實測 Game Record 晚約 2 分鐘，CodeX 選方案 B)：原本拿 AutoSpin 即時局數比 Game Record／Meter，AutoSpin 跑著時 Game Record 永遠落後、會一直誤報。改成 Instant Meter 在固定窗口的增量 ＝ 這台全部玩家的 Game Record ＋ Jackpot Abnormality（handpay 的局不進 Game Record）；只比收到滿 3 分鐘的 Meter 快照，對不上留在同一窗口下一輪再查，連兩次才「逾期待查」，補齊自動解除，對上後接續下一段。AutoSpin 與本帳號 Game Record 只列參考。用 QAT 892-MOREPUFF-0134 13:00～16:00 真資料驗證：GR 432＋handpay 4（注額 125、JP 6,410）＝ Meter 436／13,375。新增 live_compare_snap／live_compare_win 兩張表；判定 29 條、多輪輪詢模擬 18 條回歸'] },
   { version: '5.78.6', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照)：後端還是舊版（沒有這支路由）時原本顯示「SyntaxError: Unexpected token <」，改成直接說要合併部署並重啟 server（同事 1105 在本機看到）'] },
   { version: '5.78.5', date: '2026-11-05', changes: ['fix(AutoSpin 即時對照 Meter 停更假綠，CodeX review 2ac32e6 P2)：Meter 窗口截在 upTime，Meter 停住時兩邊都只算到 upTime，0 對 0 顯示「一致」。改成 upTime 之後 AutoSpin 已有新局、且落後超過 2 分鐘，這輪不比 Meter、只比 Game Record，狀態顯示「Meter 不可比・Meter 未更新」（原「快取不可比」改名，快取也歸這類）。另以 QAT GCP 機台 892-DRAGONLAW-0025（Fortune Pots - NCH 25）驗證單位：Game Record 全部玩家 571 局／下注 99,200／贏分 54,520，Instant Meter 05＝571、00×Denom(1)＝99,200、01＝54,520，完全一致'] },

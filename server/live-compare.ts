@@ -190,7 +190,9 @@ async function machineBackendOf(clientMachineName: string, gmid: string, fromMs:
     const items: Record<string, unknown>[] = d?.data?.items ?? []
     grRaw.push(...items)
     const total = Number(d?.data?.total ?? 0)
-    if (items.length < GR_PAGE_SIZE || (total > 0 && grRaw.length >= total)) break
+    // ⚠️ 短頁也要核對 total：回的筆數少於 total＝不完整，不能當成全部（CodeX bfb0623 P1）
+    if (total > 0 && grRaw.length >= total) break
+    if (items.length < GR_PAGE_SIZE) { if (total > grRaw.length) return { error: `Game Record（全部玩家）只回了 ${grRaw.length}/${total} 筆，這輪不比` }; break }
     if (page === GR_MAX_PAGES) return { error: `Game Record（全部玩家）超過 ${GR_MAX_PAGES * GR_PAGE_SIZE} 筆，這輪不比` }
   }
   // 機台名篩選沒生效（混進別台）就整批不用
@@ -205,7 +207,10 @@ async function machineBackendOf(clientMachineName: string, gmid: string, fromMs:
   let h: any
   try { h = await meterPost('qat', 'osm', cfg, '/abnormality/getHandPayRecord', hpParams) } catch (e) { return { error: `Jackpot Abnormality 讀取失敗：${e}` } }
   if (h?.code !== 20000) return { error: `Jackpot Abnormality 回 code=${h?.code ?? '?'}` }
-  const hpRaw: Record<string, unknown>[] = (h?.data?.items ?? []).filter((r: Record<string, unknown>) => String(r.uid ?? '') === gmid)
+  // ⚠️ 缺 uid 或別台的列不能靜默丟掉——整輪不比（CodeX bfb0623 P1）
+  const hpRaw: Record<string, unknown>[] = h?.data?.items ?? []
+  const hpForeign = hpRaw.filter(r => String(r.uid ?? '') !== gmid)
+  if (hpForeign.length) return { error: `Jackpot Abnormality 有 ${hpForeign.length} 筆缺機台或不是這台，這輪不比` }
   if (Number(h?.data?.total ?? 0) > (h?.data?.items ?? []).length) return { error: 'Jackpot Abnormality 超過 200 筆，結果不完整，這輪不比' }
   const g = toBackendRounds(grRaw, 'gr'); if ('error' in g) return g
   const hp = toBackendRounds(hpRaw, 'handpay'); if ('error' in hp) return hp
@@ -418,7 +423,8 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
     else if (!base) { status = 'unreadable'; why = '還沒讀到即時 Meter，無法設起點' }
     else if (winError && win?.status !== 'overdue') { status = 'unreadable'; why = winError }
     else if (!win || win.t1 == null) { status = 'pending'; why = 'Meter 快照還沒滿 3 分鐘，等 Game Record 入帳再比' }
-    else if (win.status === 'match') { status = 'match'; why = win.matchedBy === 'payout' ? '一致（窗口邊界有一局照派彩時間算）' : '' }
+    else if (win.status === 'match') { status = 'match'; why = '' }
+    else if (win.status === 'boundary') { status = 'pending'; why = '切點上剛好有一局在進行（下注在前、派彩在後），換下一個快照再比' }
     else if (win.status === 'overdue') {
       status = 'mismatch'
       const d = win.diff

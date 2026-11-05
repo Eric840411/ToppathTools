@@ -555,7 +555,8 @@ session 在那個空窗裡看起來就像不存在。
   規則 `server/live-compare-window.ts`（29 條，fixture `qat-1105-morepuff-window.json`）、串接 `server/live-compare-window-store.ts`（多輪輪詢模擬 18 條）。
 - **3 分鐘**：t1 是收到滿 3 分鐘的 Meter 快照（`live_compare_snap`），讓 Game Record 有時間入帳。
 - **固定窗口**：對不上就**同一窗口**下一輪再查（等待入帳），連兩次＝逾期待查，補齊自動解除；對上後下一段從 t1 接續（`live_compare_win`，每輪只查一小段）。
-- **邊界局**：下注在 t1 前、派彩在 t1 後的局，用派彩時間切能對上也算一致（畫面註明）。
+- **一律用下注時間切**（v5.79.1）：切點上剛好有局「下注在前、派彩在後」而對不上時，標「切點待確認」、不算失敗、換下一個快照再比。不能每段各自挑時間——同一局會被兩段各算一次（CodeX bfb0623）。
+- **同單衝突**：同一單號在 GR 與 handpay 注額不一致，不能判一致。窗口卡住時畫面會寫 t1 之後到最新快照還沒檢查。
 - **查詢**：用 CP 那組登入＋`isall=true` 才查得到其他渠道（NC 登入查 Game Record 回 40501）；handpay 帶機台名會忽略日期，抓回後自己切。任何一邊失敗、截斷、缺欄位 → 這輪不比、不算一次失敗。
 - **AutoSpin、本帳號 Game Record 只當參考**，不參與判定。
 - 驗證：QAT 892-MOREPUFF-0134 13:00～16:00，GR 432／13,250 ＋ handpay 4（注額 125、JP 6,410）＝ GCP Hourly Meter 436／13,375／JPW 6,410。
