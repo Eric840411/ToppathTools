@@ -546,6 +546,20 @@ session 在那個空窗裡看起來就像不存在。
 - **只支援 QAT**；UAT 沒有後台連線設定，回錯誤訊息。
 - Instant Meter 是整台累計，別人在玩也會增加——Meter 多出來不能直接當漏帳（明細有提示）。
 
+#### 判定改成比後台（v5.79.0）
+
+同事 1105 實測：AutoSpin 連續在跑時 Game Record 比 Meter 慢約 2 分鐘（之後會補）；中 handpay 的局不進 Game Record、進 Jackpot Abnormality。
+原本拿 AutoSpin 即時局數比，跑著時一定一直誤報；recon_spin 的單號又是 Live Ledger 事後回填、observedAt 是 agent 時鐘，不能當逐單證據（CodeX 1105 選方案 B）。
+
+- **判定**：Instant Meter 在固定窗口 (tStart, t1] 的增量 ＝ 這台**全部玩家**的 Game Record ＋ Jackpot Abnormality（），單號去重。
+  規則 （29 條，fixture ）、串接 （多輪輪詢模擬 18 條）。
+- **3 分鐘**：t1 是收到滿 3 分鐘的 Meter 快照（），讓 Game Record 有時間入帳。
+- **固定窗口**：對不上就**同一窗口**下一輪再查（等待入帳），連兩次＝逾期待查，補齊自動解除；對上後下一段從 t1 接續（，每輪只查一小段）。
+- **邊界局**：下注在 t1 前、派彩在 t1 後的局，用派彩時間切能對上也算一致（畫面註明）。
+- **查詢**：用 CP 那組登入＋ 才查得到其他渠道（NC 登入查 Game Record 回 40501）；handpay 帶機台名會忽略日期，抓回後自己切。任何一邊失敗、截斷、缺欄位 → 這輪不比、不算一次失敗。
+- **AutoSpin、本帳號 Game Record 只當參考**，不參與判定。
+- 驗證：QAT 892-MOREPUFF-0134 13:00～16:00，GR 432／13,250 ＋ handpay 4（注額 125、JP 6,410）＝ GCP Hourly Meter 436／13,375／JPW 6,410。
+
 #### 逐局餘額檢查（v5.78.0）
 
 同事 1105：Game Record 的 Bet／Bet Reward Credits／Payout／Jackpot／Balance Before／After／Lose/Win 七欄都可能錯，

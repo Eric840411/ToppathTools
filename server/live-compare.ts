@@ -17,9 +17,13 @@ import { guardFetchedRows } from './live-ledger.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale,
+  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
+import { toBackendRounds } from './live-compare-window.js'
+import { ensureWindowTables, evalMeterWindow, type WinView } from './live-compare-window-store.js'
+
+ensureWindowTables(db)
 import { normalizeRoundsStrict, normalizeCredit, checkChains, summarize, type ChainRound, type CreditTx, type SessionCheck, type RoundCheck, type ChainSummary } from './live-compare-chain.js'
 
 /** QAT 渠道號 → 後台網站代號（2026-11-04 實測：用 qat-{site}.osmslot.org 當 origin 登入，回傳的 lastLoginChannelId 就是這個號碼）。 */
@@ -161,6 +165,53 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
   return { byGmid, chainRounds }
 }
 
+// ─── 這台全部玩家的 Game Record ＋ Jackpot Abnormality（Meter 固定窗口用）────────────
+
+/**
+ * 一台機台在 [fromMs, toMs] 的後台局（全部玩家）。⚠️ 用 CP 那組登入＋isall=true 才查得到其他渠道（892 用 NC 登入回 40501，1105 實測）。
+ * handpay（/abnormality/getHandPayRecord）帶機台名時 API 會忽略日期，抓回後由 evaluateWindow 依時間切。
+ * 任何一邊讀取失敗、截斷或有缺欄位的列，整台這輪不比（不能當 0）。
+ */
+async function machineBackendOf(clientMachineName: string, gmid: string, fromMs: number, toMs: number): Promise<{ gr: import('./live-compare-window.js').BackendRound[]; handpay: import('./live-compare-window.js').BackendRound[] } | { error: string }> {
+  const cfg = loadMeterConfig('qat', 'osm')
+  if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
+  const studio = 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL'
+  const grRaw: Record<string, unknown>[] = []
+  for (let page = 1; page <= GR_MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      clientMachineName, playerId: '', playerName: '', orderId: '', page: String(page), pageSize: String(GR_PAGE_SIZE),
+      dateTimeType: '0', playerstudioid: studio, bgType: '0', dataType: '0', isall: 'true', channelId: '0',
+    })
+    params.append('dateTime[]', new Date(fromMs).toISOString())
+    params.append('dateTime[]', new Date(toMs).toISOString())
+    let d: any
+    try { d = await meterPost('qat', 'osm', cfg, '/egm/reports/gameRecordList', params) } catch (e) { return { error: `Game Record（全部玩家）讀取失敗：${e}` } }
+    if (d?.code !== 20000) return { error: `Game Record（全部玩家）回 code=${d?.code ?? '?'}` }
+    const items: Record<string, unknown>[] = d?.data?.items ?? []
+    grRaw.push(...items)
+    const total = Number(d?.data?.total ?? 0)
+    if (items.length < GR_PAGE_SIZE || (total > 0 && grRaw.length >= total)) break
+    if (page === GR_MAX_PAGES) return { error: `Game Record（全部玩家）超過 ${GR_MAX_PAGES * GR_PAGE_SIZE} 筆，這輪不比` }
+  }
+  // 機台名篩選沒生效（混進別台）就整批不用
+  const foreign = grRaw.filter(r => String(r.uid ?? '') !== gmid)
+  if (foreign.length) return { error: `Game Record 用機台名查回 ${foreign.length} 筆別台的資料，這輪不比` }
+  const hpParams = new URLSearchParams({
+    clientMachineName, playerId: '', playerName: '', orderId: '', page: '1', pageSize: '200',
+    dateTimeType: '0', playerstudioid: studio, isall: 'true', channelId: '0',
+  })
+  hpParams.append('dateTime[]', new Date(fromMs).toISOString())
+  hpParams.append('dateTime[]', new Date(toMs).toISOString())
+  let h: any
+  try { h = await meterPost('qat', 'osm', cfg, '/abnormality/getHandPayRecord', hpParams) } catch (e) { return { error: `Jackpot Abnormality 讀取失敗：${e}` } }
+  if (h?.code !== 20000) return { error: `Jackpot Abnormality 回 code=${h?.code ?? '?'}` }
+  const hpRaw: Record<string, unknown>[] = (h?.data?.items ?? []).filter((r: Record<string, unknown>) => String(r.uid ?? '') === gmid)
+  if (Number(h?.data?.total ?? 0) > (h?.data?.items ?? []).length) return { error: 'Jackpot Abnormality 超過 200 筆，結果不完整，這輪不比' }
+  const g = toBackendRounds(grRaw, 'gr'); if ('error' in g) return g
+  const hp = toBackendRounds(hpRaw, 'handpay'); if ('error' in hp) return hp
+  return { gr: g.rounds, handpay: hp.rounds }
+}
+
 // ─── Player Credit Log（進出機台轉帳）────────────────────────────────────────
 
 /** 後台查詢用的台北時間字串 YYYY-MM-DD HH:mm:ss */
@@ -202,20 +253,6 @@ async function creditLogOf(username: string, fromMs: number): Promise<{ credits:
   return { credits, badByGmid }
 }
 
-// ─── 連續對不上幾輪 ─────────────────────────────────────────────────────────
-
-/** 同一輪內前端重整不會重複累加：距離上一次計數未滿 20 秒就沿用。 */
-const streaks = new Map<string, { n: number; at: number }>()
-function bumpStreak(key: string, differs: boolean): number {
-  const now = Date.now()
-  const s = streaks.get(key)
-  if (!differs) { streaks.set(key, { n: 0, at: now }); return 0 }
-  if (s && now - s.at < 20_000) return s.n
-  const n = (s?.n ?? 0) + 1
-  streaks.set(key, { n, at: now })
-  return n
-}
-
 // ─── 組一輪結果 ─────────────────────────────────────────────────────────────
 
 export interface LiveCompareRow {
@@ -253,7 +290,11 @@ export interface LiveCompareRow {
   /** 逐局餘額檢查（Game Record 七欄）；只列這一輪 AutoSpin 開跑後有下注的那幾次進機台 */
   chain: { summary: ChainSummary; sessions: SessionCheck[]; unkeyed: RoundCheck[] } | null
   chainError?: string
+  /** Meter 固定窗口 (tStart, t1]：Meter 增量 vs 這台全部玩家 GR＋handpay */
+  win: WinView | null
+  winError?: string
 }
+
 
 export interface LiveSessionRef { id: string; startedAt: number }
 
@@ -300,6 +341,9 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
         base = { t0: reading.upTime || meterReadAt, gamesPlayed: reading.gamesPlayed, coinIn: reading.coinIn, denom: reading.denom }
         db.prepare(`INSERT OR REPLACE INTO live_compare_baseline (sessionId, gmid, t0, gamesPlayed, coinIn, denom, createdAt) VALUES (?,?,?,?,?,?,?)`)
           .run(m.sessionId, m.gmid, base.t0, base.gamesPlayed, base.coinIn, base.denom, Date.now())
+        // 起點換了，舊的快照與窗口都作廢
+        db.prepare('DELETE FROM live_compare_snap WHERE sessionId=? AND gmid=?').run(m.sessionId, m.gmid)
+        db.prepare('DELETE FROM live_compare_win WHERE sessionId=? AND gmid=?').run(m.sessionId, m.gmid)
       }
     }
     pending.push({ m, base, reading, item, meterError, reason })
@@ -324,12 +368,8 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
     const cached = !!reading?.useCache
     const asReadAt = Date.now()
     const as: LiveCompareRow['as'] = { ...countSpins(db, 'qat', m.sessionId, m.gmid, m.startedAt, Number.MAX_SAFE_INTEGER, false), readAt: asReadAt }
-    // Meter 那段：起點 t0 到這次 Meter 的 upTime（快取／讀不到時不比，算到現在只給畫面參考）
-    const meterEnd = reading && !reading.useCache ? meterWindowEnd(reading, meterReadAt) : undefined
-    const asSinceT0 = base ? countSpins(db, 'qat', m.sessionId, m.gmid, base.t0, meterEnd ?? Number.MAX_SAFE_INTEGER, true) : null
-    // Meter 停更：upTime 之後 AutoSpin 已有新局、又落後太久 → 不拿 Meter 比，只比 Game Record（CodeX 2ac32e6 P2）
-    const afterUp = meterEnd != null ? countSpins(db, 'qat', m.sessionId, m.gmid, meterEnd, Number.MAX_SAFE_INTEGER, true).count ?? 0 : 0
-    const stale = meterEnd != null && meterStale(meterEnd, meterReadAt, afterUp)
+    // AutoSpin 只當參考（v5.79.0）：Game Record 會晚 2 分鐘，拿即時局數比一定一直誤報
+    const asSinceT0 = base ? countSpins(db, 'qat', m.sessionId, m.gmid, base.t0, Number.MAX_SAFE_INTEGER, true) : null
     let gr: LiveCompareRow['gr'] = null, grError: string | undefined
     let meter: LiveCompareRow['meter'] = null
 
@@ -360,29 +400,30 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
         }
       }
     }
-    if (base && reading && !cached && !stale) {
-      meter = {
-        count: reading.gamesPlayed - base.gamesPlayed,
-        amount: Math.round((reading.coinIn - base.coinIn) * base.denom * 100) / 100,
-        readAt: meterReadAt,
-      }
+    // ── Meter 固定窗口：Meter 增量 對 這台全部玩家 GR＋handpay（CodeX 1105 方案 B）──
+    let win: LiveCompareRow['win'] = null, winError: string | undefined
+    if (base && reading && !cached) {
+      const w = await evalMeterWindow(db, { sessionId: m.sessionId, gmid: m.gmid, clientMachineName: String(item?.clientMachineName ?? ''), base, reading, readAt: meterReadAt }, machineBackendOf, Date.now())
+      if ('error' in w) winError = w.error
+      win = w.win
+      if (win.t1 != null && win.meter) meter = { ...win.meter, readAt: meterReadAt }
     }
+    // GR（本帳號）−AutoSpin 只當參考差值，不參與判定
+    const ev = evaluateSides({ as, asSinceT0, gr, meter: null, meterCached: true })
 
-    const input = { as, asSinceT0, gr, meter, meterCached: cached || stale }
-    const ev = evaluateSides(input)
-    const streak = bumpStreak(`${m.sessionId}|${m.gmid}`, ev.differs)
-    const status: CompareStatus = decideStatus(input, ev, streak)
+    let status: CompareStatus
     let why = reason ?? ''
-    if (status === 'unreadable') why = grError || meterError || (!base ? '還沒讀到即時 Meter，無法設起點' : why)
-    else if (status === 'cache' && stale) why = `Instant Meter 停在 ${new Date(meterEnd! + 8 * 3600_000).toISOString().slice(11, 19)} 沒更新，之後 AutoSpin 已跑 ${afterUp} 局，這輪只比 Game Record`
-    else if (status === 'cache') why = `Instant Meter 是快取值（停在 ${reading?.cacheHourStr || '?'}），只比 Game Record；變成即時值後才開始算 Meter 差值`
-    else if (status === 'pending') why = '有差異，下一輪再確認'
-    else if (status === 'mismatch') {
-      const parts: string[] = []
-      if (ev.grMinusAs.count) parts.push(`Game Record ${ev.grMinusAs.count > 0 ? '多' : '少'} ${Math.abs(ev.grMinusAs.count)} 局`)
-      if (ev.meterMinusAs.count) parts.push(`Meter ${ev.meterMinusAs.count > 0 ? '多' : '少'} ${Math.abs(ev.meterMinusAs.count)} 局`)
-      why = (parts.join('；') || '局數相同、金額對不上') + `（連續 ${streak} 輪）`
-    }
+    if (meterError || !reading) { status = 'unreadable'; why = meterError || 'Instant Meter 讀取失敗' }
+    else if (cached) { status = 'cache'; why = `Instant Meter 是快取值（停在 ${reading.cacheHourStr || '?'}），不能比；變成即時值後才開始` }
+    else if (!base) { status = 'unreadable'; why = '還沒讀到即時 Meter，無法設起點' }
+    else if (winError && win?.status !== 'overdue') { status = 'unreadable'; why = winError }
+    else if (!win || win.t1 == null) { status = 'pending'; why = 'Meter 快照還沒滿 3 分鐘，等 Game Record 入帳再比' }
+    else if (win.status === 'match') { status = 'match'; why = win.matchedBy === 'payout' ? '一致（窗口邊界有一局照派彩時間算）' : '' }
+    else if (win.status === 'overdue') {
+      status = 'mismatch'
+      const d = win.diff
+      why = d ? `Meter 比後台${d.count >= 0 ? '多' : '少'} ${Math.abs(d.count)} 局、${d.amount >= 0 ? '多' : '少'} ${Math.abs(d.amount)}（同一窗口連續 ${win.fails} 次，逾期待查）` : '逾期待查'
+    } else { status = 'pending'; why = '這個窗口有差異，下一輪同一窗口再確認' }
 
     rows.push({
       sessionId: m.sessionId, gmid: m.gmid, machineType: m.machineType,
@@ -390,12 +431,12 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       clientMachineName: String(item?.clientMachineName ?? ''),
       meterKind: item?.bgType === 2 || item?.bgType === '2' ? 'GCP' : item?.bgType === 1 || item?.bgType === '1' ? 'OSM' : '',
       username: m.username, status, reason: why, startedAt: m.startedAt, t0: base?.t0 ?? null,
-      as, asSinceT0, gr, grError, meter, meterError, meterCached: cached || stale, meterStale: stale, cacheHourStr: reading?.cacheHourStr ?? '',
+      as, asSinceT0, gr, grError, meter, meterError, meterCached: cached, meterStale: false, cacheHourStr: reading?.cacheHourStr ?? '',
       meterStart: base ? { gamesPlayed: base.gamesPlayed, coinIn: base.coinIn } : null,
       meterNow: reading ? { gamesPlayed: reading.gamesPlayed, coinIn: reading.coinIn } : null,
       denom: reading?.denom ?? base?.denom ?? null,
-      grMinusAs: ev.grMinusAs, meterMinusAs: ev.meterMinusAs,
-      chain, chainError,
+      grMinusAs: ev.grMinusAs, meterMinusAs: win?.diff ?? { count: null, amount: null },
+      chain, chainError, win, winError,
     })
   }
   return { rows }

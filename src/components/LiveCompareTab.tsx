@@ -24,6 +24,17 @@ interface Row {
   denom: number | null
   grMinusAs: Side; meterMinusAs: Side
   chain: Chain | null; chainError?: string
+  win: Win | null; winError?: string
+}
+/** Meter 固定窗口 (tStart, t1]：Meter 增量 vs 這台全部玩家 GR＋handpay（server/live-compare-window*.ts） */
+interface Win {
+  tStart: number; t1: number | null; status: 'match' | 'pending' | 'overdue'; fails: number
+  meter: { count: number; amount: number } | null
+  backend: { count: number; amount: number; grCount: number; handpayCount: number; handpayBet: number; handpayAmount: number } | null
+  backendByPayout: { count: number; amount: number } | null
+  matchedBy: 'bet' | 'payout' | null
+  diff: { count: number; amount: number } | null
+  okCount: number; okAmount: number; checkedAt: number | null
 }
 type RoundVerdict = 'ok' | 'anomaly' | 'jp' | 'unknown' | 'wait'
 interface RoundCheck {
@@ -42,7 +53,7 @@ interface Chain {
 }
 interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; error?: string; message?: string }
 
-const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '不一致', cache: 'Meter 不可比', unreadable: '讀不到' }
+const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '逾期待查', cache: 'Meter 不可比', unreadable: '讀不到' }
 const STATUS_ORDER: Status[] = ['match', 'pending', 'mismatch', 'cache', 'unreadable']
 const INTERVALS = [30, 60] as const
 const ROUND_LABEL: Record<RoundVerdict, string> = { ok: '通過', anomaly: '異常', jp: '含 JP 未檢查', unknown: '未檢查', wait: '等待入帳' }
@@ -134,18 +145,18 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
         </div>
 
         <div className="lc-banner is-info">渠道自動辨識（依機台編號前綴，13 個 QAT 後台）</div>
-        <div className="lc-banner is-warn">Instant Meter 為整台機台累計，可能包含其他玩家；快取值或 Meter 停更時不參與比對。</div>
+        <div className="lc-banner is-warn">判定只比後台：Instant Meter 增量 ＝ 這台全部玩家的 Game Record ＋ Jackpot Abnormality（handpay）。Game Record 會晚約 2 分鐘，所以只比 3 分鐘前的 Meter 快照；AutoSpin 次數僅供參考。</div>
 
         <div className="table-wrap lc-tbl-wrap">
           <table className="version-table lc-tbl">
             <thead>
               <tr>
                 <th>機台／渠道</th>
-                <th>AutoSpin<small>次數／下注總額</small></th>
-                <th>Game Record<small>筆數／下注加總・本帳號</small></th>
-                <th>Instant Meter<small>次數／Coin In・起點差值</small></th>
-                <th>GR − AS<small>次數／金額</small></th>
-                <th>Meter − AS<small>次數／金額</small></th>
+                <th>AutoSpin<small>參考・次數／下注</small></th>
+                <th>Game Record<small>參考・本帳號（GR − AS）</small></th>
+                <th>Instant Meter<small>窗口增量・次數／Coin In</small></th>
+                <th>後台合計<small>全部玩家 GR ＋ handpay</small></th>
+                <th>Meter − 後台<small>次數／金額</small></th>
                 <th>狀態</th>
                 <th>逐局檢查<small>Game Record 七欄</small></th>
                 <th aria-label="展開" />
@@ -163,10 +174,10 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
                     <tr className={`lc-row is-${r.status}`}>
                       <td><b className="lc-gmid">{r.gmid}</b><small>{r.clientMachineName || r.machineType}・{r.channelName}{r.meterKind && <>・{r.meterKind}</>}</small></td>
                       <td>{fmtN(r.as.count)}<small title={r.as.amount == null && r.as.count ? `${r.as.betKnown}/${r.as.count} 局推得出注額` : undefined}>{fmtA(r.as.amount)}</small></td>
-                      <td>{r.gr ? <>{fmtN(r.gr.count)}<small>{fmtA(r.gr.amount)}</small></> : <>—<small>讀取失敗</small></>}</td>
-                      <td>{r.meter ? <>{fmtN(r.meter.count)}<small>{fmtA(r.meter.amount)}</small></> : <>—<small>{r.meterStale ? 'Meter 未更新' : r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : '讀取失敗'}</small></>}</td>
-                      <td className={diffCls(r.grMinusAs)}>{fmtD(r.grMinusAs.count)}<small>{fmtD(r.grMinusAs.amount, true)}</small></td>
-                      <td className={diffCls(r.meterMinusAs)}>{r.meterCached ? <>—<small>不可比</small></> : <>{fmtD(r.meterMinusAs.count)}<small>{fmtD(r.meterMinusAs.amount, true)}</small></>}</td>
+                      <td>{r.gr ? <>{fmtN(r.gr.count)}<small>{fmtA(r.gr.amount)}（{fmtD(r.grMinusAs.count)}）</small></> : <>—<small>讀取失敗</small></>}</td>
+                      <td>{r.win?.meter ? <>{fmtN(r.win.meter.count)}<small>{fmtA(r.win.meter.amount)}</small></> : <>—<small>{r.meterCached ? '快取值不比較' : r.t0 == null ? '尚無起點' : r.meterError ? '讀取失敗' : '快照未滿 3 分鐘'}</small></>}</td>
+                      <td>{r.win?.backend ? <>{fmtN(r.win.backend.count)}<small>{fmtA(r.win.backend.amount)}{r.win.backend.handpayCount > 0 && <>・含 handpay {r.win.backend.handpayCount}</>}</small></> : <>—<small>{r.winError ? '讀取失敗' : '—'}</small></>}</td>
+                      <td className={r.win?.diff && !r.win.matchedBy ? diffCls(r.win.diff) : 'lc-diff'}>{r.win?.diff ? (r.win.matchedBy ? <>0<small>0.00{r.win.matchedBy === 'payout' ? '・照派彩時間' : ''}</small></> : <>{fmtD(r.win.diff.count)}<small>{fmtD(r.win.diff.amount, true)}</small></>) : <>—<small>—</small></>}</td>
                       <td><span className={`lc-pill is-${r.status}`}>{STATUS_LABEL[r.status]}</span><small className="lc-reason">{shortReason(r)}</small></td>
                       <td><ChainCell r={r} /></td>
                       <td><button type="button" className="btn-ghost lc-x" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : key)}>{isOpen ? '收合' : '明細'}</button></td>
@@ -182,8 +193,8 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
         </div>
 
         <div className="lc-foot">
-          <span>金額已按 Denom 換算；差值＝來源 − AutoSpin。AutoSpin／Game Record 從開跑算，Meter 差值從 Meter 起點算（跟起點後的 AutoSpin 局數比）。</span>
-          <span>等待入帳＝有差異但還沒連續 2 輪；起點缺失、累計回退或 Denom 改變時會重設起點。</span>
+          <span>金額已按 Denom 換算。Meter 比的是一段固定窗口（上一次對上的時間點 → 3 分鐘前的快照）；對上後才接著比下一段。</span>
+          <span>等待入帳＝這個窗口還有差、下一輪同一窗口再查；逾期待查＝同一窗口連兩次都對不上，後台補齊後自動解除。起點缺失、累計回退或 Denom 改變時會重設起點。</span>
         </div>
       </section>
 
@@ -198,9 +209,10 @@ function diffCls(d: Side) {
 }
 
 function shortReason(r: Row): string {
-  if (r.status === 'pending') return '下一輪再確認'
-  if (r.status === 'cache') return r.meterStale ? 'Meter 未更新' : r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
-  if (r.status === 'unreadable') return r.grError ? 'Game Record' : 'Instant Meter'
+  if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : '同窗口下一輪再查'
+  if (r.status === 'mismatch') return `同窗口 ${r.win?.fails ?? 0} 次`
+  if (r.status === 'cache') return r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
+  if (r.status === 'unreadable') return r.meterError ? 'Instant Meter' : r.winError ? '後台查詢' : '—'
   return ''
 }
 
@@ -210,8 +222,8 @@ function Detail({ r }: { r: Row }) {
       <div className="lc-detail-h">
         <b>{r.gmid}</b>｜{STATUS_LABEL[r.status]}明細
       </div>
-      <div className="lc-detail-concl"><span className={`lc-pill is-${r.status}`}>結論</span>{r.reason || '三邊一致'}
-        {(r.meterMinusAs.count ?? 0) > 0 && <span className="lc-note">注意：Meter 是整台累計，多出來的可能是其他人在玩，不能直接當成漏帳。</span>}
+      <div className="lc-detail-concl"><span className={`lc-pill is-${r.status}`}>結論</span>{r.reason || 'Meter 與後台一致'}
+        {r.winError && r.status !== 'unreadable' && <span className="lc-note">這輪後台查詢失敗：{r.winError}</span>}
       </div>
       <div className="lc-detail-grid">
         <div className="lc-box">
@@ -222,13 +234,16 @@ function Detail({ r }: { r: Row }) {
           <p>Meter 差值：{r.t0 ? `${fmtT(r.t0)} 起` : '尚未設起點'}{r.asSinceT0 && <>（這段 AutoSpin {fmtN(r.asSinceT0.count)} 局）</>}</p>
         </div>
         <div className="lc-box">
-          <h4>Meter 起點 → 現在</h4>
-          {r.meterStart && r.meterNow ? <>
-            <p>SAS 05　{fmtN(r.meterStart.gamesPlayed)} → {fmtN(r.meterNow.gamesPlayed)}</p>
-            <p>SAS 00　{fmtN(r.meterStart.coinIn)} → {fmtN(r.meterNow.coinIn)}</p>
-            <p>Denom　{r.denom ?? '—'}</p>
-            <p className="lc-mono">({fmtN(r.meterNow.coinIn)} − {fmtN(r.meterStart.coinIn)}) × {r.denom} = {fmtA(r.meter?.amount)}</p>
-          </> : <p>{r.meterCached ? `快取值（停在 ${r.cacheHourStr || '?'}），不設起點` : (r.meterError || '尚未設起點')}</p>}
+          <h4>這個窗口　{r.win ? <>{fmtT(r.win.tStart)} → {r.win.t1 ? fmtT(r.win.t1) : '（快照未滿 3 分鐘）'}</> : ''}</h4>
+          {r.win?.meter ? <>
+            <p>Instant Meter　{fmtN(r.win.meter.count)} 局／{fmtA(r.win.meter.amount)}</p>
+            {r.win.backend ? <>
+              <p>Game Record（全部玩家）　{fmtN(r.win.backend.grCount)} 局</p>
+              <p>Jackpot Abnormality（handpay）　{fmtN(r.win.backend.handpayCount)} 筆・注額 {fmtA(r.win.backend.handpayBet)}{r.win.backend.handpayAmount ? `・JP ${fmtA(r.win.backend.handpayAmount)}` : ''}</p>
+              <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}{r.win.matchedBy === 'payout' && r.win.backendByPayout ? `（照派彩時間 ${fmtN(r.win.backendByPayout.count)} 局，對上）` : ''}</p>
+            </> : <p>{r.winError ? `後台查詢失敗：${r.winError}` : '—'}</p>}
+          </> : <p>{r.meterCached ? `快取值（停在 ${r.cacheHourStr || '?'}），不設起點` : (r.meterError || (r.t0 == null ? '尚未設起點' : 'Meter 快照要收到滿 3 分鐘才比（等 Game Record 入帳）'))}</p>}
+          {r.win && r.win.okCount > 0 && <p className="lc-muted">之前已對上：{fmtN(r.win.okCount)} 局／{fmtA(r.win.okAmount)}</p>}
         </div>
         <div className="lc-box">
           <h4>來源讀取時間</h4>
