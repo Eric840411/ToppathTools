@@ -538,7 +538,9 @@ session 在那個空窗裡看起來就像不存在。
   所以頁籤下方可填「渠道後台帳號」（`qat_osm_site_username`／`site_password`，密碼加密）；沒填就沿用主帳號。
 - **金額**：AutoSpin 有任何一局推不出注額，下注總額顯示「—」只比次數。讀不到一律「—」，不顯示 0。
 - **GCP 機台**（v5.78.4）：egmMeterList 要帶 `bgType=0` 才會同時回 OSM（1）與 GCP（2）機台；沒帶只有 OSM，GCP 機台會「找不到這台」。`/egm/gsameter/egmMeterList` 跟 `/egm/meter/` 回同一份，差別只在 bgType。機台列標出 OSM／GCP。
-  單位已驗（1105）：GCP 機台 892-DRAGONLAW-0025 Game Record 全部玩家 571 局／下注 99,200／贏分 54,520 ＝ Instant Meter 05／00×Denom／01。Game Record 的 bgtype `gsa` 也是 GCP。
+  單位（1105）：Denom＝1 的 892-DRAGONLAW-0025 GR 全部玩家 571 局／下注 99,200／贏分 54,520 ＝ Meter 05／00×Denom／01；
+  Denom＝0.01 的 892-MOREPUFF-0134 只有贏分驗到（GR 780 ＝ 01×Denom），局數／下注當時有人在玩、GR 停在 14:21:40 沒跟上，待補驗。
+  Game Record 的 bgtype `gsa`＝GCP、`osm`＝OSM；機台中途改機種時，同一台 GR 兩種都有。
 - **Meter 未更新**（v5.78.5）：upTime 之後 AutoSpin 已有新局、且落後超過 2 分鐘（`METER_STALE_MS`），這輪不比 Meter、只比 Game Record，狀態「Meter 不可比」。否則窗口截在 upTime，0 對 0 會顯示假的一致。
   ⚠️ 1105 實測 892-GONGGONGLAIFU-9004（GCP）前一天有 Game Record，Instant Meter 05／00 卻是 0，待同事確認是否正常。
 - **只支援 QAT**；UAT 沒有後台連線設定，回錯誤訊息。
