@@ -39,6 +39,7 @@ function setup() {
   }
   const sends: Array<{ chatId: string; uuid?: string }> = []
   let sendFail = 0
+  let lastUntil: number | null = null
   const deps: FinalDeps = {
     now: () => clock,
     compare: async (_env, sessions, opts) => {
@@ -46,11 +47,14 @@ function setup() {
       for (const s of sessions) db.prepare('INSERT INTO live_compare_snap VALUES (?, ?, ?, 0, 0, 1, ?)').run(s.id, G, clock - state.snapLag, clock)
       for (const s of sessions) for (let i = 0; i < state.spinDuringCompare; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(s.id, clock)
       state.spinDuringCompare = 0
-      const hp = state.handpay
-      const gr = state.gr && opts?.withEvidence
-        ? (hp.error ? { ...state.gr, lastBetAt: null, evidenceError: hp.error } : { ...state.gr, handpayCount: hp.count, lastBetAt: Math.max(state.gr.lastBetAt ?? 0, hp.lastBetAt ?? 0) || null })
-        : state.gr
-      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr, win: state.win } as unknown as LiveCompareRow)) }
+      // 模擬 liveCompare 的 withEvidence：本帳號 GR＋handpay 併成 own（最後一局取較晚者）
+      const hp = state.handpay, g = state.gr as { count: number; lastBetAt?: number | null } | null
+      const own = !opts?.withEvidence ? undefined
+        : hp.error ? { error: hp.error }
+        : !g ? { error: 'Game Record 讀取失敗' }
+        : { autospin: 3, gr: g.count, handpay: hp.count, lastBetAt: Math.max(g.lastBetAt ?? 0, hp.lastBetAt ?? 0) || null, until: opts.untilMs ?? clock }
+      lastUntil = opts?.untilMs ?? null
+      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr: state.gr, own, win: state.win } as unknown as LiveCompareRow)) }
     },
     send: async (chatId, _card, opts) => {
       if (sendFail > 0) { sendFail--; return { ok: false, code: 'NET', message: 'timeout' } }
@@ -60,7 +64,7 @@ function setup() {
   const f = createFinalizer(db, deps)
   const run = (id: string) => db.prepare('SELECT state, notifyState, notifyAttempts, spinCount, chatId FROM live_compare_run WHERE sessionId=?').get(id) as { state: string; notifyState: string; notifyAttempts: number; spinCount: number; chatId: string } | undefined
   const spins = (id: string, n: number, observedAt: number) => { for (let i = 0; i < n; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(id, observedAt) }
-  return { db, f, state, sends, run, spins, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
+  return { db, f, state, sends, run, spins, until: () => lastUntil, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
 }
 const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: { count: 3, amount: 3 }, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o }) as LiveCompareRow['win']
 
@@ -72,6 +76,7 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   h.spins('short', 3, T0 - 164_000)
   await h.f.tick(() => [S])
   eq('短 session 會被登記並進結算', h.run('short')?.state, 'settling')
+  eq('本帳號局數的上界＝發現停止＋1 分鐘（停止後同帳號再玩不混進來）', h.until(), T0 + MIN)
   eq('剛看到 spin 增加 → 還在等尾筆', h.run('short')?.spinCount, 3)
 
   // 窗口一致，但 t1 是收妥之前的快照（agent 時鐘＋30 秒會誤以為涵蓋了）

@@ -16,7 +16,7 @@ import { loadMeterConfig, meterPost } from './routes/meter-reconcile.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId, guardOwnRounds, siteLoginCandidates,
+  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId, guardOwnRounds, siteLoginCandidates, ownHandpayFromRows,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
 import { toBackendRounds } from './live-compare-window.js'
@@ -282,13 +282,13 @@ export interface LiveCompareRow {
   as: SideValue & { betKnown: number; readAt: number }
   asSinceT0: (SideValue & { betKnown: number }) | null
   /** lastBetAt：本帳號這台最後一局的下注時間（後台時鐘），停止後結算拿來證明 Meter 涵蓋尾局 */
-  gr: (SideValue & {
-    readAt: number
-    lastBetAt?: number | null
-    /** 停止後結算才查（withEvidence）：本帳號這台的 handpay 筆數；lastBetAt 已含 handpay（handpay 的局不進 Game Record） */
-    handpayCount?: number
-    evidenceError?: string
-  }) | null
+  gr: (SideValue & { readAt: number }) | null
+  /**
+   * 停止後結算才有（withEvidence）：本帳號這台在固定邊界內的局數，跟 AutoSpin 這個 session 的有效局數對照。
+   * 邊界＝開跑（伺服器時間）～ untilMs（停止＋1 分鐘）；AutoSpin 照 sessionId 算、不用 agent 時鐘篩（agent 時鐘可能差好幾分鐘）。
+   * lastBetAt＝邊界內本帳號最後一局（一般局與 handpay 取較晚者，後台時鐘），拿來證明 Meter 涵蓋尾局。
+   */
+  own?: { autospin: number; gr: number; handpay: number; lastBetAt: number | null; until: number } | { error: string }
   grError?: string
   meter: (SideValue & { readAt: number }) | null
   meterError?: string
@@ -317,7 +317,7 @@ export interface LiveSessionRef { id: string; startedAt: number }
  * handpay 那局不進 Game Record——停止後結算要證明 Meter 涵蓋最後一局，最後一局可能正好是 handpay（CodeX 862a4fa P1）。
  * ⚠️ 這支 API 帶機台名時不看日期，自己用下注時間篩；任何一列缺欄位或不是這台 → 回錯誤（不能當沒有）
  */
-async function ownHandpayOf(clientMachineName: string, gmid: string, username: string, fromMs: number): Promise<{ count: number; lastBetAt: number | null } | { error: string }> {
+async function ownHandpayOf(clientMachineName: string, gmid: string, username: string, fromMs: number, untilMs: number): Promise<{ count: number; lastBetAt: number | null } | { error: string }> {
   const cfg = loadMeterConfig('qat', 'osm')
   const p = new URLSearchParams({ clientMachineName, playerId: '', playerName: '', orderId: '', page: '1', pageSize: '200', dateTimeType: '0', playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL', isall: 'true', channelId: '0' })
   p.append('dateTime[]', new Date(fromMs).toISOString())
@@ -327,18 +327,10 @@ async function ownHandpayOf(clientMachineName: string, gmid: string, username: s
   if (h?.code !== 20000) return { error: `Jackpot Abnormality 回 code=${h?.code ?? '?'}` }
   const items: Record<string, unknown>[] = h?.data?.items ?? []
   if (Number(h?.data?.total ?? 0) > items.length) return { error: 'Jackpot Abnormality 超過 200 筆，結果不完整' }
-  let count = 0, last: number | null = null
-  for (const r of items) {
-    if (String(r.uid ?? '') !== gmid) return { error: 'Jackpot Abnormality 有不是這台的列' }
-    const t = Number(r.bet_time_precise)
-    if (r.bet_time_precise == null || !Number.isFinite(t)) return { error: 'Jackpot Abnormality 有列缺下注時間' }
-    if (String(r.username ?? '') !== username || t * 1000 < fromMs) continue
-    count++; last = Math.max(last ?? 0, t * 1000)
-  }
-  return { count, lastBetAt: last }
+  return ownHandpayFromRows(items, gmid, username, fromMs, untilMs)
 }
 
-export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean } = {}): Promise<{ rows: LiveCompareRow[]; error?: string }> {
+export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number } = {}): Promise<{ rows: LiveCompareRow[]; error?: string }> {
   if (env !== 'qat') return { rows: [], error: 'UAT 目前沒有 Instant Meter／Game Record 的連線設定，即時對照只支援 QAT' }
   const machines: Array<{ sessionId: string; startedAt: number; gmid: string; machineType: string; username: string }> = []
   for (const s of sessions) {
@@ -419,7 +411,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       if (!g || 'error' in g) grError = g && 'error' in g ? g.error : 'Game Record 讀取失敗'
       else {
         const inWin = (g.byGmid.get(m.gmid) ?? []).filter(r => r.t >= m.startedAt)
-        gr = { count: inWin.length, amount: Math.round(inWin.reduce((acc, r) => acc + r.bet, 0) * 100) / 100, readAt: grReadAt, lastBetAt: inWin.length ? Math.max(...inWin.map(r => r.t)) : null }
+        gr = { count: inWin.length, amount: Math.round(inWin.reduce((acc, r) => acc + r.bet, 0) * 100) / 100, readAt: grReadAt }
       }
     }
     let chain: LiveCompareRow['chain'] = null, chainError: string | undefined
@@ -482,12 +474,19 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
   }
   // 停止後結算：把本帳號 handpay 併進「最後一局」證據（讀不到就清掉證據，結算時就定不了終點）
   if (opts.withEvidence) {
+    const until = opts.untilMs ?? Date.now()
     for (const r of rows) {
-      if (!r.gr || !r.username || !r.clientMachineName) continue
-      const hp = await ownHandpayOf(r.clientMachineName, r.gmid, r.username, r.startedAt)
-      if ('error' in hp) { r.gr = { ...r.gr, lastBetAt: null, evidenceError: hp.error }; continue }
-      const last = Math.max(r.gr.lastBetAt ?? 0, hp.lastBetAt ?? 0)
-      r.gr = { ...r.gr, handpayCount: hp.count, lastBetAt: last || null }
+      if (!r.username) { r.own = { error: 'Game URL 裡沒有 username' }; continue }
+      if (!r.clientMachineName) { r.own = { error: '讀不到機台名稱' }; continue }
+      const g = grByUser.get(r.username)
+      if (!g || 'error' in g) { r.own = { error: g && 'error' in g ? g.error : 'Game Record 讀取失敗' }; continue }
+      const mine = (g.byGmid.get(r.gmid) ?? []).filter(x => x.t >= r.startedAt && x.t <= until)
+      const hp = await ownHandpayOf(r.clientMachineName, r.gmid, r.username, r.startedAt, until)
+      if ('error' in hp) { r.own = { error: hp.error }; continue }
+      // AutoSpin：照 sessionId 算整個 session 的有效局（不用 agent 的 observedAt 篩）
+      const asAll = countSpins(db, 'qat', r.sessionId, r.gmid, 0, Number.MAX_SAFE_INTEGER, false).count
+      const last = Math.max(0, ...mine.map(x => x.t), hp.lastBetAt ?? 0)
+      r.own = { autospin: asAll, gr: mine.length, handpay: hp.count, lastBetAt: last || null, until }
     }
   }
   return { rows }
@@ -498,7 +497,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
  * 兩邊同時推進同一台會重複前進或互相蓋掉（CodeX 1106 提醒要加鎖）。
  */
 let liveCompareChain: Promise<unknown> = Promise.resolve()
-export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean } = {}): ReturnType<typeof liveCompare> {
+export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number } = {}): ReturnType<typeof liveCompare> {
   const next = liveCompareChain.then(() => liveCompare(env, sessions, opts))
   liveCompareChain = next.catch(() => {})
   return next

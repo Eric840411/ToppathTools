@@ -188,3 +188,22 @@ export function siteLoginCandidates(osm: Record<string, string>, gcp: Record<str
   add(gcp.login_username, gcp.login_password, 'GCP 帳號')
   return out
 }
+
+/**
+ * 本帳號在這台、[fromMs, untilMs] 內的 handpay：筆數與最後一局下注時間（ms）。
+ * ⚠️ 先驗欄位再篩帳號：缺帳號會被當成「別人的」略過、空字串的下注時間 Number('') 是 0——
+ *    兩種都會靜默漏掉尾局（CodeX b7f907e P1）。任何一列不是這台、缺帳號、缺下注時間 → 整批錯誤。
+ */
+export function ownHandpayFromRows(items: Record<string, unknown>[], gmid: string, username: string, fromMs: number, untilMs: number): { count: number; lastBetAt: number | null } | { error: string } {
+  let count = 0, last: number | null = null
+  for (const r of items) {
+    if (String(r.uid ?? '') !== gmid) return { error: 'Jackpot Abnormality 有不是這台的列' }
+    const name = typeof r.username === 'string' ? r.username.trim() : ''
+    if (!name) return { error: 'Jackpot Abnormality 有列缺帳號' }
+    const t = strictNum(r.bet_time_precise)
+    if (t == null || t <= 0) return { error: 'Jackpot Abnormality 有列缺下注時間' }
+    if (name !== username || t * 1000 < fromMs || t * 1000 > untilMs) continue
+    count++; last = Math.max(last ?? 0, t * 1000)
+  }
+  return { count, lastBetAt: last }
+}

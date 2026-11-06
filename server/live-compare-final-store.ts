@@ -16,6 +16,8 @@ export const FINAL_REPORT_CHAT_KEY = 'autospin_final_report_chat_id'
 const NOTIFY_MAX_ATTEMPTS = 5
 /** 已停止、但沒被登記過的 session，停止多久內還要補結算（短 session：開始後在第一次背景掃描前就停了） */
 const LATE_REGISTER_MS = 30 * 60_000
+/** 本帳號局數比到停止後多久（停止時間是背景掃描發現的，最多晚 1 分鐘） */
+const OWN_UNTIL_AFTER_STOP_MS = 60_000
 /** 頁面多久內輪詢過就不用背景再比一次 */
 const PAGE_FRESH_MS = 50_000
 
@@ -33,7 +35,7 @@ export interface LiveSessionInfo {
 }
 
 export interface FinalDeps {
-  compare: (env: 'qat', sessions: LiveSessionRef[], opts?: { withEvidence?: boolean }) => Promise<{ rows: LiveCompareRow[] }>
+  compare: (env: 'qat', sessions: LiveSessionRef[], opts?: { withEvidence?: boolean; untilMs?: number }) => Promise<{ rows: LiveCompareRow[] }>
   send: (chatId: string, card: object, opts: { uuid?: string }) => Promise<{ ok: true; value: string } | { ok: false; code: string; message: string }>
   now: () => number
 }
@@ -184,7 +186,8 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         const sp = spinStats(run.env, run.sessionId)
         let lastGrowthAt = sp.count !== run.spinCount ? t : (run.lastGrowthAt ?? run.stoppedAt)
         // 先比一次（這一次會記下一筆 Meter 快照），再用「尾筆收妥之後讀到的快照」定每台終點
-        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }], { withEvidence: true })
+        // 本帳號局數的上界＝發現停止＋1 分鐘（同一帳號停止後馬上又在同一台玩，才不會混進這一輪——CodeX b7f907e P1）
+        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }], { withEvidence: true, untilMs: (run.stoppedAt ?? t) + OWN_UNTIL_AFTER_STOP_MS })
         const rows = res.rows
         // ⚠️ 比對要等網路，期間可能又進來新局：比完再數一次，變了就重算靜默期、這輪不定案（CodeX 7a44528 P1）。
         //    但超過結算上限就不能再等——照新筆數往下走，decideSettle 會給 timeout（CodeX 862a4fa P2：不能一直繞過 15 分鐘）
@@ -206,8 +209,9 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         const whys: string[] = []
         for (const r of rows) {
           const snaps = db.prepare('SELECT upTime, readAt FROM live_compare_snap WHERE sessionId=? AND gmid=?').all(run.sessionId, r.gmid) as Array<{ upTime: number; readAt: number }>
-          if (r.gr) evidence[r.gmid] = evidenceCount(r.gr)
-          const tw = targetWithEvidence({ snapTarget: targetFromSnaps(snaps, quietFrom), gr: r.gr, prevGrCount: prevEv[r.gmid] ?? null, now: deps.now(), quietFrom })
+          const ec = evidenceCount(r.own)
+          if (ec != null) evidence[r.gmid] = ec
+          const tw = targetWithEvidence({ snapTarget: targetFromSnaps(snaps, quietFrom), own: r.own, prevGrCount: prevEv[r.gmid] ?? null, now: deps.now(), quietFrom })
           targets[r.gmid] = tw.target
           if (tw.why) whys.push(`${r.clientMachineName || r.gmid}：${tw.why}`)
         }

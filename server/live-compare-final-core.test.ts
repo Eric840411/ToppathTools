@@ -29,17 +29,18 @@ eq('取收妥之後最早那筆快照', targetFromSnaps([{ upTime: STOP - 9 * MI
 eq('收妥之前讀到的快照不算（可能還沒含最後一局）', targetFromSnaps([{ upTime: STOP + 99 * MIN, readAt: QF - 1 }], QF), null)
 eq('沒有快照 → 定不出終點', targetFromSnaps([], QF), null)
 
-// ── 終點要有 Meter 涵蓋尾局的證據（本帳號最後一局的後台下注時間）──
+// ── 終點要有 Meter 涵蓋尾局的證據（本帳號最後一局的後台下注時間，一般局＋handpay）──
 {
-  const ev = (o: Partial<Parameters<typeof targetWithEvidence>[0]>) => targetWithEvidence({ snapTarget: TARGET, gr: { count: 3, handpayCount: 0, lastBetAt: STOP }, prevGrCount: 3, now: QF + GR_SETTLE_MS, quietFrom: QF, ...o })
+  const own = (o: Record<string, unknown> = {}) => ({ autospin: 3, gr: 3, handpay: 0, lastBetAt: STOP, until: STOP + MIN, ...o })
+  const ev = (o: Partial<Parameters<typeof targetWithEvidence>[0]>) => targetWithEvidence({ snapTarget: TARGET, own: own(), prevGrCount: 3, now: QF + GR_SETTLE_MS, quietFrom: QF, ...o })
   eq('證據齊 → 終點取快照與最後一局較晚者', ev({}).target, Math.max(TARGET, STOP))
   eq('Meter 停更（快照比最後一局舊）→ 終點拉到最後一局，舊窗口追不過', ev({ snapTarget: STOP - 120_000 }).target, STOP)
   eq('Game Record 還沒到齊 → 不給終點', ev({ now: QF + GR_SETTLE_MS - 1 }).target, null)
   eq('本帳號局數還在變 → 不給終點', ev({ prevGrCount: 2 }).target, null)
-  eq('讀不到本帳號 Game Record → 沒有證據', ev({ gr: null }).target, null)
-  eq('沒查 handpay → 沒有證據（handpay 那局不進 Game Record）', ev({ gr: { count: 3, lastBetAt: STOP } }).target, null)
-  eq('handpay 讀取失敗 → 沒有證據', ev({ gr: { count: 3, handpayCount: 0, lastBetAt: null, evidenceError: 'Jackpot Abnormality 回 code=500' } }).target, null)
-  eq('handpay 筆數變了也算還在變', ev({ gr: { count: 3, handpayCount: 1, lastBetAt: STOP } }).target, null)
+  eq('沒查本帳號（頁面輪詢）→ 沒有證據', ev({ own: undefined }).target, null)
+  eq('handpay／GR 讀取失敗 → 沒有證據', ev({ own: { error: 'Jackpot Abnormality 回 code=500' } }).target, null)
+  eq('handpay 筆數變了也算還在變', ev({ own: own({ handpay: 1 }) }).target, null)
+  eq('本帳號一局都沒有 → 沒有證據', ev({ own: own({ lastBetAt: null }) }).target, null)
 }
 
 // ── 一台的結算 ──
@@ -86,12 +87,12 @@ eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinC
 
 // ── 卡片 ──
 {
-  const ok = summarizeMachine(row(win({ status: 'match', t1: TARGET, okCount: 400, okAmount: 20000, meter: { count: 11, amount: 550 } })), TARGET)
+  const ok = summarizeMachine(row(win({ status: 'match', t1: TARGET, okCount: 400, okAmount: 20000, meter: { count: 11, amount: 550 } }), { own: { autospin: 411, gr: 411, handpay: 0, lastBetAt: STOP, until: STOP + MIN } }), TARGET)
   const bad = summarizeMachine(row(win({ status: 'overdue', diff: { count: 2, amount: 100 } }), { clientMachineName: '<at id=all></at>X' }), TARGET)
   const card = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 120 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [ok, bad] }))
   eq('有逾期 → 紅色、標題寫幾台逾期', [card.includes('"template":"red"'), card.includes('1 台逾期待查')], [true, true])
   eq('外來文字的 < > 換全形（不能 @所有人）', [card.includes('<at id=all>'), card.includes('＜at id=all＞')], [false, true])
-  eq('說明兩種對照', card.includes('AutoSpin vs 你帳號 Game Record」才看得出'), true)
+  eq('說明兩種對照', card.includes('AutoSpin vs 你帳號 Game Record」看 AutoSpin 跑的局有沒有進後台'), true)
   eq('一致總計出現在卡片', card.includes('411 局／20,550'), true)
   const allOk = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 120 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [ok] }))
   eq('全部一致 → 綠色', [allOk.includes('"template":"green"'), allOk.includes('全部一致')], [true, true])
@@ -101,15 +102,19 @@ eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinC
 
 // ── AutoSpin vs 本帳號 Game Record＋handpay ──
 {
-  const gr = (count: number, handpayCount?: number, evidenceError?: string) => ({ count, amount: count, readAt: STOP, lastBetAt: STOP, handpayCount, evidenceError })
-  const mk = (as: number, g: ReturnType<typeof gr>) => summarizeMachine(row(win({ status: 'match', t1: TARGET }), { as: { count: as, amount: null, betKnown: as, readAt: STOP }, gr: g }), TARGET)
-  eq('結算時查過 handpay → 有這一行', mk(300, gr(299, 1)).own, { autospin: 300, gr: 299, handpay: 1 })
-  eq('沒查 handpay（頁面輪詢）→ 不比', mk(300, gr(300)).own, null)
-  eq('handpay 讀不到 → 不比', mk(300, gr(300, 0, 'code=500')).own, null)
-  const c = (as: number, g: ReturnType<typeof gr>) => JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 60 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [mk(as, g)] }))
-  eq('局數一致（Game Record＋handpay）→ 綠勾', c(300, gr(299, 1)).includes('AutoSpin 300 局 vs 你帳號 Game Record 299 局＋handpay 1'), true)
-  eq('AutoSpin 多 → 紅字寫多幾局', c(302, gr(299, 1)).includes('AutoSpin 多 2 局'), true)
-  eq('沒查到 → 明講沒查到（不能不寫）', c(300, gr(300)).includes('沒查到'), true)
+  type Own = NonNullable<LiveCompareRow['own']>
+  const own = (autospin: number, gr: number, handpay: number): Own => ({ autospin, gr, handpay, lastBetAt: STOP, until: STOP + MIN })
+  const mk = (o: Own | undefined) => summarizeMachine(row(win({ status: 'match', t1: TARGET }), { own: o }), TARGET)
+  eq('結算時查過 → 有這一行', mk(own(300, 299, 1)).own, { autospin: 300, gr: 299, handpay: 1 })
+  eq('沒查（頁面輪詢）→ 不比', mk(undefined).own, null)
+  eq('讀不到 → 不比、記原因', [mk({ error: 'code=500' }).own, mk({ error: 'code=500' }).ownError], [null, 'code=500'])
+  const c = (o: Own | undefined) => JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 60 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [mk(o)] }))
+  eq('局數相同（Game Record＋handpay）→ 綠勾、不寫成逐局一致', [c(own(300, 299, 1)).includes('AutoSpin 300 局 vs 你帳號 Game Record 299 局＋handpay 1'), c(own(300, 299, 1)).includes('局數相同')], [true, true])
+  eq('局數相同不保證逐局對上，要註明', c(own(300, 299, 1)).includes('漏一局又多一局會互相抵掉'), true)
+  eq('AutoSpin 多 → 紅字寫多幾局', c(own(302, 299, 1)).includes('AutoSpin 多 2 局'), true)
+  // CodeX b7f907e P2：局數有差，標題不能還是綠色「全部一致」
+  eq('局數有差 → 標題紅色、寫出來', [c(own(302, 299, 1)).includes('"template":"red"'), c(own(302, 299, 1)).includes('1 台 AutoSpin 局數有差'), c(own(302, 299, 1)).includes('全部一致')], [true, true, false])
+  eq('沒查到 → 明講沒查到、標題不寫全部一致', [c({ error: 'code=500' }).includes('沒查到（code=500）'), c({ error: 'code=500' }).includes('全部一致'), c({ error: 'code=500' }).includes('"template":"orange"')], [true, false, true])
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

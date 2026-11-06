@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, siteLoginCandidates, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, siteLoginCandidates, ownHandpayFromRows, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -87,6 +87,19 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   eq('同帳號同密碼只試一次', siteLoginCandidates({ site_username: 'M', site_password: 'p', login_username: 'M', login_password: 'p' }, { login_username: 'M', login_password: 'p' }).length, 1)
   eq('同帳號不同密碼兩組都要試（渠道帳號密碼過期時主帳號那組仍可用）', siteLoginCandidates({ site_username: 'M', site_password: 'old', login_username: 'M', login_password: 'new' }, {}).map(x => x.password), ['old', 'new'])
   eq('全空 → 沒有可試的', siteLoginCandidates({}, {}).length, 0)
+}
+// ── 本帳號 handpay：先驗欄位再篩帳號（CodeX b7f907e P1）──
+{
+  const G = '892-MOREPUFF-0134', F = 1_793_900_000_000, U = F + 3600_000
+  const hp = (o: Record<string, unknown> = {}) => ({ uid: G, username: 'fixture01', bet_time_precise: (F + 60_000) / 1000, ...o })
+  eq('本帳號、範圍內 → 算進來', ownHandpayFromRows([hp(), hp({ username: 'other' })], G, 'fixture01', F, U), { count: 1, lastBetAt: F + 60_000 })
+  eq('範圍外（停止後再玩）不算', ownHandpayFromRows([hp({ bet_time_precise: (U + 1000) / 1000 })], G, 'fixture01', F, U), { count: 0, lastBetAt: null })
+  eq('缺帳號 → 錯誤（不能當成別人的略過）', 'error' in ownHandpayFromRows([hp({ username: '' })], G, 'fixture01', F, U), true)
+  eq('帳號空白 → 錯誤', 'error' in ownHandpayFromRows([hp({ username: '  ' })], G, 'fixture01', F, U), true)
+  eq('下注時間空字串 → 錯誤（Number(\'\') 是 0）', 'error' in ownHandpayFromRows([hp({ bet_time_precise: '' })], G, 'fixture01', F, U), true)
+  eq('下注時間缺 → 錯誤', 'error' in ownHandpayFromRows([hp({ bet_time_precise: null })], G, 'fixture01', F, U), true)
+  eq('不是這台 → 錯誤', 'error' in ownHandpayFromRows([hp({ uid: 'x' })], G, 'fixture01', F, U), true)
+  eq('數字字串照讀', ownHandpayFromRows([hp({ bet_time_precise: String((F + 60_000) / 1000) })], G, 'fixture01', F, U), { count: 1, lastBetAt: F + 60_000 })
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)

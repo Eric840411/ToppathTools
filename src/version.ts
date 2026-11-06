@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.3'
+export const APP_VERSION = '5.81.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.4', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review b7f907e 兩個 P1、一個 P2)：①本帳號 handpay 缺帳號會被當成別人的略過、空字串下注時間被當 0→先驗欄位，缺就整批錯誤（抽成 ownHandpayFromRows 補 8 條）；②「AutoSpin vs 本帳號 Game Record」範圍不一致：AutoSpin 用 agent 時鐘篩（慢 164 秒會少算）、Game Record 查到現在（停止後同帳號再玩會混進來）→AutoSpin 照 sessionId 算整個 session 的有效局、Game Record／handpay 用開跑～發現停止＋1 分鐘的固定範圍；③局數有差標題仍綠色「全部一致」→標題寫「N 台 AutoSpin 局數有差」轉紅，沒查到的轉橘；卡片註明局數相同不保證逐局對上'] },
   { version: '5.81.3', date: '2026-11-06', changes: ['fix＋feat(停止後結算，CodeX review 862a4fa 一個 P1、一個 P2；同事 1106 要求)：①最後一局若是 handpay（不進 Game Record），Meter 沒涵蓋它也會判一致→結算時另查本帳號 handpay，證據取一般局與 handpay 較晚者，handpay 讀不到就沒有證據；②超過 15 分鐘仍一直進新局會一直 settling、不發→超過上限就照新筆數定案為未收斂。③總表每台多一行「AutoSpin N 局 vs 你帳號 Game Record N 局＋handpay」，停止後資料到齊才比：Meter 對後台抓不到根本沒送到後台的局，這一行才抓得到。判定 51 條、整合 28 條'] },
   { version: '5.81.2', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 7a44528 兩個 P1)：①晚讀到的 Meter 快照可能是停止前的舊資料（Meter 停更），原本照樣定案→終點改取「收妥後快照」與「本帳號這台最後一局的後台下注時間」較晚者，而且要本帳號 Game Record 已到齊（收妥後滿 4 分鐘、局數跟上一輪一樣）才給終點；讀不到就沒有證據、最後標未收斂。②比對要等網路，期間進來的新局沒算到就凍結→比完再數一次、交易裡再數一次，變了就不定案、重算靜默期。整合回歸 24 條、判定 42 條'] },
   { version: '5.81.1', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review aa55b01 三個 P1、一個 P2)：①終點原本用 agent 的 observedAt＋30 秒，agent 時鐘慢 164 秒時沒涵蓋尾局也會判完成→改成尾筆收妥之後才讀到的第一筆 Meter 快照（伺服器時鐘比 readAt）；②沒開頁面、在第一次掃描前就停了的短 session 完全不會結算→30 分鐘內停的補登記；③停止當下一筆都還沒收到就直接凍結→零筆也要等尾筆收妥再等滿 3 分鐘；④零台卡片寫「全部一致」→改「無資料」，沒有機台不發。邏輯抽成 live-compare-final-store.ts，補 18 條記憶體 DB 整合回歸'] },
