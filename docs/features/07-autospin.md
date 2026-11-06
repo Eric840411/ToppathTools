@@ -471,7 +471,7 @@ session 在那個空窗裡看起來就像不存在。
 **流程**（`server/live-compare-final.ts`，判定在 `live-compare-final-core.ts`）：
 - 表 `live_compare_run`：每輪一列，`running → settling → final／timeout`，另有獨立的通知狀態 `pending → sent／failed`（沒設群＝`skipped`）
 - worker 背景每分鐘：①正在跑但頁面 50 秒內沒輪詢的也比一次（沒開頁面也有資料可結算）②記錄是 running、session 已不在跑 → settling ③結算中的再比一次，收斂或逾時就凍結 ④送待發的總表
-- **終點**：停止按鈕不等於最後一局完成（CodeX）。要等 spin 筆數 30 秒沒再增加（伺服器時鐘）才算尾筆收妥；每台的終點＝**收妥之後才讀到的第一筆 Meter 快照的 upTime**（v5.81.1）。⚠️ 不能用 agent 的 observedAt＋餘裕：agent 時鐘可能差好幾分鐘（實測 164 秒），會讓沒涵蓋尾局的窗口被判完成（CodeX aa55b01 P1）。**終點還要有 Meter 涵蓋尾局的證據**（v5.81.2，CodeX 7a44528 P1：晚讀到不等於資料是新的，Meter 可能停更）：取「收妥後快照」與「本帳號這台最後一局的後台下注時間」較晚者，而且要本帳號 Game Record 已到齊（收妥後滿 4 分鐘、局數跟上一輪一樣）；讀不到本帳號 Game Record 就沒有證據。比對要等網路，比完與凍結交易裡都再數一次 spin，有變就不定案。每台的窗口要 t1 ≥ 終點而且一致才算 done，逾期待查照逾期定案；15 分鐘內沒收斂 → timeout、卡片標「未收斂」，**不能當一致**
+- **終點**：停止按鈕不等於最後一局完成（CodeX）。要等 spin 筆數 30 秒沒再增加（伺服器時鐘）才算尾筆收妥；每台的終點＝**收妥之後才讀到的第一筆 Meter 快照的 upTime**（v5.81.1）。⚠️ 不能用 agent 的 observedAt＋餘裕：agent 時鐘可能差好幾分鐘（實測 164 秒），會讓沒涵蓋尾局的窗口被判完成（CodeX aa55b01 P1）。**終點還要有 Meter 涵蓋尾局的證據**（v5.81.2，CodeX 7a44528 P1：晚讀到不等於資料是新的，Meter 可能停更）：取「收妥後快照」與「本帳號這台最後一局的後台下注時間（一般局與 handpay 取較晚者——handpay 那局不進 Game Record，v5.81.3）」較晚者，而且要本帳號 Game Record 已到齊（收妥後滿 4 分鐘、局數跟上一輪一樣）；讀不到本帳號 Game Record 就沒有證據。比對要等網路，比完與凍結交易裡都再數一次 spin，有變就不定案；但超過 15 分鐘就照新筆數定案為未收斂，不能一直繞過上限（v5.81.3）。每台的窗口要 t1 ≥ 終點而且一致才算 done，逾期待查照逾期定案；15 分鐘內沒收斂 → timeout、卡片標「未收斂」，**不能當一致**
 - **短 session**：沒開頁面、在第一次背景掃描前就停了的，30 分鐘內停的會補登記（更早停的不補，上線當下才不會替一堆舊 session 發總表）
 - **零筆**：停止當下一筆 spin 都還沒收到，也要先等尾筆收妥，再等滿 3 分鐘才定案；沒有機台可比就不發總表；卡片零台寫「無資料」不寫「全部一致」
 - **總計**：已對上的段（okCount）＋目前這段若一致，只算一次；對不上的那段不算進去，另列差額、已查範圍、未查尾段、讀取問題
@@ -481,9 +481,9 @@ session 在那個空窗裡看起來就像不存在。
 
 **設定**：Lark 通知設定頁「AutoSpin 停止總表」選群、試發（只限管理員；`settings.autospin_final_report_chat_id`；API `/api/lark-notify/autospin-final-chat`、`/autospin-final-test`）。凍結當下記下 chat ID，之後改設定不影響已排的那張。
 
-**卡片用詞**（CodeX）：叫「後台對照總表」，註明是 Meter 對後台（這台全部玩家），不代表 AutoSpin 每一局都入帳；終點附近可能含其他玩家的局。
+**卡片內容**：每台兩種對照——①「Meter ＝ 後台」：機台 Meter 對後台帳（這台全部玩家，開頭／結尾可能混到別人的局）；②「AutoSpin N 局 vs 你帳號 Game Record N 局＋handpay」（v5.81.3，同事 1106 要求）：Meter 跟 Game Record 都是後台自己的帳，AutoSpin 按了但根本沒送到後台的局兩邊都不會有，①抓不到，②才抓得到。②只在結算時查過本帳號 handpay 才有；讀不到就寫「沒查到」。
 
-**測試**：`npx tsx server/live-compare-final-core.test.ts`（42，判定）、`npx tsx server/live-compare-final-store.test.ts`（24，記憶體 DB＋假比對／發送／時鐘的整合：短 session、零筆、agent 時鐘偏移、Meter 停更、比對途中進新局、退避重送、不重發、舊 session 不補）。拿掉「t1 ≥ 終點」、對不上的段算進總計、終點不看收妥時間、零筆直接定案、不補登記短 session、不看退避時間，各自會紅。邏輯在 `live-compare-final-store.ts`（吃傳入的 db／比對／發送／時鐘），`live-compare-final.ts` 只負責接正式環境。
+**測試**：`npx tsx server/live-compare-final-core.test.ts`（51，判定）、`npx tsx server/live-compare-final-store.test.ts`（28，記憶體 DB＋假比對／發送／時鐘的整合：短 session、零筆、agent 時鐘偏移、Meter 停更、最後一局是 handpay、handpay 讀不到、比對途中進新局、超過上限仍進新局、退避重送、不重發、舊 session 不補）。拿掉「t1 ≥ 終點」、對不上的段算進總計、終點不看收妥時間、零筆直接定案、不補登記短 session、不看退避時間，各自會紅。邏輯在 `live-compare-final-store.ts`（吃傳入的 db／比對／發送／時鐘），`live-compare-final.ts` 只負責接正式環境。
 
 ### 一直跑到使用者自己停：續租取代 8 小時上限（v5.80.0）
 

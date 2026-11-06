@@ -30,6 +30,8 @@ function setup() {
     win: null as LiveCompareRow['win'], noRows: false,
     /** 本帳號 Game Record（後台時鐘的最後一局）；預設：3 局、最後一局在 T0 */
     gr: { count: 3, amount: 3, readAt: T0, lastBetAt: T0 } as LiveCompareRow['gr'],
+    /** 本帳號 handpay（只有 withEvidence 時才併進 gr，模擬 liveCompare） */
+    handpay: { count: 0, lastBetAt: null as number | null, error: '' },
     /** Meter 快照的 upTime 比讀取時間早多少（模擬 Meter 停更就調大） */
     snapLag: 5000,
     /** 比對途中又進來幾局（模擬網路等待期間的晚到資料） */
@@ -39,12 +41,16 @@ function setup() {
   let sendFail = 0
   const deps: FinalDeps = {
     now: () => clock,
-    compare: async (_env, sessions) => {
+    compare: async (_env, sessions, opts) => {
       if (state.noRows) return { rows: [] }
       for (const s of sessions) db.prepare('INSERT INTO live_compare_snap VALUES (?, ?, ?, 0, 0, 1, ?)').run(s.id, G, clock - state.snapLag, clock)
       for (const s of sessions) for (let i = 0; i < state.spinDuringCompare; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(s.id, clock)
       state.spinDuringCompare = 0
-      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr: state.gr, win: state.win } as unknown as LiveCompareRow)) }
+      const hp = state.handpay
+      const gr = state.gr && opts?.withEvidence
+        ? (hp.error ? { ...state.gr, lastBetAt: null, evidenceError: hp.error } : { ...state.gr, handpayCount: hp.count, lastBetAt: Math.max(state.gr.lastBetAt ?? 0, hp.lastBetAt ?? 0) || null })
+        : state.gr
+      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr, win: state.win } as unknown as LiveCompareRow)) }
     },
     send: async (chatId, _card, opts) => {
       if (sendFail > 0) { sendFail--; return { ok: false, code: 'NET', message: 'timeout' } }
@@ -179,6 +185,47 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   h.setClock(T0 + 5 * MIN); await h.f.tick(() => [S])
   eq('比對途中進來新局 → 不凍結、筆數更新', [h.run('race')?.state, h.run('race')?.spinCount], ['settling', 2])
   eq('沒有發出總表', h.sends.length, 0)
+}
+
+// ── CodeX 862a4fa P1：最後一局是 handpay（不進 Game Record）——Meter 停在它之前就不能定案 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'hp', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('hp', 3, T0)
+  h.state.gr = { count: 3, amount: 3, readAt: T0, lastBetAt: T0 - 200_000 }
+  h.state.handpay = { count: 1, lastBetAt: T0 - 10_000, error: '' }
+  h.state.snapLag = 0
+  // 窗口 t1 停在停止前 120 秒（一般局之後、handpay 之前）
+  h.state.win = win({ status: 'match', t1: T0 - 120_000 })
+  for (let m = 0; m <= 8; m++) { h.setClock(T0 + m * MIN); h.state.snapLag = m * MIN + 120_000; await h.f.tick(() => [S]) }
+  eq('最後一局是 handpay、Meter 沒涵蓋 → 不能定案', [h.run('hp')?.state, h.sends.length], ['settling', 0])
+  h.state.win = win({ status: 'match', t1: T0 - 5_000 })
+  h.state.snapLag = 0
+  h.setClock(T0 + 9 * MIN); await h.f.tick(() => [S])
+  h.setClock(T0 + 10 * MIN); await h.f.tick(() => [S])
+  eq('窗口追過 handpay 那局 → final', h.run('hp')?.state, 'final')
+}
+
+// ── handpay 讀不到 → 沒有證據，最後未收斂 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'hperr', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('hperr', 3, T0)
+  h.state.handpay = { count: 0, lastBetAt: null, error: 'Jackpot Abnormality 回 code=500' }
+  h.state.win = win({ status: 'match', t1: T0 + 30 * MIN })
+  for (let m = 0; m <= 16; m += 2) { h.setClock(T0 + m * MIN); await h.f.tick(() => [S]) }
+  eq('handpay 讀不到 → 逾時未收斂', h.run('hperr')?.state, 'timeout')
+}
+
+// ── CodeX 862a4fa P2：過了 15 分鐘，比對途中一直進新局也要定案（未收斂），不能一直 settling ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'late', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('late', 3, T0)
+  h.state.win = win({ status: 'pending' })
+  await h.f.tick(() => [S])
+  for (const m of [16, 17, 18]) { h.state.spinDuringCompare = 1; h.setClock(T0 + m * MIN); await h.f.tick(() => [S]) }
+  eq('超過上限還一直進新局 → timeout 並發出', [h.run('late')?.state, h.run('late')?.notifyState], ['timeout', 'sent'])
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

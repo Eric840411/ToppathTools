@@ -282,7 +282,13 @@ export interface LiveCompareRow {
   as: SideValue & { betKnown: number; readAt: number }
   asSinceT0: (SideValue & { betKnown: number }) | null
   /** lastBetAt：本帳號這台最後一局的下注時間（後台時鐘），停止後結算拿來證明 Meter 涵蓋尾局 */
-  gr: (SideValue & { readAt: number; lastBetAt?: number | null }) | null
+  gr: (SideValue & {
+    readAt: number
+    lastBetAt?: number | null
+    /** 停止後結算才查（withEvidence）：本帳號這台的 handpay 筆數；lastBetAt 已含 handpay（handpay 的局不進 Game Record） */
+    handpayCount?: number
+    evidenceError?: string
+  }) | null
   grError?: string
   meter: (SideValue & { readAt: number }) | null
   meterError?: string
@@ -306,7 +312,33 @@ export interface LiveCompareRow {
 
 export interface LiveSessionRef { id: string; startedAt: number }
 
-export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]): Promise<{ rows: LiveCompareRow[]; error?: string }> {
+/**
+ * 本帳號在這台、開跑之後的 handpay（Jackpot Abnormality）：筆數與最後一局下注時間（後台時鐘）。
+ * handpay 那局不進 Game Record——停止後結算要證明 Meter 涵蓋最後一局，最後一局可能正好是 handpay（CodeX 862a4fa P1）。
+ * ⚠️ 這支 API 帶機台名時不看日期，自己用下注時間篩；任何一列缺欄位或不是這台 → 回錯誤（不能當沒有）
+ */
+async function ownHandpayOf(clientMachineName: string, gmid: string, username: string, fromMs: number): Promise<{ count: number; lastBetAt: number | null } | { error: string }> {
+  const cfg = loadMeterConfig('qat', 'osm')
+  const p = new URLSearchParams({ clientMachineName, playerId: '', playerName: '', orderId: '', page: '1', pageSize: '200', dateTimeType: '0', playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL', isall: 'true', channelId: '0' })
+  p.append('dateTime[]', new Date(fromMs).toISOString())
+  p.append('dateTime[]', new Date(Date.now() + 60_000).toISOString())
+  let h: any
+  try { h = await meterPost('qat', 'osm', cfg, '/abnormality/getHandPayRecord', p) } catch (e) { return { error: `Jackpot Abnormality 讀取失敗：${e}` } }
+  if (h?.code !== 20000) return { error: `Jackpot Abnormality 回 code=${h?.code ?? '?'}` }
+  const items: Record<string, unknown>[] = h?.data?.items ?? []
+  if (Number(h?.data?.total ?? 0) > items.length) return { error: 'Jackpot Abnormality 超過 200 筆，結果不完整' }
+  let count = 0, last: number | null = null
+  for (const r of items) {
+    if (String(r.uid ?? '') !== gmid) return { error: 'Jackpot Abnormality 有不是這台的列' }
+    const t = Number(r.bet_time_precise)
+    if (r.bet_time_precise == null || !Number.isFinite(t)) return { error: 'Jackpot Abnormality 有列缺下注時間' }
+    if (String(r.username ?? '') !== username || t * 1000 < fromMs) continue
+    count++; last = Math.max(last ?? 0, t * 1000)
+  }
+  return { count, lastBetAt: last }
+}
+
+export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean } = {}): Promise<{ rows: LiveCompareRow[]; error?: string }> {
   if (env !== 'qat') return { rows: [], error: 'UAT 目前沒有 Instant Meter／Game Record 的連線設定，即時對照只支援 QAT' }
   const machines: Array<{ sessionId: string; startedAt: number; gmid: string; machineType: string; username: string }> = []
   for (const s of sessions) {
@@ -448,6 +480,16 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       chain, chainError, win, winError,
     })
   }
+  // 停止後結算：把本帳號 handpay 併進「最後一局」證據（讀不到就清掉證據，結算時就定不了終點）
+  if (opts.withEvidence) {
+    for (const r of rows) {
+      if (!r.gr || !r.username || !r.clientMachineName) continue
+      const hp = await ownHandpayOf(r.clientMachineName, r.gmid, r.username, r.startedAt)
+      if ('error' in hp) { r.gr = { ...r.gr, lastBetAt: null, evidenceError: hp.error }; continue }
+      const last = Math.max(r.gr.lastBetAt ?? 0, hp.lastBetAt ?? 0)
+      r.gr = { ...r.gr, handpayCount: hp.count, lastBetAt: last || null }
+    }
+  }
   return { rows }
 }
 
@@ -456,8 +498,8 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
  * 兩邊同時推進同一台會重複前進或互相蓋掉（CodeX 1106 提醒要加鎖）。
  */
 let liveCompareChain: Promise<unknown> = Promise.resolve()
-export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[]): ReturnType<typeof liveCompare> {
-  const next = liveCompareChain.then(() => liveCompare(env, sessions))
+export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean } = {}): ReturnType<typeof liveCompare> {
+  const next = liveCompareChain.then(() => liveCompare(env, sessions, opts))
   liveCompareChain = next.catch(() => {})
   return next
 }

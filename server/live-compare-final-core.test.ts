@@ -31,12 +31,15 @@ eq('沒有快照 → 定不出終點', targetFromSnaps([], QF), null)
 
 // ── 終點要有 Meter 涵蓋尾局的證據（本帳號最後一局的後台下注時間）──
 {
-  const ev = (o: Partial<Parameters<typeof targetWithEvidence>[0]>) => targetWithEvidence({ snapTarget: TARGET, gr: { count: 3, lastBetAt: STOP }, prevGrCount: 3, now: QF + GR_SETTLE_MS, quietFrom: QF, ...o })
+  const ev = (o: Partial<Parameters<typeof targetWithEvidence>[0]>) => targetWithEvidence({ snapTarget: TARGET, gr: { count: 3, handpayCount: 0, lastBetAt: STOP }, prevGrCount: 3, now: QF + GR_SETTLE_MS, quietFrom: QF, ...o })
   eq('證據齊 → 終點取快照與最後一局較晚者', ev({}).target, Math.max(TARGET, STOP))
   eq('Meter 停更（快照比最後一局舊）→ 終點拉到最後一局，舊窗口追不過', ev({ snapTarget: STOP - 120_000 }).target, STOP)
   eq('Game Record 還沒到齊 → 不給終點', ev({ now: QF + GR_SETTLE_MS - 1 }).target, null)
   eq('本帳號局數還在變 → 不給終點', ev({ prevGrCount: 2 }).target, null)
   eq('讀不到本帳號 Game Record → 沒有證據', ev({ gr: null }).target, null)
+  eq('沒查 handpay → 沒有證據（handpay 那局不進 Game Record）', ev({ gr: { count: 3, lastBetAt: STOP } }).target, null)
+  eq('handpay 讀取失敗 → 沒有證據', ev({ gr: { count: 3, handpayCount: 0, lastBetAt: null, evidenceError: 'Jackpot Abnormality 回 code=500' } }).target, null)
+  eq('handpay 筆數變了也算還在變', ev({ gr: { count: 3, handpayCount: 1, lastBetAt: STOP } }).target, null)
 }
 
 // ── 一台的結算 ──
@@ -88,12 +91,25 @@ eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinC
   const card = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 120 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [ok, bad] }))
   eq('有逾期 → 紅色、標題寫幾台逾期', [card.includes('"template":"red"'), card.includes('1 台逾期待查')], [true, true])
   eq('外來文字的 < > 換全形（不能 @所有人）', [card.includes('<at id=all>'), card.includes('＜at id=all＞')], [false, true])
-  eq('註明是後台對照、不代表每局入帳', card.includes('不代表 AutoSpin 每一局都入帳'), true)
+  eq('說明兩種對照', card.includes('AutoSpin vs 你帳號 Game Record」才看得出'), true)
   eq('一致總計出現在卡片', card.includes('411 局／20,550'), true)
   const allOk = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 120 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [ok] }))
   eq('全部一致 → 綠色', [allOk.includes('"template":"green"'), allOk.includes('全部一致')], [true, true])
   const to = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 120 * MIN, stoppedAt: STOP, state: 'timeout', reason: '停止後 15 分鐘仍有 1 台沒對到終點', machines: [summarizeMachine(row(win({ status: 'match', t1: TARGET - MIN })), TARGET)] }))
   eq('未收斂 → 橘色、明講不能當一致', [to.includes('"template":"orange"'), to.includes('不能當成一致'), to.includes('全部一致')], [true, true, false])
+}
+
+// ── AutoSpin vs 本帳號 Game Record＋handpay ──
+{
+  const gr = (count: number, handpayCount?: number, evidenceError?: string) => ({ count, amount: count, readAt: STOP, lastBetAt: STOP, handpayCount, evidenceError })
+  const mk = (as: number, g: ReturnType<typeof gr>) => summarizeMachine(row(win({ status: 'match', t1: TARGET }), { as: { count: as, amount: null, betKnown: as, readAt: STOP }, gr: g }), TARGET)
+  eq('結算時查過 handpay → 有這一行', mk(300, gr(299, 1)).own, { autospin: 300, gr: 299, handpay: 1 })
+  eq('沒查 handpay（頁面輪詢）→ 不比', mk(300, gr(300)).own, null)
+  eq('handpay 讀不到 → 不比', mk(300, gr(300, 0, 'code=500')).own, null)
+  const c = (as: number, g: ReturnType<typeof gr>) => JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - 60 * MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [mk(as, g)] }))
+  eq('局數一致（Game Record＋handpay）→ 綠勾', c(300, gr(299, 1)).includes('AutoSpin 300 局 vs 你帳號 Game Record 299 局＋handpay 1'), true)
+  eq('AutoSpin 多 → 紅字寫多幾局', c(302, gr(299, 1)).includes('AutoSpin 多 2 局'), true)
+  eq('沒查到 → 明講沒查到（不能不寫）', c(300, gr(300)).includes('沒查到'), true)
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

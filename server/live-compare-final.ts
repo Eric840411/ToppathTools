@@ -12,7 +12,7 @@ export { FINAL_REPORT_CHAT_KEY } from './live-compare-final-store.js'
 ensureRunTable(db)
 
 const f = createFinalizer(db, {
-  compare: (env, sessions) => liveCompareLocked(env, sessions),
+  compare: (env, sessions, opts) => liveCompareLocked(env, sessions, opts),
   send: (chatId, card, opts) => sendLarkCard(chatId, card, opts),
   now: () => Date.now(),
 })

@@ -54,22 +54,26 @@ export const GR_SETTLE_MS = 4 * 60_000
 
 /**
  * 這台的終點要有「Meter 已經涵蓋尾局」的證據（CodeX 7a44528 P1：晚讀到的快照可能是停止前的舊資料）。
- * 證據＝本帳號在這台最後一局的**下注時間（後台時鐘，跟 Meter 同一邊）**：終點取它與收妥後快照的較晚者，
+ * 證據＝本帳號在這台最後一局的**下注時間（後台時鐘，跟 Meter 同一邊）**，一般局與 handpay 取較晚者（handpay 不進 Game Record，CodeX 862a4fa P1）：終點取它與收妥後快照的較晚者，
  * 窗口 t1 要追過它才算——Meter 停更（upTime 卡在舊時間）就永遠追不過，最後標未收斂，不會被當成一致。
  * 只有 Game Record 已經到齊（收妥後滿 GR_SETTLE_MS、而且本帳號局數跟上一次一樣）才拿來用；
  * 讀不到本帳號 Game Record 就沒有證據 → null。
  */
+/** 證據的「局數」：一般局＋handpay（兩邊都要穩定才算到齊） */
+export const evidenceCount = (gr: { count: number; handpayCount?: number }) => gr.count + (gr.handpayCount ?? 0)
+
 export function targetWithEvidence(x: {
   snapTarget: number | null
-  gr: { count: number; lastBetAt?: number | null } | null
+  gr: { count: number; lastBetAt?: number | null; handpayCount?: number; evidenceError?: string } | null
   prevGrCount: number | null
   now: number
   quietFrom: number
 }): { target: number | null; why: string } {
   if (x.snapTarget == null) return { target: null, why: '還沒讀到尾筆收妥之後的 Meter' }
   if (x.now < x.quietFrom + GR_SETTLE_MS) return { target: null, why: '等本帳號 Game Record 到齊' }
-  if (!x.gr || x.gr.lastBetAt == null) return { target: null, why: '讀不到本帳號 Game Record，無法證明 Meter 涵蓋最後一局' }
-  if (x.prevGrCount !== x.gr.count) return { target: null, why: '本帳號 Game Record 局數還在變' }
+  if (x.gr?.evidenceError) return { target: null, why: `${x.gr.evidenceError}，無法證明 Meter 涵蓋最後一局` }
+  if (!x.gr || x.gr.lastBetAt == null || x.gr.handpayCount == null) return { target: null, why: '讀不到本帳號 Game Record／handpay，無法證明 Meter 涵蓋最後一局' }
+  if (x.prevGrCount !== evidenceCount(x.gr)) return { target: null, why: '本帳號 Game Record／handpay 局數還在變' }
   return { target: Math.max(x.snapTarget, x.gr.lastBetAt), why: '' }
 }
 
@@ -127,6 +131,11 @@ export interface MachineSummary {
   settle: MachineSettle
   /** 對不上時的差額（Meter − 後台） */
   diff: { count: number; amount: number } | null
+  /**
+   * AutoSpin 局數 vs 本帳號 Game Record＋handpay（同事 1106：要看「我跑的每一局有沒有進後台」）。
+   * Meter 對後台抓不到「根本沒送到後台」的局，這一行才抓得到。只有結算時查過 handpay 才有（停止後、Game Record 到齊才比，不會因延遲誤報）。
+   */
+  own: { autospin: number; gr: number; handpay: number } | null
   error: string
 }
 
@@ -149,6 +158,7 @@ export function summarizeMachine(r: LiveCompareRow, targetUp: number | null): Ma
     uncheckedTo: latest && (checkedTo == null || latest > checkedTo) ? latest : null,
     settle: machineSettle(r, targetUp),
     diff: w && (w.status === 'overdue' || w.status === 'pending') && w.diff ? w.diff : null,
+    own: r.gr && r.gr.handpayCount != null && !r.gr.evidenceError ? { autospin: r.as?.count ?? 0, gr: r.gr.count, handpay: r.gr.handpayCount } : null,
     error: [...new Set(err)].join('；'),
   }
 }
@@ -200,17 +210,24 @@ export function buildFinalReportCard(x: FinalReportInput): object {
     el.push(hr)
     const lines = [
       `**${esc(m.name)}**　${verdict(m, x.state)}`,
-      `<font color='grey'>${esc(m.gmid)}・AutoSpin ${n(m.autospin)} 局（參考）</font>`,
+      `<font color='grey'>${esc(m.gmid)}</font>`,
       `Meter ＝ 後台：**${n(m.matchedCount)} 局／${n(m.matchedAmount)}**` +
         (m.checkedFrom != null && m.checkedTo != null ? `　<font color='grey'>${hm(m.checkedFrom)}～${hm(m.checkedTo)}</font>` : ''),
     ]
+    if (m.own) {
+      const backend = m.own.gr + m.own.handpay
+      const d = m.own.autospin - backend
+      const hp = m.own.handpay ? `＋handpay ${n(m.own.handpay)}` : ''
+      lines.push(`AutoSpin ${n(m.own.autospin)} 局 vs 你帳號 Game Record ${n(m.own.gr)} 局${hp}　` +
+        (d === 0 ? "<font color='green'>✓ 一致</font>" : `<font color='red'>✗ AutoSpin ${d > 0 ? '多' : '少'} ${n(Math.abs(d))} 局</font>`))
+    } else lines.push("<font color='grey'>AutoSpin vs 你帳號 Game Record：沒查到（讀不到 Game Record／handpay）</font>")
     if (m.diff) lines.push(`<font color='red'>對不上的那段：Meter 比後台${m.diff.count >= 0 ? '多' : '少'} ${n(Math.abs(m.diff.count))} 局、${m.diff.amount >= 0 ? '多' : '少'} ${n(Math.abs(m.diff.amount))}</font>`)
     if (m.uncheckedTo != null && m.settle !== 'done') lines.push(`<font color='orange'>${m.checkedTo != null ? hm(m.checkedTo) : '起點'}～${hm(m.uncheckedTo)} 這段還沒檢查</font>`)
     if (m.checkedFrom == null) lines.push("<font color='orange'>沒有設到 Meter 起點，這台沒比對</font>")
     if (m.error) lines.push(`<font color='orange'>讀取問題：${esc(m.error)}</font>`)
     el.push(md(lines.join('\n')))
   }
-  el.push(hr, note('這是 Instant Meter 對後台（Game Record＋Jackpot Abnormality，這台全部玩家）的對照，不代表 AutoSpin 每一局都入帳；終點附近可能含其他玩家的局。AutoSpin 局數只供參考。'))
+  el.push(hr, note('兩種對照：①「Meter ＝ 後台」是機台 Meter 對後台帳（這台全部玩家，開頭／結尾可能混到別人的局）；②「AutoSpin vs 你帳號 Game Record」才看得出 AutoSpin 跑的局有沒有每一局都進後台。'))
   el.push(note(`Toppath Tools・${tpe(Date.now())}`))
   return { config: { wide_screen_mode: true, update_multi: true }, header, elements: el }
 }

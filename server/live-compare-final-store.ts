@@ -10,7 +10,7 @@
  */
 import type Database from 'better-sqlite3'
 import type { LiveCompareRow, LiveSessionRef } from './live-compare.js'
-import { decideSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, TAIL_QUIET_MS, type RunState } from './live-compare-final-core.js'
+import { decideSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, evidenceCount, TAIL_QUIET_MS, SETTLE_MAX_MS, type RunState } from './live-compare-final-core.js'
 
 export const FINAL_REPORT_CHAT_KEY = 'autospin_final_report_chat_id'
 const NOTIFY_MAX_ATTEMPTS = 5
@@ -33,7 +33,7 @@ export interface LiveSessionInfo {
 }
 
 export interface FinalDeps {
-  compare: (env: 'qat', sessions: LiveSessionRef[]) => Promise<{ rows: LiveCompareRow[] }>
+  compare: (env: 'qat', sessions: LiveSessionRef[], opts?: { withEvidence?: boolean }) => Promise<{ rows: LiveCompareRow[] }>
   send: (chatId: string, card: object, opts: { uuid?: string }) => Promise<{ ok: true; value: string } | { ok: false; code: string; message: string }>
   now: () => number
 }
@@ -182,16 +182,22 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
       for (const run of settling) {
         const t = deps.now()
         const sp = spinStats(run.env, run.sessionId)
-        const lastGrowthAt = sp.count !== run.spinCount ? t : (run.lastGrowthAt ?? run.stoppedAt)
+        let lastGrowthAt = sp.count !== run.spinCount ? t : (run.lastGrowthAt ?? run.stoppedAt)
         // 先比一次（這一次會記下一筆 Meter 快照），再用「尾筆收妥之後讀到的快照」定每台終點
-        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }])
+        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }], { withEvidence: true })
         const rows = res.rows
-        // ⚠️ 比對要等網路，期間可能又進來新局：比完再數一次，變了就重算靜默期、這輪不定案（CodeX 7a44528 P1）
+        // ⚠️ 比對要等網路，期間可能又進來新局：比完再數一次，變了就重算靜默期、這輪不定案（CodeX 7a44528 P1）。
+        //    但超過結算上限就不能再等——照新筆數往下走，decideSettle 會給 timeout（CodeX 862a4fa P2：不能一直繞過 15 分鐘）
+        const late = run.stoppedAt != null && deps.now() > run.stoppedAt + SETTLE_MAX_MS
         const after = spinStats(run.env, run.sessionId).count
         if (after !== sp.count) {
-          db.prepare("UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, rowsJson=?, rowsAt=?, reason=? WHERE sessionId=? AND state='settling'")
-            .run(after, deps.now(), JSON.stringify(rows), deps.now(), '等最後幾局寫完', run.sessionId)
-          continue
+          if (!late) {
+            db.prepare("UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, rowsJson=?, rowsAt=?, reason=? WHERE sessionId=? AND state='settling'")
+              .run(after, deps.now(), JSON.stringify(rows), deps.now(), '等最後幾局寫完', run.sessionId)
+            continue
+          }
+          sp.count = after
+          lastGrowthAt = deps.now()
         }
         const quietFrom = (lastGrowthAt ?? run.stoppedAt ?? t) + TAIL_QUIET_MS
         const prevEv = JSON.parse(run.evidenceJson || '{}') as Record<string, number>
@@ -200,7 +206,7 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         const whys: string[] = []
         for (const r of rows) {
           const snaps = db.prepare('SELECT upTime, readAt FROM live_compare_snap WHERE sessionId=? AND gmid=?').all(run.sessionId, r.gmid) as Array<{ upTime: number; readAt: number }>
-          if (r.gr) evidence[r.gmid] = r.gr.count
+          if (r.gr) evidence[r.gmid] = evidenceCount(r.gr)
           const tw = targetWithEvidence({ snapTarget: targetFromSnaps(snaps, quietFrom), gr: r.gr, prevGrCount: prevEv[r.gmid] ?? null, now: deps.now(), quietFrom })
           targets[r.gmid] = tw.target
           if (tw.why) whys.push(`${r.clientMachineName || r.gmid}：${tw.why}`)
@@ -213,7 +219,7 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         // ⚠️ 凍結結果與排通知要同一個 transaction：只寫了一半的話，重啟後不是重發就是永遠不發。
         //    交易裡再數一次 spin，有變就不凍結（下一輪重來）
         db.transaction(() => {
-          if (freeze && spinStats(run.env, run.sessionId).count !== sp.count) return
+          if (freeze && !late && spinStats(run.env, run.sessionId).count !== sp.count) return
           db.prepare(`
             UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, targetsJson=?, evidenceJson=?, reason=?, rowsJson=?, rowsAt=?, state=?,
               finalizedAt=?, chatId=COALESCE(?, chatId), notifyState=CASE WHEN ? THEN ? ELSE notifyState END
