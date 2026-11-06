@@ -50,7 +50,18 @@ interface Chain {
   summary: { rounds: number; ok: number; anomaly: number; jp: number; unknown: number; wait: number; sessions: number; sessionsPending: number }
   sessions: SessionCheck[]; unkeyed: RoundCheck[]
 }
-interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; error?: string; message?: string }
+/** 停止後的那一輪（v5.81.0）：結算中→已結算／未收斂；總表發到群的狀態 */
+interface RunInfo { sessionId: string; state: 'running' | 'settling' | 'final' | 'timeout'; startedAt: number; stoppedAt: number | null; finalizedAt: number | null; reason: string; notifyState: string }
+interface Resp { ok: boolean; running: boolean; startedAt: number | null; polledAt: number; rows: Row[]; run?: RunInfo; error?: string; message?: string }
+const NOTIFY_LABEL: Record<string, string> = { pending: '總表發送中', sent: '總表已發到群', failed: '總表發送失敗', skipped: '沒有設定要發到哪個群，總表沒發' }
+/** 停止後那一輪的說明 */
+function runBanner(run: RunInfo): { cls: string; text: string } {
+  const end = run.stoppedAt ? `${fmtT(run.stoppedAt)} 停止` : '已停止'
+  if (run.state === 'running' || run.state === 'settling') return { cls: 'is-info', text: `這一輪${end}，結算中：等最後幾局進 Game Record（約 3～5 分鐘，最多 15 分鐘）。下面是目前的結果，還不是定案。` }
+  const note = NOTIFY_LABEL[run.notifyState] ? `・${NOTIFY_LABEL[run.notifyState]}` : ''
+  if (run.state === 'timeout') return { cls: 'is-warn', text: `這一輪${end}，未收斂：${run.reason}。沒對到終點的那段不能當一致${note}` }
+  return { cls: 'is-info', text: `這一輪${end}，已結算（${fmtT(run.finalizedAt)}）${note}` }
+}
 
 const STATUS_LABEL: Record<Status, string> = { match: '一致', pending: '等待入帳', mismatch: '逾期待查', cache: 'Meter 不可比', unreadable: '讀不到' }
 const STATUS_ORDER: Status[] = ['match', 'pending', 'mismatch', 'cache', 'unreadable']
@@ -126,7 +137,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
 
         <div className="lc-meta">
           <i className={`lc-dot ${data?.running ? 'is-run' : ''}`} />
-          {data?.running ? '執行中' : '目前沒有在跑的 AutoSpin'}
+          {data?.running ? '執行中' : data?.run ? '已停止（顯示最近一輪）' : '目前沒有在跑的 AutoSpin'}
           {userLabel && <> ・ 帳號 {userLabel}</>}
           {data?.startedAt && <> ・ 本輪 {fmtT(data.startedAt)} 起</>}
           {data && <> ・ 最後輪詢 {fmtT(data.polledAt)}</>}
@@ -134,6 +145,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
         </div>
 
         {err && <div className="lc-banner is-fail">{err}</div>}
+        {!data?.running && data?.run && (() => { const b = runBanner(data.run); return <div className={`lc-banner ${b.cls}`}>{b.text}</div> })()}
         {data?.error && <div className="lc-banner is-fail">{data.error}</div>}
 
         <div className="lc-stats">

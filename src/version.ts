@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.80.1'
+export const APP_VERSION = '5.81.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.0', date: '2026-11-06', changes: ['feat(AutoSpin 即時對照 停止後結算＋總表，同事 1106 需求、CodeX 1106 審過設計)：原本一按停止頁面就空白。現在停止後背景繼續比對到最後一局（等尾筆收妥、終點＝最後一局＋30 秒，最多 15 分鐘），結算完凍結結果；頁面沒有在跑時顯示最近一輪（結算中／已結算／未收斂）。結算完發一張「後台對照總表」Lark 卡片到設定的群：每台一致局數／金額、已查範圍、逾期待查差額、未查尾段、讀取問題；逾時標未收斂、不當一致。狀態落庫（live_compare_run），重啟續跑；凍結與排通知同一個 transaction，發送失敗退避重送、帶 uuid 去重。頁面輪詢與背景比對共用一把鎖。Lark 通知設定頁新增「AutoSpin 停止總表」選群＋試發（管理員）。回歸 32 條'] },
   { version: '5.80.1', date: '2026-11-06', changes: ['fix(AutoSpin 續租＋即時對照，CodeX review dfe4007 一個 P1、兩個 P2)：①Python 主程序退出、子程序還握著 stdout 時 close 會延後，原本只在 close 停租，孤兒照樣續租→改成看 exitCode／exit 就停（真程序重現：只看 close 多續 37 次，改後 3 次）；②渠道後台候選帳號原本只用帳號名稱去重，同名不同密碼會被排掉→帳號＋密碼一起比；③渠道 token 只按渠道快取，換了帳號仍用舊 token→記下是哪組帳密登的，不在候選裡就重登'] },
   { version: '5.80.0', date: '2026-11-06', changes: ['change(AutoSpin 一直跑到使用者自己停，Eric 1106 要求)：Spug 上常常晚上掛掉，log 證實是 v4.118.2 的 8 小時絕對上限（Lusa 一輪 15:38→23:38 剛好被收掉）。改成 Local Agent 只要手上那一輪的 Python 還活著，每 20 秒向伺服器續租；收過租約的 session 只看續租（派工那台 agent、同一個派工編號、60 秒內），不再套 8 小時上限，租約斷了照 90 秒寬限停止。Python 自己的輪詢不能續租，孤兒仍會被收。舊版 agent 與 agent 端自己啟動的維持原規則。Local Agent 要更新並重啟才生效。回歸 10 條'] },
   { version: '5.79.4', date: '2026-11-06', changes: ['fix(即時對照，CodeX review 6dcda5d 兩個 P2)：①本帳號 Game Record 防呆沒擋空白字串（空白轉成數字是 0，會多算一局）和缺機台 uid → 改成去空白後非空才算數，缺 uid 也整批不比；②讀 Instant Meter 要登入各渠道後台，原本「渠道後台帳號」一填就套全部渠道（填 NC 帳號 CP 就讀不到）→ 改成依序試 渠道後台帳號 → OSM 主帳號 → GCP 帳號，哪組登得進這個渠道就用哪組（QAT 實測主帳號只能 CP、GCP 帳號只能 NC）。回歸 8 條，拿掉 uid 檢查、主帳號回退各自會紅'] },

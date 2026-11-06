@@ -449,3 +449,14 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
   }
   return { rows }
 }
+
+/**
+ * 同一時間只跑一次比對（頁面輪詢與背景結算共用）。窗口狀態是「讀 → 查後台 → 寫回」，
+ * 兩邊同時推進同一台會重複前進或互相蓋掉（CodeX 1106 提醒要加鎖）。
+ */
+let liveCompareChain: Promise<unknown> = Promise.resolve()
+export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[]): ReturnType<typeof liveCompare> {
+  const next = liveCompareChain.then(() => liveCompare(env, sessions))
+  liveCompareChain = next.catch(() => {})
+  return next
+}

@@ -93,9 +93,10 @@ export async function listBotChats(): Promise<LarkResult<Array<{ chatId: string;
 }
 
 /** 發一張卡片到群，回 message_id */
-export async function sendLarkCard(chatId: string, card: object): Promise<LarkResult<string>> {
+export async function sendLarkCard(chatId: string, card: object, opts: { uuid?: string } = {}): Promise<LarkResult<string>> {
   if (!chatId) return { ok: false, code: 'NO_CHAT', message: '還沒選要發到哪個群' }
-  const r = await api<{ message_id?: string }>('POST', '/open-apis/im/v1/messages?receive_id_type=chat_id', { receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(card) })
+  // uuid：Lark 對同一個 uuid 一小時內只建一則訊息（重送去重用，最長 50 字）
+  const r = await api<{ message_id?: string }>('POST', '/open-apis/im/v1/messages?receive_id_type=chat_id', { receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(card), ...(opts.uuid ? { uuid: opts.uuid } : {}) })
   return r.ok ? (r.value.message_id ? { ok: true, value: r.value.message_id } : { ok: false, code: 'NO_ID', message: 'Lark 沒有回 message_id' }) : asFail(r)
 }
 

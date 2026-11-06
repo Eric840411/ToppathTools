@@ -464,6 +464,25 @@ session 在那個空窗裡看起來就像不存在。
 | Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |
 | Discord 定時彙總報告 | 長時間穩定性統計，跟上面即時彙報通知是獨立訊息（每次到間隔另發一則新訊息，不覆蓋前一則）——顯示 errcode 次數/RECOVER 斷線重連次數/kickout 次數/CR checks 與無回應次數/Spin 數/中獎數/總贏分，間隔（分鐘）與顯示欄位皆可在「Discord 通知」設定頁調整，預設關閉 |
 
+### 停止後結算＋後台對照總表（v5.81.0）
+
+**起因**：同事 1106「我停止了數據就都不見了」——即時對照的路由只回正在跑的 session。要①停止後還看得到②每次停止發一份總表到「OSM的秘密」群檢查。
+
+**流程**（`server/live-compare-final.ts`，判定在 `live-compare-final-core.ts`）：
+- 表 `live_compare_run`：每輪一列，`running → settling → final／timeout`，另有獨立的通知狀態 `pending → sent／failed`（沒設群＝`skipped`）
+- worker 背景每分鐘：①正在跑但頁面 50 秒內沒輪詢的也比一次（沒開頁面也有資料可結算）②記錄是 running、session 已不在跑 → settling ③結算中的再比一次，收斂或逾時就凍結 ④送待發的總表
+- **終點**：停止按鈕不等於最後一局完成（CodeX）。要等 spin 筆數 30 秒沒再增加（伺服器時鐘），終點＝最後一局＋30 秒（Meter 跟伺服器不同時鐘）；每台的窗口要 t1 ≥ 終點而且一致才算 done，逾期待查照逾期定案；15 分鐘內沒收斂 → timeout、卡片標「未收斂」，**不能當一致**
+- **總計**：已對上的段（okCount）＋目前這段若一致，只算一次；對不上的那段不算進去，另列差額、已查範圍、未查尾段、讀取問題
+- 凍結結果與排通知同一個 transaction；發送失敗退避重送（最多 5 次），Lark 建訊息帶 `uuid`（`lcfinal-<sessionId>`）去重
+- 頁面輪詢與背景比對共用 `liveCompareLocked`（窗口是讀→查後台→寫回，兩邊同時推進會重複前進）
+- 頁面沒有在跑的 session → 顯示這個帳號 24 小時內最近一輪，標「結算中／已結算／未收斂」與總表發送狀態
+
+**設定**：Lark 通知設定頁「AutoSpin 停止總表」選群、試發（只限管理員；`settings.autospin_final_report_chat_id`；API `/api/lark-notify/autospin-final-chat`、`/autospin-final-test`）。凍結當下記下 chat ID，之後改設定不影響已排的那張。
+
+**卡片用詞**（CodeX）：叫「後台對照總表」，註明是 Meter 對後台（這台全部玩家），不代表 AutoSpin 每一局都入帳；終點附近可能含其他玩家的局。
+
+**測試**：`npx tsx server/live-compare-final-core.test.ts`（32）；拿掉「t1 ≥ 終點」、把對不上的那段算進總計，各自會紅。
+
 ### 一直跑到使用者自己停：續租取代 8 小時上限（v5.80.0）
 
 **起因**：Eric 1106 回報 Spug 上 AutoSpin「常常晚上掛掉」。Spug worker log 證實 Lusa 一輪 15:38:04 開跑、23:38:05 結束，

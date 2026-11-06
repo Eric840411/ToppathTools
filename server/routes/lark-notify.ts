@@ -8,9 +8,10 @@
 import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
-import { addHistory, readAccounts, writeLimiter } from '../shared.js'
+import { addHistory, db, readAccounts, writeLimiter } from '../shared.js'
 import { larkBotName, larkTenantToken, listBotChats, readLarkNotifyConfig, resolveLarkOpenIds, sendLarkCard, writeLarkNotifyConfig, larkNotifyChatId } from '../lark-notify.js'
 import { NOTIFY_FEATURES, embedToLarkCard, flushNotifyRetries, retryQueueSize } from '../notify-outlet.js'
+import { finalReportChatId, setFinalReportChatId, cardForRun, type RunRow } from '../live-compare-final.js'
 
 export const router = Router()
 
@@ -99,3 +100,33 @@ router.get('/api/lark-notify/mentions', async (req, res) => {
 
 // server 這個 process 的補送（AutoSpin 雙發時失敗的那一邊）。Live Ledger 在自己的週期裡也會 flush，佇列有搶占所以不會重送
 setInterval(() => { flushNotifyRetries().catch(e => console.warn('[notify] 補送失敗', e)) }, 2 * 60_000).unref()
+
+// ─── AutoSpin 停止總表（v5.81.0）──────────────────────────────────────────
+// GET/PUT /api/lark-notify/autospin-final-chat — 停止總表發到哪個群（只限管理員，同 Lark 通知設定）
+router.get('/api/lark-notify/autospin-final-chat', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const chats = await listBotChats()
+  res.json({ ok: true, chatId: finalReportChatId(), chats: chats.ok ? chats.value : [], chatsError: chats.ok ? '' : `${chats.code} ${chats.message}` })
+})
+router.put('/api/lark-notify/autospin-final-chat', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const chatId = String((req.body as { chatId?: unknown })?.chatId ?? '').trim()
+  if (chatId && !/^oc_[A-Za-z0-9]+$/.test(chatId)) return res.status(400).json({ ok: false, message: 'chat ID 格式不對（應該是 oc_ 開頭）' })
+  setFinalReportChatId(chatId)
+  res.json({ ok: true, chatId })
+})
+// POST /api/lark-notify/autospin-final-test { chatId? } — 拿最近一輪（沒有就用範例）發一張「試發送」卡片
+router.post('/api/lark-notify/autospin-final-test', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const chatId = String((req.body as { chatId?: unknown })?.chatId ?? '').trim() || finalReportChatId()
+  if (!chatId) return res.status(400).json({ ok: false, message: '還沒選群' })
+  const run = db.prepare("SELECT * FROM live_compare_run WHERE rowsJson IS NOT NULL ORDER BY startedAt DESC LIMIT 1").get() as RunRow | undefined
+  if (!run) return res.status(404).json({ ok: false, message: '還沒有任何一輪即時對照紀錄可以拿來試發' })
+  const card = cardForRun({ ...run, state: run.state === 'running' || run.state === 'settling' ? 'final' : run.state }) as { header: Record<string, unknown>; elements: object[] }
+  card.header.template = 'orange'
+  card.header.text_tag_list = [{ tag: 'text_tag', text: { tag: 'plain_text', content: '試發送' }, color: 'orange' }]
+  card.elements.unshift({ tag: 'markdown', content: "<font color='orange'>這是試發送：用最近一輪的資料排版，不代表那一輪已經結算完成</font>" })
+  const r = await sendLarkCard(chatId, card)
+  res.status(r.ok ? 200 : 502).json(r.ok ? { ok: true, messageId: r.value } : { ok: false, message: `${r.code} ${r.message}` })
+})
+

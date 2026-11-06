@@ -223,6 +223,8 @@ export function LarkNotifySettingsPage() {
         {retryQueue > 0 && <div className="ln-hint ln-hint--under">目前有 {retryQueue} 則通知在等補送</div>}
       </section>
 
+      <AutoSpinFinalChatCard chats={chats} />
+
       {/* ④ @人對照狀態 */}
       <section className="ln-card">
         <h2 className="ln-card-title">
@@ -267,5 +269,57 @@ export function LarkNotifySettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * AutoSpin 停止總表發到哪個群（v5.81.0，同事 1106 需求）。跟上面的通知目標群組分開：
+ * 總表是給特定群檢查用的，不一定跟一般通知同一個群。自己存，不走頁面底下的「儲存設定」。
+ */
+function AutoSpinFinalChatCard({ chats }: { chats: Array<{ chatId: string; name: string }> | null }) {
+  const [savedId, setSavedId] = useState('')
+  const [chatId, setChatId] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [busy, setBusy] = useState('')
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/api/lark-notify/autospin-final-chat')
+        const j = await r.json() as { ok: boolean; chatId?: string; message?: string }
+        if (j.ok) { setSavedId(j.chatId ?? ''); setChatId(j.chatId ?? '') } else setMsg({ ok: false, text: j.message || '讀取失敗' })
+      } catch (e) { setMsg({ ok: false, text: `讀取失敗：${e}` }) }
+    })()
+  }, [])
+  const save = async () => {
+    setBusy('save'); setMsg(null)
+    try {
+      const r = await fetch('/api/lark-notify/autospin-final-chat', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatId }) })
+      const j = await r.json() as { ok: boolean; chatId?: string; message?: string }
+      if (j.ok) { setSavedId(j.chatId ?? ''); setMsg({ ok: true, text: j.chatId ? '已儲存' : '已關閉（停止後不發總表）' }) } else setMsg({ ok: false, text: j.message || '儲存失敗' })
+    } catch (e) { setMsg({ ok: false, text: `儲存失敗：${e}` }) } finally { setBusy('') }
+  }
+  const test = async () => {
+    setBusy('test'); setMsg(null)
+    try {
+      const r = await fetch('/api/lark-notify/autospin-final-test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatId }) })
+      const j = await r.json() as { ok: boolean; message?: string }
+      setMsg(j.ok ? { ok: true, text: '已試發（用最近一輪的資料）' } : { ok: false, text: j.message || '試發失敗' })
+    } catch (e) { setMsg({ ok: false, text: `試發失敗：${e}` }) } finally { setBusy('') }
+  }
+  return (
+    <section className="ln-card">
+      <h2 className="ln-card-title">AutoSpin 停止總表</h2>
+      <div className="ln-hint">每次 AutoSpin 停止，等最後幾局進 Game Record（最多 15 分鐘）後，把這一輪的即時對照結果（Meter 對後台）發一張總表到這個群。留空＝不發。</div>
+      <div className="ln-row">
+        <label className="ln-label" htmlFor="ln-final-chat">發到</label>
+        <select id="ln-final-chat" className="ln-input" value={chats?.some(c => c.chatId === chatId) ? chatId : ''} onChange={e => setChatId(e.target.value)} disabled={!chats?.length}>
+          <option value="">{chats?.length ? '不發' : chatId ? chatId : '讀不到群組清單'}</option>
+          {chats?.map(c => <option key={c.chatId} value={c.chatId}>{c.name || c.chatId}</option>)}
+        </select>
+        <button type="button" className="ln-btn ln-btn--outline" onClick={test} disabled={!!busy || !chatId}>{busy === 'test' ? '發送中…' : '試發'}</button>
+        <button type="button" className="ln-btn ln-btn--primary" onClick={save} disabled={!!busy || chatId === savedId}>{busy === 'save' ? '儲存中…' : '儲存'}</button>
+      </div>
+      {msg && <div className={`ln-hint ln-hint--under ${msg.ok ? 'ln-ok' : 'ln-bad'}`}>{msg.text}</div>}
+    </section>
   )
 }

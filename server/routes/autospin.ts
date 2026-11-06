@@ -4,7 +4,8 @@
  */
 import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
 import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-ledger-query.js'
-import { liveCompare } from '../live-compare.js'
+import { liveCompareLocked } from '../live-compare.js'
+import { latestRunFor, noteRunningRows, tickLiveCompareFinal } from '../live-compare-final.js'
 import { deliverNotice, queueFailedSides } from '../notify-outlet.js'
 
 /**
@@ -1928,12 +1929,29 @@ router.get('/api/autospin/live-compare', async (req, res) => {
     .filter(s => s.status === 'running' && (s.userLabel || '') === userLabel)
     .map(s => ({ id: s.id, startedAt: s.startedAt }))
   try {
-    const r = await liveCompare(env, sessions)
+    // 沒有在跑的：顯示這個帳號最近一輪（結算中或已凍結），不能一停止就空白（v5.81.0）
+    if (!sessions.length) {
+      const run = latestRunFor(env, userLabel)
+      if (run) {
+        return res.json({
+          ok: true, env, running: false, startedAt: run.startedAt, polledAt: run.rowsAt ?? Date.now(),
+          rows: JSON.parse(run.rowsJson || '[]'),
+          run: { sessionId: run.sessionId, state: run.state, startedAt: run.startedAt, stoppedAt: run.stoppedAt, finalizedAt: run.finalizedAt, reason: run.reason, notifyState: run.notifyState },
+        })
+      }
+    }
+    const r = await liveCompareLocked(env, sessions)
+    noteRunningRows(env, sessions.map(s => ({ ...s, userLabel, running: true })), r.rows)
     res.json({ ok: true, env, running: sessions.length > 0, startedAt: sessions.length ? Math.min(...sessions.map(s => s.startedAt)) : null, polledAt: Date.now(), ...r })
   } catch (e) {
     res.status(500).json({ ok: false, message: `即時對照失敗：${e instanceof Error ? e.message : String(e)}` })
   }
 })
+
+// 停止後的即時對照結算＋總表通知：背景每分鐘一次（只在 worker 這個 process 跑，見 server/live-compare-final.ts）
+setInterval(() => {
+  void tickLiveCompareFinal(() => [...agentSessions.values()].map(s => ({ id: s.id, startedAt: s.startedAt, userLabel: s.userLabel || '', running: s.status === 'running' })))
+}, 60_000)
 
 // GET /api/autospin/agent/status — frontend polls agent status
 // 依 x-user-label 只回傳目前登入帳號自己派工的 session，不同帳號各自看到各自的畫面
