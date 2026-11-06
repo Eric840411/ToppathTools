@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.1'
+export const APP_VERSION = '5.81.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.2', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 7a44528 兩個 P1)：①晚讀到的 Meter 快照可能是停止前的舊資料（Meter 停更），原本照樣定案→終點改取「收妥後快照」與「本帳號這台最後一局的後台下注時間」較晚者，而且要本帳號 Game Record 已到齊（收妥後滿 4 分鐘、局數跟上一輪一樣）才給終點；讀不到就沒有證據、最後標未收斂。②比對要等網路，期間進來的新局沒算到就凍結→比完再數一次、交易裡再數一次，變了就不定案、重算靜默期。整合回歸 24 條、判定 42 條'] },
   { version: '5.81.1', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review aa55b01 三個 P1、一個 P2)：①終點原本用 agent 的 observedAt＋30 秒，agent 時鐘慢 164 秒時沒涵蓋尾局也會判完成→改成尾筆收妥之後才讀到的第一筆 Meter 快照（伺服器時鐘比 readAt）；②沒開頁面、在第一次掃描前就停了的短 session 完全不會結算→30 分鐘內停的補登記；③停止當下一筆都還沒收到就直接凍結→零筆也要等尾筆收妥再等滿 3 分鐘；④零台卡片寫「全部一致」→改「無資料」，沒有機台不發。邏輯抽成 live-compare-final-store.ts，補 18 條記憶體 DB 整合回歸'] },
   { version: '5.81.0', date: '2026-11-06', changes: ['feat(AutoSpin 即時對照 停止後結算＋總表，同事 1106 需求、CodeX 1106 審過設計)：原本一按停止頁面就空白。現在停止後背景繼續比對到最後一局（等尾筆收妥、終點＝最後一局＋30 秒，最多 15 分鐘），結算完凍結結果；頁面沒有在跑時顯示最近一輪（結算中／已結算／未收斂）。結算完發一張「後台對照總表」Lark 卡片到設定的群：每台一致局數／金額、已查範圍、逾期待查差額、未查尾段、讀取問題；逾時標未收斂、不當一致。狀態落庫（live_compare_run），重啟續跑；凍結與排通知同一個 transaction，發送失敗退避重送、帶 uuid 去重。頁面輪詢與背景比對共用一把鎖。Lark 通知設定頁新增「AutoSpin 停止總表」選群＋試發（管理員）。回歸 32 條'] },
   { version: '5.80.1', date: '2026-11-06', changes: ['fix(AutoSpin 續租＋即時對照，CodeX review dfe4007 一個 P1、兩個 P2)：①Python 主程序退出、子程序還握著 stdout 時 close 會延後，原本只在 close 停租，孤兒照樣續租→改成看 exitCode／exit 就停（真程序重現：只看 close 多續 37 次，改後 3 次）；②渠道後台候選帳號原本只用帳號名稱去重，同名不同密碼會被排掉→帳號＋密碼一起比；③渠道 token 只按渠道快取，換了帳號仍用舊 token→記下是哪組帳密登的，不在候選裡就重登'] },

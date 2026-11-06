@@ -49,6 +49,30 @@ export function targetFromSnaps(snaps: Array<{ upTime: number; readAt: number }>
   return best
 }
 
+/** 尾筆收妥後要再等多久，本帳號 Game Record 才算到齊（實測晚約 2 分鐘） */
+export const GR_SETTLE_MS = 4 * 60_000
+
+/**
+ * 這台的終點要有「Meter 已經涵蓋尾局」的證據（CodeX 7a44528 P1：晚讀到的快照可能是停止前的舊資料）。
+ * 證據＝本帳號在這台最後一局的**下注時間（後台時鐘，跟 Meter 同一邊）**：終點取它與收妥後快照的較晚者，
+ * 窗口 t1 要追過它才算——Meter 停更（upTime 卡在舊時間）就永遠追不過，最後標未收斂，不會被當成一致。
+ * 只有 Game Record 已經到齊（收妥後滿 GR_SETTLE_MS、而且本帳號局數跟上一次一樣）才拿來用；
+ * 讀不到本帳號 Game Record 就沒有證據 → null。
+ */
+export function targetWithEvidence(x: {
+  snapTarget: number | null
+  gr: { count: number; lastBetAt?: number | null } | null
+  prevGrCount: number | null
+  now: number
+  quietFrom: number
+}): { target: number | null; why: string } {
+  if (x.snapTarget == null) return { target: null, why: '還沒讀到尾筆收妥之後的 Meter' }
+  if (x.now < x.quietFrom + GR_SETTLE_MS) return { target: null, why: '等本帳號 Game Record 到齊' }
+  if (!x.gr || x.gr.lastBetAt == null) return { target: null, why: '讀不到本帳號 Game Record，無法證明 Meter 涵蓋最後一局' }
+  if (x.prevGrCount !== x.gr.count) return { target: null, why: '本帳號 Game Record 局數還在變' }
+  return { target: Math.max(x.snapTarget, x.gr.lastBetAt), why: '' }
+}
+
 export interface SettleInput {
   /** session 已經不是 running（停止確認） */
   stopped: boolean

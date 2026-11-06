@@ -10,7 +10,7 @@
  */
 import type Database from 'better-sqlite3'
 import type { LiveCompareRow, LiveSessionRef } from './live-compare.js'
-import { decideSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, TAIL_QUIET_MS, type RunState } from './live-compare-final-core.js'
+import { decideSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, TAIL_QUIET_MS, type RunState } from './live-compare-final-core.js'
 
 export const FINAL_REPORT_CHAT_KEY = 'autospin_final_report_chat_id'
 const NOTIFY_MAX_ATTEMPTS = 5
@@ -21,7 +21,7 @@ const PAGE_FRESH_MS = 50_000
 
 export interface RunRow {
   sessionId: string; env: string; userLabel: string; startedAt: number; state: RunState
-  stoppedAt: number | null; spinCount: number; lastGrowthAt: number | null; targetUp: number | null; targetsJson: string | null; reason: string
+  stoppedAt: number | null; spinCount: number; lastGrowthAt: number | null; targetUp: number | null; targetsJson: string | null; evidenceJson: string | null; reason: string
   rowsJson: string | null; rowsAt: number | null; finalizedAt: number | null
   chatId: string | null; notifyState: string; notifyAttempts: number; notifyNextAt: number | null; notifyMessageId: string | null; notifyError: string | null
 }
@@ -60,11 +60,14 @@ export function ensureRunTable(db: Database.Database) {
       notifyNextAt INTEGER,
       notifyMessageId TEXT,
       notifyError  TEXT,
-      targetsJson  TEXT
+      targetsJson  TEXT,
+      evidenceJson TEXT
     )
   `)
-  // v5.81.0 開發中建出來的本機表沒有這欄
-  try { db.exec('ALTER TABLE live_compare_run ADD COLUMN targetsJson TEXT') } catch { /* 已有 */ }
+  // v5.81.0 開發中建出來的本機表沒有這兩欄
+  for (const col of ['targetsJson', 'evidenceJson']) {
+    try { db.exec(`ALTER TABLE live_compare_run ADD COLUMN ${col} TEXT`) } catch { /* 已有 */ }
+  }
 }
 
 export function createFinalizer(db: Database.Database, deps: FinalDeps) {
@@ -183,23 +186,39 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         // 先比一次（這一次會記下一筆 Meter 快照），再用「尾筆收妥之後讀到的快照」定每台終點
         const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }])
         const rows = res.rows
+        // ⚠️ 比對要等網路，期間可能又進來新局：比完再數一次，變了就重算靜默期、這輪不定案（CodeX 7a44528 P1）
+        const after = spinStats(run.env, run.sessionId).count
+        if (after !== sp.count) {
+          db.prepare("UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, rowsJson=?, rowsAt=?, reason=? WHERE sessionId=? AND state='settling'")
+            .run(after, deps.now(), JSON.stringify(rows), deps.now(), '等最後幾局寫完', run.sessionId)
+          continue
+        }
         const quietFrom = (lastGrowthAt ?? run.stoppedAt ?? t) + TAIL_QUIET_MS
+        const prevEv = JSON.parse(run.evidenceJson || '{}') as Record<string, number>
+        const evidence: Record<string, number> = {}
         const targets: Record<string, number | null> = {}
+        const whys: string[] = []
         for (const r of rows) {
           const snaps = db.prepare('SELECT upTime, readAt FROM live_compare_snap WHERE sessionId=? AND gmid=?').all(run.sessionId, r.gmid) as Array<{ upTime: number; readAt: number }>
-          targets[r.gmid] = targetFromSnaps(snaps, quietFrom)
+          if (r.gr) evidence[r.gmid] = r.gr.count
+          const tw = targetWithEvidence({ snapTarget: targetFromSnaps(snaps, quietFrom), gr: r.gr, prevGrCount: prevEv[r.gmid] ?? null, now: deps.now(), quietFrom })
+          targets[r.gmid] = tw.target
+          if (tw.why) whys.push(`${r.clientMachineName || r.gmid}：${tw.why}`)
         }
         const d = decideSettle({ stopped: true, stoppedAt: run.stoppedAt, spinCount: sp.count, lastGrowthAt, now: deps.now(), rows, targets })
+        const reason = d.state === 'timeout' && whys.length ? `${d.reason}（${whys.join('；')}）` : d.reason
         const freeze = d.state === 'final' || d.state === 'timeout'
         // 沒有機台可比（沒 spin、不是 QAT…）就不發總表
         const chatId = freeze ? (rows.length ? finalReportChatId() : '') : null
-        // ⚠️ 凍結結果與排通知要同一個 transaction：只寫了一半的話，重啟後不是重發就是永遠不發
+        // ⚠️ 凍結結果與排通知要同一個 transaction：只寫了一半的話，重啟後不是重發就是永遠不發。
+        //    交易裡再數一次 spin，有變就不凍結（下一輪重來）
         db.transaction(() => {
+          if (freeze && spinStats(run.env, run.sessionId).count !== sp.count) return
           db.prepare(`
-            UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, targetsJson=?, reason=?, rowsJson=?, rowsAt=?, state=?,
+            UPDATE live_compare_run SET spinCount=?, lastGrowthAt=?, targetsJson=?, evidenceJson=?, reason=?, rowsJson=?, rowsAt=?, state=?,
               finalizedAt=?, chatId=COALESCE(?, chatId), notifyState=CASE WHEN ? THEN ? ELSE notifyState END
             WHERE sessionId=? AND state='settling'
-          `).run(sp.count, lastGrowthAt, JSON.stringify(targets), d.reason, JSON.stringify(rows), deps.now(), d.state,
+          `).run(sp.count, lastGrowthAt, JSON.stringify(targets), JSON.stringify(evidence), reason, JSON.stringify(rows), deps.now(), d.state,
             freeze ? deps.now() : null, chatId, freeze ? 1 : 0, chatId ? 'pending' : 'skipped', run.sessionId)
         })()
       }

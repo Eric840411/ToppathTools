@@ -1,7 +1,7 @@
 /**
  * 停止後結算與總表卡片的回歸。跑法：npx tsx server/live-compare-final-core.test.ts
  */
-import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, SETTLE_MAX_MS, TAIL_QUIET_MS, ZERO_SPIN_WAIT_MS } from './live-compare-final-core.js'
+import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, SETTLE_MAX_MS, TAIL_QUIET_MS, ZERO_SPIN_WAIT_MS, GR_SETTLE_MS } from './live-compare-final-core.js'
 import type { LiveCompareRow } from './live-compare.js'
 
 let pass = 0
@@ -28,6 +28,16 @@ const QF = STOP + TAIL_QUIET_MS
 eq('取收妥之後最早那筆快照', targetFromSnaps([{ upTime: STOP - 9 * MIN, readAt: STOP - 1000 }, { upTime: TARGET, readAt: QF + 5000 }, { upTime: TARGET + MIN, readAt: QF + MIN }], QF), TARGET)
 eq('收妥之前讀到的快照不算（可能還沒含最後一局）', targetFromSnaps([{ upTime: STOP + 99 * MIN, readAt: QF - 1 }], QF), null)
 eq('沒有快照 → 定不出終點', targetFromSnaps([], QF), null)
+
+// ── 終點要有 Meter 涵蓋尾局的證據（本帳號最後一局的後台下注時間）──
+{
+  const ev = (o: Partial<Parameters<typeof targetWithEvidence>[0]>) => targetWithEvidence({ snapTarget: TARGET, gr: { count: 3, lastBetAt: STOP }, prevGrCount: 3, now: QF + GR_SETTLE_MS, quietFrom: QF, ...o })
+  eq('證據齊 → 終點取快照與最後一局較晚者', ev({}).target, Math.max(TARGET, STOP))
+  eq('Meter 停更（快照比最後一局舊）→ 終點拉到最後一局，舊窗口追不過', ev({ snapTarget: STOP - 120_000 }).target, STOP)
+  eq('Game Record 還沒到齊 → 不給終點', ev({ now: QF + GR_SETTLE_MS - 1 }).target, null)
+  eq('本帳號局數還在變 → 不給終點', ev({ prevGrCount: 2 }).target, null)
+  eq('讀不到本帳號 Game Record → 沒有證據', ev({ gr: null }).target, null)
+}
 
 // ── 一台的結算 ──
 eq('窗口涵蓋到終點而且一致 → done', machineSettle(row(win({ status: 'match', t1: TARGET })), TARGET), 'done')

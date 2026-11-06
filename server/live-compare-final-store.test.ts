@@ -26,15 +26,25 @@ function setup() {
   db.prepare("INSERT INTO settings VALUES ('autospin_final_report_chat_id', 'oc_test')").run()
   let clock = T0
   /** 假比對：每次呼叫記一筆 Meter 快照（upTime 比讀取時間早 5 秒，模擬 Meter 自己的時鐘），窗口狀態由測試控制 */
-  const state = { win: null as LiveCompareRow['win'], noRows: false }
+  const state = {
+    win: null as LiveCompareRow['win'], noRows: false,
+    /** 本帳號 Game Record（後台時鐘的最後一局）；預設：3 局、最後一局在 T0 */
+    gr: { count: 3, amount: 3, readAt: T0, lastBetAt: T0 } as LiveCompareRow['gr'],
+    /** Meter 快照的 upTime 比讀取時間早多少（模擬 Meter 停更就調大） */
+    snapLag: 5000,
+    /** 比對途中又進來幾局（模擬網路等待期間的晚到資料） */
+    spinDuringCompare: 0,
+  }
   const sends: Array<{ chatId: string; uuid?: string }> = []
   let sendFail = 0
   const deps: FinalDeps = {
     now: () => clock,
     compare: async (_env, sessions) => {
       if (state.noRows) return { rows: [] }
-      for (const s of sessions) db.prepare('INSERT INTO live_compare_snap VALUES (?, ?, ?, 0, 0, 1, ?)').run(s.id, G, clock - 5000, clock)
-      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, win: state.win } as unknown as LiveCompareRow)) }
+      for (const s of sessions) db.prepare('INSERT INTO live_compare_snap VALUES (?, ?, ?, 0, 0, 1, ?)').run(s.id, G, clock - state.snapLag, clock)
+      for (const s of sessions) for (let i = 0; i < state.spinDuringCompare; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(s.id, clock)
+      state.spinDuringCompare = 0
+      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr: state.gr, win: state.win } as unknown as LiveCompareRow)) }
     },
     send: async (chatId, _card, opts) => {
       if (sendFail > 0) { sendFail--; return { ok: false, code: 'NET', message: 'timeout' } }
@@ -63,15 +73,20 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   h.setClock(T0 + MIN); await h.f.tick(() => [S])
   eq('窗口沒到「收妥後讀到的快照」→ 不能凍結', h.run('short')?.state, 'settling')
 
-  // 窗口推進到收妥後那筆快照（T0+1 分讀到、upTime 早 5 秒）
+  // 窗口推進到收妥後那筆快照，但本帳號 Game Record 還沒到齊（收妥後未滿 4 分鐘）→ 不能定案
   h.state.win = win({ status: 'match', t1: T0 + MIN - 5000 })
   h.setClock(T0 + 2 * MIN); await h.f.tick(() => [S])
-  eq('涵蓋到終點而且一致 → final', h.run('short')?.state, 'final')
+  eq('Game Record 還沒到齊 → 不能定案', h.run('short')?.state, 'settling')
+  h.state.gr = { count: 4, amount: 4, readAt: T0, lastBetAt: T0 }
+  h.setClock(T0 + 5 * MIN); await h.f.tick(() => [S])
+  eq('本帳號局數還在變 → 不能定案', h.run('short')?.state, 'settling')
+  h.setClock(T0 + 6 * MIN); await h.f.tick(() => [S])
+  eq('涵蓋到終點而且一致、Game Record 局數穩定 → final', h.run('short')?.state, 'final')
   eq('凍結時記下群組、發出總表', [h.run('short')?.chatId, h.run('short')?.notifyState, h.sends.length], ['oc_test', 'sent', 1])
   eq('帶 uuid 去重', h.sends[0]?.uuid, 'lcfinal-short')
-  h.setClock(T0 + 3 * MIN); await h.f.tick(() => [S])
+  h.setClock(T0 + 7 * MIN); await h.f.tick(() => [S])
   eq('發過不重發', h.sends.length, 1)
-  eq('停止後頁面拿得到最近一輪', h.f.latestRunFor('qat', 'Siara', 24 * 3600_000, T0 + 3 * MIN)?.state, 'final')
+  eq('停止後頁面拿得到最近一輪', h.f.latestRunFor('qat', 'Siara', 24 * 3600_000, T0 + 7 * MIN)?.state, 'final')
 }
 
 // ── 零筆：停止當下第一筆還沒到，不能直接凍結 ──
@@ -119,11 +134,12 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   eq('停止 → settling', h.run('r')?.state, 'settling')
   h.state.win = win({ status: 'match', t1: T0 + 10 * MIN })
   h.failSends(1)
-  h.setClock(T0 + 3 * MIN); await h.f.tick(() => [S])
-  eq('發送失敗 → 留 pending、記次數', [h.run('r')?.state, h.run('r')?.notifyState, h.run('r')?.notifyAttempts], ['final', 'pending', 1])
-  h.setClock(T0 + 3 * MIN + 30_000); await h.f.tick(() => [S])
-  eq('退避時間還沒到 → 不重送', h.sends.length, 0)
   h.setClock(T0 + 6 * MIN); await h.f.tick(() => [S])
+  h.setClock(T0 + 7 * MIN); await h.f.tick(() => [S])
+  eq('發送失敗 → 留 pending、記次數', [h.run('r')?.state, h.run('r')?.notifyState, h.run('r')?.notifyAttempts], ['final', 'pending', 1])
+  h.setClock(T0 + 7 * MIN + 30_000); await h.f.tick(() => [S])
+  eq('退避時間還沒到 → 不重送', h.sends.length, 0)
+  h.setClock(T0 + 10 * MIN); await h.f.tick(() => [S])
   eq('時間到 → 重送成功', [h.run('r')?.notifyState, h.sends.length], ['sent', 1])
 }
 
@@ -136,6 +152,33 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   await h.f.tick(() => [S])
   h.setClock(T0 + 16 * MIN); await h.f.tick(() => [S])
   eq('逾時 → timeout 並發出', [h.run('to')?.state, h.run('to')?.notifyState], ['timeout', 'sent'])
+}
+
+// ── CodeX 7a44528 P1：Meter 停更——停止後才讀到、但 upTime 是停止前的舊資料，不能定案 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'stale', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('stale', 3, T0)
+  h.state.snapLag = 120_000 + 2 * 60_000   // 讀到的 upTime 一直停在停止前 120 秒左右
+  h.state.win = win({ status: 'match', t1: T0 - 120_000 })
+  for (let m = 0; m <= 8; m++) { h.setClock(T0 + m * MIN); h.state.snapLag = (m * MIN) + 120_000; await h.f.tick(() => [S]) }
+  eq('Meter 停更、追不過本帳號最後一局 → 還不能定案', h.run('stale')?.state, 'settling')
+  h.setClock(T0 + 16 * MIN); h.state.snapLag = 16 * MIN + 120_000; await h.f.tick(() => [S])
+  eq('逾時 → 未收斂（不能當一致）', h.run('stale')?.state, 'timeout')
+}
+
+// ── CodeX 7a44528 P1：比對途中又進來新局 → 這輪不定案、重算靜默期 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'race', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('race', 1, T0)
+  h.state.win = win({ status: 'match', t1: T0 + 10 * MIN })
+  await h.f.tick(() => [S])
+  h.setClock(T0 + 4 * MIN); await h.f.tick(() => [S])
+  h.state.spinDuringCompare = 1
+  h.setClock(T0 + 5 * MIN); await h.f.tick(() => [S])
+  eq('比對途中進來新局 → 不凍結、筆數更新', [h.run('race')?.state, h.run('race')?.spinCount], ['settling', 2])
+  eq('沒有發出總表', h.sends.length, 0)
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

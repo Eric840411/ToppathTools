@@ -281,7 +281,8 @@ export interface LiveCompareRow {
   t0: number | null
   as: SideValue & { betKnown: number; readAt: number }
   asSinceT0: (SideValue & { betKnown: number }) | null
-  gr: (SideValue & { readAt: number }) | null
+  /** lastBetAt：本帳號這台最後一局的下注時間（後台時鐘），停止後結算拿來證明 Meter 涵蓋尾局 */
+  gr: (SideValue & { readAt: number; lastBetAt?: number | null }) | null
   grError?: string
   meter: (SideValue & { readAt: number }) | null
   meterError?: string
@@ -386,7 +387,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       if (!g || 'error' in g) grError = g && 'error' in g ? g.error : 'Game Record 讀取失敗'
       else {
         const inWin = (g.byGmid.get(m.gmid) ?? []).filter(r => r.t >= m.startedAt)
-        gr = { count: inWin.length, amount: Math.round(inWin.reduce((acc, r) => acc + r.bet, 0) * 100) / 100, readAt: grReadAt }
+        gr = { count: inWin.length, amount: Math.round(inWin.reduce((acc, r) => acc + r.bet, 0) * 100) / 100, readAt: grReadAt, lastBetAt: inWin.length ? Math.max(...inWin.map(r => r.t)) : null }
       }
     }
     let chain: LiveCompareRow['chain'] = null, chainError: string | undefined
