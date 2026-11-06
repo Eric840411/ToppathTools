@@ -100,3 +100,7 @@
 4. `discord_retire_backup`（退版備份）裡有舊 Discord webhook，沒加密；Discord 已退場，建議撤銷該 webhook 後刪備份。
 5. Gemini key 仍放在網址參數 `?key=`（上游代理可能記錄），可改 `x-goog-api-key` header。
 6. CORS 仍是 `*`（沒帶 credentials，風險低）。
+
+## 佇列裡的身分（v5.81.10）
+
+Bottleneck 排隊的工作會沿用**前一個工作**的 AsyncLocalStorage context。worker.ts 的 HTTP 佇列（`shouldQueueRequest`：/api/autospin、machine-test、osm-uat、gs、image-check、frontend-auto 的非 GET）原本直接在佇列 callback 裡呼叫 `next()`，排在後面的 request 會拿到別人的身分（`getOperatorFromContext`／`getAuthEmailFromContext` 都讀 context）。實際症狀是 agent 收尾時 hub-dispatch／hub-stop 間歇 401「請先選擇帳號」；更糟的是拿到另一個登入者的身分。修法：`AsyncResource.bind(() => next())`；Gemini key 佇列（會讀個人 key）同樣綁回。**新增任何 limiter／queue，callback 裡要讀 context 就一定要綁**。回歸：`node scripts/ui-checks/worker-queue-context.mjs`（含「不綁一定錯」的前提檢查）。

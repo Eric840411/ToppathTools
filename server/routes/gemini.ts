@@ -3,6 +3,7 @@
  * All /api/gemini/* routes plus Gemini helper utilities used by other route files.
  */
 import { Router } from 'express'
+import { AsyncResource } from 'node:async_hooks'
 import { isAdminRole } from '../role-store.js'
 import { filterMeegleHistoryForNonAdmin } from '../meegle-history-filter.js'
 import { z } from 'zod'
@@ -322,7 +323,9 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   }
   const primaryKey = keyEntries[0].key
 
-  return getKeyLimiter(primaryKey).schedule(async () => {
+  // ⚠️ 綁回呼叫端的 async context：Bottleneck 排隊的工作會沿用「前一個工作」的 context，
+  //    裡面 resolveGeminiKeyEntries() 讀到的會是別人的身分與個人 key（同 worker.ts 佇列那個坑）
+  return getKeyLimiter(primaryKey).schedule(AsyncResource.bind(async () => {
     activateAiTask(taskId)
     try {
       const out = await _callGeminiWithRotation(prompt, 0)
@@ -332,7 +335,7 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
       finishAiTask(taskId, e instanceof Error ? e.message : String(e))
       throw e
     }
-  })
+  }))
 }
 
 /** Exponential backoff delays for 503 (model overload): 5 retries before rotating key */

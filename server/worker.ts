@@ -5,6 +5,7 @@
  * This process intentionally starts small: health, capacity, and runtime
  * telemetry first. Heavy job execution can move here one route at a time.
  */
+import { AsyncResource } from 'node:async_hooks'
 import { buildInfo } from './build-info.js'
 import { startLiveLedgerLoop } from './live-ledger-fetch.js'
 import cors from 'cors'
@@ -520,13 +521,21 @@ app.use((req, res, next) => {
     startedAt: Date.now(),
   }
   queuedTasks.set(task.id, task)
+  // 🚨 **next() 一定要綁回這個 request 自己的 async context。**
+  //    Bottleneck 排在後面的工作是從「前一個工作結束」的 callback 裡啟動的，
+  //    AsyncLocalStorage 會沿用那個 request 的 context——也就是**別人的身分**。
+  //    2026-11-06 實際症狀：agent 收尾時一串 POST 擠在佇列，緊接著的 hub-dispatch／hub-stop
+  //    拿到 agent（guest）的 context → getOperatorFromContext() 沒有 key → 401「請先選擇帳號」，
+  //    過一陣子佇列空了又好了。更糟的情況是拿到另一個已登入使用者的身分。
+  //    重現：scripts/ui-checks/worker-queue-context.mjs
+  const resume = AsyncResource.bind(() => next())
   workerQueue.schedule(() => new Promise<void>((resolve) => {
     queuedTasks.delete(task.id)
     runningTasks.set(task.id, task)
     const done = () => resolve()
     res.once('finish', done)
     res.once('close', done)
-    next()
+    resume()
   })).catch(error => {
     queuedTasks.delete(task.id)
     if (!res.headersSent) res.status(503).json({ ok: false, message: 'Worker queue is full', error: String(error) })

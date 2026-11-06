@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.9'
+export const APP_VERSION = '5.81.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.10', date: '2026-11-06', changes: ['fix(worker 佇列身分錯置)：worker 把 /api/autospin、machine-test、osm-uat 等 POST 排進 Bottleneck 佇列，排在後面的 request 是從前一個工作結束的 callback 啟動，AsyncLocalStorage 沿用的是前一個 request 的 context——拿到別人的身分。症狀：agent 收尾一串 POST 擠在佇列時，緊接著的 hub-dispatch／hub-stop 拿到 agent（guest）的 context → 401「請先選擇帳號」，佇列空了又好（claude-osm-2 在 Spug 重現兩次）。next() 改用 AsyncResource.bind 綁回自己的 context；Gemini key 佇列同樣處理（會讀到別人的個人 key）。回歸：scripts/ui-checks/worker-queue-context.mjs'] },
   { version: '5.81.9', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review f1e65cf P2)：下一輪恰好在「停止＋1 分鐘」開始時，ownUntil 用 >= 判成不是下一輪切點，那一刻的局仍算進上一輪、也不標只供參考→相等也算下一輪切點'] },
   { version: '5.81.8', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 610474f 兩個 P2)：①本帳號局數上界切在同帳號下一輪開始時仍用 <=，恰在下一輪開始那一刻的局兩輪都算到→切點來自下一輪時改用 <（Game Record 與 handpay 同一個 inOwnRange）；②15 秒間隔擋不住後台時鐘偏差（後台慢 2 秒時下一輪開始後 1 秒的注會落在上一輪）→最後一局落在切點前 10 秒內就標「只供參考」（nearCutNote）'] },
   { version: '5.81.7', date: '2026-11-06', changes: ['fix(AutoSpin 低餘額／隨機離開，CodeX review c8b5859 兩個 P1)：①離桌重進途中拋例外會落到外層只記錯誤、下一輪照樣 Spin→兩個呼叫點自己攔例外並停這台；②重進前就標「已離桌」，Join 已送出但確認逾時時收尾會跳過離桌、留下佔座→開始重進就清掉，重進失敗後只有畫面確認在大廳才略過收尾離桌'] },
