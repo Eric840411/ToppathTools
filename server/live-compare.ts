@@ -13,11 +13,10 @@
  */
 import { db } from './shared.js'
 import { loadMeterConfig, meterPost } from './routes/meter-reconcile.js'
-import { guardFetchedRows } from './live-ledger.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId,
+  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId, guardOwnRounds,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
 import { toBackendRounds } from './live-compare-window.js'
@@ -152,10 +151,11 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
     if (page === GR_MAX_PAGES) return { error: `Game Record 超過 ${GR_MAX_PAGES * GR_PAGE_SIZE} 筆，結果不完整` }
   }
   // 對到別人的帳號就整批不用（過濾條件沒生效，其餘的也不可信）
-  const guard = guardFetchedRows(collected, username)
-  if (!guard.ok) return { error: guard.message || 'Game Record 回傳內容不符' }
+  // ⚠️ 不能用 Live Ledger 的 guardFetchedRows：它要求 spin_index，GCP 機台的列沒有，會整批讀不到（v5.79.3）
+  const guard = guardOwnRounds(collected as Record<string, unknown>[], username)
+  if (!guard.ok) return { error: guard.message }
   const byGmid = new Map<string, Array<{ t: number; bet: number }>>()
-  for (const r of dedupeByOrderId(guard.rows.filter((x): x is NonNullable<typeof x> => !!x))) {
+  for (const r of dedupeByOrderId(guard.rows)) {
     const g = byGmid.get(r.gmid) ?? []
     g.push({ t: r.betTimePrecise, bet: r.bet })
     byGmid.set(r.gmid, g)

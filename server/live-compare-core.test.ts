@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -61,6 +61,18 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   const staleIn: EvalInput = { as: s(10, 100), asSinceT0: s(0, 0), gr: s(10, 100), meter: s(0, 0), meterCached: false }
   eq('舊寫法：停更時 0 對 0 會顯示一致（重現）', st(staleIn, 0), 'match')
   eq('停更當成不可比 → 不顯示一致', st({ ...staleIn, meter: null, meterCached: true }, 0), 'cache')
+}
+// ── v5.79.3：GCP 機台的 Game Record 沒有 spin_index，不能因此整批讀不到 ──
+{
+  // 欄位取自 QAT 892-DRAGONLAW-0025（GCP）真實回傳，去識別化
+  const gcp = (o: string, t: number) => ({ order_id: o, uid: '892-DRAGONLAW-0025', username: 'fixture01', bgtype: 'gsa', spinid: 'x', bet: 200, bet_time_precise: t })
+  const ok = guardOwnRounds([gcp('a', 1793932000.5), gcp('b', 1793932003.25)], 'fixture01')
+  eq('GCP 列沒有 spin_index 也能讀', ok.ok, true)
+  eq('下注時間換成毫秒', ok.ok ? ok.rows.map(r => r.betTimePrecise) : null, [1793932000500, 1793932003250])
+  eq('別的帳號 → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), username: 'other' }], 'fixture01').ok, false)
+  eq('缺下注時間 → 整批不用（不能丟掉那筆）', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), bet_time_precise: null }], 'fixture01').ok, false)
+  eq('缺單號 → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('', 2) }], 'fixture01').ok, false)
+  eq('注額空字串 → 整批不用', guardOwnRounds([{ ...gcp('a', 1), bet: '' }], 'fixture01').ok, false)
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)

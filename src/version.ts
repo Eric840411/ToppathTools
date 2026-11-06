@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.79.2'
+export const APP_VERSION = '5.79.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.79.3', date: '2026-11-06', changes: ['fix(即時對照，同事 1106 實跑)：GCP 機台（例：892-DRAGONLAW-0025）的本帳號 Game Record 整批「讀不到」——原本套用 Live Ledger 的防呆，要求每列都有 spin_index，但 GCP 的列沒有這個欄位（只有 spinid）。即時對照改用自己的防呆：只要求單號、下注時間、注額，出現別的帳號或任何一筆缺欄位仍整批不比。Live Ledger 那道不動。回歸 6 條，把 spin_index 要求加回去會紅'] },
   { version: '5.79.2', date: '2026-11-05', changes: ['fix(即時對照 固定窗口，CodeX review ebfb687 P1)：只要切點上有一局在進行，所有差額都被歸成「切點待確認」，一局邊界局能讓 100／200／300 局的差額永遠不報。改成只有差額**剛好**由切點上的局解釋（局數與金額都對上）才放過：終點那批→待下一個快照；起點那批只在第一個窗口能算進這一段（之後的起點那幾局上一段已經算過，再算就是重算）。其他差額照常累計失敗、逾期待查。回歸 41＋20 條'] },
   { version: '5.79.1', date: '2026-11-05', changes: ['fix(即時對照 固定窗口，CodeX review bfb0623 兩個 P1、一個 P2)：①每段原本各自挑下注或派彩時間，同一局可能被前後兩段各算一次、兩段都顯示一致→一律用下注時間切；切點上剛好有局在進行時標「切點待確認」、不算失敗、換下一個快照再比；②Game Record 短頁沒核對 total、handpay 缺機台的列被丟掉→都改成整輪不比；③同一單號在 GR 與 handpay 注額不一致原本無條件採 GR→算衝突、不能判一致。窗口卡住時畫面註明之後哪一段還沒檢查。回歸 37＋18 條，三項拿掉修正各自會紅'] },
   { version: '5.79.0', date: '2026-11-05', changes: ['change(AutoSpin 即時對照 判定改成比後台，同事 1105 要求 handpay＋實測 Game Record 晚約 2 分鐘，CodeX 選方案 B)：原本拿 AutoSpin 即時局數比 Game Record／Meter，AutoSpin 跑著時 Game Record 永遠落後、會一直誤報。改成 Instant Meter 在固定窗口的增量 ＝ 這台全部玩家的 Game Record ＋ Jackpot Abnormality（handpay 的局不進 Game Record）；只比收到滿 3 分鐘的 Meter 快照，對不上留在同一窗口下一輪再查，連兩次才「逾期待查」，補齊自動解除，對上後接續下一段。AutoSpin 與本帳號 Game Record 只列參考。用 QAT 892-MOREPUFF-0134 13:00～16:00 真資料驗證：GR 432＋handpay 4（注額 125、JP 6,410）＝ Meter 436／13,375。新增 live_compare_snap／live_compare_win 兩張表；判定 29 條、多輪輪詢模擬 18 條回歸'] },

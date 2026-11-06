@@ -133,3 +133,28 @@ export function dedupeByOrderId<T extends { orderId: string }>(rows: T[]): T[] {
   const seen = new Set<string>()
   return rows.filter(r => (seen.has(r.orderId) ? false : (seen.add(r.orderId), true)))
 }
+
+export interface OwnRound { orderId: string; gmid: string; bet: number; betTimePrecise: number }
+
+/**
+ * 本帳號 Game Record 的防呆（即時對照用）。跟 Live Ledger 的 guardFetchedRows 差在**不要求 spin_index**：
+ * GCP 機台（bgtype gsa）的列沒有 spin_index（只有 spinid），套 Live Ledger 那道會讓所有 GCP 機台整批「讀不到」
+ * （2026-11-06 892-DRAGONLAW-0025 實測 43/43 筆）。即時對照只用單號、機台、注額、下注時間。
+ * 出現別的帳號、或任何一筆缺單號／下注時間／注額 → 整批不用（丟掉那筆局數會少算）。
+ */
+export function guardOwnRounds(raw: Record<string, unknown>[], username: string): { ok: true; rows: OwnRound[] } | { ok: false; message: string } {
+  const foreign = raw.filter(r => String(r.username ?? '') !== username)
+  if (foreign.length) {
+    const names = [...new Set(foreign.map(r => String(r.username ?? '')))].slice(0, 3)
+    return { ok: false, message: `回傳含非目標帳號（期待 ${username}，出現 ${names.join('/')}）：${foreign.length}/${raw.length} 筆` }
+  }
+  const rows: OwnRound[] = []
+  let bad = 0
+  for (const r of raw) {
+    const orderId = String(r.order_id ?? ''), btp = Number(r.bet_time_precise), bet = Number(r.bet)
+    if (!orderId || r.bet_time_precise == null || r.bet_time_precise === '' || !Number.isFinite(btp) || r.bet == null || r.bet === '' || !Number.isFinite(bet)) { bad++; continue }
+    rows.push({ orderId, gmid: String(r.uid ?? ''), bet, betTimePrecise: Math.round(btp * 1000) })
+  }
+  if (bad) return { ok: false, message: `${bad}/${raw.length} 筆缺單號、下注時間或注額，這輪不比` }
+  return { ok: true, rows }
+}
