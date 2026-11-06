@@ -180,7 +180,8 @@ export interface SiteLoginCandidate { username: string; password: string; source
 export function siteLoginCandidates(osm: Record<string, string>, gcp: Record<string, string>): SiteLoginCandidate[] {
   const out: SiteLoginCandidate[] = []
   const add = (u: string | undefined, p: string | undefined, source: string) => {
-    if (u && !out.some(c => c.username === u)) out.push({ username: u, password: p || '', source })
+    // 帳號＋密碼一起比：同名但密碼不同（例如渠道帳號那組密碼過期、主帳號那組是對的）要分開試（CodeX dfe4007 P2）
+    if (u && !out.some(c => c.username === u && c.password === (p || ''))) out.push({ username: u, password: p || '', source })
   }
   add(osm.site_username, osm.site_password, '渠道後台帳號')
   add(osm.login_username, osm.login_password, 'OSM 主帳號')

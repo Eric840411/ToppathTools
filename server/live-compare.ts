@@ -51,7 +51,9 @@ db.exec(`
 
 // ─── Instant Meter ───────────────────────────────────────────────────────────
 
-const siteTokens = new Map<string, { token: string; lastlogintime: string }>()
+/** 渠道 → 登入結果。cred 記下是哪組帳密登的，設定換了就不能再用（CodeX dfe4007 P2） */
+const siteTokens = new Map<string, { token: string; lastlogintime: string; cred: string }>()
+const credKey = (c: { username: string; password: string }) => `${c.username}\u0000${c.password}`
 const meterListCache = new Map<string, { at: number; items: Map<string, Record<string, unknown>> | null; error?: string }>()
 
 /**
@@ -59,7 +61,7 @@ const meterListCache = new Map<string, { at: number; items: Map<string, Record<s
  * ⚠️ 帳號通常只能登入自己的渠道（QAT 實測：主帳號只能 CP、GCP 那組只能 NC，其他回 41104），
  *    所以不能「填一組就套全部渠道」——填了 NC 帳號 CP 就讀不到（CodeX 6dcda5d P2）。
  */
-async function siteLogin(cfg: Record<string, string>, site: string): Promise<{ token: string; lastlogintime: string } | string> {
+async function siteLogin(cfg: Record<string, string>, site: string): Promise<{ token: string; lastlogintime: string; cred: string } | string> {
   const origin = `https://qat-${site}.osmslot.org`
   const tried: string[] = []
   for (const c of siteLoginCandidates(cfg, loadMeterConfig('qat', 'gcp'))) {
@@ -71,7 +73,7 @@ async function siteLogin(cfg: Record<string, string>, site: string): Promise<{ t
       })
       const d = await r.json() as { code?: number; data?: { token?: string; lastLoginTime?: number } }
       if (d.code === 20000 && d.data?.token) {
-        const t = { token: d.data.token, lastlogintime: String(d.data.lastLoginTime ?? '') }
+        const t = { token: d.data.token, lastlogintime: String(d.data.lastLoginTime ?? ''), cred: credKey(c) }
         siteTokens.set(site, t)
         return t
       }
@@ -95,6 +97,8 @@ async function meterListOf(channelId: string): Promise<{ items: Map<string, Reco
   const origin = `https://qat-${site}.osmslot.org`
   for (let attempt = 0; attempt < 2; attempt++) {
     let tk = siteTokens.get(site)
+    // 快取的 token 是用哪組帳密登的？那組已經不在候選裡（設定改了）就丟掉重登
+    if (tk && !siteLoginCandidates(cfg, loadMeterConfig('qat', 'gcp')).some(c => credKey(c) === tk!.cred)) { siteTokens.delete(site); tk = undefined }
     if (!tk || attempt > 0) {
       const lg = await siteLogin(cfg, site)
       if (typeof lg === 'string') return save({ items: null, error: lg })

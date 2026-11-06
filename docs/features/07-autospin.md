@@ -475,6 +475,7 @@ session 在那個空窗裡看起來就像不存在。
 - worker 記在那條連線的 `AgentInfo.autospinLease`；session 建立時記下 `dispatchId`
 - should-stop 判活：收過這一輪的租約就進**續租模式**（`leaseMode`，會持久化）→ 只看「派工那台 agent、同一個 dispatchId、60 秒內」的租約，**不套 8 小時上限**；租約斷了照 90 秒寬限收尾
 - **Python 自己的輪詢續不了租**：agent 被關／換 process／child 結束 → 租約就停
+- ⚠️ **停租要看 `exit`／`exitCode`，不能只等 `close`**（v5.80.1，CodeX P1）：Python 主程序退出但子程序還握著 stdout 時，close 會延後到子程序結束，期間孤兒照樣續租。`scripts/ui-checks/autospin-lease-exit.cjs` 用真程序重現（只看 close 多續 37 次）
 - 沒收過租約的 session（舊版 agent、agent 端自己啟動的）**照舊**：WS 連著＋8 小時上限（`AUTOSPIN_SESSION_MAX_AGE_MS` 可調）
 
 **驗證**：`scripts/ui-checks/agent-gone-grace.mjs` 第 5 節 10 條；拿掉 dispatchId 比對、讓續租模式也套上限，各自會紅。

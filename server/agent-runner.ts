@@ -2518,8 +2518,10 @@ function connect() {
       // 續租（v5.80.0）：這一輪的 Python 還活著就每 20 秒告訴伺服器一次。伺服器只認這個，
       // 不認 Python 自己的輪詢——agent 被關掉 → 不再續租 → 伺服器 90 秒後叫 Python 停。
       // ⚠️ 用當下這條 ws（重連後是新的）；child 已經不是目前這一輪就停止續租
+      // ⚠️ 要看 exitCode／signalCode，不能只等 close：Python 主程序退出後，若它開的子程序還握著 stdout，
+      //    close 會一直不來，期間照樣續租——孤兒等於拿到無期限租約（CodeX dfe4007 P1，實測退出後續租 28 次）
       const sendLease = () => {
-        if (autospinChild !== child) { clearInterval(leaseTimer); return }
+        if (autospinChild !== child || child.exitCode !== null || child.signalCode !== null) { clearInterval(leaseTimer); return }
         const cur = currentWs()
         if (cur && cur.readyState === cur.OPEN) cur.send(JSON.stringify({ type: 'autospin_lease', sessionId }))
       }
@@ -2529,6 +2531,7 @@ function connect() {
       child.stderr?.setEncoding('utf8')
       child.stdout?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.log(`[AutoSpin] ${l}`) })
       child.stderr?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.error(`[AutoSpin][stderr] ${l}`) })
+      child.on('exit', () => clearInterval(leaseTimer))
       child.on('close', (code) => {
         clearInterval(leaseTimer)
         console.log(`[Agent:${AGENT_LABEL}] AutoSpin process exited (code ${code})`)

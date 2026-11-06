@@ -84,7 +84,8 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   const c = siteLoginCandidates({ site_username: 'S', site_password: 'sp', login_username: 'M', login_password: 'mp' }, { login_username: 'G', login_password: 'gp' })
   eq('依序：渠道帳號 → 主帳號 → GCP', c.map(x => x.username), ['S', 'M', 'G'])
   eq('沒填渠道帳號時主帳號仍在（CP 才登得進）', siteLoginCandidates({ login_username: 'M' }, { login_username: 'G' }).map(x => x.username), ['M', 'G'])
-  eq('同帳號只試一次', siteLoginCandidates({ site_username: 'M', login_username: 'M' }, { login_username: 'M' }).length, 1)
+  eq('同帳號同密碼只試一次', siteLoginCandidates({ site_username: 'M', site_password: 'p', login_username: 'M', login_password: 'p' }, { login_username: 'M', login_password: 'p' }).length, 1)
+  eq('同帳號不同密碼兩組都要試（渠道帳號密碼過期時主帳號那組仍可用）', siteLoginCandidates({ site_username: 'M', site_password: 'old', login_username: 'M', login_password: 'new' }, {}).map(x => x.password), ['old', 'new'])
   eq('全空 → 沒有可試的', siteLoginCandidates({}, {}).length, 0)
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
