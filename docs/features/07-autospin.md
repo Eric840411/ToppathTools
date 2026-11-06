@@ -464,6 +464,25 @@ session 在那個空窗裡看起來就像不存在。
 | Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |
 | Discord 定時彙總報告 | 長時間穩定性統計，跟上面即時彙報通知是獨立訊息（每次到間隔另發一則新訊息，不覆蓋前一則）——顯示 errcode 次數/RECOVER 斷線重連次數/kickout 次數/CR checks 與無回應次數/Spin 數/中獎數/總贏分，間隔（分鐘）與顯示欄位皆可在「Discord 通知」設定頁調整，預設關閉 |
 
+### 一直跑到使用者自己停：續租取代 8 小時上限（v5.80.0）
+
+**起因**：Eric 1106 回報 Spug 上 AutoSpin「常常晚上掛掉」。Spug worker log 證實 Lusa 一輪 15:38:04 開跑、23:38:05 結束，
+剛好 8 小時——被 v4.118.2（09-07）加的 **session 絕對上限**收掉。那道上限是為了擋孤兒 Python 用自己的輪詢續命
+（當時停止後多寫 2,762 筆）。Eric 要求「除非使用者自己停，否則一直跑」。
+
+**做法（CodeX 1106 審過方向）**：
+- agent-runner 啟動 Python 後，只要**手上這一輪的 child 還活著**，每 20 秒送 `autospin_lease { sessionId: dispatchId }`（用目前那條 WS，重連後照送）
+- worker 記在那條連線的 `AgentInfo.autospinLease`；session 建立時記下 `dispatchId`
+- should-stop 判活：收過這一輪的租約就進**續租模式**（`leaseMode`，會持久化）→ 只看「派工那台 agent、同一個 dispatchId、60 秒內」的租約，**不套 8 小時上限**；租約斷了照 90 秒寬限收尾
+- **Python 自己的輪詢續不了租**：agent 被關／換 process／child 結束 → 租約就停
+- 沒收過租約的 session（舊版 agent、agent 端自己啟動的）**照舊**：WS 連著＋8 小時上限（`AUTOSPIN_SESSION_MAX_AGE_MS` 可調）
+
+**驗證**：`scripts/ui-checks/agent-gone-grace.mjs` 第 5 節 10 條；拿掉 dispatchId 比對、讓續租模式也套上限，各自會紅。
+
+**已知限制**：
+- worker 重啟後 Python 走 sessionNotFound 重新註冊時，agent 的 `busy／sessionId` 已經清掉，新 session 拿不到 dispatchId → 退回舊規則（含 8 小時上限）。平常 worker 重啟是從 DB 復原 session，不走這條
+- 舊版 agent 要更新到含續租的 agent-runner 並**重啟 agent** 才會生效
+
 ### Discord 通知設定（DiscordNotifySettingsPage）
 
 **路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）、`/api/autospin/status-report-settings`（GET/POST，定時彙總報告設定）、`/api/autospin/agent/:id/status-report`（POST，Agent 送出彙總報告用）、`/api/autospin/status-report-test`（POST，用假資料試發送彙總報告）

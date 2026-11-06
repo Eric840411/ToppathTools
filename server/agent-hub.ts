@@ -65,6 +65,11 @@ export interface AgentInfo {
    *    Python 是 HTTP 輪詢，agent 死掉它不會知道，會變孤兒繼續跑。
    */
   dispatchUserLabel?: string
+  /**
+   * AutoSpin 續租（v5.80.0）：agent 只要手上那一輪的 Python 還活著，每 20 秒送一次 autospin_lease。
+   * ⚠️ 只有 agent 能續租——Python 自己的輪詢不算（那正是 09-07 孤兒自己續命的路徑）。
+   */
+  autospinLease?: { dispatchId: string; at: number }
 }
 
 export const agentConnections = new Map<string, AgentInfo>()

@@ -1113,6 +1113,13 @@ interface AgentSession {
    * ⚠️ 用來判斷「agent 已經不在了，但 Python 還活著」——見 should-stop 的說明。
    */
   dispatchedAgentId?: string
+  /** 派工編號（hub-…）。agent 續租時帶這個，對得上才算這一輪的租約（v5.80.0） */
+  dispatchId?: string
+  /**
+   * 收過這一輪的續租之後就是 true（會跟著快照持久化）。之後判活**只看續租**、不套 8 小時上限；
+   * 舊版 agent 不會續租 → 一直是 false → 照舊規則（WS 連著＋8 小時上限）。
+   */
+  leaseMode?: boolean
   /** 從什麼時候開始找不到那台 agent。⚠️ 要有寬限期，不能斷一下就殺——見 should-stop */
   agentGoneSince?: number
   heavyTask?: HeavyTaskToken
@@ -1582,8 +1589,10 @@ router.post('/api/autospin/agent/start', (req, res) => {
       // ⚠️ 把這個 session 連回派工的那台 agent。沒有這條線的話，agent 被 pm2 停掉之後
       //    沒有人知道該停哪個 session——Python 是 HTTP 輪詢、不吃 agent 的 WebSocket，
       //    會變成孤兒繼續跑（實測停止後又寫了 2,762 筆）。
-      dispatchedAgentId: [...agentConnections.values()]
-        .find(a => a.busy && a.dispatchUserLabel === userLabel)?.agentId,
+      ...(() => {
+        const a = [...agentConnections.values()].find(x => x.busy && x.dispatchUserLabel === userLabel)
+        return { dispatchedAgentId: a?.agentId, dispatchId: a?.sessionId ?? undefined }
+      })(),
     })
     // ⚠️ 把鎖綁到這個 session，之後才有辦法判斷「鎖在、session 不在」＝孤兒。
     //    一定要在同一個同步流程裡做完，中間不能有 await，否則背景掃描可能
@@ -1712,6 +1721,25 @@ const AGENT_GONE_GRACE_MS = Number(process.env.AUTOSPIN_AGENT_GONE_GRACE_MS) || 
  * 8 小時：長壓測跑整個工作天是合理的，但沒有人會刻意讓一個 session 跑超過一天。
  */
 const SESSION_MAX_AGE_MS = Number(process.env.AUTOSPIN_SESSION_MAX_AGE_MS) || 8 * 60 * 60 * 1000
+/**
+ * 續租多久沒來就當作租約失效（agent 每 20 秒送一次，容許掉兩次）。失效後再走 90 秒寬限才停。
+ * ⚠️ 8 小時上限（上面那個）從 v5.80.0 起只套在「沒有續租」的 session：舊版 agent、agent 端自己啟動的。
+ */
+const AUTOSPIN_LEASE_TTL_MS = 60_000
+
+/**
+ * 這一輪的續租狀態。只認 dispatchId 對得上的租約（別輪、別台 agent 的不算）。
+ * leaseMode：收過一次就一直是 true（之後租約斷了要照續租規則收尾，不能退回「WS 連著就活」）。
+ */
+export function autospinLeaseState(
+  s: { dispatchId?: string; leaseMode?: boolean },
+  lease: { dispatchId: string; at: number } | undefined,
+  now: number,
+  ttlMs = AUTOSPIN_LEASE_TTL_MS,
+): { leaseMode: boolean; leaseValid: boolean } {
+  const matches = !!(lease && s.dispatchId && lease.dispatchId === s.dispatchId)
+  return { leaseMode: !!s.leaseMode || matches, leaseValid: matches && now - lease!.at <= ttlMs }
+}
 
 /**
  * 「這個 session 該不該因為 agent 不見了而收尾」的判定。**抽成純函式才測得動**
@@ -1728,6 +1756,13 @@ export function decideAgentGone(
   now: number,
   graceMs = AGENT_GONE_GRACE_MS,
   maxAgeMs = SESSION_MAX_AGE_MS,
+  /**
+   * 續租模式（v5.80.0）：派工 agent 有在替這一輪續租。這時 `connOpen` 的意思是「租約有效」，
+   * 而且**不套絕對上限**——Eric 1106 要求「除非使用者自己停，否則一直跑」。
+   * 能拿掉上限是因為續租只有 agent 能做：agent 關掉／換了一個 process／Python 已經不是它手上那一輪，
+   * 租約就斷，Python 自己的輪詢續不了。
+   */
+  leaseMode = false,
 ): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined; hardExpired: boolean
      /** 要寫回 session 的年齡起點——年齡未知時就是「第一次看到它」的時間 */
      startedAt: number } {
@@ -1755,6 +1790,11 @@ export function decideAgentGone(
   //
   //    年齡未知就從「第一次看到它」開始算，免除條款直接消失。
   const startedAt = s.startedAt ?? now
+  if (leaseMode) {
+    if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false, startedAt }
+    const since = s.agentGoneSince ?? now
+    return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since, hardExpired: false, startedAt }
+  }
   const hardExpired = now - startedAt > maxAgeMs
   if (hardExpired) {
     return { agentAlive: false, agentGone: true, goneSince: s.agentGoneSince, hardExpired: true, startedAt }
@@ -1789,7 +1829,14 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
    * **兩道互相獨立的保險，比一道聰明的保險可靠。**
    */
   const conn = s.dispatchedAgentId ? agentConnections.get(s.dispatchedAgentId) : undefined
-  const d = decideAgentGone(s, !!(conn && conn.ws.readyState === conn.ws.OPEN), Date.now())
+  const now = Date.now()
+  // 續租：只認派工那台 agent、而且是這一輪（dispatchId）的租約。收過一次就進續租模式（v5.80.0）
+  const ls = autospinLeaseState(s, conn?.autospinLease, now)
+  if (ls.leaseMode && !s.leaseMode) s.leaseMode = true
+  const leaseValid = ls.leaseValid
+  const d = s.leaseMode
+    ? decideAgentGone(s, leaseValid, now, AGENT_GONE_GRACE_MS, SESSION_MAX_AGE_MS, true)
+    : decideAgentGone(s, !!(conn && conn.ws.readyState === conn.ws.OPEN), now)
   s.agentGoneSince = d.goneSince
   // 年齡未知的 session 補上起點，之後照常計時（見 decideAgentGone 的說明）
   if (!s.startedAt) s.startedAt = d.startedAt

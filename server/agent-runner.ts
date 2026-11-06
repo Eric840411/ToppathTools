@@ -379,6 +379,11 @@ type IncomingMessage =
 // ── AutoSpin (Python engine spawned locally by this agent) ───────────────────
 const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 let autospinChild: ChildProcess | null = null
+/** AutoSpin 續租間隔。伺服器那邊 60 秒沒收到就當這輪沒人管（再加 90 秒寬限才停） */
+const AUTOSPIN_LEASE_INTERVAL_MS = 20_000
+/** 目前這條連到伺服器的 WebSocket（斷線重連會換）。續租要用最新那條，不能用派工當下那條 */
+let latestWs: WebSocket | null = null
+const currentWs = () => latestWs
 // luckylinkPollerChild 已於 2026-09-08 移除（LuckyLink JP 比對改由對帳台 L4/L5 負責）
 
 // ── Backend UAT (Playwright script spawned locally by this agent) ────────────
@@ -2412,6 +2417,7 @@ function connect() {
   const url = `${CENTRAL_URL}/ws/agent`
   console.log(`[Agent:${AGENT_LABEL}] Connecting to ${url} ...`)
   const ws = new WebSocket(url)
+  latestWs = ws
 
   ws.on('open', async () => {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
@@ -2509,11 +2515,22 @@ function connect() {
         env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
       })
       autospinChild = child
+      // 續租（v5.80.0）：這一輪的 Python 還活著就每 20 秒告訴伺服器一次。伺服器只認這個，
+      // 不認 Python 自己的輪詢——agent 被關掉 → 不再續租 → 伺服器 90 秒後叫 Python 停。
+      // ⚠️ 用當下這條 ws（重連後是新的）；child 已經不是目前這一輪就停止續租
+      const sendLease = () => {
+        if (autospinChild !== child) { clearInterval(leaseTimer); return }
+        const cur = currentWs()
+        if (cur && cur.readyState === cur.OPEN) cur.send(JSON.stringify({ type: 'autospin_lease', sessionId }))
+      }
+      const leaseTimer = setInterval(sendLease, AUTOSPIN_LEASE_INTERVAL_MS)
+      sendLease()
       child.stdout?.setEncoding('utf8')
       child.stderr?.setEncoding('utf8')
       child.stdout?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.log(`[AutoSpin] ${l}`) })
       child.stderr?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.error(`[AutoSpin][stderr] ${l}`) })
       child.on('close', (code) => {
+        clearInterval(leaseTimer)
         console.log(`[Agent:${AGENT_LABEL}] AutoSpin process exited (code ${code})`)
         if (autospinChild === child) autospinChild = null
         // Stop poller when AutoSpin ends

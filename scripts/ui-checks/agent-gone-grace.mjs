@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mod = await import(pathToFileURL(path.join(root, 'dist-server/server/routes/autospin.js')).href);
-const { decideAgentGone } = mod;
+const { decideAgentGone, autospinLeaseState } = mod;
 
 let pass = 0, fail = 0;
 const check = (n, ok, extra = '') => {
@@ -105,6 +105,28 @@ console.log('\n4) ⚠️ 兩道保險的時序：心跳逾時不能搶在寬限�
 
   const noBlindHeartbeat = !/if \(s\.status === 'running'\) s\.lastHeartbeat = Date\.now\(\)\s*\n\s*res\.json/.test(src);
   check('should-stop 不再無條件更新心跳（殭屍不能自己續命）', noBlindHeartbeat);
+}
+
+console.log('\n5) 續租模式（v5.80.0，Eric 1106「除非使用者自己停，否則一直跑」）');
+{
+  const DAY = 24 * 3600_000, MAX = 8 * 3600_000;
+  const a = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T - 3 * DAY }, true, T, GRACE, MAX, true);
+  check('續租有效、跑超過 8 小時 → 繼續跑', a.agentAlive && !a.agentGone && !a.hardExpired);
+  const b = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T - DAY }, false, T, GRACE, MAX, true);
+  check('租約斷 → 開始計時、心跳不續命', !b.agentGone && !b.agentAlive && b.goneSince === T);
+  const c = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T - DAY, agentGoneSince: T }, false, T + GRACE + 1, GRACE, MAX, true);
+  check('租約斷超過寬限期 → 收尾', c.agentGone === true);
+  const d = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T - MAX - 1 }, true, T, GRACE, MAX, false);
+  check('沒有續租（舊版 agent／自己啟動）→ 照舊套 8 小時上限', d.hardExpired === true);
+
+  const L = (id, at) => ({ dispatchId: id, at });
+  check('同一輪的租約 → 有效', autospinLeaseState({ dispatchId: 'hub-1' }, L('hub-1', T - 10_000), T).leaseValid === true);
+  check('別一輪的租約不算（孤兒不能借新一輪的租約續命）', autospinLeaseState({ dispatchId: 'hub-1' }, L('hub-2', T), T).leaseValid === false);
+  check('別一輪的租約也不會進續租模式', autospinLeaseState({ dispatchId: 'hub-1' }, L('hub-2', T), T).leaseMode === false);
+  check('session 沒有 dispatchId → 不算', autospinLeaseState({}, L('hub-1', T), T).leaseValid === false);
+  check('租約超過 60 秒沒來 → 失效', autospinLeaseState({ dispatchId: 'hub-1' }, L('hub-1', T - 60_001), T).leaseValid === false);
+  const gone = autospinLeaseState({ dispatchId: 'hub-1', leaseMode: true }, undefined, T);
+  check('進過續租模式後 agent 不見 → 仍是續租模式、租約無效（不退回舊規則）', gone.leaseMode && !gone.leaseValid);
 }
 
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);

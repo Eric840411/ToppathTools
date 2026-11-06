@@ -151,7 +151,7 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
   // 對到別人的帳號就整批不用（過濾條件沒生效，其餘的也不可信）
   // ⚠️ 不能用 Live Ledger 的 guardFetchedRows：它要求 spin_index，GCP 機台的列沒有，會整批讀不到（v5.79.3）
   const guard = guardOwnRounds(collected as Record<string, unknown>[], username)
-  if (!guard.ok) return { error: guard.message }
+  if ('message' in guard) return { error: guard.message }
   const byGmid = new Map<string, Array<{ t: number; bet: number }>>()
   for (const r of dedupeByOrderId(guard.rows)) {
     const g = byGmid.get(r.gmid) ?? []

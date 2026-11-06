@@ -784,6 +784,14 @@ wss.on('connection', (ws, req) => {
         return
       }
 
+      // AutoSpin 續租：agent 手上那一輪 Python 還活著（v5.80.0）。記在這條連線自己的 AgentInfo 上，
+      // session 判活時只認「派工那台 agent」的續租，見 routes/autospin.ts decideAgentGone。
+      // ⚠️ 不檢查 myInfo.sessionId：worker 重啟後 agent 重連，那個欄位是空的，但 Python 仍在跑同一輪
+      if (msg.type === 'autospin_lease' && msg.sessionId) {
+        if (myInfo) myInfo.autospinLease = { dispatchId: msg.sessionId, at: Date.now() }
+        return
+      }
+
       // LuckyLink JP 比對已於 2026-09-08 移除（改由對帳台 L4/L5 負責），
       // agent 端不再送 luckylink_event，這段轉發已無來源。
 
