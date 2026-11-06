@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, siteLoginCandidates, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -73,6 +73,19 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   eq('缺下注時間 → 整批不用（不能丟掉那筆）', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), bet_time_precise: null }], 'fixture01').ok, false)
   eq('缺單號 → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('', 2) }], 'fixture01').ok, false)
   eq('注額空字串 → 整批不用', guardOwnRounds([{ ...gcp('a', 1), bet: '' }], 'fixture01').ok, false)
+
+  eq('注額空白字串 → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), bet: ' ' }], 'fixture01').ok, false)
+  eq('下注時間空白 → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), bet_time_precise: '  ' }], 'fixture01').ok, false)
+  eq('缺機台 uid → 整批不用', guardOwnRounds([gcp('a', 1), { ...gcp('b', 2), uid: '' }], 'fixture01').ok, false)
+  eq('數字字串照常讀', guardOwnRounds([{ ...gcp('a', 1), bet: '200', bet_time_precise: '1793932000.5' }], 'fixture01').ok, true)
+}
+// ── 渠道後台登入：逐一試帳號，不能一組套全部渠道 ──
+{
+  const c = siteLoginCandidates({ site_username: 'S', site_password: 'sp', login_username: 'M', login_password: 'mp' }, { login_username: 'G', login_password: 'gp' })
+  eq('依序：渠道帳號 → 主帳號 → GCP', c.map(x => x.username), ['S', 'M', 'G'])
+  eq('沒填渠道帳號時主帳號仍在（CP 才登得進）', siteLoginCandidates({ login_username: 'M' }, { login_username: 'G' }).map(x => x.username), ['M', 'G'])
+  eq('同帳號只試一次', siteLoginCandidates({ site_username: 'M', login_username: 'M' }, { login_username: 'M' }).length, 1)
+  eq('全空 → 沒有可試的', siteLoginCandidates({}, {}).length, 0)
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)

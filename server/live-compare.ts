@@ -16,7 +16,7 @@ import { loadMeterConfig, meterPost } from './routes/meter-reconcile.js'
 import { channelOfGmid } from './live-ledger-fetch.js'
 import {
   type Baseline, type CompareStatus, type MeterReading, type SideValue,
-  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId, guardOwnRounds,
+  parseMeterItem, baselineInvalidReason, evaluateSides, dedupeByOrderId, guardOwnRounds, siteLoginCandidates,
 } from './live-compare-core.js'
 import { countSpins } from './live-compare-spins.js'
 import { toBackendRounds } from './live-compare-window.js'
@@ -55,32 +55,30 @@ const siteTokens = new Map<string, { token: string; lastlogintime: string }>()
 const meterListCache = new Map<string, { at: number; items: Map<string, Record<string, unknown>> | null; error?: string }>()
 
 /**
- * 渠道後台的登入帳號：有填 site_username 就用它，沒填退回 Performance Meter 那組主帳號。
- * ⚠️ 實測主帳號只能登入自己的渠道（CP），其他渠道回 41104——要另填一組共用帳號。
+ * 依序試每一組帳號登入這個渠道後台，第一組成功的就用它（token 依渠道快取）。
+ * ⚠️ 帳號通常只能登入自己的渠道（QAT 實測：主帳號只能 CP、GCP 那組只能 NC，其他回 41104），
+ *    所以不能「填一組就套全部渠道」——填了 NC 帳號 CP 就讀不到（CodeX 6dcda5d P2）。
  */
-function siteCreds(cfg: Record<string, string>): { username: string; password: string } {
-  return cfg.site_username
-    ? { username: cfg.site_username, password: cfg.site_password || '' }
-    : { username: cfg.login_username || '', password: cfg.login_password || '' }
-}
-
 async function siteLogin(cfg: Record<string, string>, site: string): Promise<{ token: string; lastlogintime: string } | string> {
   const origin = `https://qat-${site}.osmslot.org`
-  try {
-    const r = await fetch(`${cfg.base_url.replace(/\/$/, '')}/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin, referer: `${origin}/` },
-      body: JSON.stringify(siteCreds(cfg)),
-    })
-    const d = await r.json() as { code?: number; data?: { token?: string; lastLoginTime?: number } }
-    if (d.code === 20000 && d.data?.token) {
-      const t = { token: d.data.token, lastlogintime: String(d.data.lastLoginTime ?? '') }
-      siteTokens.set(`${site}|${siteCreds(cfg).username}`, t)
-      return t
-    }
-    return `登入 ${site.toUpperCase()} 後台失敗（code=${d.code ?? '?'}）`
-      + (cfg.site_username ? '' : '——主後台帳號可能沒有這個渠道，請在下方「渠道後台帳號」填一組 13 個渠道都能登入的帳號')
-  } catch (e) { return `登入 ${site.toUpperCase()} 後台失敗：${e}` }
+  const tried: string[] = []
+  for (const c of siteLoginCandidates(cfg, loadMeterConfig('qat', 'gcp'))) {
+    try {
+      const r = await fetch(`${cfg.base_url.replace(/\/$/, '')}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin, referer: `${origin}/` },
+        body: JSON.stringify({ username: c.username, password: c.password }),
+      })
+      const d = await r.json() as { code?: number; data?: { token?: string; lastLoginTime?: number } }
+      if (d.code === 20000 && d.data?.token) {
+        const t = { token: d.data.token, lastlogintime: String(d.data.lastLoginTime ?? '') }
+        siteTokens.set(site, t)
+        return t
+      }
+      tried.push(`${c.source} code=${d.code ?? '?'}`)
+    } catch (e) { tried.push(`${c.source} ${e}`) }
+  }
+  return `登入 ${site.toUpperCase()} 後台失敗（${tried.join('、') || '沒有可用帳號'}）——現有帳號都登不進這個渠道，請在下方「渠道後台帳號」填一組這個渠道能登入的帳號`
 }
 
 /** 讀某個渠道的全部機台 meter，15 秒內共用同一份。回傳 machineName → item。 */
@@ -93,10 +91,10 @@ async function meterListOf(channelId: string): Promise<{ items: Map<string, Reco
   }
   if (!site) return save({ items: null, error: `渠道 ${channelId} 不在已知的 QAT 後台清單` })
   const cfg = loadMeterConfig('qat', 'osm')
-  if (!cfg.base_url || !(cfg.site_username || cfg.login_username)) return save({ items: null, error: 'QAT OSM 後台連線設定是空的，請先到「Performance Meter 對帳」頁設定' })
+  if (!cfg.base_url || !siteLoginCandidates(cfg, loadMeterConfig('qat', 'gcp')).length) return save({ items: null, error: 'QAT OSM 後台連線設定是空的，請先到「Performance Meter 對帳」頁設定' })
   const origin = `https://qat-${site}.osmslot.org`
   for (let attempt = 0; attempt < 2; attempt++) {
-    let tk = siteTokens.get(`${site}|${siteCreds(cfg).username}`)
+    let tk = siteTokens.get(site)
     if (!tk || attempt > 0) {
       const lg = await siteLogin(cfg, site)
       if (typeof lg === 'string') return save({ items: null, error: lg })

@@ -151,10 +151,39 @@ export function guardOwnRounds(raw: Record<string, unknown>[], username: string)
   const rows: OwnRound[] = []
   let bad = 0
   for (const r of raw) {
-    const orderId = String(r.order_id ?? ''), btp = Number(r.bet_time_precise), bet = Number(r.bet)
-    if (!orderId || r.bet_time_precise == null || r.bet_time_precise === '' || !Number.isFinite(btp) || r.bet == null || r.bet === '' || !Number.isFinite(bet)) { bad++; continue }
-    rows.push({ orderId, gmid: String(r.uid ?? ''), bet, betTimePrecise: Math.round(btp * 1000) })
+    const orderId = strictStr(r.order_id), gmid = strictStr(r.uid), btp = strictNum(r.bet_time_precise), bet = strictNum(r.bet)
+    if (!orderId || !gmid || btp == null || bet == null) { bad++; continue }
+    rows.push({ orderId, gmid, bet, betTimePrecise: Math.round(btp * 1000) })
   }
-  if (bad) return { ok: false, message: `${bad}/${raw.length} 筆缺單號、下注時間或注額，這輪不比` }
+  if (bad) return { ok: false, message: `${bad}/${raw.length} 筆缺單號、機台、下注時間或注額，這輪不比` }
   return { ok: true, rows }
+}
+
+/** 非空字串（去空白後）；其他型別或空白 → null */
+function strictStr(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null
+}
+/** 有限數字；字串要去空白後非空才轉（Number(' ') 是 0，不能放過，CodeX 6dcda5d P2） */
+function strictNum(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v !== 'string' || v.trim() === '') return null
+  const n = Number(v.trim())
+  return Number.isFinite(n) ? n : null
+}
+
+export interface SiteLoginCandidate { username: string; password: string; source: string }
+/**
+ * 登入渠道後台要試的帳號，依序：渠道後台帳號（有填才有）→ OSM 主帳號 → GCP 那組。同帳號只試一次。
+ * 每個帳號通常只能登自己的渠道，所以要逐一試，不能一組套全部（CodeX 6dcda5d P2）。
+ */
+export function siteLoginCandidates(osm: Record<string, string>, gcp: Record<string, string>): SiteLoginCandidate[] {
+  const out: SiteLoginCandidate[] = []
+  const add = (u: string | undefined, p: string | undefined, source: string) => {
+    if (u && !out.some(c => c.username === u)) out.push({ username: u, password: p || '', source })
+  }
+  add(osm.site_username, osm.site_password, '渠道後台帳號')
+  add(osm.login_username, osm.login_password, 'OSM 主帳號')
+  add(gcp.login_username, gcp.login_password, 'GCP 帳號')
+  return out
 }
