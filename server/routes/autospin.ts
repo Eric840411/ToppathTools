@@ -1950,7 +1950,7 @@ router.get('/api/autospin/live-compare', async (req, res) => {
 
 // 停止後的即時對照結算＋總表通知：背景每分鐘一次（只在 worker 這個 process 跑，見 server/live-compare-final.ts）
 setInterval(() => {
-  void tickLiveCompareFinal(() => [...agentSessions.values()].map(s => ({ id: s.id, startedAt: s.startedAt, userLabel: s.userLabel || '', running: s.status === 'running' })))
+  void tickLiveCompareFinal(() => [...agentSessions.values()].map(s => ({ id: s.id, startedAt: s.startedAt, userLabel: s.userLabel || '', running: s.status === 'running', lastHeartbeat: s.lastHeartbeat })))
 }, 60_000)
 
 // GET /api/autospin/agent/status — frontend polls agent status

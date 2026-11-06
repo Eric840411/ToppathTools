@@ -1,0 +1,142 @@
+/**
+ * 停止後結算＋總表通知的整合回歸（記憶體 DB、假比對、假發送、控制時間）。跑法：npx tsx server/live-compare-final-store.test.ts
+ * 驗 CodeX aa55b01 點名的情境：短 session 沒開頁面也要結算、零筆不能停止當下凍結、終點不用 agent 時鐘、
+ * 發送失敗退避重送、發過不重發、沒有機台不發、很久以前停的不補登記。
+ */
+import Database from 'better-sqlite3'
+import { createFinalizer, ensureRunTable, type FinalDeps, type LiveSessionInfo } from './live-compare-final-store.js'
+import type { LiveCompareRow } from './live-compare.js'
+
+let pass = 0
+const fails: string[] = []
+const eq = (n: string, got: unknown, want: unknown) => { if (JSON.stringify(got) === JSON.stringify(want)) pass++; else fails.push(`${n}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`) }
+
+const MIN = 60_000
+const T0 = 1_793_900_000_000
+const G = '892-DRAGONLAW-0025'
+
+function setup() {
+  const db = new Database(':memory:')
+  db.exec(`
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE recon_spin (id INTEGER PRIMARY KEY AUTOINCREMENT, env TEXT, sessionId TEXT, observedAt INTEGER);
+    CREATE TABLE live_compare_snap (sessionId TEXT, gmid TEXT, upTime INTEGER, gamesPlayed REAL, coinIn REAL, denom REAL, readAt INTEGER);
+  `)
+  ensureRunTable(db)
+  db.prepare("INSERT INTO settings VALUES ('autospin_final_report_chat_id', 'oc_test')").run()
+  let clock = T0
+  /** 假比對：每次呼叫記一筆 Meter 快照（upTime 比讀取時間早 5 秒，模擬 Meter 自己的時鐘），窗口狀態由測試控制 */
+  const state = { win: null as LiveCompareRow['win'], noRows: false }
+  const sends: Array<{ chatId: string; uuid?: string }> = []
+  let sendFail = 0
+  const deps: FinalDeps = {
+    now: () => clock,
+    compare: async (_env, sessions) => {
+      if (state.noRows) return { rows: [] }
+      for (const s of sessions) db.prepare('INSERT INTO live_compare_snap VALUES (?, ?, ?, 0, 0, 1, ?)').run(s.id, G, clock - 5000, clock)
+      return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, win: state.win } as unknown as LiveCompareRow)) }
+    },
+    send: async (chatId, _card, opts) => {
+      if (sendFail > 0) { sendFail--; return { ok: false, code: 'NET', message: 'timeout' } }
+      sends.push({ chatId, uuid: opts.uuid }); return { ok: true, value: `om_${sends.length}` }
+    },
+  }
+  const f = createFinalizer(db, deps)
+  const run = (id: string) => db.prepare('SELECT state, notifyState, notifyAttempts, spinCount, chatId FROM live_compare_run WHERE sessionId=?').get(id) as { state: string; notifyState: string; notifyAttempts: number; spinCount: number; chatId: string } | undefined
+  const spins = (id: string, n: number, observedAt: number) => { for (let i = 0; i < n; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(id, observedAt) }
+  return { db, f, state, sends, run, spins, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
+}
+const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: { count: 3, amount: 3 }, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o }) as LiveCompareRow['win']
+
+// ── 短 session：沒開頁面、在第一次掃描前就停了 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'short', startedAt: T0 - 2 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 - 10_000 }
+  // agent 時鐘慢 164 秒：observedAt 比實際早——終點不能用它
+  h.spins('short', 3, T0 - 164_000)
+  await h.f.tick(() => [S])
+  eq('短 session 會被登記並進結算', h.run('short')?.state, 'settling')
+  eq('剛看到 spin 增加 → 還在等尾筆', h.run('short')?.spinCount, 3)
+
+  // 窗口一致，但 t1 是收妥之前的快照（agent 時鐘＋30 秒會誤以為涵蓋了）
+  h.state.win = win({ status: 'match', t1: T0 - 120_000 + 30_000 })
+  h.setClock(T0 + MIN); await h.f.tick(() => [S])
+  eq('窗口沒到「收妥後讀到的快照」→ 不能凍結', h.run('short')?.state, 'settling')
+
+  // 窗口推進到收妥後那筆快照（T0+1 分讀到、upTime 早 5 秒）
+  h.state.win = win({ status: 'match', t1: T0 + MIN - 5000 })
+  h.setClock(T0 + 2 * MIN); await h.f.tick(() => [S])
+  eq('涵蓋到終點而且一致 → final', h.run('short')?.state, 'final')
+  eq('凍結時記下群組、發出總表', [h.run('short')?.chatId, h.run('short')?.notifyState, h.sends.length], ['oc_test', 'sent', 1])
+  eq('帶 uuid 去重', h.sends[0]?.uuid, 'lcfinal-short')
+  h.setClock(T0 + 3 * MIN); await h.f.tick(() => [S])
+  eq('發過不重發', h.sends.length, 1)
+  eq('停止後頁面拿得到最近一輪', h.f.latestRunFor('qat', 'Siara', 24 * 3600_000, T0 + 3 * MIN)?.state, 'final')
+}
+
+// ── 零筆：停止當下第一筆還沒到，不能直接凍結 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'zero', startedAt: T0 - MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.state.noRows = true
+  await h.f.tick(() => [S])
+  h.setClock(T0 + MIN); await h.f.tick(() => [S])
+  eq('零筆、停止 1 分鐘 → 還在等', h.run('zero')?.state, 'settling')
+  h.spins('zero', 2, T0)
+  h.state.noRows = false
+  h.state.win = win({ status: 'pending' })
+  h.setClock(T0 + 2 * MIN); await h.f.tick(() => [S])
+  eq('晚到的 spin 有被算進來', [h.run('zero')?.state, h.run('zero')?.spinCount], ['settling', 2])
+}
+
+// ── 停止時沒有任何機台可比 → 定案但不發 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'none', startedAt: T0 - MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.state.noRows = true
+  await h.f.tick(() => [S])
+  h.setClock(T0 + 4 * MIN); await h.f.tick(() => [S])
+  eq('零筆等滿 → final、不發總表', [h.run('none')?.state, h.run('none')?.notifyState, h.sends.length], ['final', 'skipped', 0])
+}
+
+// ── 很久以前停的不補登記（上線當下不能替一堆舊 session 發總表）──
+{
+  const h = setup()
+  await h.f.tick(() => [{ id: 'old', startedAt: T0 - 5 * 60 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 - 2 * 60 * MIN }])
+  eq('2 小時前停的 → 不登記', h.run('old'), undefined)
+}
+
+// ── 正在跑 → 停止 → 結算；發送失敗退避重送 ──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'r', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: true }
+  h.spins('r', 5, T0)
+  h.state.win = win({ status: 'pending' })
+  await h.f.tick(() => [S])
+  eq('正在跑 → running，背景也比一次', h.run('r')?.state, 'running')
+  S.running = false
+  h.setClock(T0 + MIN); await h.f.tick(() => [S])
+  eq('停止 → settling', h.run('r')?.state, 'settling')
+  h.state.win = win({ status: 'match', t1: T0 + 10 * MIN })
+  h.failSends(1)
+  h.setClock(T0 + 3 * MIN); await h.f.tick(() => [S])
+  eq('發送失敗 → 留 pending、記次數', [h.run('r')?.state, h.run('r')?.notifyState, h.run('r')?.notifyAttempts], ['final', 'pending', 1])
+  h.setClock(T0 + 3 * MIN + 30_000); await h.f.tick(() => [S])
+  eq('退避時間還沒到 → 不重送', h.sends.length, 0)
+  h.setClock(T0 + 6 * MIN); await h.f.tick(() => [S])
+  eq('時間到 → 重送成功', [h.run('r')?.notifyState, h.sends.length], ['sent', 1])
+}
+
+// ── 逾時：15 分鐘還沒對到終點 → timeout、照發（標未收斂）──
+{
+  const h = setup()
+  const S: LiveSessionInfo = { id: 'to', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  h.spins('to', 5, T0)
+  h.state.win = win({ status: 'pending' })
+  await h.f.tick(() => [S])
+  h.setClock(T0 + 16 * MIN); await h.f.tick(() => [S])
+  eq('逾時 → timeout 並發出', [h.run('to')?.state, h.run('to')?.notifyState], ['timeout', 'sent'])
+}
+
+if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
+console.log(`PASS ${pass}`)

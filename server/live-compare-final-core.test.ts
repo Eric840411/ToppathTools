@@ -1,7 +1,7 @@
 /**
  * 停止後結算與總表卡片的回歸。跑法：npx tsx server/live-compare-final-core.test.ts
  */
-import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, SETTLE_MAX_MS, TAIL_QUIET_MS, TAIL_MARGIN_MS } from './live-compare-final-core.js'
+import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, SETTLE_MAX_MS, TAIL_QUIET_MS, ZERO_SPIN_WAIT_MS } from './live-compare-final-core.js'
 import type { LiveCompareRow } from './live-compare.js'
 
 let pass = 0
@@ -10,8 +10,8 @@ const eq = (n: string, got: unknown, want: unknown) => { if (JSON.stringify(got)
 
 const MIN = 60_000
 const STOP = 1_793_900_000_000
-const LAST = STOP - 5_000
-const TARGET = LAST + TAIL_MARGIN_MS
+/** 終點：尾筆收妥後讀到的 Meter 快照 upTime */
+const TARGET = STOP + 40_000
 type Win = NonNullable<LiveCompareRow['win']>
 const win = (o: Partial<Win>): Win => ({ tStart: STOP - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: null, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o })
 const row = (w: Win | null, extra: Partial<LiveCompareRow> = {}): LiveCompareRow => ({
@@ -20,29 +20,39 @@ const row = (w: Win | null, extra: Partial<LiveCompareRow> = {}): LiveCompareRow
   as: { count: 300, amount: null, betKnown: 300, readAt: STOP }, asSinceT0: null, gr: null, meter: null, meterCached: false, meterStale: false, cacheHourStr: '',
   meterStart: null, meterNow: null, denom: 1, grMinusAs: { count: null, amount: null }, meterMinusAs: { count: null, amount: null }, chain: null, win: w, ...extra,
 })
-const base = { stopped: true, stoppedAt: STOP, lastSpinAt: LAST, lastGrowthAt: STOP, now: STOP + 5 * MIN }
+const G = '892-DRAGONLAW-0025', G2 = '892-MOREPUFF-0134'
+const base = { stopped: true, stoppedAt: STOP, spinCount: 300, lastGrowthAt: STOP, now: STOP + 5 * MIN, targets: { [G]: TARGET, [G2]: TARGET } as Record<string, number | null> }
+
+// ── 終點：尾筆收妥之後才讀到的快照（伺服器時鐘比 readAt，不用 agent 時鐘）──
+const QF = STOP + TAIL_QUIET_MS
+eq('取收妥之後最早那筆快照', targetFromSnaps([{ upTime: STOP - 9 * MIN, readAt: STOP - 1000 }, { upTime: TARGET, readAt: QF + 5000 }, { upTime: TARGET + MIN, readAt: QF + MIN }], QF), TARGET)
+eq('收妥之前讀到的快照不算（可能還沒含最後一局）', targetFromSnaps([{ upTime: STOP + 99 * MIN, readAt: QF - 1 }], QF), null)
+eq('沒有快照 → 定不出終點', targetFromSnaps([], QF), null)
 
 // ── 一台的結算 ──
 eq('窗口涵蓋到終點而且一致 → done', machineSettle(row(win({ status: 'match', t1: TARGET })), TARGET), 'done')
 eq('一致但 t1 還在終點之前 → 還要等（前面那段一致不代表尾段）', machineSettle(row(win({ status: 'match', t1: TARGET - 1 })), TARGET), 'wait')
+eq('終點還定不出來 → 等', machineSettle(row(win({ status: 'match', t1: TARGET })), null), 'wait')
 eq('逾期待查 → 照逾期定案', machineSettle(row(win({ status: 'overdue', t1: STOP - 10 * MIN })), TARGET), 'overdue')
 eq('待確認 → 等', machineSettle(row(win({ status: 'pending', t1: TARGET })), TARGET), 'wait')
 eq('沒有窗口 → 等', machineSettle(row(null), TARGET), 'wait')
 
 // ── 整輪 ──
-eq('還在跑 → running', decideSettle({ ...base, stopped: false }).state, 'running')
-eq('剛停止、最後幾局還在寫 → settling（不能停止當下就定終點）',
-  decideSettle({ ...base, lastGrowthAt: STOP + 4 * MIN + 50_000 }).state, 'settling')
-eq('終點＝最後一局＋時鐘餘裕', decideSettle({ ...base, rows: [row(win({ status: 'match', t1: TARGET }))] }).targetUp, TARGET)
-eq('每台都涵蓋到終點且一致 → final', decideSettle({ ...base, rows: [row(win({ status: 'match', t1: TARGET }))] }).state, 'final')
-eq('一台一致、一台逾期 → final（逾期是定案）', decideSettle({ ...base, rows: [row(win({ status: 'match', t1: TARGET })), row(win({ status: 'overdue' }))] }).state, 'final')
-eq('還有一台沒到終點 → settling', decideSettle({ ...base, rows: [row(win({ status: 'match', t1: TARGET })), row(win({ status: 'match', t1: TARGET - MIN }))] }).state, 'settling')
+const ok1 = row(win({ status: 'match', t1: TARGET }))
+eq('還在跑 → running', decideSettle({ ...base, stopped: false, rows: [] }).state, 'running')
+eq('剛停止、最後幾局還在寫 → settling', decideSettle({ ...base, lastGrowthAt: STOP + 4 * MIN + 50_000, rows: [ok1] }).state, 'settling')
+eq('每台都涵蓋到終點且一致 → final', decideSettle({ ...base, rows: [ok1] }).state, 'final')
+eq('一台一致、一台逾期 → final（逾期是定案）', decideSettle({ ...base, rows: [ok1, row(win({ status: 'overdue' }), { gmid: G2 })] }).state, 'final')
+eq('還有一台沒到終點 → settling', decideSettle({ ...base, rows: [ok1, row(win({ status: 'match', t1: TARGET - MIN }), { gmid: G2 })] }).state, 'settling')
+eq('有一台終點還定不出來 → settling', decideSettle({ ...base, targets: { [G]: TARGET, [G2]: null }, rows: [ok1, row(win({ status: 'match', t1: TARGET }), { gmid: G2 })] }).state, 'settling')
 eq('超過結算上限還沒到終點 → timeout（不能當一致）', decideSettle({ ...base, now: STOP + SETTLE_MAX_MS + 1, rows: [row(win({ status: 'match', t1: TARGET - MIN }))] }).state, 'timeout')
-eq('超過上限但其實都收斂了 → final', decideSettle({ ...base, now: STOP + SETTLE_MAX_MS + 1, rows: [row(win({ status: 'match', t1: TARGET }))] }).state, 'final')
-eq('停止後一直有新局寫入超過上限 → timeout', decideSettle({ ...base, now: STOP + SETTLE_MAX_MS + 1, lastGrowthAt: STOP + SETTLE_MAX_MS - 1 }).state, 'timeout')
-eq('尾筆安靜判斷用伺服器時鐘（lastGrowthAt），不拿 agent 時鐘比', decideSettle({ ...base, lastSpinAt: STOP + 99 * MIN, lastGrowthAt: STOP, rows: [row(win({ status: 'match', t1: STOP + 99 * MIN + TAIL_MARGIN_MS }))] }).state, 'final')
-eq('沒有任何 spin → final（沒東西可比）', decideSettle({ ...base, lastSpinAt: null, rows: [] }).state, 'final')
-eq('剛好安靜滿 TAIL_QUIET_MS 才往下判斷', decideSettle({ ...base, now: STOP + TAIL_QUIET_MS - 1, rows: [row(win({ status: 'match', t1: TARGET }))] }).state, 'settling')
+eq('超過上限但其實都收斂了 → final', decideSettle({ ...base, now: STOP + SETTLE_MAX_MS + 1, rows: [ok1] }).state, 'final')
+eq('停止後一直有新局寫入超過上限 → timeout', decideSettle({ ...base, now: STOP + SETTLE_MAX_MS + 1, lastGrowthAt: STOP + SETTLE_MAX_MS - 1, rows: [ok1] }).state, 'timeout')
+eq('剛好安靜滿 TAIL_QUIET_MS 才往下判斷', decideSettle({ ...base, now: STOP + TAIL_QUIET_MS - 1, rows: [ok1] }).state, 'settling')
+// CodeX aa55b01 P1：零筆不能停止當下就凍結，第一筆可能還在路上
+eq('零筆、剛停止 → 還要等', decideSettle({ ...base, spinCount: 0, now: STOP + TAIL_QUIET_MS + 1, rows: [] }).state, 'settling')
+eq('零筆、等滿 ZERO_SPIN_WAIT_MS → final', decideSettle({ ...base, spinCount: 0, now: STOP + ZERO_SPIN_WAIT_MS, rows: [] }).state, 'final')
+eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinCount: 0, lastGrowthAt: STOP + ZERO_SPIN_WAIT_MS, now: STOP + ZERO_SPIN_WAIT_MS + 1, rows: [] }).state, 'settling')
 
 // ── 總計：已對上的段＋目前這段（一致才算），只算一次 ──
 {
