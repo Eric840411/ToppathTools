@@ -40,6 +40,7 @@ function setup() {
   const sends: Array<{ chatId: string; uuid?: string }> = []
   let sendFail = 0
   let lastUntil: number | null = null
+  let lastNote = ''
   const deps: FinalDeps = {
     now: () => clock,
     compare: async (_env, sessions, opts) => {
@@ -54,6 +55,7 @@ function setup() {
         : !g ? { error: 'Game Record 讀取失敗' }
         : { autospin: 3, gr: g.count, handpay: hp.count, lastBetAt: Math.max(g.lastBetAt ?? 0, hp.lastBetAt ?? 0) || null, until: opts.untilMs ?? clock }
       lastUntil = opts?.untilMs ?? null
+      lastNote = opts?.ownNote ?? ''
       return { rows: sessions.map(s => ({ sessionId: s.id, gmid: G, clientMachineName: 'Fortune Pots - NCH 25', t0: T0 - 60 * MIN, status: 'pending', reason: '', as: { count: 3 }, gr: state.gr, own, win: state.win } as unknown as LiveCompareRow)) }
     },
     send: async (chatId, _card, opts) => {
@@ -64,7 +66,7 @@ function setup() {
   const f = createFinalizer(db, deps)
   const run = (id: string) => db.prepare('SELECT state, notifyState, notifyAttempts, spinCount, chatId FROM live_compare_run WHERE sessionId=?').get(id) as { state: string; notifyState: string; notifyAttempts: number; spinCount: number; chatId: string } | undefined
   const spins = (id: string, n: number, observedAt: number) => { for (let i = 0; i < n; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(id, observedAt) }
-  return { db, f, state, sends, run, spins, until: () => lastUntil, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
+  return { db, f, state, sends, run, spins, until: () => lastUntil, note: () => lastNote, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
 }
 const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: { count: 3, amount: 3 }, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o }) as LiveCompareRow['win']
 
@@ -76,7 +78,7 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   h.spins('short', 3, T0 - 164_000)
   await h.f.tick(() => [S])
   eq('短 session 會被登記並進結算', h.run('short')?.state, 'settling')
-  eq('本帳號局數的上界＝發現停止＋1 分鐘（停止後同帳號再玩不混進來）', h.until(), T0 + MIN)
+  eq('本帳號局數的上界＝最後心跳＋1 分鐘', h.until(), T0 - 10_000 + MIN)
   eq('剛看到 spin 增加 → 還在等尾筆', h.run('short')?.spinCount, 3)
 
   // 窗口一致，但 t1 是收妥之前的快照（agent 時鐘＋30 秒會誤以為涵蓋了）
@@ -231,6 +233,26 @@ const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, 
   await h.f.tick(() => [S])
   for (const m of [16, 17, 18]) { h.state.spinDuringCompare = 1; h.setClock(T0 + m * MIN); await h.f.tick(() => [S]) }
   eq('超過上限還一直進新局 → timeout 並發出', [h.run('late')?.state, h.run('late')?.notifyState], ['timeout', 'sent'])
+}
+
+// ── CodeX 431cd7c P1：同帳號停止後 10 秒就重跑——下一輪的局不能算進上一輪 ──
+{
+  const h = setup()
+  const A: LiveSessionInfo = { id: 'A', startedAt: T0 - 10 * MIN, userLabel: 'Siara', running: false, lastHeartbeat: T0 }
+  const B: LiveSessionInfo = { id: 'B', startedAt: T0 + 10_000, userLabel: 'Siara', running: true }
+  const other: LiveSessionInfo = { id: 'O', startedAt: T0 + 5_000, userLabel: 'Lusa', running: true }
+  h.spins('A', 3, T0)
+  await h.f.tick(() => [A, B, other])
+  h.setClock(T0 + 2 * MIN); await h.f.tick(() => [A, B, other])
+  eq('上界切在下一輪開始（不是停止＋1 分鐘）', h.until(), T0 + 10_000)
+  eq('下一輪離停止不到 15 秒 → 標只供參考', h.note() !== '', true)
+  eq('別的帳號的 session 不影響', h.until() !== T0 + 5_000, true)
+  const h2 = setup()
+  const B2: LiveSessionInfo = { ...B, startedAt: T0 + 30_000 }
+  h2.spins('A', 3, T0)
+  await h2.f.tick(() => [A, B2])
+  h2.setClock(T0 + 2 * MIN); await h2.f.tick(() => [A, B2])
+  eq('隔 30 秒才重跑 → 上界切在下一輪開始、可以比', [h2.until(), h2.note()], [T0 + 30_000, ''])
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

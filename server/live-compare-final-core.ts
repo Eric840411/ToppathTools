@@ -79,6 +79,23 @@ export function targetWithEvidence(x: {
   return { target: Math.max(x.snapTarget, x.own.lastBetAt), why: '' }
 }
 
+/** 本帳號局數比到停止後多久（入帳延遲靠「延後查詢」處理，這裡只放時鐘餘裕，不能放大） */
+export const OWN_AFTER_STOP_MS = 60_000
+/** 下一輪在停止後這麼短的時間內就開始，兩輪的局分不開（伺服器與後台時鐘差幾秒）→ 局數只供參考 */
+export const OWN_MIN_GAP_MS = 15_000
+
+/**
+ * 本帳號局數的範圍上界（CodeX 431cd7c P1：「停止＋1 分鐘」會把同帳號緊接著重跑的下一輪算進來）。
+ * stopAt＝這一輪最後一次心跳（伺服器時鐘）；nextStart＝同一個帳號下一輪的開始時間。
+ * 上界取「stopAt＋1 分鐘」與「下一輪開始」較早者；下一輪離停止不到 15 秒 → 分不開，回 note 標只供參考。
+ */
+export function ownUntil(stopAt: number, nextStart: number | null): { untilMs: number; note: string } {
+  const until = stopAt + OWN_AFTER_STOP_MS
+  if (nextStart == null || nextStart >= until) return { untilMs: until, note: '' }
+  if (nextStart - stopAt < OWN_MIN_GAP_MS) return { untilMs: nextStart, note: '下一輪在停止後馬上開始，兩輪的局可能分不開' }
+  return { untilMs: nextStart, note: '' }
+}
+
 export interface SettleInput {
   /** session 已經不是 running（停止確認） */
   stopped: boolean
@@ -137,7 +154,7 @@ export interface MachineSummary {
    * AutoSpin 局數 vs 本帳號 Game Record＋handpay（同事 1106：要看「我跑的每一局有沒有進後台」）。
    * Meter 對後台抓不到「根本沒送到後台」的局，這一行才抓得到。只有結算時查過 handpay 才有（停止後、Game Record 到齊才比，不會因延遲誤報）。
    */
-  own: { autospin: number; gr: number; handpay: number } | null
+  own: { autospin: number; gr: number; handpay: number; note?: string } | null
   /** own 為 null 時的原因 */
   ownError: string
   error: string
@@ -162,7 +179,7 @@ export function summarizeMachine(r: LiveCompareRow, targetUp: number | null): Ma
     uncheckedTo: latest && (checkedTo == null || latest > checkedTo) ? latest : null,
     settle: machineSettle(r, targetUp),
     diff: w && (w.status === 'overdue' || w.status === 'pending') && w.diff ? w.diff : null,
-    own: r.own && !('error' in r.own) ? { autospin: r.own.autospin, gr: r.own.gr, handpay: r.own.handpay } : null,
+    own: r.own && !('error' in r.own) ? { autospin: r.own.autospin, gr: r.own.gr, handpay: r.own.handpay, ...(r.own.note ? { note: r.own.note } : {}) } : null,
     ownError: r.own && 'error' in r.own ? r.own.error : r.own ? '' : '沒查（停止後結算才查）',
     error: [...new Set(err)].join('；'),
   }
@@ -198,14 +215,14 @@ export function buildFinalReportCard(x: FinalReportInput): object {
   const mins = Math.max(0, Math.round((x.stoppedAt - x.startedAt) / 60_000))
   const bad = x.machines.filter(m => m.settle === 'overdue').length
   // AutoSpin 局數對不上本帳號後台也要反映在標題（CodeX b7f907e P2：不能一邊紅字一邊標題寫全部一致）
-  const ownBad = x.machines.filter(m => m.own && m.own.autospin !== m.own.gr + m.own.handpay).length
-  const ownMissing = x.machines.filter(m => !m.own).length
+  const ownBad = x.machines.filter(m => m.own && !m.own.note && m.own.autospin !== m.own.gr + m.own.handpay).length
+  const ownMissing = x.machines.filter(m => !m.own || m.own.note).length
   const open = x.machines.filter(m => m.settle === 'wait').length
   const template = x.isTest ? 'orange' : (bad || ownBad) ? 'red' : (!x.machines.length || x.state === 'timeout' || open || ownMissing) ? 'orange' : 'green'
   // 零台不能寫「全部一致」——沒有東西被檢查（CodeX aa55b01 P2）
   const head = !x.machines.length ? '無資料'
     : [bad ? `${bad} 台逾期待查` : '', ownBad ? `${ownBad} 台 AutoSpin 局數有差` : ''].filter(Boolean).join('・')
-      || ((x.state === 'timeout' || open) ? '未收斂' : ownMissing ? `${ownMissing} 台局數沒查到` : '全部一致')
+      || ((x.state === 'timeout' || open) ? '未收斂' : ownMissing ? `${ownMissing} 台局數沒查到或只供參考` : '全部一致')
   const header: Record<string, unknown> = {
     template,
     title: { tag: 'plain_text', content: `AutoSpin 後台對照總表｜${x.userLabel || '未知帳號'}｜${head}` },
@@ -229,7 +246,8 @@ export function buildFinalReportCard(x: FinalReportInput): object {
       const d = m.own.autospin - backend
       const hp = m.own.handpay ? `＋handpay ${n(m.own.handpay)}` : ''
       lines.push(`AutoSpin ${n(m.own.autospin)} 局 vs 你帳號 Game Record ${n(m.own.gr)} 局${hp}　` +
-        (d === 0 ? "<font color='green'>✓ 局數相同</font>" : `<font color='red'>✗ AutoSpin ${d > 0 ? '多' : '少'} ${n(Math.abs(d))} 局</font>`))
+        (m.own.note ? `<font color='orange'>只供參考（${esc(m.own.note)}）</font>`
+          : d === 0 ? "<font color='green'>✓ 局數相同</font>" : `<font color='red'>✗ AutoSpin ${d > 0 ? '多' : '少'} ${n(Math.abs(d))} 局</font>`))
     } else lines.push(`<font color='orange'>AutoSpin vs 你帳號 Game Record：沒查到（${esc(m.ownError || '讀不到 Game Record／handpay')}）</font>`)
     if (m.diff) lines.push(`<font color='red'>對不上的那段：Meter 比後台${m.diff.count >= 0 ? '多' : '少'} ${n(Math.abs(m.diff.count))} 局、${m.diff.amount >= 0 ? '多' : '少'} ${n(Math.abs(m.diff.amount))}</font>`)
     if (m.uncheckedTo != null && m.settle !== 'done') lines.push(`<font color='orange'>${m.checkedTo != null ? hm(m.checkedTo) : '起點'}～${hm(m.uncheckedTo)} 這段還沒檢查</font>`)

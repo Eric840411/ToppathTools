@@ -481,9 +481,9 @@ session 在那個空窗裡看起來就像不存在。
 
 **設定**：Lark 通知設定頁「AutoSpin 停止總表」選群、試發（只限管理員；`settings.autospin_final_report_chat_id`；API `/api/lark-notify/autospin-final-chat`、`/autospin-final-test`）。凍結當下記下 chat ID，之後改設定不影響已排的那張。
 
-**卡片內容**：每台兩種對照——①「Meter ＝ 後台」：機台 Meter 對後台帳（這台全部玩家，開頭／結尾可能混到別人的局）；②「AutoSpin N 局 vs 你帳號 Game Record N 局＋handpay」（v5.81.3，同事 1106 要求）：Meter 跟 Game Record 都是後台自己的帳，AutoSpin 按了但根本沒送到後台的局兩邊都不會有，①抓不到，②才抓得到。②只在結算時查過本帳號 handpay 才有；讀不到就寫「沒查到」。範圍（v5.81.4，CodeX b7f907e）：AutoSpin 照 sessionId 算整個 session 的有效局（不用 agent 時鐘篩，agent 慢 164 秒會少算）；本帳號 Game Record／handpay 用「開跑～發現停止＋1 分鐘」固定範圍（停止後同帳號馬上又在同一台玩才不會混進來）。局數有差標題轉紅並寫出台數；局數相同不保證逐局對上（漏一局又多一局會抵掉），卡片有註明。handpay 列先驗欄位再篩帳號（缺帳號、空的下注時間都整批錯誤，`ownHandpayFromRows`）。
+**卡片內容**：每台兩種對照——①「Meter ＝ 後台」：機台 Meter 對後台帳（這台全部玩家，開頭／結尾可能混到別人的局）；②「AutoSpin N 局 vs 你帳號 Game Record N 局＋handpay」（v5.81.3，同事 1106 要求）：Meter 跟 Game Record 都是後台自己的帳，AutoSpin 按了但根本沒送到後台的局兩邊都不會有，①抓不到，②才抓得到。②只在結算時查過本帳號 handpay 才有；讀不到就寫「沒查到」。範圍（v5.81.4，CodeX b7f907e）：AutoSpin 照 sessionId 算整個 session 的有效局（不用 agent 時鐘篩，agent 慢 164 秒會少算）；本帳號 Game Record／handpay 用「開跑～min(這一輪最後心跳＋1 分鐘, 同帳號下一輪開始)」（v5.81.5，CodeX 431cd7c：只用停止＋1 分鐘會把緊接著重跑的下一輪算進來）；下一輪離停止不到 15 秒 → 兩輪分不開，標「只供參考」、不判紅（`ownUntil`）。局數有差標題轉紅並寫出台數；局數相同不保證逐局對上（漏一局又多一局會抵掉），卡片有註明。handpay 列先驗欄位再篩帳號（缺帳號、空的下注時間都整批錯誤，`ownHandpayFromRows`）。
 
-**測試**：`npx tsx server/live-compare-final-core.test.ts`（53，判定）、`npx tsx server/live-compare-final-store.test.ts`（29，記憶體 DB＋假比對／發送／時鐘的整合：短 session、零筆、agent 時鐘偏移、Meter 停更、最後一局是 handpay、handpay 讀不到、比對途中進新局、超過上限仍進新局、退避重送、不重發、舊 session 不補）。拿掉「t1 ≥ 終點」、對不上的段算進總計、終點不看收妥時間、零筆直接定案、不補登記短 session、不看退避時間，各自會紅。邏輯在 `live-compare-final-store.ts`（吃傳入的 db／比對／發送／時鐘），`live-compare-final.ts` 只負責接正式環境。
+**測試**：`npx tsx server/live-compare-final-core.test.ts`（58，判定）、`npx tsx server/live-compare-final-store.test.ts`（33，記憶體 DB＋假比對／發送／時鐘的整合：短 session、零筆、agent 時鐘偏移、Meter 停更、最後一局是 handpay、handpay 讀不到、比對途中進新局、超過上限仍進新局、退避重送、不重發、舊 session 不補）。拿掉「t1 ≥ 終點」、對不上的段算進總計、終點不看收妥時間、零筆直接定案、不補登記短 session、不看退避時間，各自會紅。邏輯在 `live-compare-final-store.ts`（吃傳入的 db／比對／發送／時鐘），`live-compare-final.ts` 只負責接正式環境。
 
 ### 一直跑到使用者自己停：續租取代 8 小時上限（v5.80.0）
 

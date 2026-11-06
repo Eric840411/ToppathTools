@@ -1,7 +1,7 @@
 /**
  * 停止後結算與總表卡片的回歸。跑法：npx tsx server/live-compare-final-core.test.ts
  */
-import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, SETTLE_MAX_MS, TAIL_QUIET_MS, ZERO_SPIN_WAIT_MS, GR_SETTLE_MS } from './live-compare-final-core.js'
+import { decideSettle, machineSettle, summarizeMachine, buildFinalReportCard, targetFromSnaps, targetWithEvidence, ownUntil, SETTLE_MAX_MS, TAIL_QUIET_MS, ZERO_SPIN_WAIT_MS, GR_SETTLE_MS } from './live-compare-final-core.js'
 import type { LiveCompareRow } from './live-compare.js'
 
 let pass = 0
@@ -115,6 +115,18 @@ eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinC
   // CodeX b7f907e P2：局數有差，標題不能還是綠色「全部一致」
   eq('局數有差 → 標題紅色、寫出來', [c(own(302, 299, 1)).includes('"template":"red"'), c(own(302, 299, 1)).includes('1 台 AutoSpin 局數有差'), c(own(302, 299, 1)).includes('全部一致')], [true, true, false])
   eq('沒查到 → 明講沒查到、標題不寫全部一致', [c({ error: 'code=500' }).includes('沒查到（code=500）'), c({ error: 'code=500' }).includes('全部一致'), c({ error: 'code=500' }).includes('"template":"orange"')], [true, false, true])
+}
+
+// ── 本帳號局數的上界（CodeX 431cd7c P1）──
+eq('沒有下一輪 → 停止＋1 分鐘', ownUntil(STOP, null), { untilMs: STOP + MIN, note: '' })
+eq('下一輪在 1 分鐘之後 → 停止＋1 分鐘', ownUntil(STOP, STOP + 2 * MIN), { untilMs: STOP + MIN, note: '' })
+eq('下一輪 30 秒後開始 → 切在下一輪開始', ownUntil(STOP, STOP + 30_000), { untilMs: STOP + 30_000, note: '' })
+eq('下一輪 10 秒後就開始 → 切在下一輪開始、標只供參考', ownUntil(STOP, STOP + 10_000).note !== '', true)
+{
+  type Own = NonNullable<LiveCompareRow['own']>
+  const ref: Own = { autospin: 5, gr: 7, handpay: 0, lastBetAt: STOP, until: STOP + 10_000, note: '下一輪在停止後馬上開始' }
+  const card = JSON.stringify(buildFinalReportCard({ userLabel: 'Siara', startedAt: STOP - MIN, stoppedAt: STOP, state: 'final', reason: '', machines: [summarizeMachine(row(win({ status: 'match', t1: TARGET }), { own: ref }), TARGET)] }))
+  eq('只供參考的差異不標紅、不寫局數有差', [card.includes('只供參考'), card.includes('局數有差'), card.includes('"template":"red"'), card.includes('全部一致')], [true, false, false, false])
 }
 
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }

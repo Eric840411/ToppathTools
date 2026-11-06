@@ -288,7 +288,7 @@ export interface LiveCompareRow {
    * 邊界＝開跑（伺服器時間）～ untilMs（停止＋1 分鐘）；AutoSpin 照 sessionId 算、不用 agent 時鐘篩（agent 時鐘可能差好幾分鐘）。
    * lastBetAt＝邊界內本帳號最後一局（一般局與 handpay 取較晚者，後台時鐘），拿來證明 Meter 涵蓋尾局。
    */
-  own?: { autospin: number; gr: number; handpay: number; lastBetAt: number | null; until: number } | { error: string }
+  own?: { autospin: number; gr: number; handpay: number; lastBetAt: number | null; until: number; note?: string } | { error: string }
   grError?: string
   meter: (SideValue & { readAt: number }) | null
   meterError?: string
@@ -330,7 +330,7 @@ async function ownHandpayOf(clientMachineName: string, gmid: string, username: s
   return ownHandpayFromRows(items, gmid, username, fromMs, untilMs)
 }
 
-export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number } = {}): Promise<{ rows: LiveCompareRow[]; error?: string }> {
+export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number; ownNote?: string } = {}): Promise<{ rows: LiveCompareRow[]; error?: string }> {
   if (env !== 'qat') return { rows: [], error: 'UAT 目前沒有 Instant Meter／Game Record 的連線設定，即時對照只支援 QAT' }
   const machines: Array<{ sessionId: string; startedAt: number; gmid: string; machineType: string; username: string }> = []
   for (const s of sessions) {
@@ -486,7 +486,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
       // AutoSpin：照 sessionId 算整個 session 的有效局（不用 agent 的 observedAt 篩）
       const asAll = countSpins(db, 'qat', r.sessionId, r.gmid, 0, Number.MAX_SAFE_INTEGER, false).count
       const last = Math.max(0, ...mine.map(x => x.t), hp.lastBetAt ?? 0)
-      r.own = { autospin: asAll, gr: mine.length, handpay: hp.count, lastBetAt: last || null, until }
+      r.own = { autospin: asAll, gr: mine.length, handpay: hp.count, lastBetAt: last || null, until, ...(opts.ownNote ? { note: opts.ownNote } : {}) }
     }
   }
   return { rows }
@@ -497,7 +497,7 @@ export async function liveCompare(env: 'qat' | 'uat', sessions: LiveSessionRef[]
  * 兩邊同時推進同一台會重複前進或互相蓋掉（CodeX 1106 提醒要加鎖）。
  */
 let liveCompareChain: Promise<unknown> = Promise.resolve()
-export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number } = {}): ReturnType<typeof liveCompare> {
+export function liveCompareLocked(env: 'qat' | 'uat', sessions: LiveSessionRef[], opts: { withEvidence?: boolean; untilMs?: number; ownNote?: string } = {}): ReturnType<typeof liveCompare> {
   const next = liveCompareChain.then(() => liveCompare(env, sessions, opts))
   liveCompareChain = next.catch(() => {})
   return next
