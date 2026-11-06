@@ -194,7 +194,7 @@ export function siteLoginCandidates(osm: Record<string, string>, gcp: Record<str
  * ⚠️ 先驗欄位再篩帳號：缺帳號會被當成「別人的」略過、空字串的下注時間 Number('') 是 0——
  *    兩種都會靜默漏掉尾局（CodeX b7f907e P1）。任何一列不是這台、缺帳號、缺下注時間 → 整批錯誤。
  */
-export function ownHandpayFromRows(items: Record<string, unknown>[], gmid: string, username: string, fromMs: number, untilMs: number): { count: number; lastBetAt: number | null } | { error: string } {
+export function ownHandpayFromRows(items: Record<string, unknown>[], gmid: string, username: string, fromMs: number, untilMs: number, untilExclusive = false): { count: number; lastBetAt: number | null } | { error: string } {
   let count = 0, last: number | null = null
   for (const r of items) {
     if (String(r.uid ?? '') !== gmid) return { error: 'Jackpot Abnormality 有不是這台的列' }
@@ -202,8 +202,28 @@ export function ownHandpayFromRows(items: Record<string, unknown>[], gmid: strin
     if (!name) return { error: 'Jackpot Abnormality 有列缺帳號' }
     const t = strictNum(r.bet_time_precise)
     if (t == null || t <= 0) return { error: 'Jackpot Abnormality 有列缺下注時間' }
-    if (name !== username || t * 1000 < fromMs || t * 1000 > untilMs) continue
+    if (name !== username || !inOwnRange(t * 1000, fromMs, untilMs, untilExclusive)) continue
     count++; last = Math.max(last ?? 0, t * 1000)
   }
   return { count, lastBetAt: last }
+}
+
+/**
+ * 本帳號局數的範圍判斷。上界切在「同帳號下一輪開始」時要用 `<`：
+ * 恰好在下一輪開始那一刻的局是下一輪的，`<=` 會讓兩輪都算到（CodeX 610474f P2）。
+ */
+export function inOwnRange(tMs: number, fromMs: number, untilMs: number, untilExclusive: boolean): boolean {
+  return tMs >= fromMs && (untilExclusive ? tMs < untilMs : tMs <= untilMs)
+}
+
+/** 切點前這段時間內的局，後台時鐘慢幾秒就可能其實是下一輪的 */
+export const OWN_CUT_SKEW_MS = 10_000
+
+/**
+ * 上界切在下一輪開始、而本帳號最後一局落在切點前 OWN_CUT_SKEW_MS 內 → 這一局歸誰分不清，回 note 標只供參考。
+ * 跟兩輪相隔多久無關：後台慢 2 秒時，下一輪開始後 1 秒下的注，時間戳仍落在上一輪範圍（CodeX 610474f P2）。
+ */
+export function nearCutNote(lastBetAt: number | null, untilMs: number, cutByNext: boolean): string {
+  if (!cutByNext || lastBetAt == null) return ''
+  return lastBetAt >= untilMs - OWN_CUT_SKEW_MS ? '下一輪開始前幾秒內有局，可能是下一輪的' : ''
 }

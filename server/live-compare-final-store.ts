@@ -33,7 +33,7 @@ export interface LiveSessionInfo {
 }
 
 export interface FinalDeps {
-  compare: (env: 'qat', sessions: LiveSessionRef[], opts?: { withEvidence?: boolean; untilMs?: number; ownNote?: string }) => Promise<{ rows: LiveCompareRow[] }>
+  compare: (env: 'qat', sessions: LiveSessionRef[], opts?: { withEvidence?: boolean; untilMs?: number; untilExclusive?: boolean; ownNote?: string }) => Promise<{ rows: LiveCompareRow[] }>
   send: (chatId: string, card: object, opts: { uuid?: string }) => Promise<{ ok: true; value: string } | { ok: false; code: string; message: string }>
   now: () => number
 }
@@ -190,7 +190,7 @@ export function createFinalizer(db: Database.Database, deps: FinalDeps) {
         const stopAt = info && !info.running && info.lastHeartbeat ? info.lastHeartbeat : (run.stoppedAt ?? t)
         const nexts = sessions.filter(x => x.id !== run.sessionId && x.userLabel === run.userLabel && x.startedAt > run.startedAt).map(x => x.startedAt)
         const ou = ownUntil(stopAt, nexts.length ? Math.min(...nexts) : null)
-        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }], { withEvidence: true, untilMs: ou.untilMs, ownNote: ou.note || undefined })
+        const res = await deps.compare('qat', [{ id: run.sessionId, startedAt: run.startedAt }], { withEvidence: true, untilMs: ou.untilMs, untilExclusive: ou.cutByNext, ownNote: ou.note || undefined })
         const rows = res.rows
         // ⚠️ 比對要等網路，期間可能又進來新局：比完再數一次，變了就重算靜默期、這輪不定案（CodeX 7a44528 P1）。
         //    但超過結算上限就不能再等——照新筆數往下走，decideSettle 會給 timeout（CodeX 862a4fa P2：不能一直繞過 15 分鐘）

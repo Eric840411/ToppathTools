@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.7'
+export const APP_VERSION = '5.81.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.8', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 610474f 兩個 P2)：①本帳號局數上界切在同帳號下一輪開始時仍用 <=，恰在下一輪開始那一刻的局兩輪都算到→切點來自下一輪時改用 <（Game Record 與 handpay 同一個 inOwnRange）；②15 秒間隔擋不住後台時鐘偏差（後台慢 2 秒時下一輪開始後 1 秒的注會落在上一輪）→最後一局落在切點前 10 秒內就標「只供參考」（nearCutNote）'] },
   { version: '5.81.7', date: '2026-11-06', changes: ['fix(AutoSpin 低餘額／隨機離開，CodeX review c8b5859 兩個 P1)：①離桌重進途中拋例外會落到外層只記錯誤、下一輪照樣 Spin→兩個呼叫點自己攔例外並停這台；②重進前就標「已離桌」，Join 已送出但確認逾時時收尾會跳過離桌、留下佔座→開始重進就清掉，重進失敗後只有畫面確認在大廳才略過收尾離桌'] },
   { version: '5.81.6', date: '2026-11-06', changes: ['fix(AutoSpin 低餘額／隨機離開)：退出重進只點一組舊選擇器（現在的機種沒有）就 enter_game，沒離桌又看到「已在遊戲中」跳過，結果照樣 Spin、餘額一路扣到 800。改用正常停止那套 leave_game（cashout→Exit→Confirm）確認離桌→重進（AFT 從錢包補額度）→等到這次進桌的有效餘額才繼續；離不開、進不去、20 秒內餘額沒回到門檻 → 停這台。重進前已離桌的，收尾不再離一次（CodeX 2026-11-06 確認）'] },
   { version: '5.81.5', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 431cd7c P1)：本帳號局數範圍「發現停止＋1 分鐘」會把同帳號緊接著重跑的下一輪算進上一輪（重現：停止後 10 秒重跑，上一輪 AS=1、GR=2 紅標局數有差）。上界改成 min(這一輪最後心跳＋1 分鐘, 同帳號下一輪開始)；下一輪離停止不到 15 秒 → 兩輪的局分不開，標「只供參考」、不判紅也不寫全部一致'] },

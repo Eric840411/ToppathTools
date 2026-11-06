@@ -1,7 +1,7 @@
 /**
  * AutoSpin 即時對照判定規則的回歸。跑法：npx tsx server/live-compare-core.test.ts
  */
-import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, siteLoginCandidates, ownHandpayFromRows, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
+import { parseMeterItem, baselineInvalidReason, evaluateSides, decideStatus, meterWindowEnd, dedupeByOrderId, meterStale, METER_STALE_MS, guardOwnRounds, siteLoginCandidates, ownHandpayFromRows, inOwnRange, nearCutNote, MISMATCH_ROUNDS, type EvalInput } from './live-compare-core.js'
 
 let pass = 0
 const fails: string[] = []
@@ -100,6 +100,19 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   eq('下注時間缺 → 錯誤', 'error' in ownHandpayFromRows([hp({ bet_time_precise: null })], G, 'fixture01', F, U), true)
   eq('不是這台 → 錯誤', 'error' in ownHandpayFromRows([hp({ uid: 'x' })], G, 'fixture01', F, U), true)
   eq('數字字串照讀', ownHandpayFromRows([hp({ bet_time_precise: String((F + 60_000) / 1000) })], G, 'fixture01', F, U), { count: 1, lastBetAt: F + 60_000 })
+}
+// ── 切在下一輪開始：恰在切點的局歸下一輪、切點前幾秒的局只供參考（CodeX 610474f P2）──
+{
+  const G = '892-MOREPUFF-0134', F = 1_793_900_000_000, NEXT = F + 30 * 60_000
+  const hp = (ms: number) => ({ uid: G, username: 'fixture01', bet_time_precise: ms / 1000 })
+  eq('handpay 恰在下一輪開始 → 不算上一輪', ownHandpayFromRows([hp(NEXT)], G, 'fixture01', F, NEXT, true), { count: 0, lastBetAt: null })
+  eq('handpay 恰在「停止＋1 分鐘」上界 → 照算（不是下一輪切點）', ownHandpayFromRows([hp(NEXT)], G, 'fixture01', F, NEXT, false), { count: 1, lastBetAt: NEXT })
+  // 模擬 liveCompare 的 Game Record 篩選
+  const gr = [F + 1000, NEXT - 1, NEXT, NEXT + 500]
+  eq('Game Record 恰在切點 → 歸下一輪', gr.filter(t => inOwnRange(t, F, NEXT, true)).length, 2)
+  eq('後台慢 2 秒：下一輪開始後 1 秒下的注落在切點前 1 秒 → 只供參考', nearCutNote(NEXT - 1000, NEXT, true) !== '', true)
+  eq('最後一局離切點很遠 → 不標', nearCutNote(NEXT - 5 * 60_000, NEXT, true), '')
+  eq('上界不是下一輪切點 → 不標', nearCutNote(NEXT - 1000, NEXT, false), '')
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)

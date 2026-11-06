@@ -89,11 +89,12 @@ export const OWN_MIN_GAP_MS = 15_000
  * stopAt＝這一輪最後一次心跳（伺服器時鐘）；nextStart＝同一個帳號下一輪的開始時間。
  * 上界取「stopAt＋1 分鐘」與「下一輪開始」較早者；下一輪離停止不到 15 秒 → 分不開，回 note 標只供參考。
  */
-export function ownUntil(stopAt: number, nextStart: number | null): { untilMs: number; note: string } {
+export function ownUntil(stopAt: number, nextStart: number | null): { untilMs: number; note: string; cutByNext: boolean } {
   const until = stopAt + OWN_AFTER_STOP_MS
-  if (nextStart == null || nextStart >= until) return { untilMs: until, note: '' }
-  if (nextStart - stopAt < OWN_MIN_GAP_MS) return { untilMs: nextStart, note: '下一輪在停止後馬上開始，兩輪的局可能分不開' }
-  return { untilMs: nextStart, note: '' }
+  if (nextStart == null || nextStart >= until) return { untilMs: until, note: '', cutByNext: false }
+  // cutByNext：上界是下一輪開始 → 篩選要用 `<`，且切點附近的局要標只供參考（inOwnRange／nearCutNote）
+  if (nextStart - stopAt < OWN_MIN_GAP_MS) return { untilMs: nextStart, note: '下一輪在停止後馬上開始，兩輪的局可能分不開', cutByNext: true }
+  return { untilMs: nextStart, note: '', cutByNext: true }
 }
 
 export interface SettleInput {
