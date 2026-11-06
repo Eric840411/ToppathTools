@@ -1775,12 +1775,19 @@ def leave_and_reenter(page, cfg: dict, mt: str, mp: dict, min_balance: float, re
     if not leave_game(page, cfg, mt):
         log(f"[{mt}] ⚠️ {reason}：離桌未確認，停止這台 Spin（座位可能仍被佔用，請到後台 egmList 確認）")
         return False
-    mp['left_seat'] = True
+    # ⚠️ 一開始重進就不能再當「已離桌」：Join 送出但確認逾時、畫面判不出來時
+    #    enter_game 也回 False，其實可能已入座——收尾要照樣離桌（CodeX c8b5859 P1）
+    mp['left_seat'] = False
     since = time.time() * 1000
     if not enter_game(page, cfg):
-        log(f"[{mt}] ⚠️ {reason}：已離桌但重進失敗，停止這台")
+        # 只有重新確認畫面在大廳，才能讓收尾略過離桌
+        try:
+            mp['left_seat'] = detect_seat_state(page) == 'lobby'
+        except Exception:
+            mp['left_seat'] = False
+        log(f"[{mt}] ⚠️ {reason}：已離桌但重進失敗，停止這台"
+            f"（{'畫面在大廳，座位已還' if mp['left_seat'] else '座位狀態不明，收尾會再離桌一次'}）")
         return False
-    mp['left_seat'] = False
     ok, bal = wait_fresh_balance(page, since, min_balance)
     if not ok and stop_flag.is_set():
         return False
@@ -3414,7 +3421,13 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                                        event='low_balance', note=f"閾值 {threshold:.2f}")
                             # 重進會由 AFT 從錢包補額度，所以是「離桌→重進→繼續跑」；
                             # 離不開、進不去、重進後仍低於門檻 → 停這台（不能邊佔座位邊扣款）
-                            if not leave_and_reenter(page, cfg, mt, mp, threshold, '低餘額'):
+                            # ⚠️ 例外也要停：落到外層 handler 只記錯誤，下一輪會照樣 Spin（CodeX c8b5859 P1）
+                            try:
+                                resumed = leave_and_reenter(page, cfg, mt, mp, threshold, '低餘額')
+                            except Exception as e:
+                                log(f"[{mt}] ⚠️ 低餘額離桌重進出錯：{e}，停止這台")
+                                resumed = False
+                            if not resumed:
                                 async_call(send_lark, lark_hook, f"[{mt}] 低餘額：已停止這台",
                                            "離桌或重進補額度沒有成功，詳見執行日誌")
                                 break
@@ -3431,7 +3444,12 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         chance    = float(cfg.get('randomExitChance') or 0.02)
                         if mp['spin_count'] >= min_spins and _rand.random() < chance:
                             log(f"[{mt}] 觸發隨機離開（spin #{mp['spin_count']}，機率 {chance:.1%}）")
-                            if not leave_and_reenter(page, cfg, mt, mp, threshold if threshold > 0 else 0.0, '隨機離開'):
+                            try:
+                                resumed = leave_and_reenter(page, cfg, mt, mp, threshold if threshold > 0 else 0.0, '隨機離開')
+                            except Exception as e:
+                                log(f"[{mt}] ⚠️ 隨機離開離桌重進出錯：{e}，停止這台")
+                                resumed = False
+                            if not resumed:
                                 break
                             mp['spin_count'] = 0
                             continue

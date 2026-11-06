@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.6'
+export const APP_VERSION = '5.81.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.7', date: '2026-11-06', changes: ['fix(AutoSpin 低餘額／隨機離開，CodeX review c8b5859 兩個 P1)：①離桌重進途中拋例外會落到外層只記錯誤、下一輪照樣 Spin→兩個呼叫點自己攔例外並停這台；②重進前就標「已離桌」，Join 已送出但確認逾時時收尾會跳過離桌、留下佔座→開始重進就清掉，重進失敗後只有畫面確認在大廳才略過收尾離桌'] },
   { version: '5.81.6', date: '2026-11-06', changes: ['fix(AutoSpin 低餘額／隨機離開)：退出重進只點一組舊選擇器（現在的機種沒有）就 enter_game，沒離桌又看到「已在遊戲中」跳過，結果照樣 Spin、餘額一路扣到 800。改用正常停止那套 leave_game（cashout→Exit→Confirm）確認離桌→重進（AFT 從錢包補額度）→等到這次進桌的有效餘額才繼續；離不開、進不去、20 秒內餘額沒回到門檻 → 停這台。重進前已離桌的，收尾不再離一次（CodeX 2026-11-06 確認）'] },
   { version: '5.81.5', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review 431cd7c P1)：本帳號局數範圍「發現停止＋1 分鐘」會把同帳號緊接著重跑的下一輪算進上一輪（重現：停止後 10 秒重跑，上一輪 AS=1、GR=2 紅標局數有差）。上界改成 min(這一輪最後心跳＋1 分鐘, 同帳號下一輪開始)；下一輪離停止不到 15 秒 → 兩輪的局分不開，標「只供參考」、不判紅也不寫全部一致'] },
   { version: '5.81.4', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review b7f907e 兩個 P1、一個 P2)：①本帳號 handpay 缺帳號會被當成別人的略過、空字串下注時間被當 0→先驗欄位，缺就整批錯誤（抽成 ownHandpayFromRows 補 8 條）；②「AutoSpin vs 本帳號 Game Record」範圍不一致：AutoSpin 用 agent 時鐘篩（慢 164 秒會少算）、Game Record 查到現在（停止後同帳號再玩會混進來）→AutoSpin 照 sessionId 算整個 session 的有效局、Game Record／handpay 用開跑～發現停止＋1 分鐘的固定範圍；③局數有差標題仍綠色「全部一致」→標題寫「N 台 AutoSpin 局數有差」轉紅，沒查到的轉橘；卡片註明局數相同不保證逐局對上'] },
