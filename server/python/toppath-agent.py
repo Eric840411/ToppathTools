@@ -1743,6 +1743,57 @@ def read_balance(page):
     return None
 
 
+REENTRY_BALANCE_WAIT_SEC = 20.0
+
+
+def wait_fresh_balance(page, since_ms: float, min_balance: float, timeout_sec: float = REENTRY_BALANCE_WAIT_SEC):
+    """重進後等「這次進桌」的有效餘額：coin 更新時間晚於 since_ms 且 ≥ min_balance 才算數。
+
+    ⚠️ 不能直接 read_balance()：離桌前的舊 coin 還留在 window.__lastCoin，
+       AFT 轉入途中也可能先出現暫時值（CodeX 2026-11-06）。逾時回傳 (False, 最後讀到的值)。
+    """
+    deadline = time.time() + timeout_sec
+    last = None
+    while time.time() < deadline and not stop_flag.is_set():
+        if get_coin_updated_at(page) > since_ms:
+            last = read_balance(page)
+            if last is not None and last >= min_balance:
+                return True, last
+        time.sleep(0.5)
+    return False, last
+
+
+def leave_and_reenter(page, cfg: dict, mt: str, mp: dict, min_balance: float, reason: str) -> bool:
+    """確認離桌 → 重進（AFT 從錢包補額度）→ 等到有效餘額。回傳 True＝可以繼續 Spin。
+
+    ⚠️ 原本這裡只點一組舊選擇器（.btn-exit 等，現在的機種都沒有）就 enter_game，
+       沒離桌 → enter_game 看到「已在遊戲中」跳過 → 照樣 Spin，
+       低餘額時一路扣到 800（claude-osm-2 2026-11-06 實測）。
+    ⚠️ 離桌沒確認就**不能重進**；回傳 False 時呼叫端要停這台，
+       而且 mp['left_seat'] 決定收尾還要不要再離桌一次。
+    """
+    if not leave_game(page, cfg, mt):
+        log(f"[{mt}] ⚠️ {reason}：離桌未確認，停止這台 Spin（座位可能仍被佔用，請到後台 egmList 確認）")
+        return False
+    mp['left_seat'] = True
+    since = time.time() * 1000
+    if not enter_game(page, cfg):
+        log(f"[{mt}] ⚠️ {reason}：已離桌但重進失敗，停止這台")
+        return False
+    mp['left_seat'] = False
+    ok, bal = wait_fresh_balance(page, since, min_balance)
+    if not ok and stop_flag.is_set():
+        return False
+    if not ok:
+        shown = '讀不到' if bal is None else f"{bal:.2f}"
+        log(f"[{mt}] ⚠️ {reason}：重進後 {REENTRY_BALANCE_WAIT_SEC:.0f} 秒內餘額沒有回到 {min_balance:.2f}（最後讀到 {shown}），"
+            f"錢包可能也不夠，停止這台")
+        return False
+    mp['last_balance'] = bal
+    log(f"[{mt}] {reason}：已離桌並重進，餘額 {bal:.2f}，繼續 Spin")
+    return True
+
+
 def get_coin_updated_at(page) -> float:
     """讀取 window.__coinUpdatedAt（最近一次 pinus coin 更新的時間戳），掃描所有 frame。"""
     for frame in page.frames:
@@ -3361,18 +3412,13 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                                        f"餘額 {balance:.2f} 低於設定閾值 {threshold:.2f}")
                             async_call(post_history, mt, balance, mp['spin_count'],
                                        event='low_balance', note=f"閾值 {threshold:.2f}")
-                            for exit_sel in ['.balance-bg.hand_balance', '.h-balance.hand_balance',
-                                             '.btn-exit', '.exit-btn', '.btn_exit']:
-                                try:
-                                    btn = page.locator(exit_sel).first
-                                    if btn.is_visible():
-                                        btn.click(timeout=2000)
-                                        break
-                                except Exception:
-                                    pass
-                            time.sleep(2.0)
-                            enter_game(page, cfg)
-                            time.sleep(2.0)
+                            # 重進會由 AFT 從錢包補額度，所以是「離桌→重進→繼續跑」；
+                            # 離不開、進不去、重進後仍低於門檻 → 停這台（不能邊佔座位邊扣款）
+                            if not leave_and_reenter(page, cfg, mt, mp, threshold, '低餘額'):
+                                async_call(send_lark, lark_hook, f"[{mt}] 低餘額：已停止這台",
+                                           "離桌或重進補額度沒有成功，詳見執行日誌")
+                                break
+                            continue
 
                     # ── 隨機下注（BetRandom）──────────────────────────────────
                     if cfg.get('betRandomEnabled'):
@@ -3385,21 +3431,10 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         chance    = float(cfg.get('randomExitChance') or 0.02)
                         if mp['spin_count'] >= min_spins and _rand.random() < chance:
                             log(f"[{mt}] 觸發隨機離開（spin #{mp['spin_count']}，機率 {chance:.1%}）")
-                            exited = False
-                            for exit_sel in ['.balance-bg.hand_balance', '.h-balance.hand_balance',
-                                             '.btn-exit', '.exit-btn', '.btn_exit']:
-                                try:
-                                    btn = page.locator(exit_sel).first
-                                    if btn.is_visible():
-                                        btn.click(timeout=2000)
-                                        exited = True
-                                        break
-                                except Exception:
-                                    pass
-                            time.sleep(2.0)
-                            enter_game(page, cfg)
-                            time.sleep(2.0)
+                            if not leave_and_reenter(page, cfg, mt, mp, threshold if threshold > 0 else 0.0, '隨機離開'):
+                                break
                             mp['spin_count'] = 0
+                            continue
 
                     # ── 戰績（注額的第二來源）──────────────────────────────
                     # ⚠️ 自己的節奏，不跟截圖共用。要抓得比「一次回幾筆」密，
@@ -3512,7 +3547,11 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
         except Exception as e:
             log(f"[{mt}] 最後一局結算補登失敗（不影響停止流程）：{e}")
 
-        leave_game(page, cfg, mt)
+        # 低餘額／隨機離開已確認離桌、但重進失敗才停的：座位已還，不用再離一次
+        if mp.get('left_seat'):
+            log(f"[{mt}] 已離桌，略過收尾離機")
+        else:
+            leave_game(page, cfg, mt)
 
         log(f"[{mt}] 停止執行，關閉瀏覽器")
         try:
