@@ -120,6 +120,7 @@ eq('零筆但又收到新局 → 回到等尾筆', decideSettle({ ...base, spinC
 // ── 本帳號局數的上界（CodeX 431cd7c P1）──
 eq('沒有下一輪 → 停止＋1 分鐘、含上界', ownUntil(STOP, null), { untilMs: STOP + MIN, note: '', cutByNext: false })
 eq('下一輪在 1 分鐘之後 → 停止＋1 分鐘、含上界', ownUntil(STOP, STOP + 2 * MIN), { untilMs: STOP + MIN, note: '', cutByNext: false })
+eq('下一輪恰在停止＋1 分鐘開始 → 當成下一輪切點（不含切點）', ownUntil(STOP, STOP + MIN), { untilMs: STOP + MIN, note: '', cutByNext: true })
 eq('下一輪 30 秒後開始 → 切在下一輪開始（不含切點）', ownUntil(STOP, STOP + 30_000), { untilMs: STOP + 30_000, note: '', cutByNext: true })
 eq('下一輪 10 秒後就開始 → 切在下一輪開始、標只供參考', ownUntil(STOP, STOP + 10_000).note !== '', true)
 {

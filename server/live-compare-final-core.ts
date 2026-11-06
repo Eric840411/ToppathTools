@@ -91,7 +91,8 @@ export const OWN_MIN_GAP_MS = 15_000
  */
 export function ownUntil(stopAt: number, nextStart: number | null): { untilMs: number; note: string; cutByNext: boolean } {
   const until = stopAt + OWN_AFTER_STOP_MS
-  if (nextStart == null || nextStart >= until) return { untilMs: until, note: '', cutByNext: false }
+  // 恰好等於「停止＋1 分鐘」也算下一輪切點：那一刻的局是下一輪的（CodeX f1e65cf P2）
+  if (nextStart == null || nextStart > until) return { untilMs: until, note: '', cutByNext: false }
   // cutByNext：上界是下一輪開始 → 篩選要用 `<`，且切點附近的局要標只供參考（inOwnRange／nearCutNote）
   if (nextStart - stopAt < OWN_MIN_GAP_MS) return { untilMs: nextStart, note: '下一輪在停止後馬上開始，兩輪的局可能分不開', cutByNext: true }
   return { untilMs: nextStart, note: '', cutByNext: true }

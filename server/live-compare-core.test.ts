@@ -113,6 +113,8 @@ eq('upTime 缺不判停更', meterStale(0, up, 10), false)
   eq('後台慢 2 秒：下一輪開始後 1 秒下的注落在切點前 1 秒 → 只供參考', nearCutNote(NEXT - 1000, NEXT, true) !== '', true)
   eq('最後一局離切點很遠 → 不標', nearCutNote(NEXT - 5 * 60_000, NEXT, true), '')
   eq('上界不是下一輪切點 → 不標', nearCutNote(NEXT - 1000, NEXT, false), '')
+  // 下一輪恰在停止＋1 分鐘開始：ownUntil 回 cutByNext=true，同一組篩選照樣排除切點那一局
+  eq('恰在停止＋1 分鐘的下一輪首局 → 不算上一輪', [ownHandpayFromRows([hp(NEXT)], G, 'fixture01', F, NEXT, true), gr.filter(t => inOwnRange(t, F, NEXT, true)).includes(NEXT)], [{ count: 0, lastBetAt: null }, false])
 }
 if (fails.length) { console.error(`FAIL ${fails.length}/${pass + fails.length}\n` + fails.join('\n')); process.exit(1) }
 console.log(`PASS ${pass}`)
