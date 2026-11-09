@@ -146,5 +146,34 @@ eq('累計 9 局', r.win.okCount, 9)
   eq('之後那段不會多出一局', [x.win.status, x.win.diff?.count ?? 0], ['match', 0])
 }
 
+// ── CodeX be8d88b P1：真漏一局、每個新快照第一次查詢都失敗（先存成 pending）→ 重試成功判切點待確認時也要計入 ──
+{
+  const db6 = new Database(':memory:'); ensureWindowTables(db6)
+  const b6 = { t0: T0, gamesPlayed: 0, coinIn: 0, denom: 1 }
+  const all6: BackendRound[] = []
+  for (let k = 1; k <= 60; k++) {
+    all6.push({ orderId: `late${k}`, betAt: T0 + k * MIN + 10, payoutAt: T0 + k * MIN + 3000, bet: 1, source: 'gr', handpay: 0 })
+    all6.push({ orderId: `mid${k}`, betAt: T0 + k * MIN + 30_000, payoutAt: T0 + k * MIN + 33_000, bet: 1, source: 'gr', handpay: 0 })
+  }
+  const seenTo = new Set<number>()
+  const f6: BackendFetcher = async (_n, _g, from, to) => {
+    if (!seenTo.has(to)) { seenTo.add(to); return { error: 'Game Record 回 code=500' } }
+    return { gr: all6.filter(r => r.orderId !== 'mid2' && r.betAt >= from && r.betAt <= to), handpay: [] }
+  }
+  const gpAt = (up: number) => all6.filter(r => r.betAt <= up).length
+  const p6 = (now: number, up: number) => evalMeterWindow(db6, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b6, reading: { upTime: up, gamesPlayed: gpAt(up), coinIn: gpAt(up), denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f6, now)
+  // 每分鐘一個快照、每 30 秒輪詢一次：新快照第一次查詢失敗、30 秒後重試成功
+  const boundaryT1 = new Set<number>()
+  let x = await p6(T0 + MIN, T0 + MIN)
+  for (let i = 3; i <= 60; i++) {
+    const now = T0 + i * 30_000
+    x = await p6(now, T0 + Math.floor(i / 2) * MIN)
+    if (x.win.status === 'boundary' && x.win.t1 != null) boundaryT1.add(x.win.t1)
+    if (x.win.status === 'overdue') break
+  }
+  eq('新快照先失敗再重試：第 5 個不同快照逾期待查', [x.win.status, x.win.streak], ['overdue', 5])
+  eq('逾期前切點待確認的不同快照 4 個', boundaryT1.size, 4)
+}
+
 console.log(`live-compare-window-store: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }

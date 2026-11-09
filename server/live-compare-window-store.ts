@@ -27,6 +27,7 @@ export function ensureWindowTables(db: Database.Database): void {
   // v5.81.11：連續切點待確認次數（跨窗口累計），舊表補欄位
   const cols = db.prepare('PRAGMA table_info(live_compare_win)').all() as { name: string }[]
   if (!cols.some(c => c.name === 'streak')) db.exec('ALTER TABLE live_compare_win ADD COLUMN streak INTEGER NOT NULL DEFAULT 0')
+  if (!cols.some(c => c.name === 'streakT1')) db.exec('ALTER TABLE live_compare_win ADD COLUMN streakT1 INTEGER')
 }
 
 export interface WinView {
@@ -53,7 +54,7 @@ export interface WinView {
   checkedAt: number | null
 }
 
-interface WinRow { tStart: number; gpStart: number; coinStart: number; t1: number | null; fails: number; streak: number; status: WindowState['status']; okCount: number; okAmount: number; checkedAt: number | null; lastJson: string | null }
+interface WinRow { tStart: number; gpStart: number; coinStart: number; t1: number | null; fails: number; streak: number; streakT1: number | null; status: WindowState['status']; okCount: number; okAmount: number; checkedAt: number | null; lastJson: string | null }
 
 /**
  * 一台的固定窗口：記快照 → 選窗口 → 查後台 → 更新狀態。
@@ -68,15 +69,15 @@ export async function evalMeterWindow(
   const { sessionId, gmid, clientMachineName, base, reading, readAt } = a
   db.prepare('INSERT OR IGNORE INTO live_compare_snap (sessionId, gmid, upTime, gamesPlayed, coinIn, denom, readAt) VALUES (?,?,?,?,?,?,?)')
     .run(sessionId, gmid, reading.upTime || readAt, reading.gamesPlayed, reading.coinIn, reading.denom, readAt)
-  let ws = db.prepare('SELECT tStart, gpStart, coinStart, t1, fails, streak, status, okCount, okAmount, checkedAt, lastJson FROM live_compare_win WHERE sessionId=? AND gmid=?').get(sessionId, gmid) as WinRow | undefined
+  let ws = db.prepare('SELECT tStart, gpStart, coinStart, t1, fails, streak, streakT1, status, okCount, okAmount, checkedAt, lastJson FROM live_compare_win WHERE sessionId=? AND gmid=?').get(sessionId, gmid) as WinRow | undefined
   if (!ws) {
-    ws = { tStart: base.t0, gpStart: base.gamesPlayed, coinStart: base.coinIn, t1: null, fails: 0, streak: 0, status: 'pending', okCount: 0, okAmount: 0, checkedAt: null, lastJson: null }
+    ws = { tStart: base.t0, gpStart: base.gamesPlayed, coinStart: base.coinIn, t1: null, fails: 0, streak: 0, streakT1: null, status: 'pending', okCount: 0, okAmount: 0, checkedAt: null, lastJson: null }
     db.prepare('INSERT INTO live_compare_win (sessionId, gmid, tStart, gpStart, coinStart) VALUES (?,?,?,?,?)').run(sessionId, gmid, ws.tStart, ws.gpStart, ws.coinStart)
   }
   const w = ws
   const snapsOf = () => db.prepare('SELECT upTime, gamesPlayed, coinIn, denom, readAt FROM live_compare_snap WHERE sessionId=? AND gmid=? AND upTime>=?').all(sessionId, gmid, w.tStart) as Snapshot[]
   let snaps = snapsOf()
-  let prev: WindowState | null = w.t1 != null ? { t1: w.t1, fails: w.fails, status: w.status, streak: w.streak } : null
+  let prev: WindowState | null = w.t1 != null ? { t1: w.t1, fails: w.fails, status: w.status, streak: w.streak, streakT1: w.streakT1 } : null
   const newer = pickEvalSnapshot(snaps, w.tStart, now)
   if (prev && prev.status === 'match' && newer && newer.upTime > prev.t1) {
     const s1 = snaps.find(x => x.upTime === prev!.t1)
@@ -97,10 +98,11 @@ export async function evalMeterWindow(
   })
   const save = (st: WindowState | null, r: WindowResult | null) => {
     if (r) w.lastJson = JSON.stringify(r)
-    if (st) w.streak = st.streak ?? w.streak
-    db.prepare('UPDATE live_compare_win SET tStart=?, gpStart=?, coinStart=?, t1=?, fails=?, streak=?, status=?, okCount=?, okAmount=?, checkedAt=?, lastJson=? WHERE sessionId=? AND gmid=?')
-      .run(w.tStart, w.gpStart, w.coinStart, st?.t1 ?? null, st?.fails ?? 0, w.streak, st?.status ?? 'pending', w.okCount, w.okAmount, w.checkedAt, w.lastJson, sessionId, gmid)
+    if (st) { w.streak = st.streak ?? w.streak; w.streakT1 = st.streakT1 !== undefined ? st.streakT1 : w.streakT1 }
+    db.prepare('UPDATE live_compare_win SET tStart=?, gpStart=?, coinStart=?, t1=?, fails=?, streak=?, streakT1=?, status=?, okCount=?, okAmount=?, checkedAt=?, lastJson=? WHERE sessionId=? AND gmid=?')
+      .run(w.tStart, w.gpStart, w.coinStart, st?.t1 ?? null, st?.fails ?? 0, w.streak, w.streakT1, st?.status ?? 'pending', w.okCount, w.okAmount, w.checkedAt, w.lastJson, sessionId, gmid)
   }
+  const carry = () => ({ streak: w.streak, streakT1: w.streakT1 })
   const t1 = chooseWindow(prev, pickEvalSnapshot(snaps, w.tStart, now))
   if (t1 == null) { save(prev, null); return { win: view(prev, null, null) } }
   const s1 = snaps.find(x => x.upTime === t1)
@@ -110,14 +112,14 @@ export async function evalMeterWindow(
   if (prev && prev.status === 'match' && prev.t1 === t1 && w.lastJson) return { win: view(prev, JSON.parse(w.lastJson) as WindowResult, meter) }
   const same = prev && prev.t1 === t1 ? prev : null
   if (!clientMachineName) {
-    const st = nextState(same, t1, null, w.streak, now); save(st, null)
+    const st = nextState(same, t1, null, carry(), now); save(st, null)
     return { win: view(st, null, meter), error: 'Instant Meter 沒有這台的機台名稱，查不了全部玩家的 Game Record' }
   }
   const b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
   w.checkedAt = now
-  if ('error' in b) { const st = nextState(same, t1, null, w.streak, now); save(st, null); return { win: view(st, null, meter), error: b.error } }
+  if ('error' in b) { const st = nextState(same, t1, null, carry(), now); save(st, null); return { win: view(st, null, meter), error: b.error } }
   const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay, firstWindow: w.tStart === base.t0 })
-  const st = nextState(same, t1, r, w.streak, now)
+  const st = nextState(same, t1, r, carry(), now)
   save(st, r)
   return { win: view(st, r, meter) }
 }

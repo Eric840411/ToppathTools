@@ -129,13 +129,13 @@ eq('切點待確認、沒有更新快照 → 留著', chooseWindow(sb, snap(1_50
 
 { // CodeX 0730cf1 P2：streak 只算不同快照；同一個快照卡住改用時間上限
   const t = 5_000_000
-  let st = nextState(null, t, { matched: false, boundary: true }, 0, t + 4 * 60_000)
-  for (let i = 0; i < 8; i++) st = nextState(st, t, { matched: false, boundary: true }, st.streak, t + 5 * 60_000)
+  let st = nextState(null, t, { matched: false, boundary: true }, { streak: 0, streakT1: null }, t + 4 * 60_000)
+  for (let i = 0; i < 8; i++) st = nextState(st, t, { matched: false, boundary: true }, { streak: st.streak!, streakT1: st.streakT1! }, t + 5 * 60_000)
   eq('同一個快照重查 8 次 → 仍是 1 次、不逾期', [st.status, st.streak], ['boundary', 1])
-  st = nextState(st, t, { matched: false, boundary: true }, st.streak, t + BOUNDARY_SAME_SNAPSHOT_MAX_MS + 1)
+  st = nextState(st, t, { matched: false, boundary: true }, { streak: st.streak!, streakT1: st.streakT1! }, t + BOUNDARY_SAME_SNAPSHOT_MAX_MS + 1)
   eq('同一個快照卡超過時間上限 → 逾期待查', st.status, 'overdue')
-  let s2 = nextState(null, 1, { matched: false, boundary: true }, 0, 2)
-  for (let k = 2; k <= BOUNDARY_MAX_STREAK; k++) s2 = nextState(s2, k, { matched: false, boundary: true }, s2.streak, k + 1)
+  let s2 = nextState(null, 1, { matched: false, boundary: true }, { streak: 0, streakT1: null }, 2)
+  for (let k = 2; k <= BOUNDARY_MAX_STREAK; k++) s2 = nextState(s2, k, { matched: false, boundary: true }, { streak: s2.streak!, streakT1: s2.streakT1! }, k + 1)
   eq(`不同快照連 ${BOUNDARY_MAX_STREAK} 次 → 逾期待查`, [s2.status, s2.streak], ['overdue', BOUNDARY_MAX_STREAK])
 }
 

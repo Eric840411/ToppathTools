@@ -181,8 +181,13 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
 
 /** boundary＝切點上有局在進行，換下一個快照再比 */
 export type WindowStatus = 'match' | 'pending' | 'overdue' | 'boundary'
-/** streak＝連續幾個**不同快照**都切點待確認，跨窗口累計，對上才歸零 */
-export interface WindowState { t1: number; fails: number; status: WindowStatus; streak?: number }
+/**
+ * streak＝連續幾個**不同快照**都切點待確認，跨窗口累計，對上才歸零；streakT1＝最後一個已計入的快照。
+ * ⚠️ 不能用「跟上一輪同一個 t1」判斷算過沒：新快照第一次查詢失敗會先存成 pending（同一個 t1），
+ *    重試成功判切點待確認時就漏算（CodeX be8d88b P1 重現：9 個不同快照 streak 都停在 1）。
+ */
+export interface WindowState { t1: number; fails: number; status: WindowStatus; streak?: number; streakT1?: number | null }
+export interface StreakCarry { streak: number; streakT1: number | null }
 
 /**
  * 下一輪要比哪個窗口。對不上（pending／overdue）就**留在同一個窗口**重查；
@@ -195,17 +200,22 @@ export function chooseWindow(prev: WindowState | null, eligible: Snapshot | null
 }
 
 /** 這一輪查完之後的狀態。查詢不完整（error）不算一次失敗，維持原狀；切點卡到進行中的局也不算失敗。 */
-export function nextState(prev: WindowState | null, t1: number, result: { matched: boolean; boundary?: boolean } | null, streakBefore = prev?.streak ?? 0, now = 0): WindowState {
+export function nextState(
+  prev: WindowState | null, t1: number, result: { matched: boolean; boundary?: boolean } | null,
+  carry: StreakCarry = { streak: prev?.streak ?? 0, streakT1: prev?.streakT1 ?? null }, now = 0,
+): WindowState {
   const sameWin = prev != null && prev.t1 === t1
-  if (!result) return sameWin ? prev! : { t1, fails: 0, status: 'pending', streak: streakBefore }
-  if (result.matched) return { t1, fails: 0, status: 'match', streak: 0 }
+  const keep = { streak: carry.streak, streakT1: carry.streakT1 }
+  if (!result) return sameWin ? { ...prev!, ...keep } : { t1, fails: 0, status: 'pending', ...keep }
+  if (result.matched) return { t1, fails: 0, status: 'match', streak: 0, streakT1: null }
   if (result.boundary) {
     // ⚠️ 換窗口不能讓「未收斂」重新計時：連續太多次就停在這個窗口報逾期，直到真的對上
-    // 同一個快照重查不算一次（沒有更新的快照時每輪都會重查同一個 t1）；改用時間上限
-    const streak = sameWin ? Math.max(streakBefore, 1) : streakBefore + 1
+    // 同一個快照只算一次（沒有更新的快照時每輪都會重查同一個 t1）；卡在同一個快照改用時間上限
+    const streak = carry.streakT1 === t1 ? carry.streak : carry.streak + 1
     const stuck = sameWin && now > 0 && now - t1 > BOUNDARY_SAME_SNAPSHOT_MAX_MS
-    return streak >= BOUNDARY_MAX_STREAK || stuck ? { t1, fails: sameWin ? prev!.fails : 0, status: 'overdue', streak } : { t1, fails: 0, status: 'boundary', streak }
+    const st = { t1, streak, streakT1: t1 }
+    return streak >= BOUNDARY_MAX_STREAK || stuck ? { ...st, fails: sameWin ? prev!.fails : 0, status: 'overdue' } : { ...st, fails: 0, status: 'boundary' }
   }
   const fails = (sameWin ? prev!.fails : 0) + 1
-  return { t1, fails, status: fails >= OVERDUE_FAILS ? 'overdue' : 'pending', streak: streakBefore }
+  return { t1, fails, status: fails >= OVERDUE_FAILS ? 'overdue' : 'pending', ...keep }
 }
