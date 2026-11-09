@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.11'
+export const APP_VERSION = '5.81.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.12', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review 0730cf1 一個 P1、一個 P2)：①第一個窗口起點後幾毫秒下注、到切點還沒派彩的局，「起點已算」和「終點還沒算」都說得通，原本優先當起點已算→提前判一致、差額被推到下一段變成假的逾期待查→兩側都說得通（或起點、終點各有一組解釋）時只判切點待確認、起點不動；②沒有更新快照時同一個快照每輪重查都 +1，5 輪就逾期，跟「連 5 個快照」不符→streak 只算不同快照，同一個快照卡住改用 10 分鐘上限。回歸 52＋29 條，拿掉各項修正各自會紅'] },
   { version: '5.81.11', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，同事 1109 實跑、CodeX 1109 審過)：Instant Meter 的 upTime 只到整秒、後台下注時間到毫秒。892-DRAGONLAW-0025 一局在 13:57:18.01 下注，Meter 13:57:18 的快照已算進去、照下注時間卻落在窗口外，Meter 多 1 局、同一窗口卡逾期待查 38 次（後台沒漏）。切點前後各 1 秒內下注的局現在算「Meter 可能算在任一邊」：差額剛好由它們解釋時，用到終點那側→切點待確認、換下一個快照；第一個窗口只靠起點那側→一致。CodeX P1：真漏一局時每個新切點旁剛好有同注額的局會一直被當切點問題→連續 5 次切點待確認（跨窗口累計，live_compare_win 新增 streak 欄位）就報逾期待查。CodeX P2：第一個窗口起點快照已含 t0 後幾毫秒的局→起點那側也處理。回歸 46＋26 條，拿掉三項修正各自會紅'] },
   { version: '5.81.10', date: '2026-11-06', changes: ['fix(worker 佇列身分錯置)：worker 把 /api/autospin、machine-test、osm-uat 等 POST 排進 Bottleneck 佇列，排在後面的 request 是從前一個工作結束的 callback 啟動，AsyncLocalStorage 沿用的是前一個 request 的 context——拿到別人的身分。症狀：agent 收尾一串 POST 擠在佇列時，緊接著的 hub-dispatch／hub-stop 拿到 agent（guest）的 context → 401「請先選擇帳號」，佇列空了又好（claude-osm-2 在 Spug 重現兩次）。next() 改用 AsyncResource.bind 綁回自己的 context；Gemini key 佇列同樣處理（會讀到別人的個人 key）。回歸：scripts/ui-checks/worker-queue-context.mjs'] },
   { version: '5.81.9', date: '2026-11-06', changes: ['fix(停止後結算，CodeX review f1e65cf P2)：下一輪恰好在「停止＋1 分鐘」開始時，ownUntil 用 >= 判成不是下一輪切點，那一刻的局仍算進上一輪、也不標只供參考→相等也算下一輪切點'] },

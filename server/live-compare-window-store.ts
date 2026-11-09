@@ -110,14 +110,14 @@ export async function evalMeterWindow(
   if (prev && prev.status === 'match' && prev.t1 === t1 && w.lastJson) return { win: view(prev, JSON.parse(w.lastJson) as WindowResult, meter) }
   const same = prev && prev.t1 === t1 ? prev : null
   if (!clientMachineName) {
-    const st = nextState(same, t1, null, w.streak); save(st, null)
+    const st = nextState(same, t1, null, w.streak, now); save(st, null)
     return { win: view(st, null, meter), error: 'Instant Meter 沒有這台的機台名稱，查不了全部玩家的 Game Record' }
   }
   const b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
   w.checkedAt = now
-  if ('error' in b) { const st = nextState(same, t1, null, w.streak); save(st, null); return { win: view(st, null, meter), error: b.error } }
+  if ('error' in b) { const st = nextState(same, t1, null, w.streak, now); save(st, null); return { win: view(st, null, meter), error: b.error } }
   const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay, firstWindow: w.tStart === base.t0 })
-  const st = nextState(same, t1, r, w.streak)
+  const st = nextState(same, t1, r, w.streak, now)
   save(st, r)
   return { win: view(st, r, meter) }
 }

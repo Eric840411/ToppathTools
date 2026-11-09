@@ -205,7 +205,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
 
         <div className="lc-foot">
           <span>金額已按 Denom 換算。Meter 比的是一段固定窗口（上一次對上的時間點 → 3 分鐘前的快照）；對上後才接著比下一段。</span>
-          <span>等待入帳＝這個窗口還有差、下一輪同一窗口再查；逾期待查＝同一窗口連兩次都對不上，或差額連 5 個快照都只能用切點附近的局解釋（Meter 時間只到秒），後台補齊後自動解除。起點缺失、累計回退或 Denom 改變時會重設起點。</span>
+          <span>等待入帳＝這個窗口還有差、下一輪同一窗口再查；逾期待查＝同一窗口連兩次都對不上，或差額連 5 個快照（同一個快照超過 10 分鐘）都只能用切點附近的局解釋（Meter 時間只到秒），後台補齊後自動解除。起點缺失、累計回退或 Denom 改變時會重設起點。</span>
         </div>
       </section>
 
@@ -221,7 +221,7 @@ function diffCls(d: Side) {
 
 function shortReason(r: Row): string {
   if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : r.win.status === 'boundary' ? '切點附近有局，換下一個快照' : '同窗口下一輪再查'
-  if (r.status === 'mismatch') return !r.win?.fails && (r.win?.streak ?? 0) > 0 ? `切點連 ${r.win?.streak} 次待確認` : `同窗口 ${r.win?.fails ?? 0} 次`
+  if (r.status === 'mismatch') return !r.win?.fails && (r.win?.streak ?? 0) > 0 ? ((r.win?.streak ?? 0) >= 5 ? `切點連 ${r.win?.streak} 個快照待確認` : '切點待確認超過 10 分鐘') : `同窗口 ${r.win?.fails ?? 0} 次`   // 5／10 分鐘＝server BOUNDARY_MAX_STREAK／BOUNDARY_SAME_SNAPSHOT_MAX_MS
   if (r.status === 'cache') return r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
   if (r.status === 'unreadable') return r.meterError ? 'Instant Meter' : r.winError ? '後台查詢' : '—'
   return ''

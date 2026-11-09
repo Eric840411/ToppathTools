@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
-  toBackendRounds, evaluateWindow, pickEvalSnapshot, chooseWindow, nextState, MIN_SNAPSHOT_AGE_MS,
+  toBackendRounds, evaluateWindow, pickEvalSnapshot, chooseWindow, nextState, MIN_SNAPSHOT_AGE_MS, BOUNDARY_MAX_STREAK, BOUNDARY_SAME_SNAPSHOT_MAX_MS,
   type BackendRound,
 } from './live-compare-window.js'
 
@@ -78,6 +78,17 @@ eq('窗口外的局不算', run([...gr0.rounds, { ...gr0.rounds[0], orderId: 'x1
   const amt = evaluateWindow({ t0: T0, t1: T1, meter: { count: 6, amount: 650 }, gr: rs, handpay: [] })
   eq('同秒晚下注但金額對不上 → 不能拿來解釋', [amt.matched, amt.boundary], [false, false])
 }
+{ // CodeX 0730cf1 P1：起點後 10ms 下注、到終點還沒派彩——「起點已算」與「終點還沒算」都說得通，不能提前判一致
+  const T0 = 1_000_000, T1 = T0 + 10_000
+  const r = { orderId: 'ov', betAt: T0 + 10, payoutAt: T0 + 15_000, bet: 1, source: 'gr' as const, handpay: 0 }
+  const x = evaluateWindow({ t0: T0, t1: T1, meter: { count: 0, amount: 0 }, gr: [r], handpay: [], firstWindow: true })
+  eq('兩側都說得通 → 切點待確認、不判一致', [x.matched, x.boundary, x.t0SameSecond], [false, true, 0])
+  const paid = evaluateWindow({ t0: T0, t1: T1, meter: { count: 0, amount: 0 }, gr: [{ ...r, payoutAt: T0 + 3000 }], handpay: [], firstWindow: true })
+  eq('終點前已派彩、只有起點說得通 → 一致', [paid.matched, paid.t0SameSecond], [true, 1])
+  const b = { orderId: 'b', betAt: T1 - 5000, payoutAt: T1 + 2000, bet: 1, source: 'gr' as const, handpay: 0 }
+  const two = evaluateWindow({ t0: T0, t1: T1, meter: { count: 1, amount: 1 }, gr: [{ ...r, payoutAt: T0 + 3000 }, b], handpay: [], firstWindow: true })
+  eq('起點一局、終點另一局都能解釋 → 切點待確認', [two.matched, two.boundary], [false, true])
+}
 { // CodeX bfb0623 P2：同單 GR 與 handpay 注額不一致不能被蓋掉
   const h = { ...gr0.rounds[0], source: 'handpay' as const, bet: 999 }
   const x = run(gr0.rounds, [...hp0.rounds, h])
@@ -115,6 +126,18 @@ const sb = nextState(s1, 2_000, { matched: false, boundary: true })
 eq('切點卡到進行中的局 → 不算失敗', [sb.status, sb.fails], ['boundary', 0])
 eq('切點待確認 → 換更新的快照', chooseWindow(sb, snap(3_000, 0)), 3_000)
 eq('切點待確認、沒有更新快照 → 留著', chooseWindow(sb, snap(1_500, 0)), 2_000)
+
+{ // CodeX 0730cf1 P2：streak 只算不同快照；同一個快照卡住改用時間上限
+  const t = 5_000_000
+  let st = nextState(null, t, { matched: false, boundary: true }, 0, t + 4 * 60_000)
+  for (let i = 0; i < 8; i++) st = nextState(st, t, { matched: false, boundary: true }, st.streak, t + 5 * 60_000)
+  eq('同一個快照重查 8 次 → 仍是 1 次、不逾期', [st.status, st.streak], ['boundary', 1])
+  st = nextState(st, t, { matched: false, boundary: true }, st.streak, t + BOUNDARY_SAME_SNAPSHOT_MAX_MS + 1)
+  eq('同一個快照卡超過時間上限 → 逾期待查', st.status, 'overdue')
+  let s2 = nextState(null, 1, { matched: false, boundary: true }, 0, 2)
+  for (let k = 2; k <= BOUNDARY_MAX_STREAK; k++) s2 = nextState(s2, k, { matched: false, boundary: true }, s2.streak, k + 1)
+  eq(`不同快照連 ${BOUNDARY_MAX_STREAK} 次 → 逾期待查`, [s2.status, s2.streak], ['overdue', BOUNDARY_MAX_STREAK])
+}
 
 console.log(`live-compare-window: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }

@@ -129,5 +129,22 @@ eq('累計 9 局', r.win.okCount, 9)
   eq('起點同一秒內的局 → 第一窗一致', [x.win.status, x.win.t0SameSecond], ['match', 1])
 }
 
+// ── CodeX 0730cf1 P1：起點後 10ms 下注、第一個切點時還沒派彩（Meter 還沒算）→ 不能提前判一致把差額推到下一段 ──
+{
+  const db5 = new Database(':memory:'); ensureWindowTables(db5)
+  const rs: BackendRound[] = [{ orderId: 'ov', betAt: T0 + 10, payoutAt: T0 + 15_000, bet: 1, source: 'gr', handpay: 0 }]
+  const b5 = { t0: T0, gamesPlayed: 0, coinIn: 0, denom: 1 }
+  const f5: BackendFetcher = async () => ({ gr: rs, handpay: [] })
+  const p5 = (now: number, up: number, gp: number) => evalMeterWindow(db5, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b5, reading: { upTime: up, gamesPlayed: gp, coinIn: gp, denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f5, now)
+  await p5(T0 + 10_000, T0 + 10_000, 0)        // 切點 t0+10 秒：那局還沒派彩，Meter 0
+  await p5(T0 + 70_000, T0 + 70_000, 1)        // 下一個快照：Meter 算到了
+  let x = await p5(T0 + 4 * MIN, T0 + 4 * MIN, 1)
+  eq('第一個切點：兩側都說得通 → 切點待確認、起點不動', [x.win.status, x.win.tStart], ['boundary', T0])
+  x = await p5(T0 + 5 * MIN, T0 + 5 * MIN, 1)
+  eq('換下一個快照 → 一致', [x.win.status, x.win.tStart, x.win.meter?.count], ['match', T0, 1])
+  x = await p5(T0 + 9 * MIN, T0 + 9 * MIN, 1)
+  eq('之後那段不會多出一局', [x.win.status, x.win.diff?.count ?? 0], ['match', 0])
+}
+
 console.log(`live-compare-window-store: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }
