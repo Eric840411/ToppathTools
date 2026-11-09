@@ -27,7 +27,11 @@ export function ensureWindowTables(db: Database.Database): void {
   // v5.81.11：連續切點待確認次數（跨窗口累計），舊表補欄位
   const cols = db.prepare('PRAGMA table_info(live_compare_win)').all() as { name: string }[]
   if (!cols.some(c => c.name === 'streak')) db.exec('ALTER TABLE live_compare_win ADD COLUMN streak INTEGER NOT NULL DEFAULT 0')
-  if (!cols.some(c => c.name === 'streakT1')) db.exec('ALTER TABLE live_compare_win ADD COLUMN streakT1 INTEGER')
+  if (!cols.some(c => c.name === 'streakT1')) {
+    db.exec('ALTER TABLE live_compare_win ADD COLUMN streakT1 INTEGER')
+    // 升級當下還停在切點待確認的窗口，目前這個 t1 已經算過了——不回填的話重查同一個快照會再加一次（CodeX b7b02e3 P2）
+    db.exec("UPDATE live_compare_win SET streakT1 = t1 WHERE status = 'boundary' AND streak > 0 AND t1 IS NOT NULL")
+  }
 }
 
 export interface WinView {

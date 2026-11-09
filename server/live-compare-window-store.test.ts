@@ -175,5 +175,31 @@ eq('累計 9 局', r.win.okCount, 9)
   eq('逾期前切點待確認的不同快照 4 個', boundaryT1.size, 4)
 }
 
+// ── CodeX b7b02e3 P2：舊表（有 streak、沒有 streakT1）升級時，停在切點待確認的窗口不能重算目前的快照 ──
+{
+  const db7 = new Database(':memory:')
+  db7.exec(`CREATE TABLE live_compare_win (
+      sessionId TEXT NOT NULL, gmid TEXT NOT NULL,
+      tStart INTEGER NOT NULL, gpStart REAL NOT NULL, coinStart REAL NOT NULL,
+      t1 INTEGER, fails INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending',
+      okCount INTEGER NOT NULL DEFAULT 0, okAmount REAL NOT NULL DEFAULT 0, checkedAt INTEGER, lastJson TEXT,
+      streak INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (sessionId, gmid))`)
+  const T1 = T0 + 2 * MIN
+  db7.prepare("INSERT INTO live_compare_win (sessionId, gmid, tStart, gpStart, coinStart, t1, fails, status, streak) VALUES ('s','g',?,0,0,?,0,'boundary',4)").run(T0, T1)
+  ensureWindowTables(db7)
+  const b7 = { t0: T0, gamesPlayed: 0, coinIn: 0, denom: 1 }
+  // 窗口內後台 0 局、Meter +1，切點後 10ms 有一局 → 每個快照都只能判切點待確認
+  const rs7: BackendRound[] = [2, 3, 4, 5, 6].map(k => ({ orderId: `l${k}`, betAt: T0 + k * MIN + 10, payoutAt: T0 + k * MIN + 3000, bet: 1, source: 'gr', handpay: 0 }))
+  const f7: BackendFetcher = async (_n, _g, from, to) => ({ gr: rs7.filter(r => r.betAt >= from && r.betAt <= to), handpay: [] })
+  const p7 = (now: number, up: number, gp: number) => evalMeterWindow(db7, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b7, reading: { upTime: up, gamesPlayed: gp, coinIn: gp, denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f7, now)
+  db7.prepare('INSERT INTO live_compare_snap (sessionId, gmid, upTime, gamesPlayed, coinIn, denom, readAt) VALUES (?,?,?,?,?,?,?)').run('s', 'g', T1, 1, 1, 1, T1)
+  let x = await p7(T1 + 4 * MIN, T1, 1)
+  eq('舊表升級：重查同一個快照仍是 4、切點待確認', [x.win.status, x.win.streak, x.win.t1], ['boundary', 4, T1])
+  db7.prepare('INSERT INTO live_compare_snap (sessionId, gmid, upTime, gamesPlayed, coinIn, denom, readAt) VALUES (?,?,?,?,?,?,?)').run('s', 'g', T1 + MIN, 2, 2, 1, T1 + MIN)   // 多算的那一局還在：Meter 2、後台 1（l2）
+  x = await p7(T1 + 5 * MIN, T1 + 5 * MIN, 3)
+  eq('舊表升級：換到新快照才算第 5 次 → 逾期待查', [x.win.status, x.win.streak, x.win.t1], ['overdue', 5, T1 + MIN])
+}
+
 console.log(`live-compare-window-store: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }
