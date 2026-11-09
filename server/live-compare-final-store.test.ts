@@ -68,7 +68,7 @@ function setup() {
   const spins = (id: string, n: number, observedAt: number) => { for (let i = 0; i < n; i++) db.prepare("INSERT INTO recon_spin (env, sessionId, observedAt) VALUES ('qat', ?, ?)").run(id, observedAt) }
   return { db, f, state, sends, run, spins, until: () => lastUntil, note: () => lastNote, setClock: (t: number) => { clock = t }, failSends: (n: number) => { sendFail = n } }
 }
-const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: { count: 3, amount: 3 }, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o }) as LiveCompareRow['win']
+const win = (o: Record<string, unknown>) => ({ tStart: T0 - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: { count: 3, amount: 3 }, backend: null, boundary: false, t0Absorbed: 0, t0SameSecond: 0, streak: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o }) as LiveCompareRow['win']
 
 // ── 短 session：沒開頁面、在第一次掃描前就停了 ──
 {

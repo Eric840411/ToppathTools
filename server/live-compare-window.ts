@@ -15,7 +15,14 @@
 export const MIN_SNAPSHOT_AGE_MS = 180_000
 /** 同一窗口連幾次對不上才算逾期待查 */
 export const OVERDUE_FAILS = 2
+/**
+ * 連續幾次「切點待確認」（換了快照還是只能用切點附近的局解釋）就算逾期待查。
+ * 真漏一局時，每個新切點附近剛好有同注額的局就會一直被當成切點問題、永遠不報（CodeX 1109 P1 重現）。
+ */
+export const BOUNDARY_MAX_STREAK = 5
 const EPS = 0.005
+/** Instant Meter upTime 的時間精度（整秒） */
+export const METER_TIME_RES_MS = 1000
 
 export interface Snapshot { upTime: number; gamesPlayed: number; coinIn: number; denom: number; readAt: number }
 
@@ -70,25 +77,31 @@ export interface WindowResult {
    * （Meter 在 t0 快照還沒算到它們，這一段算到了——每一局在整條帳上仍只算一次）。
    */
   t0Absorbed: number
+  /** 第一個窗口：起點同一秒內下注、Meter 在起點快照已算的局數（差額剛好由它們解釋時算一致） */
+  t0SameSecond: number
   /** 同一單號在 GR 與 handpay 的注額不一致的筆數（有就不能判一致） */
   conflicts: number
   diff: WindowSide
 }
 
-/** 差額能不能剛好由切點上進行中的局解釋：A⊆起點那批（Meter 多算）、B⊆終點那批（Meter 少算），局數與金額都要對上。 */
-function explain(diff: WindowSide, s0: BackendRound[], s1: BackendRound[]): { a: number; b: number } | null {
-  if (s0.length + s1.length > 12) return null   // 太多就不猜
-  let best: { a: number; b: number } | null = null
-  for (let ma = 0; ma < 1 << s0.length; ma++) {
-    let ca = 0, va = 0
-    s0.forEach((r, i) => { if (ma >> i & 1) { ca++; va += r.bet } })
-    for (let mb = 0; mb < 1 << s1.length; mb++) {
-      let cb = 0, vb = 0
-      s1.forEach((r, i) => { if (mb >> i & 1) { cb++; vb += r.bet } })
-      if (ca - cb === diff.count && Math.abs(va - vb - diff.amount) <= EPS) {
-        if (!best || (cb === 0 && best.b > 0)) best = { a: ca, b: cb }   // 只靠起點那批就能解釋的優先
-      }
-    }
+/**
+ * 差額能不能剛好由切點附近的局解釋（局數與金額都要對上）。
+ *   pos＝Meter 這段可能多算的局（後台照下注時間不在窗口內）；neg＝Meter 這段可能少算的局（後台照下注時間在窗口內）。
+ *   每局標 side：start＝起點那側（只有第一個窗口會給）、end＝終點那側。
+ * 回傳選中的局；只靠起點那側就能解釋的優先（可以直接判一致），否則只能等下一個快照。
+ */
+type Cand = { r: BackendRound; side: 'start' | 'end'; kind: 'inflight' | 'sameSecond' }
+function explain(diff: WindowSide, pos: Cand[], neg: Cand[]): { used: Cand[]; startOnly: boolean } | null {
+  const all = [...pos.map(c => ({ c, sign: 1 })), ...neg.map(c => ({ c, sign: -1 }))]
+  if (all.length > 12) return null   // 太多就不猜
+  let best: { used: Cand[]; startOnly: boolean } | null = null
+  for (let m = 1; m < 1 << all.length; m++) {
+    let cnt = 0, amt = 0
+    const used: Cand[] = []
+    all.forEach((x, i) => { if (m >> i & 1) { cnt += x.sign; amt += x.sign * x.c.r.bet; used.push(x.c) } })
+    if (cnt !== diff.count || Math.abs(amt - diff.amount) > EPS) continue
+    const startOnly = used.every(c => c.side === 'start')
+    if (!best || (startOnly && !best.startOnly)) best = { used, startOnly }
   }
   return best
 }
@@ -114,17 +127,29 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
   const bet = sumSide(byBet)
   const diff = { count: x.meter.count - bet.count, amount: Math.round((x.meter.amount - bet.amount) * 100) / 100 }
   let matched = conflicts === 0 && diff.count === 0 && Math.abs(diff.amount) <= EPS
-  let boundary = false, t0Absorbed = 0
+  let boundary = false, t0Absorbed = 0, t0SameSecond = 0
   // ⚠️ 「有邊界局」不等於「差額是邊界局造成的」：只有差額剛好由切點上的局解釋才放過（CodeX ebfb687 P1——
   //    一局邊界局曾讓 100／200／300 局的差額永遠停在待確認）
   if (!matched && conflicts === 0) {
-    // ⚠️ 起點那批只能在**第一個窗口**用：之後的起點是上一段對上的切點，那幾局上一段已經照下注時間算過，
+    // ⚠️ 起點那側只能在**第一個窗口**用：之後的起點是上一段對上的切點，那幾局上一段已經照下注時間算過，
     //    再算進這一段就是同一局算兩次（CodeX bfb0623 P1 的重現）
-    const s0 = x.firstWindow ? all.filter(r => r.betAt <= x.t0 && r.payoutAt > x.t0) : []
-    const s1 = all.filter(r => r.betAt > x.t0 && r.betAt <= x.t1 && r.payoutAt > x.t1)
-    const e = explain(diff, s0, s1)
-    if (e && e.b === 0) { matched = true; t0Absorbed = e.a }   // 只有起點那批：Meter 這段算到了，帳上仍各算一次
-    else if (e) boundary = true                                 // 終點那批：等下一個快照
+    // ⚠️ Meter 的 upTime 只到整秒、後台下注時間到毫秒，而且沒證實是截斷還是四捨五入：
+    //    切點前後各 1 秒內下注的局，Meter 可能算在任一邊（2026-11-09 892-DRAGONLAW-0025：13:57:18.01 下注的局
+    //    Meter 已算、照下注時間卻在窗口外，同一窗口卡逾期待查 38 次）。這只是精度範圍，不是時鐘容差（CodeX）。
+    const R = METER_TIME_RES_MS
+    const t0 = x.t0, t1 = x.t1
+    // kind：切點那一刻還在進行（下注在前、派彩在後）＝inflight；其餘＝同一秒內下注的精度問題
+    const tag = (rs: BackendRound[], side: Cand['side'], cut: number): Cand[] => rs.map(r => ({ r, side, kind: r.betAt <= cut && r.payoutAt > cut ? 'inflight' : 'sameSecond' }))
+    const startPos = x.firstWindow ? tag(all.filter(r => r.betAt <= t0 && (r.payoutAt > t0 || r.betAt > t0 - R)), 'start', t0) : []
+    const startNeg = x.firstWindow ? tag(all.filter(r => r.betAt > t0 && r.betAt < t0 + R), 'start', t0) : []
+    const endPos = tag(all.filter(r => r.betAt > t1 && r.betAt < t1 + R), 'end', t1)
+    const endNeg = tag(all.filter(r => inWin(r.betAt) && (r.payoutAt > t1 || r.betAt > t1 - R) && !(x.firstWindow && r.betAt < t0 + R)), 'end', t1)
+    const e = explain(diff, [...startPos, ...endPos], [...startNeg, ...endNeg])
+    if (e?.startOnly) {   // 只靠起點那側：Meter 這段的起點跟後台差這幾局，帳上仍各算一次
+      matched = true
+      t0Absorbed = e.used.filter(c => c.kind === 'inflight').length
+      t0SameSecond = e.used.filter(c => c.kind === 'sameSecond').length
+    } else if (e) boundary = true   // 用到終點那側：等下一個快照
   }
   return {
     meter: x.meter,
@@ -138,6 +163,7 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
     matched,
     boundary,
     t0Absorbed,
+    t0SameSecond,
     conflicts,
     diff,
   }
@@ -145,7 +171,8 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
 
 /** boundary＝切點上有局在進行，換下一個快照再比 */
 export type WindowStatus = 'match' | 'pending' | 'overdue' | 'boundary'
-export interface WindowState { t1: number; fails: number; status: WindowStatus }
+/** streak＝連續切點待確認次數，跨窗口累計，對上才歸零 */
+export interface WindowState { t1: number; fails: number; status: WindowStatus; streak?: number }
 
 /**
  * 下一輪要比哪個窗口。對不上（pending／overdue）就**留在同一個窗口**重查；
@@ -158,11 +185,15 @@ export function chooseWindow(prev: WindowState | null, eligible: Snapshot | null
 }
 
 /** 這一輪查完之後的狀態。查詢不完整（error）不算一次失敗，維持原狀；切點卡到進行中的局也不算失敗。 */
-export function nextState(prev: WindowState | null, t1: number, result: { matched: boolean; boundary?: boolean } | null): WindowState {
+export function nextState(prev: WindowState | null, t1: number, result: { matched: boolean; boundary?: boolean } | null, streakBefore = prev?.streak ?? 0): WindowState {
   const sameWin = prev != null && prev.t1 === t1
-  if (!result) return sameWin ? prev! : { t1, fails: 0, status: 'pending' }
-  if (result.matched) return { t1, fails: 0, status: 'match' }
-  if (result.boundary) return { t1, fails: 0, status: 'boundary' }
+  if (!result) return sameWin ? prev! : { t1, fails: 0, status: 'pending', streak: streakBefore }
+  if (result.matched) return { t1, fails: 0, status: 'match', streak: 0 }
+  if (result.boundary) {
+    // ⚠️ 換窗口不能讓「未收斂」重新計時：連續太多次就停在這個窗口報逾期，直到真的對上
+    const streak = streakBefore + 1
+    return streak >= BOUNDARY_MAX_STREAK ? { t1, fails: sameWin ? prev!.fails : 0, status: 'overdue', streak } : { t1, fails: 0, status: 'boundary', streak }
+  }
   const fails = (sameWin ? prev!.fails : 0) + 1
-  return { t1, fails, status: fails >= OVERDUE_FAILS ? 'overdue' : 'pending' }
+  return { t1, fails, status: fails >= OVERDUE_FAILS ? 'overdue' : 'pending', streak: streakBefore }
 }

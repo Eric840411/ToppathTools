@@ -31,7 +31,7 @@ interface Win {
   tStart: number; t1: number | null; status: 'match' | 'pending' | 'overdue' | 'boundary'; fails: number
   meter: { count: number; amount: number } | null
   backend: { count: number; amount: number; grCount: number; handpayCount: number; handpayBet: number; handpayAmount: number } | null
-  boundary: boolean; t0Absorbed: number; conflicts: number; latestUp: number | null
+  boundary: boolean; t0Absorbed: number; t0SameSecond?: number; streak?: number; conflicts: number; latestUp: number | null
   diff: { count: number; amount: number } | null
   okCount: number; okAmount: number; checkedAt: number | null
 }
@@ -205,7 +205,7 @@ export default function LiveCompareTab({ userLabel }: { userLabel: string }) {
 
         <div className="lc-foot">
           <span>金額已按 Denom 換算。Meter 比的是一段固定窗口（上一次對上的時間點 → 3 分鐘前的快照）；對上後才接著比下一段。</span>
-          <span>等待入帳＝這個窗口還有差、下一輪同一窗口再查；逾期待查＝同一窗口連兩次都對不上，後台補齊後自動解除。起點缺失、累計回退或 Denom 改變時會重設起點。</span>
+          <span>等待入帳＝這個窗口還有差、下一輪同一窗口再查；逾期待查＝同一窗口連兩次都對不上，或差額連 5 個快照都只能用切點附近的局解釋（Meter 時間只到秒），後台補齊後自動解除。起點缺失、累計回退或 Denom 改變時會重設起點。</span>
         </div>
       </section>
 
@@ -220,8 +220,8 @@ function diffCls(d: Side) {
 }
 
 function shortReason(r: Row): string {
-  if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : r.win.status === 'boundary' ? '切點有局在進行' : '同窗口下一輪再查'
-  if (r.status === 'mismatch') return `同窗口 ${r.win?.fails ?? 0} 次`
+  if (r.status === 'pending') return r.win?.t1 == null ? '快照未滿 3 分鐘' : r.win.status === 'boundary' ? '切點附近有局，換下一個快照' : '同窗口下一輪再查'
+  if (r.status === 'mismatch') return !r.win?.fails && (r.win?.streak ?? 0) > 0 ? `切點連 ${r.win?.streak} 次待確認` : `同窗口 ${r.win?.fails ?? 0} 次`
   if (r.status === 'cache') return r.cacheHourStr ? `快取・停在 ${r.cacheHourStr}` : '快取值'
   if (r.status === 'unreadable') return r.meterError ? 'Instant Meter' : r.winError ? '後台查詢' : '—'
   return ''
@@ -253,6 +253,7 @@ function Detail({ r }: { r: Row }) {
               <p>Jackpot Abnormality（handpay）　{fmtN(r.win.backend.handpayCount)} 筆・注額 {fmtA(r.win.backend.handpayBet)}{r.win.backend.handpayAmount ? `・JP ${fmtA(r.win.backend.handpayAmount)}` : ''}</p>
               <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}</p>
               {r.win.t0Absorbed > 0 && <p className="lc-muted">差額可由起點時正在進行的 {r.win.t0Absorbed} 局解釋（下注在前、派彩在後；是推算，不是逐單入帳證明）</p>}
+              {(r.win.t0SameSecond ?? 0) > 0 && <p className="lc-muted">差額可由起點同一秒內下注的 {r.win.t0SameSecond} 局解釋（Meter 時間只到秒；是推算，不是逐單入帳證明）</p>}
               {r.win.conflicts > 0 && <p className="lc-muted">同一單號在 Game Record 與 handpay 的注額不一致：{r.win.conflicts} 筆</p>}
             </> : <p>{r.winError ? `後台查詢失敗：${r.winError}` : '—'}</p>}
           </> : <p>{r.meterCached ? `快取值（停在 ${r.cacheHourStr || '?'}），不設起點` : (r.meterError || (r.t0 == null ? '尚未設起點' : 'Meter 快照要收到滿 3 分鐘才比（等 Game Record 入帳）'))}</p>}

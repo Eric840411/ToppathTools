@@ -13,7 +13,7 @@ const STOP = 1_793_900_000_000
 /** 終點：尾筆收妥後讀到的 Meter 快照 upTime */
 const TARGET = STOP + 40_000
 type Win = NonNullable<LiveCompareRow['win']>
-const win = (o: Partial<Win>): Win => ({ tStart: STOP - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: null, backend: null, boundary: false, t0Absorbed: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o })
+const win = (o: Partial<Win>): Win => ({ tStart: STOP - 60 * MIN, t1: null, status: 'pending', fails: 0, meter: null, backend: null, boundary: false, t0Absorbed: 0, t0SameSecond: 0, streak: 0, conflicts: 0, latestUp: null, diff: null, okCount: 0, okAmount: 0, checkedAt: null, ...o })
 const row = (w: Win | null, extra: Partial<LiveCompareRow> = {}): LiveCompareRow => ({
   sessionId: 's', gmid: '892-DRAGONLAW-0025', machineType: 'DRAGONLAW', channelId: '892', channelName: 'NC', clientMachineName: 'Fortune Pots - NCH 25', meterKind: 'GCP',
   username: 'fixture01', status: 'pending', reason: '', startedAt: STOP - 120 * MIN, t0: STOP - 110 * MIN,

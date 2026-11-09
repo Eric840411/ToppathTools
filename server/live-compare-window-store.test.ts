@@ -90,5 +90,44 @@ eq('累計 9 局', r.win.okCount, 9)
   eq('同窗口第二次 → 逾期待查', x.win.status, 'overdue')
 }
 
+// ── CodeX 1109 P1：真漏一局、每個新切點後同一秒剛好都有同注額的局 → 不能永遠當切點問題 ──
+{
+  const db3 = new Database(':memory:'); ensureWindowTables(db3)
+  const b3 = { t0: T0, gamesPlayed: 0, coinIn: 0, denom: 1 }
+  const all3: BackendRound[] = []
+  for (let k = 1; k <= 40; k++) {
+    all3.push({ orderId: `late${k}`, betAt: T0 + k * MIN + 10, payoutAt: T0 + k * MIN + 3000, bet: 1, source: 'gr', handpay: 0 })
+    all3.push({ orderId: `mid${k}`, betAt: T0 + k * MIN + 30_000, payoutAt: T0 + k * MIN + 33_000, bet: 1, source: 'gr', handpay: 0 })
+  }
+  let missing = 'mid2'
+  const f3: BackendFetcher = async (_n, _g, from, to) => ({ gr: all3.filter(r => r.orderId !== missing && r.betAt >= from && r.betAt <= to), handpay: [] })
+  const gpAt = (up: number) => all3.filter(r => r.betAt <= up).length   // Meter 沒算到切點後那幾毫秒的局
+  const p3 = (now: number) => evalMeterWindow(db3, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b3, reading: { upTime: now, gamesPlayed: gpAt(now), coinIn: gpAt(now), denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f3, now)
+  const seq: string[] = []
+  let x = await p3(T0 + MIN)
+  for (let k = 2; k <= 14; k++) { x = await p3(T0 + k * MIN); seq.push(x.win.status) }
+  eq('真漏一局：切點待確認最多連 4 次，第 5 次逾期待查', seq.filter(st => st === 'boundary').length, 4)
+  eq('真漏一局：最後停在逾期待查', x.win.status, 'overdue')
+  const stuckAt = x.win.t1
+  x = await p3(T0 + 15 * MIN)
+  eq('逾期後不再往前換窗口', [x.win.status, x.win.t1], ['overdue', stuckAt])
+  eq('逾期原因是切點連續待確認', x.win.streak >= 5, true)
+  missing = ''
+  x = await p3(T0 + 16 * MIN)
+  eq('漏的那局補進來 → 解除', [x.win.status, x.win.streak], ['match', 0])
+}
+
+// ── CodeX 1109 P2：第一個窗口，起點快照已經算到 t0 後 10ms 下注的局 ──
+{
+  const db4 = new Database(':memory:'); ensureWindowTables(db4)
+  const rs: BackendRound[] = [10, 20_000, 40_000].map((d, i) => ({ orderId: `f${i}`, betAt: T0 + d, payoutAt: T0 + d + 3000, bet: 1, source: 'gr', handpay: 0 }))
+  const b4 = { t0: T0, gamesPlayed: 1, coinIn: 1, denom: 1 }   // 起點快照已含 T0+10ms 那局
+  const f4: BackendFetcher = async () => ({ gr: rs, handpay: [] })
+  const p4 = (now: number, gp: number) => evalMeterWindow(db4, { sessionId: 's', gmid: 'g', clientMachineName: 'M', base: b4, reading: { upTime: now, gamesPlayed: gp, coinIn: gp, denom: 1, useCache: false, cacheHourStr: '' }, readAt: now }, f4, now)
+  await p4(T0 + MIN, 3)
+  const x = await p4(T0 + 4 * MIN, 3)
+  eq('起點同一秒內的局 → 第一窗一致', [x.win.status, x.win.t0SameSecond], ['match', 1])
+}
+
 console.log(`live-compare-window-store: ${pass} pass, ${fails.length} fail`)
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exit(1) }

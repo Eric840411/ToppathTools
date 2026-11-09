@@ -52,17 +52,31 @@ eq('窗口外的局不算', run([...gr0.rounds, { ...gr0.rounds[0], orderId: 'x1
   eq('前一段照下注時間對上', a.matched, true)
   eq('後一段不能再照派彩時間算一次', b.matched, false)
 }
-{ // CodeX ebfb687 P1：有邊界局 ≠ 差額是邊界局造成的
-  const r = { orderId: 'z', betAt: 5, payoutAt: 15, bet: 1, source: 'gr' as const, handpay: 0 }
-  const many = Array.from({ length: 50 }, (_, i) => ({ orderId: 'm' + i, betAt: 11 + i * 0.1, payoutAt: 11.05 + i * 0.1, bet: 1, source: 'gr' as const, handpay: 0 }))
-  const big = evaluateWindow({ t0: 10, t1: 20, meter: { count: 150, amount: 150 }, gr: [r, ...many], handpay: [] })
+{ // CodeX ebfb687 P1：有邊界局 ≠ 差額是邊界局造成的（時間用毫秒：切點前後 1 秒是 Meter 精度範圍）
+  const r = { orderId: 'z', betAt: 5_000, payoutAt: 15_000, bet: 1, source: 'gr' as const, handpay: 0 }
+  const many = Array.from({ length: 50 }, (_, i) => ({ orderId: 'm' + i, betAt: 11_000 + i * 100, payoutAt: 11_050 + i * 100, bet: 1, source: 'gr' as const, handpay: 0 }))
+  const big = evaluateWindow({ t0: 10_000, t1: 20_000, meter: { count: 150, amount: 150 }, gr: [r, ...many], handpay: [] })
   eq('跨 t0 一局、差 100 局 → 不是邊界', [big.matched, big.boundary], [false, false])
-  const one = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [], firstWindow: true })
+  const one = evaluateWindow({ t0: 10_000, t1: 20_000, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [], firstWindow: true })
   eq('第一個窗口：跨起點一局、差剛好那一局 → 一致（算進這段）', [one.matched, one.t0Absorbed], [true, 1])
-  const later = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [] })
+  const later = evaluateWindow({ t0: 10_000, t1: 20_000, meter: { count: 51, amount: 51 }, gr: [r, ...many], handpay: [] })
   eq('之後的窗口：那局上一段算過，不能再吸收', later.matched, false)
-  const amt = evaluateWindow({ t0: 10, t1: 20, meter: { count: 51, amount: 60 }, gr: [r, ...many], handpay: [] })
+  const amt = evaluateWindow({ t0: 10_000, t1: 20_000, meter: { count: 51, amount: 60 }, gr: [r, ...many], handpay: [] })
   eq('局數對得上但金額對不上 → 不能用邊界局解釋', [amt.matched, amt.boundary], [false, false])
+}
+{ // 2026-11-09 892-DRAGONLAW-0025 真資料：Meter upTime 只到整秒，13:57:18.01 下注的局 Meter 已算、照下注時間卻在窗口外
+  const T0 = 1794203811000, T1 = 1794203838000
+  const bets = [1794203808.15, 1794203815.42, 1794203818.76, 1794203825.16, 1794203828.48, 1794203834.68, 1794203838.01, 1794203846.07]
+  const rs = bets.map((b, i) => ({ orderId: 'd' + i, betAt: b * 1000, payoutAt: b * 1000 + 3000, bet: 100, source: 'gr' as const, handpay: 0 }))
+  const x = evaluateWindow({ t0: T0, t1: T1, meter: { count: 6, amount: 600 }, gr: rs, handpay: [] })
+  eq('同秒晚下注：後台照下注時間 5 局', x.backend.count, 5)
+  eq('同秒晚下注：不判一致、標切點待確認', [x.matched, x.boundary], [false, true])
+  const lateGone = evaluateWindow({ t0: T0, t1: T1, meter: { count: 6, amount: 600 }, gr: rs.filter(r => r.orderId !== 'd6'), handpay: [] })
+  eq('同秒那局後台真的沒有 → 仍是對不上（不是切點）', [lateGone.matched, lateGone.boundary], [false, false])
+  const farLate = evaluateWindow({ t0: T0, t1: T1, meter: { count: 6, amount: 600 }, gr: rs.map(r => r.orderId === 'd6' ? { ...r, betAt: T1 + 1000 } : r), handpay: [] })
+  eq('晚一整秒以上下注 → 不能拿來解釋', [farLate.matched, farLate.boundary], [false, false])
+  const amt = evaluateWindow({ t0: T0, t1: T1, meter: { count: 6, amount: 650 }, gr: rs, handpay: [] })
+  eq('同秒晚下注但金額對不上 → 不能拿來解釋', [amt.matched, amt.boundary], [false, false])
 }
 { // CodeX bfb0623 P2：同單 GR 與 handpay 注額不一致不能被蓋掉
   const h = { ...gr0.rounds[0], source: 'handpay' as const, bet: 999 }
