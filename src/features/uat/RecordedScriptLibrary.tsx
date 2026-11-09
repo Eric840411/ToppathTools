@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { RecordedScript } from './MultiTcRecorder'
 import { buildScriptRows, lastRunText, type LastRun } from './script-sort'
+import { tcNumbersLabel } from './tc-number-label'
 
 /** 列表 API 多回的欄位：running（誰都看得到）、lock（只有管理員拿得到，人工解除要用）、建立者、上次執行摘要 */
 type ScriptRow = RecordedScript & { running?: boolean; lock?: { holder: string; sessionId: string; since: number }; createdBy?: string; lastRun?: LastRun | null }
@@ -178,7 +179,7 @@ export function RecordedScriptLibrary({ revision, disabled, onOpen, selectedIds,
         <input type="checkbox" aria-label={`勾選 ${script.title}`} disabled={disabled || !script.id} checked={selectedIds.includes(script.id || '')} onChange={e => onSelection(e.target.checked ? [...selectedIds, script.id!] : selectedIds.filter(id => id !== script.id))} />
         <button className="uat-backend-tc" disabled={disabled} onClick={() => onOpen(script)}>
           <span className="uat-script-card-head"><span title={script.title}>{script.title}</span><b className={`uat-last-run ${lr.cls}`} title={lr.text}>{lr.status}</b></span>
-          <em className="has-steps">{script.createdBy ? `${script.createdBy.split('@')[0]} · ` : ''}{script.steps.filter(s => !s.disabled).length} 步 · 綁 {script.bindings.length} TC{lr.when ? ` · ${lr.when}` : ''}{script.running ? ' · 執行中' : ''}</em>
+          <em className="has-steps" title={script.bindings.map(x => `${x.number} ${x.text}`).join('\n') || undefined}>{script.createdBy ? `${script.createdBy.split('@')[0]} · ` : ''}{script.steps.filter(s => !s.disabled).length} 步 · {tcNumbersLabel(script.bindings)}{lr.when ? ` · ${lr.when}` : ''}{script.running ? ' · 執行中' : ''}</em>
         </button>
         {tab === 'all' && info?.inMine && <span className="uat-row-tag">已在我的</span>}
         {others && <span className="uat-row-tag">別人的</span>}

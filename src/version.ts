@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.14'
+export const APP_VERSION = '5.81.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.15', date: '2026-11-09', changes: ['change(UAT 整合測試工作台 腳本卡片，同事 1109 要求)：原本只寫「綁 4 TC」看不出綁了哪幾個，改成直接列編號「綁 T-049/050/061/062」（同前綴只寫第一個、不同前綴寫全、有一筆沒編號就照筆數寫），滑鼠移上去看每筆標題'] },
   { version: '5.81.14', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review b7b02e3 P2)：舊表升級補 streakT1 欄位時全是空值，升級當下停在切點待確認（streak＝4）的窗口重查同一個快照會被當成新快照再加一次、提前逾期→補欄位時把這些窗口目前的 t1 回填成已計入。回歸：舊表 streak 4 升級→同快照仍 4、換新快照才 5，拿掉回填會紅'] },
   { version: '5.81.13', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review be8d88b P1)：新快照第一次查詢後台失敗會先存成 pending（同一個 t1），重試成功判切點待確認時被當成「同一個快照重查」不加次數——真漏一局＋每個新快照首查失敗時 streak 永遠停在 1、不會逾期。改成另記最後一個已計入的快照（live_compare_win 新增 streakT1），每個不同快照只算一次。回歸 52＋31 條，改回「跟上一輪同 t1」會紅'] },
   { version: '5.81.12', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review 0730cf1 一個 P1、一個 P2)：①第一個窗口起點後幾毫秒下注、到切點還沒派彩的局，「起點已算」和「終點還沒算」都說得通，原本優先當起點已算→提前判一致、差額被推到下一段變成假的逾期待查→兩側都說得通（或起點、終點各有一組解釋）時只判切點待確認、起點不動；②沒有更新快照時同一個快照每輪重查都 +1，5 輪就逾期，跟「連 5 個快照」不符→streak 只算不同快照，同一個快照卡住改用 10 分鐘上限。回歸 52＋29 條，拿掉各項修正各自會紅'] },
