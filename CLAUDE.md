@@ -32,16 +32,18 @@
 Only respond to Discord messages from channel `1486299759630094419` (Toppath Tool channel).
 Ignore and do not reply to messages from any other Discord channel, including `1485447431272267889` (OSM QA Agent channel).
 
-**呼叫 CodeX 的規則（2026-08-10 從 osm-qa-agent session 同步過來）：** 若需要請 CodeX 幫忙，訊息**開頭**必須是真正的 Discord mention `<@1509189087066722363>`（不是打字打出來的「@CodeX」文字，兩者在畫面上可能長得很像，但底層資料不同）。這是 bridge（`C:\Users\user\Documents\Codex\2026-05-27\https-github-com-saseq-discord-mcp\src\index.ts`）的判斷邏輯決定的：只認 `message.content.trim().startsWith(mention)`——mention 必須是整則訊息**去除頭尾空白後的第一個字元**，前面不能有任何其他文字（mention 後面可以接文字，同一則訊息裡繼續講話沒問題）。不符合這個格式時 CodeX **完全不會有任何反應，也不會回錯誤訊息**，是靜默失敗，很容易誤以為是 bridge 壞掉。這條規則是 bridge 本體的行為，跨專案（無論是 osm-qa-agent 還是這個 Toppath tools session）都適用，不隨工作目錄切換而改變。
+**呼叫 CodeX 一律用 codex-ask（2026-10-29 使用者在 Lark 指示，取代 Discord CodeX bridge）：** 工具 `C:/Users/user/Desktop/osm-qa-agent/codex-ask.cjs`，用法見 `~/.claude/skills/codex-ask/SKILL.md`。**不再用 Discord mention `<@1509189087066722363>` 叫 CodeX。**
 
-**跟 CodeX 討論的形式規則（2026-08-21 從 Toppath Tools session 同步）：**
+- 提問：`node <工具> ask --reply-to <Lark message_id> --from "toppath" [--image 圖] -- "問題"`；沒有 Lark 話題可貼就用 `--no-lark --topic <名稱>`。讀 stdout 最後一行 JSON 的 `reply`。
+- 同一個話題會接續同一個 CodeX 對話；全機一次只跑一個 CodeX（三個並行曾 OOM），每輪約 1～3 分鐘，用 `run_in_background` 跑，等完成通知再讀結果。
+- 不要把 token、帳密、使用者 email 放進 prompt（會貼到 Lark 也會留在 log）。
+
+**跟 CodeX 討論的形式規則（2026-08-21 定，換工具後照舊）：**
 
 1. **討論內容要簡短、只講重點**——不要寫成長篇背景＋表格＋實測數據那種份量（使用者原話：「重點需要簡單，不要太過冗長，避免文本量過大」）。把要 CodeX 判斷的點濃縮成幾句；他需要細節會自己問。
-2. **讀到 bridge 的 ack 訊息「[CodeX bridge v2] 收到，我看一下最近對話再回你。」時完全不回應**——不回訊息、也不加表情反應（除非 react-guard hook 真的擋住後續工具呼叫，那才 react 一下）。那則只是收到回條，不是答案。
-3. **CodeX 真正的回覆（以 `**Codex view**` 開頭那則）要加一個表情反應**，讓使用者知道 Claude 確實讀到了。
-4. **每一輪一定要由 Claude 收尾**——不能在 CodeX 說完最後一句就停住。CodeX 認可之後要再發一則簡短的完成確認，否則使用者（只從 Discord 畫面看進度、看不到 Claude 這端的執行狀態）不知道任務到底完成了沒。
+2. **每一輪一定要由 Claude 收尾**——用 `node <工具> conclude --reply-to <id> -- "結論"` 貼結論卡。不能在 CodeX 說完最後一句就停住，否則使用者（只從 Lark 看進度、看不到 Claude 這端的執行狀態）不知道任務到底完成了沒。
 
-這四條跟上面的 mention 格式規則一樣，**不隨工作目錄切換而改變**，跨專案的 Claude Code session 都適用。
+這些規則**不隨工作目錄切換而改變**，跨專案的 Claude Code session 都適用。
 **新工具的版面一律先讓 CodeX 設計（2026-08-30 使用者要求）：** 要做新工具時，**不要自己設計版面**，先請 CodeX 出一版，等他設計完再做決定。
 
 我的角色是：把需求與現況限制講清楚 → 等他出圖 → **對照實作可行性給意見** → 使用者拍板 → 我實作。
@@ -68,8 +70,6 @@ Ignore and do not reply to messages from any other Discord channel, including `1
 **唯一例外仍是生圖**：需要生圖時直接生成，不用先討論。
 
 **要問的那些，做完也要有 CodeX 實際確認過的收尾**，不是單方面貼一則總結就算結束。純樣式那類不用。
-
-**⚠️ mention 格式錯了就是靜默失敗**：`<@1509189087066722363>` 必須是整則訊息去除頭尾空白後的**第一個字元**，前面不能有任何文字。放在句子中間 CodeX 完全不會有反應、也不會報錯。想在長訊息裡順帶問他 → **另外發一則**。（2026-08-29 犯過一次。）
 
 # Lark
 
@@ -153,8 +153,8 @@ When adding a new route:
 
 **這些不是某一個功能的細節，是重複踩過、下次還會再踩的。**完整脈絡在括號裡那份檔案。
 
-1. **Discord mention 格式錯了是靜默失敗** — `<@1509189087066722363>` 必須是整則訊息去空白後的第一個字元，
-   放句中 CodeX 完全不會有反應也不報錯。（見上面 `# Discord`）
+1. **CodeX 改走 codex-ask，不再用 Discord mention**（2026-10-29）— Discord 要全關，舊的 `<@1509189087066722363>` 寫法
+   之後不會有人接、也不會報錯。CodeX 的回覆要讀 codex-ask stdout 最後一行 JSON 的 `reply`，每輪用 `conclude` 收尾。（見上面 `# Discord`）
 2. **退版能退程式碼，退不了已經跑過的 DB migration** — 會變成「程式碼是舊的、資料庫是新的」，
    只在正式環境炸得出來。（`04-machine-test.md`）
 3. **前後端各寫一份規則，一定會漂移** — 症狀是「畫面標必填、送出卻放行」。抽到 `shared/` 共用一份，
@@ -275,3 +275,19 @@ Keep Claude for:
 4. **歷史紀錄**（如需要）→ 功能觸發點加上 `insertHistory(db, { feature: 'xxx', ... })`，並在 `docs/features/10-history.md` 的 feature key 對照表新增條目
 
 > 判斷標準：只要新功能有「可開關的使用者權限」需求，或有「需要稽核的操作紀錄」，以上四項都要做。
+
+---
+
+## OSM 後台／業務知識：先查 OSM QA 記憶（只讀）
+
+2026-11-04 admin 在 Lark 指示（選 A）：Toppath Tools 遇到 OSM 後台、前台、機台、渠道、規格相關的問題，先查 osm-qa-agent 累積的記憶與知識庫，不要自己猜。
+
+- **索引**：`C:/Users/user/.claude/projects/C--Users-user-Desktop-osm-qa-agent/memory/MEMORY.md`（一行一份，依描述挑需要的檔案用 Read 讀）
+- **知識庫**：`C:/Users/user/Desktop/osm-qa-agent/knowledge/`（`updates/` 版本更新單、`games/` 各遊戲、`automation-playbook.md`、`h5-client-interaction.md`）
+- 常用：後台頁面與欄位 → 搜 `project_osm_gm_backend.md`、`project_osm_channels.md`（各環境渠道／後台網址）；Center 架構 → `project_osm_center_architecture.md`
+- 記憶反映的是**寫入當時**的狀況；提到的檔名、選擇器、版本，用之前先確認現在還存在
+
+**規則（強制）**
+1. **只讀**：絕對不要新增、修改、刪除上面兩個資料夾裡的任何檔案。要補記憶 → 在 Lark 告訴 OSM QA（①），由 ① 經白名單同意後寫入
+2. **敏感內容不外流**：帳密、token、TOTP、資安審查報告（`reference_*_api.md`、`reference_totp_tool.md`、`project_*security_review*.md`、`project_box_credit_audit.md`）只能拿來理解，**不可以**寫進 Toppath 程式碼、commit、部署設定、工作台腳本、Lark 訊息或 CodeX 提問
+3. 記憶跟現況衝突時，以實際查到的現況為準，並在 Lark 告訴 OSM QA 要更新
