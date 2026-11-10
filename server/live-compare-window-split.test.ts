@@ -208,6 +208,25 @@ const totalAmt = Math.round((LAST.coinIn - S0.coinIn) * S0.denom * 100) / 100
   eq('沒有派彩時間的 handpay（不知道何時結束）→ 不比', o2.filter(x => x.t1 != null).every(x => /handpay/.test(x.error ?? '')), true)
 }
 
+{ // CodeX 497df37：兩次查詢（按派彩／按下注）不是同一份快照
+  const T0 = 1_800_000_000_000, t1 = T0 + 30_000
+  const base = { t0: T0, gamesPlayed: 100, coinIn: 0, denom: 1 }
+  const reading = { upTime: t1, gamesPlayed: 101, coinIn: 1000, denom: 1, useCache: false, cacheHourStr: '' }
+  const a: BackendRound = { orderId: 'a', betAt: T0 + 5_000, payoutAt: T0 + 8_000, bet: 1000, source: 'gr', handpay: 0 }
+  const run = async (f: BackendFetcher) => { const db = new Database(':memory:'); ensureWindowTables(db); return evalMeterWindow(db, { sessionId: 's', gmid: '873-SQUIDGAME-1199', clientMachineName: 'M', base, reading, readAt: t1 }, f, t1 + 4 * 60_000) }
+  // P1：第二次查詢才出現的 handpay 不能被丟掉
+  const hp: BackendRound = { orderId: 'hp', betAt: T0 + 2_000, payoutAt: T0 + 9_000, bet: 1000, source: 'handpay', handpay: 50000 }
+  const r1 = await run(async (_n, _g, _f, _t, by = 'payout') => ({ gr: [a], handpay: by === 'bet' ? [hp] : [] }))
+  eq('第二次才查到的 handpay → 不比', [r1.win.status, /handpay/.test(('error' in r1 ? r1.error : '') ?? '')], ['pending', true])
+  // P2：同單號兩次查回來注額不同 → 整輪不比，不能留後到的那筆就判一致
+  const r2 = await run(async (_n, _g, _f, _t, by = 'payout') => ({ gr: [by === 'bet' ? a : { ...a, bet: 2000 }], handpay: [] }))
+  eq('同單號兩次注額不同 → 不比', [r2.win.status, /不一致/.test(('error' in r2 ? r2.error : '') ?? '')], ['pending', true])
+  const r3 = await run(async (_n, _g, _f, _t, by = 'payout') => ({ gr: [by === 'bet' ? a : { ...a, payoutAt: a.payoutAt! + 1000 }], handpay: [] }))
+  eq('同單號兩次派彩時間不同 → 不比', [r3.win.status, /不一致/.test(('error' in r3 ? r3.error : '') ?? '')], ['pending', true])
+  const r4 = await run(async () => ({ gr: [a], handpay: [] }))
+  eq('兩次一致 → 照常一致', r4.win.status, 'match')
+}
+
 eq('OVERDUE_FAILS 仍是 2（上面的逾期判斷依賴它）', OVERDUE_FAILS, 2)
 
 console.log(`live-compare-window-split: ${pass} pass, ${fails.length} fail`)

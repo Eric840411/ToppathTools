@@ -130,9 +130,21 @@ export async function evalMeterWindow(
     const byBet = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 60_000, 'bet')
     if ('error' in byBet) b = byBet
     else {
-      const m = new Map<string, BackendRound>()
-      for (const r of [...b.gr, ...byBet.gr]) m.set(r.orderId, r)
-      b = { gr: [...m.values()], handpay: b.handpay }
+      // 兩次查詢不是同一份快照：同單號兩邊的注額／下注／派彩時間要一致，不一致整輪不比；handpay 兩份都要留（CodeX 497df37 P1／P2）
+      const merge = (xs: BackendRound[], ys: BackendRound[]): { rounds: BackendRound[]; bad: number } => {
+        const m = new Map<string, BackendRound>()
+        let bad = 0
+        for (const r of [...xs, ...ys]) {
+          const o = m.get(r.orderId)
+          if (!o) { m.set(r.orderId, r); continue }
+          if (o.bet !== r.bet || o.betAt !== r.betAt || o.payoutAt !== r.payoutAt || o.handpay !== r.handpay) bad++
+        }
+        return { rounds: [...m.values()], bad }
+      }
+      const g = merge(b.gr, byBet.gr), h = merge(b.handpay, byBet.handpay)
+      b = g.bad || h.bad
+        ? { error: `兩次查詢的同一單號資料不一致（${g.bad + h.bad} 筆，注額或時間不同），這輪不比` }
+        : { gr: g.rounds, handpay: h.rounds }
     }
   }
   w.checkedAt = now
