@@ -31,7 +31,7 @@ interface Win {
   tStart: number; t1: number | null; status: 'match' | 'pending' | 'overdue' | 'boundary'; fails: number
   meter: { count: number; amount: number } | null
   backend: { count: number; amount: number; grCount: number; handpayCount: number; handpayBet: number; handpayAmount: number } | null
-  boundary: boolean; t0Absorbed: number; t0SameSecond?: number; streak?: number; conflicts: number; latestUp: number | null
+  boundary: boolean; t0Absorbed: number; t0SameSecond?: number; streak?: number; timing?: 'bet' | 'split'; conflicts: number; latestUp: number | null
   diff: { count: number; amount: number } | null
   okCount: number; okAmount: number; checkedAt: number | null
 }
@@ -252,6 +252,7 @@ function Detail({ r }: { r: Row }) {
               <p>Game Record（全部玩家）　{fmtN(r.win.backend.grCount)} 局</p>
               <p>Jackpot Abnormality（handpay）　{fmtN(r.win.backend.handpayCount)} 筆・注額 {fmtA(r.win.backend.handpayBet)}{r.win.backend.handpayAmount ? `・JP ${fmtA(r.win.backend.handpayAmount)}` : ''}</p>
               <p className="lc-mono">後台合計 {fmtN(r.win.backend.count)} 局／{fmtA(r.win.backend.amount)}</p>
+              {r.win.timing === 'split' && <p className="lc-muted">這台局數按派彩時間、金額按下注時間切（Meter 的局數在派彩時才加）</p>}
               {r.win.t0Absorbed > 0 && <p className="lc-muted">差額可由起點時正在進行的 {r.win.t0Absorbed} 局解釋（下注在前、派彩在後；是推算，不是逐單入帳證明）</p>}
               {(r.win.t0SameSecond ?? 0) > 0 && <p className="lc-muted">差額可由起點同一秒內下注的 {r.win.t0SameSecond} 局解釋（Meter 時間只到秒；是推算，不是逐單入帳證明）</p>}
               {r.win.conflicts > 0 && <p className="lc-muted">同一單號在 Game Record 與 handpay 的注額不一致：{r.win.conflicts} 筆</p>}

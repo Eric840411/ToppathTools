@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.15'
+export const APP_VERSION = '5.81.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.16', date: '2026-11-10', changes: ['fix(即時對照 固定窗口，873-SQUIDGAME-1199 實測)：這台 Meter 的局數在派彩時才加、Coin In 在下注時加，原本兩者都按下注時間切，切點上有局在進行就只差局數、同窗口卡逾期待查。改成 SQUIDGAME 局數按派彩時間（截到整秒）、金額按下注時間切（54 段真資料全部對上）；其他機種不變。缺派彩時間不拿下注時間代填、窗口附近有 handpay 先不比；切點精度只能判切點待確認，不判一致'] },
   { version: '5.81.15', date: '2026-11-09', changes: ['change(UAT 整合測試工作台 腳本卡片，同事 1109 要求)：原本只寫「綁 4 TC」看不出綁了哪幾個，改成直接列編號「綁 T-049/050/061/062」（同前綴只寫第一個、不同前綴寫全、有一筆沒編號就照筆數寫），滑鼠移上去看每筆標題'] },
   { version: '5.81.14', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review b7b02e3 P2)：舊表升級補 streakT1 欄位時全是空值，升級當下停在切點待確認（streak＝4）的窗口重查同一個快照會被當成新快照再加一次、提前逾期→補欄位時把這些窗口目前的 t1 回填成已計入。回歸：舊表 streak 4 升級→同快照仍 4、換新快照才 5，拿掉回填會紅'] },
   { version: '5.81.13', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review be8d88b P1)：新快照第一次查詢後台失敗會先存成 pending（同一個 t1），重試成功判切點待確認時被當成「同一個快照重查」不加次數——真漏一局＋每個新快照首查失敗時 streak 永遠停在 1、不會逾期。改成另記最後一個已計入的快照（live_compare_win 新增 streakT1），每個不同快照只算一次。回歸 52＋31 條，改回「跟上一輪同 t1」會紅'] },

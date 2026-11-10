@@ -29,7 +29,22 @@ export const METER_TIME_RES_MS = 1000
 export interface Snapshot { upTime: number; gamesPlayed: number; coinIn: number; denom: number; readAt: number }
 
 /** 後台一局（Game Record 或 handpay 都轉成這個樣子） */
-export interface BackendRound { orderId: string; betAt: number; payoutAt: number; bet: number; source: 'gr' | 'handpay'; handpay: number }
+/** payoutAt＝null：後台沒給派彩時間。⚠️ 不能用下注時間代填（分開計時的機種會把進行中的局當成已派彩，CodeX 1110） */
+export interface BackendRound { orderId: string; betAt: number; payoutAt: number | null; bet: number; source: 'gr' | 'handpay'; handpay: number }
+
+/**
+ * 局數按派彩時間、金額按下注時間切的機種（Meter 的 Coin In 在下注時加、Games Played 在派彩時加）。
+ * 2026-11-10 873-SQUIDGAME-1199 實測：54 個快照逐一對全部玩家 48 局，「GP 按 payout、Coin 按 bet」54/54 全對，
+ * 「GP 按 bet」錯 6 個（都是有一局已下注未派彩，最長一局 92 秒）。只有實測過的機種才放進來（CodeX 1110：不能推廣到全部 OSM）。
+ */
+export const SPLIT_TIMING_TYPES: ReadonlySet<string> = new Set(['SQUIDGAME'])
+/** gmid 形如 873-SQUIDGAME-1199，中間那段是機種 */
+export function isSplitTiming(gmid: string): boolean {
+  const parts = gmid.split('-')
+  return parts.length >= 3 && SPLIT_TIMING_TYPES.has(parts.slice(1, -1).join('-').toUpperCase())
+}
+/** 分開計時的機種：窗口前後這段時間內有 handpay 就不比（handpay 局的 Games Played 何時加還沒有樣本） */
+export const SPLIT_HANDPAY_GUARD_MS = 10 * 60_000
 
 /** 要拿來比的那筆快照：收到滿 MIN_SNAPSHOT_AGE_MS、而且在起點之後。沒有就回 null（還不能比）。 */
 export function pickEvalSnapshot(snaps: Snapshot[], t0: number, now: number): Snapshot | null {
@@ -57,7 +72,8 @@ export function toBackendRounds(raw: Record<string, unknown>[], source: 'gr' | '
   for (const r of raw) {
     const orderId = String(r.order_id ?? ''), betT = num(r.bet_time_precise), bet = num(r.bet)
     if (!orderId || betT == null || bet == null) { bad++; continue }
-    rounds.push({ orderId, betAt: betT * 1000, payoutAt: (num(r.payout_precise) ?? betT) * 1000, bet, source, handpay: num(r.handpay) ?? 0 })
+    const payT = num(r.payout_precise)
+    rounds.push({ orderId, betAt: betT * 1000, payoutAt: payT == null ? null : payT * 1000, bet, source, handpay: num(r.handpay) ?? 0 })
   }
   const name = source === 'gr' ? 'Game Record' : 'Jackpot Abnormality'
   return bad ? { error: `${name} 有 ${bad}/${raw.length} 筆缺單號／下注時間／注額，這輪不比` } : { rounds }
@@ -84,6 +100,8 @@ export interface WindowResult {
   /** 同一單號在 GR 與 handpay 的注額不一致的筆數（有就不能判一致） */
   conflicts: number
   diff: WindowSide
+  /** bet＝局數與金額都按下注時間切；split＝局數按派彩時間、金額按下注時間（SPLIT_TIMING_TYPES） */
+  timing?: 'bet' | 'split'
 }
 
 /**
@@ -114,7 +132,58 @@ function explain(diff: WindowSide, pos: Cand[], neg: Cand[]): { startOnly: Cand[
  * 窗口 (t0, t1] 的比對，**一律用下注時間切**。meter＝快照差值（Coin In 要 ×Denom 才是金額）。
  * 後台兩份依單號去重：同一單如果也進了 Game Record，只算一次——但注額要一致，不一致算衝突。
  */
-export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; gr: BackendRound[]; handpay: BackendRound[]; firstWindow?: boolean }): WindowResult {
+/** 一個指標的差額能不能剛好由切點精度範圍內的局解釋（pos＝Meter 可能多算、neg＝Meter 可能少算；值是該局對這個指標的貢獻） */
+function explainMetric(diff: number, pos: number[], neg: number[]): boolean {
+  const all = [...pos, ...neg.map(v => -v)]
+  if (all.length > 12) return false   // 太多就不猜
+  for (let m = 1; m < 1 << all.length; m++) {
+    let sum = 0
+    all.forEach((v, i) => { if (m >> i & 1) sum += v })
+    if (Math.abs(sum - diff) <= EPS) return true
+  }
+  return false
+}
+
+/**
+ * 分開計時的機種（SPLIT_TIMING_TYPES）：局數＝派彩時間在 (t0, t1] 的局、金額＝下注時間在 (t0, t1] 的局。
+ * 每局的局數與金額各自只落在一個窗口，所以跨切點的進行中局不用另外吸收。
+ * 對不上時，只有兩個指標的差額都能由切點精度範圍（±1 秒）內的局解釋才算切點待確認；**解釋得了也不判一致**。
+ * 前提（由呼叫端保證，見 live-compare-window-store）：每筆 Game Record 都有派彩時間、窗口附近沒有 handpay。
+ */
+function evaluateSplitWindow(x: { t0: number; t1: number; meter: WindowSide; all: BackendRound[]; conflicts: number; firstWindow?: boolean }): WindowResult {
+  const { t0, t1 } = x
+  const R = METER_TIME_RES_MS
+  const inWin = (t: number) => t > t0 && t <= t1
+  // ⚠️ 派彩時間要先截到整秒再比：Meter upTime 只到整秒（14:53:10.91 派彩的局，14:53:10 的快照已經算了）。
+  //    實測 54/54 用的是後台 payout_time（整秒）；用毫秒的 payout_precise 直接比第一段就差 1 局
+  const paySec = (r: BackendRound) => r.payoutAt == null ? null : Math.floor(r.payoutAt / 1000) * 1000
+  const paid = x.all.filter(r => { const p = paySec(r); return p != null && inWin(p) })
+  const byBet = x.all.filter(r => inWin(r.betAt))
+  const amount = Math.round(byBet.reduce((a, r) => a + r.bet, 0) * 100) / 100
+  const diff = { count: x.meter.count - paid.length, amount: Math.round((x.meter.amount - amount) * 100) / 100 }
+  const matched = x.conflicts === 0 && diff.count === 0 && Math.abs(diff.amount) <= EPS
+  let boundary = false
+  if (!matched && x.conflicts === 0) {
+    const near = (t: number, cut: number) => t > cut - R && t < cut + R
+    // 起點那側只在第一個窗口用（之後的起點是上一段對上的切點，再算一次就重複）
+    const cuts = x.firstWindow ? [t0, t1] : [t1]
+    const cntPos: number[] = [], cntNeg: number[] = [], amtPos: number[] = [], amtNeg: number[] = []
+    for (const r of x.all) {
+      const p = paySec(r)
+      if (p != null && cuts.some(c => near(p, c))) (inWin(p) ? cntNeg : cntPos).push(1)
+      if (cuts.some(c => near(r.betAt, c))) (inWin(r.betAt) ? amtNeg : amtPos).push(r.bet)
+    }
+    boundary = (diff.count === 0 || explainMetric(diff.count, cntPos, cntNeg))
+      && (Math.abs(diff.amount) <= EPS || explainMetric(diff.amount, amtPos, amtNeg))
+  }
+  return {
+    meter: x.meter,
+    backend: { count: paid.length, amount, grCount: paid.length, handpayCount: 0, handpayBet: 0, handpayAmount: 0 },
+    matched, boundary, t0Absorbed: 0, t0SameSecond: 0, conflicts: x.conflicts, diff, timing: 'split',
+  }
+}
+
+export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; gr: BackendRound[]; handpay: BackendRound[]; firstWindow?: boolean; split?: boolean }): WindowResult {
   const byId = new Map<string, BackendRound>()
   let conflicts = 0
   for (const r of x.gr) byId.set(r.orderId, r)
@@ -124,6 +193,7 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
     else if (Math.abs(g.bet - r.bet) > EPS) conflicts++
   }
   const all = [...byId.values()]
+  if (x.split) return evaluateSplitWindow({ t0: x.t0, t1: x.t1, meter: x.meter, all, conflicts, firstWindow: x.firstWindow })
   const inWin = (t: number) => t > x.t0 && t <= x.t1
   const sumSide = (rs: BackendRound[]): WindowSide => ({ count: rs.length, amount: Math.round(rs.reduce((a, r) => a + r.bet, 0) * 100) / 100 })
   const byBet = all.filter(r => inWin(r.betAt))
@@ -143,15 +213,17 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
     const R = METER_TIME_RES_MS
     const t0 = x.t0, t1 = x.t1
     // kind：切點那一刻還在進行（下注在前、派彩在後）＝inflight；其餘＝同一秒內下注的精度問題
-    const kindAt = (r: BackendRound, cut: number): Cand['kind'] => r.betAt <= cut && r.payoutAt > cut ? 'inflight' : 'sameSecond'
+    // 舊規則（局數金額都按下注時間）沿用原本行為：沒有派彩時間的局當成下注當下就結束
+    const payAt = (r: BackendRound) => r.payoutAt ?? r.betAt
+    const kindAt = (r: BackendRound, cut: number): Cand['kind'] => r.betAt <= cut && payAt(r) > cut ? 'inflight' : 'sameSecond'
     const tag = (rs: BackendRound[], side: Cand['side'], cut: number): Cand[] => rs.map(r => ({ r, side, kind: kindAt(r, cut) }))
-    const startPos = x.firstWindow ? tag(all.filter(r => r.betAt <= t0 && (r.payoutAt > t0 || r.betAt > t0 - R)), 'start', t0) : []
+    const startPos = x.firstWindow ? tag(all.filter(r => r.betAt <= t0 && (payAt(r) > t0 || r.betAt > t0 - R)), 'start', t0) : []
     const endPos = tag(all.filter(r => r.betAt > t1 && r.betAt < t1 + R), 'end', t1)
     // 窗口內的局：起點同一秒（只有第一窗）／終點進行中或同一秒——兩側都說得通的標 both、只列一次
     const neg: Cand[] = []
     for (const r of byBet) {
       const atStart = !!x.firstWindow && r.betAt < t0 + R
-      const atEnd = r.payoutAt > t1 || r.betAt > t1 - R
+      const atEnd = payAt(r) > t1 || r.betAt > t1 - R
       if (atStart || atEnd) neg.push({ r, side: atStart && atEnd ? 'both' : atStart ? 'start' : 'end', kind: atStart ? kindAt(r, t0) : kindAt(r, t1) })
     }
     const e = explain(diff, [...startPos, ...endPos], neg)
@@ -176,6 +248,7 @@ export function evaluateWindow(x: { t0: number; t1: number; meter: WindowSide; g
     t0SameSecond,
     conflicts,
     diff,
+    timing: 'bet',
   }
 }
 

@@ -1,0 +1,626 @@
+{
+ "note": "2026-11-10 873-SQUIDGAME-1199 實測：Instant Meter 快照＋同時段全部玩家 Game Record（用派彩時間查）。驗「GP 按 payout、Coin In 按 bet」",
+ "gmid": "873-SQUIDGAME-1199",
+ "snaps": [
+  {
+   "upTime": 1794293590000,
+   "gamesPlayed": 49,
+   "coinIn": 1530000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293620000,
+   "gamesPlayed": 56,
+   "coinIn": 2330000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293660000,
+   "gamesPlayed": 66,
+   "coinIn": 3330000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293691000,
+   "gamesPlayed": 73,
+   "coinIn": 4030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293721000,
+   "gamesPlayed": 79,
+   "coinIn": 4530000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293751000,
+   "gamesPlayed": 83,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293781000,
+   "gamesPlayed": 83,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293812000,
+   "gamesPlayed": 83,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293870000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293929000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794293989000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294049000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294109000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294170000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294229000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294289000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294350000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294410000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294469000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294529000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294591000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294650000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294710000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294769000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294829000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294889000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794294951000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295009000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295072000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295129000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295189000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295221000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295270000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295315000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295344000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295374000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295404000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295434000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295465000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295494000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295524000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295549000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295579000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295610000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295639000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295670000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295699000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295729000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295760000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295789000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295833000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295863000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295933000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794295995000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  },
+  {
+   "upTime": 1794296056000,
+   "gamesPlayed": 84,
+   "coinIn": 5030000,
+   "denom": 0.01
+  }
+ ],
+ "rounds": [
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFF2036",
+   "bet_time_precise": 1794293746.56,
+   "payout_precise": 1794293838,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFE5035",
+   "bet_time_precise": 1794293733.58,
+   "payout_precise": 1794293742.24,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFE1034",
+   "bet_time_precise": 1794293729.99,
+   "payout_precise": 1794293733.27,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFDE033",
+   "bet_time_precise": 1794293726.39,
+   "payout_precise": 1794293729.66,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFD9032",
+   "bet_time_precise": 1794293721.92,
+   "payout_precise": 1794293726.08,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFD5031",
+   "bet_time_precise": 1794293717.72,
+   "payout_precise": 1794293721,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFD1030",
+   "bet_time_precise": 1794293713.44,
+   "payout_precise": 1794293716.7,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFC3029",
+   "bet_time_precise": 1794293699.5,
+   "payout_precise": 1794293708.2,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFBF028",
+   "bet_time_precise": 1794293695.91,
+   "payout_precise": 1794293699.18,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFBC027",
+   "bet_time_precise": 1794293692.35,
+   "payout_precise": 1794293695.6,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFB8026",
+   "bet_time_precise": 1794293688.39,
+   "payout_precise": 1794293692.03,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFB3025",
+   "bet_time_precise": 1794293683.73,
+   "payout_precise": 1794293688.08,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFB0024",
+   "bet_time_precise": 1794293680.16,
+   "payout_precise": 1794293683.42,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFAC023",
+   "bet_time_precise": 1794293676.79,
+   "payout_precise": 1794293679.86,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFA9022",
+   "bet_time_precise": 1794293673.2,
+   "payout_precise": 1794293676.46,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BFA3021",
+   "bet_time_precise": 1794293667.06,
+   "payout_precise": 1794293672.9,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF9F020",
+   "bet_time_precise": 1794293663.47,
+   "payout_precise": 1794293666.74,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF9B019",
+   "bet_time_precise": 1794293659.14,
+   "payout_precise": 1794293663.17,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF97018",
+   "bet_time_precise": 1794293655.57,
+   "payout_precise": 1794293658.82,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF92017",
+   "bet_time_precise": 1794293650.22,
+   "payout_precise": 1794293655.26,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF8E016",
+   "bet_time_precise": 1794293646.84,
+   "payout_precise": 1794293649.9,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF8B015",
+   "bet_time_precise": 1794293643.23,
+   "payout_precise": 1794293646.51,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF84014",
+   "bet_time_precise": 1794293636.06,
+   "payout_precise": 1794293642.92,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF80013",
+   "bet_time_precise": 1794293632.63,
+   "payout_precise": 1794293635.75,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF7D012",
+   "bet_time_precise": 1794293629.03,
+   "payout_precise": 1794293632.31,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF79011",
+   "bet_time_precise": 1794293625.46,
+   "payout_precise": 1794293628.71,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF75010",
+   "bet_time_precise": 1794293621.88,
+   "payout_precise": 1794293625.16,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF72009",
+   "bet_time_precise": 1794293618.38,
+   "payout_precise": 1794293621.55,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF6E008",
+   "bet_time_precise": 1794293614.97,
+   "payout_precise": 1794293618.06,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF6B007",
+   "bet_time_precise": 1794293611.4,
+   "payout_precise": 1794293614.66,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF65006",
+   "bet_time_precise": 1794293605.29,
+   "payout_precise": 1794293611.09,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF61005",
+   "bet_time_precise": 1794293601.9,
+   "payout_precise": 1794293604.97,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF5E004",
+   "bet_time_precise": 1794293598.31,
+   "payout_precise": 1794293601.58,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF5A003",
+   "bet_time_precise": 1794293594.76,
+   "payout_precise": 1794293598.01,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF57002",
+   "bet_time_precise": 1794293591.22,
+   "payout_precise": 1794293594.46,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BF52001",
+   "bet_time_precise": 1794293586.61,
+   "payout_precise": 1794293590.91,
+   "bet": 1000
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB9E012",
+   "bet_time_precise": 1794292638.38,
+   "payout_precise": 1794292641.61,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB94011",
+   "bet_time_precise": 1794292628.66,
+   "payout_precise": 1794292632.99,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB8A010",
+   "bet_time_precise": 1794292618.42,
+   "payout_precise": 1794292628.35,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB83009",
+   "bet_time_precise": 1794292611.37,
+   "payout_precise": 1794292617.93,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB7F008",
+   "bet_time_precise": 1794292607.79,
+   "payout_precise": 1794292610.87,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB7A007",
+   "bet_time_precise": 1794292602.96,
+   "payout_precise": 1794292607.1,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB77006",
+   "bet_time_precise": 1794292599.22,
+   "payout_precise": 1794292602.46,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB70005",
+   "bet_time_precise": 1794292592.53,
+   "payout_precise": 1794292598.7,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB67004",
+   "bet_time_precise": 1794292583,
+   "payout_precise": 1794292591.85,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB62003",
+   "bet_time_precise": 1794292578.31,
+   "payout_precise": 1794292582.49,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB5E002",
+   "bet_time_precise": 1794292574.53,
+   "payout_precise": 1794292577.8,
+   "bet": 100
+  },
+  {
+   "order_id": "873-SQUIDGAME-1199|6AF2BB5A001",
+   "bet_time_precise": 1794292570.6,
+   "payout_precise": 1794292573.86,
+   "bet": 100
+  }
+ ]
+}

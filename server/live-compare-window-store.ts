@@ -4,7 +4,7 @@
  */
 import type Database from 'better-sqlite3'
 import type { Baseline, MeterReading } from './live-compare-core.js'
-import { evaluateWindow, pickEvalSnapshot, chooseWindow, nextState, type BackendRound, type Snapshot, type WindowState, type WindowResult } from './live-compare-window.js'
+import { evaluateWindow, pickEvalSnapshot, chooseWindow, nextState, isSplitTiming, SPLIT_HANDPAY_GUARD_MS, type BackendRound, type Snapshot, type WindowState, type WindowResult } from './live-compare-window.js'
 
 export type BackendFetcher = (clientMachineName: string, gmid: string, fromMs: number, toMs: number) => Promise<{ gr: BackendRound[]; handpay: BackendRound[] } | { error: string }>
 
@@ -49,6 +49,8 @@ export interface WinView {
   /** 第一個窗口：起點同一秒內下注、Meter 起點快照已算的局數 */
   t0SameSecond: number
   conflicts: number
+  /** split＝這台局數按派彩時間、金額按下注時間切 */
+  timing: 'bet' | 'split'
   /** 最新收到的 Meter 快照時間——窗口卡住（待確認／逾期）時，t1 之後到這裡都還沒檢查 */
   latestUp: number | null
   diff: WindowResult['diff'] | null
@@ -96,7 +98,7 @@ export async function evalMeterWindow(
   }
   const view = (st: WindowState | null, r: WindowResult | null, meter: WinView['meter']): WinView => ({
     tStart: w.tStart, t1: st?.t1 ?? null, status: st?.status ?? 'pending', fails: st?.fails ?? 0, streak: st?.streak ?? w.streak, meter,
-    backend: r?.backend ?? null, boundary: r?.boundary ?? false, t0Absorbed: r?.t0Absorbed ?? 0, t0SameSecond: r?.t0SameSecond ?? 0, conflicts: r?.conflicts ?? 0, diff: r?.diff ?? null,
+    backend: r?.backend ?? null, boundary: r?.boundary ?? false, t0Absorbed: r?.t0Absorbed ?? 0, t0SameSecond: r?.t0SameSecond ?? 0, timing: isSplitTiming(gmid) ? 'split' : 'bet', conflicts: r?.conflicts ?? 0, diff: r?.diff ?? null,
     latestUp: snaps.length ? Math.max(...snaps.map(x => x.upTime)) : null,
     okCount: w.okCount, okAmount: w.okAmount, checkedAt: w.checkedAt,
   })
@@ -122,7 +124,16 @@ export async function evalMeterWindow(
   const b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
   w.checkedAt = now
   if ('error' in b) { const st = nextState(same, t1, null, carry(), now); save(st, null); return { win: view(st, null, meter), error: b.error } }
-  const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay, firstWindow: w.tStart === base.t0 })
+  const split = isSplitTiming(gmid)
+  if (split) {
+    // 局數按派彩時間算的機種：缺派彩時間不能拿下注時間代填、附近有 handpay 也還沒有樣本——這輪不比，不算失敗（CodeX 1110）
+    const noPay = b.gr.filter(r => r.payoutAt == null).length
+    const hpNear = b.handpay.filter(r => r.betAt > w.tStart - SPLIT_HANDPAY_GUARD_MS && r.betAt <= t1 + 300_000).length
+    const why = noPay ? `Game Record 有 ${noPay} 筆沒有派彩時間（這台局數按派彩時間算），這輪不比`
+      : hpNear ? `窗口附近有 ${hpNear} 筆 handpay，這台按派彩時間算局數的規則還沒有 handpay 樣本，這輪不比` : ''
+    if (why) { const st = nextState(same, t1, null, carry(), now); save(st, null); return { win: view(st, null, meter), error: why } }
+  }
+  const r = evaluateWindow({ t0: w.tStart, t1, meter, gr: b.gr, handpay: b.handpay, firstWindow: w.tStart === base.t0, split })
   const st = nextState(same, t1, r, carry(), now)
   save(st, r)
   return { win: view(st, r, meter) }
