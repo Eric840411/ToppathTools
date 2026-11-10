@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.16'
+export const APP_VERSION = '5.81.17'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.17', date: '2026-11-10', changes: ['fix(即時對照 SQUIDGAME 分開計時，CodeX 9dcb14c 兩項 P1)：①只按派彩時間查 Game Record，窗口內下注、5 分鐘後才派彩的長局永遠查不到、金額一直少 → 另外按下注時間（dateTimeType=1）查一次、依單號合併 ②handpay 防護原本只看下注時間，早下注、窗口內派彩的 handpay 會被當一般局算進去而假一致 → 改成 handpay 的下注～派彩跟窗口前後重疊就不比，沒有派彩時間也不比'] },
   { version: '5.81.16', date: '2026-11-10', changes: ['fix(即時對照 固定窗口，873-SQUIDGAME-1199 實測)：這台 Meter 的局數在派彩時才加、Coin In 在下注時加，原本兩者都按下注時間切，切點上有局在進行就只差局數、同窗口卡逾期待查。改成 SQUIDGAME 局數按派彩時間（截到整秒）、金額按下注時間切（54 段真資料全部對上）；其他機種不變。缺派彩時間不拿下注時間代填、窗口附近有 handpay 先不比；切點精度只能判切點待確認，不判一致'] },
   { version: '5.81.15', date: '2026-11-09', changes: ['change(UAT 整合測試工作台 腳本卡片，同事 1109 要求)：原本只寫「綁 4 TC」看不出綁了哪幾個，改成直接列編號「綁 T-049/050/061/062」（同前綴只寫第一個、不同前綴寫全、有一筆沒編號就照筆數寫），滑鼠移上去看每筆標題'] },
   { version: '5.81.14', date: '2026-11-09', changes: ['fix(即時對照 固定窗口，CodeX review b7b02e3 P2)：舊表升級補 streakT1 欄位時全是空值，升級當下停在切點待確認（streak＝4）的窗口重查同一個快照會被當成新快照再加一次、提前逾期→補欄位時把這些窗口目前的 t1 回填成已計入。回歸：舊表 streak 4 升級→同快照仍 4、換新快照才 5，拿掉回填會紅'] },

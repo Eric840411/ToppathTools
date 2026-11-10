@@ -6,7 +6,8 @@ import type Database from 'better-sqlite3'
 import type { Baseline, MeterReading } from './live-compare-core.js'
 import { evaluateWindow, pickEvalSnapshot, chooseWindow, nextState, isSplitTiming, SPLIT_HANDPAY_GUARD_MS, type BackendRound, type Snapshot, type WindowState, type WindowResult } from './live-compare-window.js'
 
-export type BackendFetcher = (clientMachineName: string, gmid: string, fromMs: number, toMs: number) => Promise<{ gr: BackendRound[]; handpay: BackendRound[] } | { error: string }>
+/** by＝Game Record 用哪個時間查：payout＝派彩時間（後台 dateTimeType=0，預設）、bet＝下注時間（dateTimeType=1） */
+export type BackendFetcher = (clientMachineName: string, gmid: string, fromMs: number, toMs: number, by?: 'payout' | 'bet') => Promise<{ gr: BackendRound[]; handpay: BackendRound[] } | { error: string }>
 
 /** 窗口＝(tStart, t1]，對上後下一個窗口從 t1 接續（v5.79.0，CodeX 1105 方案 B）。 */
 export function ensureWindowTables(db: Database.Database): void {
@@ -121,14 +122,27 @@ export async function evalMeterWindow(
     const st = nextState(same, t1, null, carry(), now); save(st, null)
     return { win: view(st, null, meter), error: 'Instant Meter 沒有這台的機台名稱，查不了全部玩家的 Game Record' }
   }
-  const b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
+  const split = isSplitTiming(gmid)
+  let b = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 300_000)
+  if (split && !('error' in b)) {
+    // 局數按派彩、金額按下注：只用派彩時間查，窗口內下注、5 分鐘後才派彩的長局永遠查不到（金額會一直少）——
+    // 再按下注時間查一次、依單號合併（CodeX 9dcb14c P1）
+    const byBet = await fetchBackend(clientMachineName, gmid, w.tStart - 60_000, t1 + 60_000, 'bet')
+    if ('error' in byBet) b = byBet
+    else {
+      const m = new Map<string, BackendRound>()
+      for (const r of [...b.gr, ...byBet.gr]) m.set(r.orderId, r)
+      b = { gr: [...m.values()], handpay: b.handpay }
+    }
+  }
   w.checkedAt = now
   if ('error' in b) { const st = nextState(same, t1, null, carry(), now); save(st, null); return { win: view(st, null, meter), error: b.error } }
-  const split = isSplitTiming(gmid)
   if (split) {
     // 局數按派彩時間算的機種：缺派彩時間不能拿下注時間代填、附近有 handpay 也還沒有樣本——這輪不比，不算失敗（CodeX 1110）
     const noPay = b.gr.filter(r => r.payoutAt == null).length
-    const hpNear = b.handpay.filter(r => r.betAt > w.tStart - SPLIT_HANDPAY_GUARD_MS && r.betAt <= t1 + 300_000).length
+    // handpay 的「下注～派彩」這段跟窗口前後有重疊就不比（早下注、窗口內派彩的也算；沒有派彩時間＝不知道何時結束，也不比）（CodeX 9dcb14c P1）
+    const lo = w.tStart - SPLIT_HANDPAY_GUARD_MS, hi = t1 + 300_000
+    const hpNear = b.handpay.filter(r => r.betAt <= hi && (r.payoutAt == null || r.payoutAt > lo)).length
     const why = noPay ? `Game Record 有 ${noPay} 筆沒有派彩時間（這台局數按派彩時間算），這輪不比`
       : hpNear ? `窗口附近有 ${hpNear} 筆 handpay，這台按派彩時間算局數的規則還沒有 handpay 樣本，這輪不比` : ''
     if (why) { const st = nextState(same, t1, null, carry(), now); save(st, null); return { win: view(st, null, meter), error: why } }

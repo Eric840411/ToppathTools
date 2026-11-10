@@ -47,10 +47,11 @@ async function replay(o: Opts = {}) {
   const rounds = o.rounds ?? ROUNDS, skew = o.skewMs ?? 0, delay = o.delayMs ?? 0
   const calls: Array<[number, number]> = []
   let backendNow = 0
-  const fetcher: BackendFetcher = async (_n, _g, from, to) => {
-    calls.push([from, to])
-    // 真 API：dateTimeType=0 是用派彩時間查；還沒入帳（派彩後未滿 delay）的局查不到
-    const gr = rounds.filter(r => r.payoutAt != null && r.payoutAt >= from && r.payoutAt <= to && r.payoutAt + delay <= backendNow)
+  const fetcher: BackendFetcher = async (_n, _g, from, to, by = 'payout') => {
+    if (by === 'payout') calls.push([from, to])
+    // 真 API：dateTimeType=0 用派彩時間查、1 用下注時間查；還沒入帳（派彩後未滿 delay）的局都查不到
+    const gr = rounds.filter(r => r.payoutAt != null && r.payoutAt + delay <= backendNow
+      && (by === 'bet' ? r.betAt >= from && r.betAt <= to : r.payoutAt >= from && r.payoutAt <= to))
     return { gr, handpay: o.handpay ?? [] }
   }
   const base = { t0: S0.upTime, gamesPlayed: S0.gamesPlayed, coinIn: S0.coinIn, denom: S0.denom }
@@ -146,7 +147,7 @@ const totalAmt = Math.round((LAST.coinIn - S0.coinIn) * S0.denom * 100) / 100
   const { out } = await replay({ handpay: [hp] })
   eq('附近有 handpay → 不比、說明原因', out.some(x => /handpay/.test(x.error ?? '')), true)
   eq('附近有 handpay 不會判一致或逾期', out.filter(x => /handpay/.test(x.error ?? '')).every(x => x.status === 'pending'), true)
-  const far: BackendRound = { ...hp, betAt: S0.upTime - 24 * 3_600_000 }
+  const far: BackendRound = { ...hp, betAt: S0.upTime - 24 * 3_600_000, payoutAt: S0.upTime - 24 * 3_600_000 + 60_000 }
   const { out: o2 } = await replay({ handpay: [far] })
   eq('一天前的 handpay 不影響', o2.filter(x => x.t1 != null && x.status !== 'match').length, 0)
 }
@@ -169,6 +170,42 @@ const totalAmt = Math.round((LAST.coinIn - S0.coinIn) * S0.denom * 100) / 100
   const meter4 = { count: 2, amount: 1000 }   // Meter 這段把起點那秒派彩的局也算進來
   eq('第一個窗口：起點同一秒派彩 → 切點待確認', evaluateWindow({ t0, t1, gr: rs4, handpay: [], split: true, firstWindow: true, meter: meter4 }).boundary, true)
   eq('之後的窗口：起點那局上一段算過 → 不是切點問題', evaluateWindow({ t0, t1, gr: rs4, handpay: [], split: true, firstWindow: false, meter: meter4 }).boundary, false)
+}
+
+{ // CodeX 9dcb14c P1：窗口內下注、10 分鐘後才派彩的長局——只按派彩時間查永遠查不到，金額會一直少
+  const MIN = 60_000, T0 = 1_800_000_000_000
+  const rs: BackendRound[] = [
+    { orderId: 'a', betAt: T0 + 5_000, payoutAt: T0 + 8_000, bet: 1000, source: 'gr', handpay: 0 },
+    { orderId: 'long', betAt: T0 + 20_000, payoutAt: T0 + 30_000 + 10 * MIN, bet: 1000, source: 'gr', handpay: 0 },
+  ]
+  const db = new Database(':memory:'); ensureWindowTables(db)
+  const fetcher: BackendFetcher = async (_n, _g, from, to, by = 'payout') => ({
+    gr: rs.filter(r => by === 'bet' ? r.betAt >= from && r.betAt <= to : r.payoutAt! >= from && r.payoutAt! <= to), handpay: [],
+  })
+  const base = { t0: T0, gamesPlayed: 100, coinIn: 0, denom: 1 }
+  const t1 = T0 + 30_000
+  // Meter：(T0, T0+30s] 已下注 2 局（Coin 2,000），只派彩 1 局（GP +1）
+  const now = t1 + 12 * MIN   // 長局已經派彩、Game Record 查得到
+  const r = await evalMeterWindow(db, { sessionId: 's', gmid: '873-SQUIDGAME-1199', clientMachineName: 'M', base, reading: { upTime: t1, gamesPlayed: 101, coinIn: 2000, denom: 1, useCache: false, cacheHourStr: '' }, readAt: t1 }, fetcher, now)
+  eq('長局 10 分鐘後才派彩：下注那段金額照樣算到 → 一致', [r.win.status, r.win.diff], ['match', { count: 0, amount: 0 }])
+}
+
+{ // CodeX 9dcb14c P1：handpay 早於防護範圍下注、在窗口內派彩——不能被漏掉當成一般局算進去
+  const t0 = SNAPS[3].upTime
+  const hp: BackendRound = { orderId: 'hpEarly', betAt: t0 - 11 * 60_000, payoutAt: t0 + 10_000, bet: 1000, source: 'handpay', handpay: 50000 }
+  const { out } = await replay({ handpay: [hp] })
+  eq('早下注、窗口內派彩的 handpay → 不比', out.some(x => /handpay/.test(x.error ?? '')), true)
+  eq('早下注 handpay 不會判一致到它那段', out.filter(x => x.t1 != null && x.t1 > t0 && x.t1 < t0 + 5 * 60_000).every(x => x.status !== 'match'), true)
+  // CodeX 的重現：Meter 把這局算進窗口——沒擋住就會假一致（GR=1、handpay=0）
+  const T0 = 1_800_000_000_000, t1 = T0 + 30_000
+  const hp2: BackendRound = { orderId: 'hp2', betAt: T0 - 11 * 60_000, payoutAt: T0 + 10_000, bet: 1000, source: 'handpay', handpay: 50000 }
+  const db = new Database(':memory:'); ensureWindowTables(db)
+  const f2: BackendFetcher = async () => ({ gr: [], handpay: [hp2] })
+  const r = await evalMeterWindow(db, { sessionId: 's', gmid: '873-SQUIDGAME-1199', clientMachineName: 'M', base: { t0: T0, gamesPlayed: 100, coinIn: 0, denom: 1 }, reading: { upTime: t1, gamesPlayed: 101, coinIn: 0, denom: 1, useCache: false, cacheHourStr: '' }, readAt: t1 }, f2, t1 + 4 * 60_000)
+  eq('Meter 算進窗口的早下注 handpay → 不比、不能假一致', [r.win.status, /handpay/.test(('error' in r ? r.error : '') ?? '')], ['pending', true])
+  const noPay: BackendRound = { ...hp, orderId: 'hpNoPay', betAt: S0.upTime - 60 * 60_000, payoutAt: null }
+  const { out: o2 } = await replay({ handpay: [noPay] })
+  eq('沒有派彩時間的 handpay（不知道何時結束）→ 不比', o2.filter(x => x.t1 != null).every(x => /handpay/.test(x.error ?? '')), true)
 }
 
 eq('OVERDUE_FAILS 仍是 2（上面的逾期判斷依賴它）', OVERDUE_FAILS, 2)

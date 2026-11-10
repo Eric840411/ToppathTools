@@ -174,7 +174,7 @@ async function gameRecordsOf(username: string, fromMs: number): Promise<{ byGmid
  * handpay（/abnormality/getHandPayRecord）帶機台名時 API 會忽略日期，抓回後由 evaluateWindow 依時間切。
  * 任何一邊讀取失敗、截斷或有缺欄位的列，整台這輪不比（不能當 0）。
  */
-async function machineBackendOf(clientMachineName: string, gmid: string, fromMs: number, toMs: number): Promise<{ gr: import('./live-compare-window.js').BackendRound[]; handpay: import('./live-compare-window.js').BackendRound[] } | { error: string }> {
+async function machineBackendOf(clientMachineName: string, gmid: string, fromMs: number, toMs: number, by: 'payout' | 'bet' = 'payout'): Promise<{ gr: import('./live-compare-window.js').BackendRound[]; handpay: import('./live-compare-window.js').BackendRound[] } | { error: string }> {
   const cfg = loadMeterConfig('qat', 'osm')
   if (!cfg.base_url && !cfg.login_username) return { error: 'QAT OSM 後台連線設定是空的' }
   const studio = 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL'
@@ -182,7 +182,8 @@ async function machineBackendOf(clientMachineName: string, gmid: string, fromMs:
   for (let page = 1; page <= GR_MAX_PAGES; page++) {
     const params = new URLSearchParams({
       clientMachineName, playerId: '', playerName: '', orderId: '', page: String(page), pageSize: String(GR_PAGE_SIZE),
-      dateTimeType: '0', playerstudioid: studio, bgType: '0', dataType: '0', isall: 'true', channelId: '0',
+      // ⚠️ dateTimeType：0＝派彩時間、1＝下注時間（2026-11-10 實測：14:55:46 下注、14:57:18 派彩的局，0 要用派彩區間才查得到）
+      dateTimeType: by === 'bet' ? '1' : '0', playerstudioid: studio, bgType: '0', dataType: '0', isall: 'true', channelId: '0',
     })
     params.append('dateTime[]', new Date(fromMs).toISOString())
     params.append('dateTime[]', new Date(toMs).toISOString())
