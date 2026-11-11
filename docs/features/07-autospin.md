@@ -662,6 +662,6 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
 
 - **最大年齡 24 小時**（`NOTIFY_MAX_AGE_MS`，`server/live-ledger-notify.ts`）：`detectedAt` 超過 24 小時還沒送的不再補送，**也不寫 `notifiedAt`**（它只代表真的送到了）。刻意不開放成設定——調大會讓已過期的重新排隊、再灌一次。
 - **看得見**：`/api/autospin/live-ledger/notify` 多回 `stale`（過期沒送的筆數）；`queued` 改成只算 24 小時內、跟實際會送的同一個下界。只剩過期的時健康列 `notify` 記 `stale`，不是綠燈。
-- **一次性清除積壓**：`POST /api/autospin/live-ledger/notify-backlog-reset?env=qat|uat`（只限管理員，**通知要先關**才可做，否則 409）。把水位線推到當下，略過筆數與時間記在 `recon_settings` 的 `notifyBacklogResetTs`／`notifyBacklogResetSkipped`，worker log 也有一行。不放在啟動流程：無條件清空會讓別的部署安靜漏掉有效告警（CodeX 1112）。
+- **一次性清除積壓**：`POST /api/autospin/live-ledger/notify-backlog-reset?env=qat|uat`（只限管理員；**通知要先關**、且該環境沒有一批正在送，否則 409；`env` 必須明確是 qat／uat，漏帶或拼錯 400——不沿用 `reconEnvOf()` 預設 QAT 的行為，v5.81.27）。把水位線推到當下，略過筆數與時間記在 `recon_settings` 的 `notifyBacklogResetTs`／`notifyBacklogResetSkipped`，worker log 也有一行。不放在啟動流程：無條件清空會讓別的部署安靜漏掉有效告警（CodeX 1112）。
 - 操作：登入管理員帳號 → 對帳台「送出告警」關閉 → 瀏覽器 console 跑 `fetch('/api/autospin/live-ledger/notify-backlog-reset?env=uat',{method:'POST'}).then(r=>r.json()).then(console.log)`（QAT 同理）→ 確認回傳 `skipped` → 再把「送出告警」打開。
-- 回歸：`scripts/ui-checks/live-ledger-notify.mjs` 8b／8c，拿掉 24 小時下界會紅 3 條。
+- 回歸：`scripts/ui-checks/live-ledger-notify.mjs` 8b／8c（拿掉 24 小時下界紅 3 條、拿掉「正在送就擋」紅 2 條、queued 不限 24 小時紅 1 條）；`scripts/ui-checks/notify-backlog-reset-route.mjs` 打真 router 6 條（拿掉 env 檢查紅 2 條）。

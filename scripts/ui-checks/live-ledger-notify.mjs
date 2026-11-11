@@ -176,15 +176,20 @@ try {
   setSetting('notifyEnabled', 1);
   setSetting('notifyLastSentTs', 0);
   db.prepare(`UPDATE recon_finding SET notifiedAt=? WHERE env=? AND note LIKE '${TAG}%' AND notifiedAt IS NULL`).run(now, ENV);
+  const before = notify.notifyStatus(ENV, now);
   const idStale = insertFinding(now - 5 * 24 * 3600_000, { note: '五天前' });
+  const mid = notify.notifyStatus(ENV, now);
+  check('加一筆過期的：queued 不變、stale +1（queued 不能混入過期的）',
+    mid.queued === before.queued && mid.stale === before.stale + 1, JSON.stringify({ before, mid }));
   const idFresh = insertFinding(now - 600_000, { note: '十分鐘前' });
+  const after = notify.notifyStatus(ENV, now);
+  check('加一筆十分鐘前的：queued +1、stale 不變',
+    after.queued === mid.queued + 1 && after.stale === mid.stale);
   const rowsAge = notify.pendingFindings(ENV, now);
   check('回傳的每一筆都在 24 小時內（LIMIT 無關）',
     rowsAge.length > 0 && rowsAge.every(r => r.detectedAt > now - 24 * 3600_000));
   check('十分鐘前那筆會送', rowsAge.some(r => r.id === Number(idFresh)));
   check('staleCount 算得到五天前那筆', notify.staleCount(ENV, now) >= 1);
-  const st = notify.notifyStatus(ENV, now);
-  check('notifyStatus 的 queued 不含過期的', st.queued < st.queued + st.stale && st.stale >= 1, JSON.stringify({ q: st.queued, s: st.stale }));
   received = [];
   r = await notify.runNotifyCycle(ENV, now);
   check('五天前那筆沒送、也沒被標已通知',
@@ -196,6 +201,19 @@ try {
     JSON.stringify(r));
 
   console.log('8c) 清除積壓：只在關閉時可做、推水位線、記錄略過筆數');
+  // 正在送的那一批：關掉開關後 deliverNotice 還在等，這時清除要被擋（CodeX 1112 P2）
+  setSetting('notifyLastSentTs', 0);
+  insertFinding(now - 600_000, { note: '送到一半' });
+  let release; const gate = new Promise(res => { release = res; });
+  const origSend = seam.deps.sendLark;
+  seam.deps.sendLark = async (c, card) => { await gate; return origSend(c, card); };
+  const inflight = notify.runNotifyCycle(ENV, now + 2);
+  await new Promise(res => setTimeout(res, 50));
+  setSetting('notifyEnabled', 0);
+  const rBusy = notify.resetNotifyBacklog(ENV, 'check', now + 3);
+  check('還有一批在送時拒絕清除', rBusy.ok === false && String(rBusy.reason).includes('正在送'), JSON.stringify(rBusy));
+  release(); await inflight; seam.deps.sendLark = origSend;
+  setSetting('notifyEnabled', 1);
   const idQueued = insertFinding(now - 600_000, { note: '清除前排隊中' });
   let rr = notify.resetNotifyBacklog(ENV, 'check', now + 5);
   check('通知開著時拒絕', rr.ok === false, JSON.stringify(rr));

@@ -46,6 +46,12 @@ const MAX_PER_BATCH = 60
  */
 export const NOTIFY_MAX_AGE_MS = 24 * 3600_000
 
+/**
+ * 正在送的環境。⚠️ notifyEnabled=0 不代表送完了：已經進到 deliverNotice()、還在等 @人 查詢的那一批，
+ * 關掉開關後照樣會送出並寫 notifiedAt。清除積壓要看這個，不能只看開關（CodeX 1112 P2）。
+ */
+const sendingEnvs = new Set<ReconEnv>()
+
 interface PendingFinding {
   id: number; line: string; severity: string; refId: string
   /** spin（refId 是 recon_spin.id）或 round（refId 是後台局號） */
@@ -184,6 +190,9 @@ export function resetNotifyBacklog(env: ReconEnv, operator: string, now = Date.n
   { ok: true; previousWatermark: number; cutoff: number; skipped: number } | { ok: false; reason: string } {
   if (settingOf(env, 'notifyEnabled', 1) !== 0) {
     return { ok: false, reason: '請先把「送出告警」關閉（notifyEnabled=0）再清積壓，清完再打開' }
+  }
+  if (sendingEnvs.has(env)) {
+    return { ok: false, reason: '這個環境還有一批告警正在送，等幾秒再試' }
   }
   return db.transaction(() => {
     const previousWatermark = settingOf(env, 'notifyWatermarkTs', 0)
@@ -350,6 +359,16 @@ export async function runNotifyCycle(
   const lastSent = settingOf(env, 'notifyLastSentTs', 0)
   if (lastSent > 0 && now - lastSent < minIntervalMs) return { sent: 0, skipped: 'rate_limited' }
 
+  sendingEnvs.add(env)
+  try {
+    return await sendPending(env, now)
+  } finally {
+    sendingEnvs.delete(env)
+  }
+}
+
+async function sendPending(env: ReconEnv, now: number): Promise<NotifyResult> {
+  const source = 'notify'
   const rows = pendingFindings(env, now)
   if (!rows.length) {
     // 過期沒送的要留在健康列上——不然「通知斷了好幾天」會跟「沒事」長得一樣。

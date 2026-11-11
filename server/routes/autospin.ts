@@ -2794,7 +2794,9 @@ router.get('/api/autospin/live-ledger/sls-health', async (req, res) => {
 router.post('/api/autospin/live-ledger/notify-backlog-reset', requireAdminMw, async (req, res) => {
   try {
     const { resetNotifyBacklog } = await import('../live-ledger-notify.js')
-    const env = reconEnvOf(req as never)
+    // ⚠️ 不用 reconEnvOf()：它把漏帶／拼錯的 env 當成 QAT，這裡清錯環境救不回來（CodeX 1112 P2）
+    const env = req.query.env
+    if (env !== 'qat' && env !== 'uat') return res.status(400).json({ ok: false, reason: '要明確帶 env=qat 或 env=uat' })
     const r = resetNotifyBacklog(env, getAuthAccount(req as never)?.email ?? 'unknown')
     res.status(r.ok ? 200 : 409).json({ env, ...r })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
