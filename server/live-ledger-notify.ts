@@ -33,6 +33,18 @@ import { deliverNotice, flushNotifyRetries, notifyConfigured, type DiscordEmbed 
 const MAX_EXAMPLES_PER_GROUP = 4
 /** 一輪最多處理幾筆，避免累積太多時一次組出超長訊息。剩下的下一輪繼續。 */
 const MAX_PER_BATCH = 60
+/**
+ * 超過這個年齡（以 detectedAt 算）還沒送出的 finding 就不再補送。
+ *
+ * 🚨 2026-11-12 正式站：Lark 通知有一段時間沒送出，積了 QAT 3,191／UAT 14,711 筆，
+ *    恢復後每 3 分鐘 60 筆、從最舊的開始灌進群組，卡片上寫「128.5 小時前」。
+ *    告警是要人馬上去查的，五天前的掉單現在才送只是洗版，還會把新的告警壓在後面。
+ *
+ * ⚠️ 過期的**不寫 notifiedAt**——notifiedAt 只代表真的送到了。過期的數量由
+ *    `staleCount()` 算出來，顯示在健康列與 `/notify` 上，不會安靜消失。
+ * ⚠️ 先固定，不開放成設定：調大會讓已經過期的又重新排進佇列，再灌一次。
+ */
+export const NOTIFY_MAX_AGE_MS = 24 * 3600_000
 
 interface PendingFinding {
   id: number; line: string; severity: string; refId: string
@@ -109,7 +121,7 @@ export function notifyWatermark(env: ReconEnv, now = Date.now()): number {
 /** 這一輪可以送的 finding。已解決的不送、太新的不送、水位線之前的不送。 */
 export function pendingFindings(env: ReconEnv, now = Date.now()): PendingFinding[] {
   const graceMs = Math.max(settingOf(env, 'notifyGraceSec', 120), 0) * 1000
-  const watermark = notifyWatermark(env, now)
+  const lower = Math.max(notifyWatermark(env, now), now - NOTIFY_MAX_AGE_MS)
   return db.prepare(`
     SELECT f.id, f.line, f.severity, f.refId, f.refType, f.amountDelta, f.detectedAt, f.note, f.userLabel,
            -- 🚨 只有 refType='spin' 才能拿 refId 當 recon_spin.id。
@@ -145,7 +157,47 @@ export function pendingFindings(env: ReconEnv, now = Date.now()): PendingFinding
       AND f.detectedAt <= ?
     ORDER BY f.detectedAt ASC
     LIMIT ?
-  `).all(env, watermark, now - graceMs, MAX_PER_BATCH) as PendingFinding[]
+  `).all(env, lower, now - graceMs, MAX_PER_BATCH) as PendingFinding[]
+}
+
+/**
+ * 水位線之後、但已超過 `NOTIFY_MAX_AGE_MS` 還沒送出的筆數——這些不會再補送。
+ * 數字不為 0 代表通知曾經有一段時間沒送出去（或積壓多到 24 小時送不完）。
+ */
+export function staleCount(env: ReconEnv, now = Date.now()): number {
+  const watermark = settingOf(env, 'notifyWatermarkTs', 0)
+  const r = db.prepare(`
+    SELECT COUNT(*) n FROM recon_finding
+    WHERE env=? AND notifiedAt IS NULL AND resolvedAt IS NULL AND detectedAt > ? AND detectedAt <= ?
+  `).get(env, watermark, now - NOTIFY_MAX_AGE_MS) as { n: number }
+  return r?.n ?? 0
+}
+
+/**
+ * 一次性清掉積壓：把水位線推到 `now`，之前沒送的都不再送（不寫 notifiedAt）。
+ *
+ * ⚠️ 只能在通知關閉時做（notifyEnabled=0），避免跟正在跑的那一輪搶。
+ * ⚠️ 不放在啟動流程：無條件清空會讓其他部署安靜地漏掉有效告警。由管理員在正式站手動觸發，
+ *    水位線、紀錄、略過筆數同一個交易寫入。
+ */
+export function resetNotifyBacklog(env: ReconEnv, operator: string, now = Date.now()):
+  { ok: true; previousWatermark: number; cutoff: number; skipped: number } | { ok: false; reason: string } {
+  if (settingOf(env, 'notifyEnabled', 1) !== 0) {
+    return { ok: false, reason: '請先把「送出告警」關閉（notifyEnabled=0）再清積壓，清完再打開' }
+  }
+  return db.transaction(() => {
+    const previousWatermark = settingOf(env, 'notifyWatermarkTs', 0)
+    const skipped = (db.prepare(`
+      SELECT COUNT(*) n FROM recon_finding
+      WHERE env=? AND notifiedAt IS NULL AND resolvedAt IS NULL AND detectedAt > ? AND detectedAt <= ?
+    `).get(env, previousWatermark, now) as { n: number })?.n ?? 0
+    putSetting(env, 'notifyWatermarkTs', now)
+    putSetting(env, 'notifyBacklogResetTs', now)
+    putSetting(env, 'notifyBacklogResetSkipped', skipped)
+    console.log(`[live-ledger] ${env} 告警積壓已清除：水位線 ${new Date(previousWatermark).toISOString()} → `
+      + `${new Date(now).toISOString()}，略過 ${skipped} 筆未送出的 finding（操作者 ${operator}）`)
+    return { ok: true as const, previousWatermark, cutoff: now, skipped }
+  })()
 }
 
 /** 幾筆被靜置期擋著、還在等的（只是還沒到時間，不是問題）。給健康列顯示用。 */
@@ -300,6 +352,13 @@ export async function runNotifyCycle(
 
   const rows = pendingFindings(env, now)
   if (!rows.length) {
+    // 過期沒送的要留在健康列上——不然「通知斷了好幾天」會跟「沒事」長得一樣。
+    const stale = staleCount(env, now)
+    if (stale > 0) {
+      noteSourceHealth(env, source, false, 'stale',
+        `${stale} 筆告警超過 24 小時沒送出，已不再補送（通知曾中斷或積壓）；確認後可由管理員清除積壓`)
+      return { sent: 0, skipped: 'nothing' }
+    }
     // 沒東西可送是正常狀態，這時候才可以記成健康。
     noteSourceHealth(env, source, true)
     return { sent: 0, skipped: 'nothing' }
@@ -394,13 +453,16 @@ export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{
 
 /** 給健康列與設定頁用的現況。 */
 export function notifyStatus(env: ReconEnv, now = Date.now()): {
-  enabled: boolean; configured: boolean; queued: number; held: number
+  enabled: boolean; configured: boolean; queued: number; held: number; stale: number
   lastSentAt: number | null; watermarkTs: number | null; neverNotified: number
+  backlogResetAt: number | null; backlogResetSkipped: number | null
 } {
+  // queued 跟 pendingFindings() 同一個下界：水位線與 24 小時取較晚的那個
   const queued = (db.prepare(`
     SELECT COUNT(*) n FROM recon_finding
     WHERE env=? AND notifiedAt IS NULL AND resolvedAt IS NULL AND detectedAt > ?
-  `).get(env, settingOf(env, 'notifyWatermarkTs', 0)) as { n: number })?.n ?? 0
+  `).get(env, Math.max(settingOf(env, 'notifyWatermarkTs', 0), now - NOTIFY_MAX_AGE_MS)) as { n: number })?.n ?? 0
+  const resetAt = settingOf(env, 'notifyBacklogResetTs', 0)
   const never = (db.prepare(`
     SELECT COUNT(*) n FROM recon_finding WHERE env=? AND notifiedAt IS NULL
   `).get(env) as { n: number })?.n ?? 0
@@ -412,11 +474,14 @@ export function notifyStatus(env: ReconEnv, now = Date.now()): {
     configured: notifyConfigured(),
     queued,
     held: heldByGrace(env, now),
+    stale: staleCount(env, now),
     lastSentAt: last > 0 ? last : null,
     watermarkTs: wm > 0 ? wm : null,
     // ⚠️ 水位線之前那些「永遠不會被通知」的歷史 finding 要讓人看得到數字，
     //    不然「已通知 0 筆」會被誤讀成「系統沒在動」。
     neverNotified: never,
+    backlogResetAt: resetAt > 0 ? resetAt : null,
+    backlogResetSkipped: resetAt > 0 ? settingOf(env, 'notifyBacklogResetSkipped', 0) : null,
   }
 }
 

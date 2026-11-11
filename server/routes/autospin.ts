@@ -22,6 +22,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { getAuthAccount, requireAdminMw } from '../auth-session.js'
 import {
   finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, bindHeavyTaskOwner,
   autospinLockHasLiveOwner, releaseHeavyTaskById, listRunningAutospinLocks,
@@ -2783,6 +2784,19 @@ router.get('/api/autospin/live-ledger/sls-health', async (req, res) => {
     const maxLogstores = Number(req.query.max) > 0 ? Number(req.query.max) : undefined
     const rows = await slsServiceHealth({ maxLogstores })
     res.json({ ok: true, summary: slsSummary(rows), rows })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+/**
+ * 一次性清掉告警積壓（v5.81.26）。只限管理員、只在通知關閉時可做。
+ * 用途：通知中斷好幾天後恢復，不要把舊的整批補送進群組。
+ */
+router.post('/api/autospin/live-ledger/notify-backlog-reset', requireAdminMw, async (req, res) => {
+  try {
+    const { resetNotifyBacklog } = await import('../live-ledger-notify.js')
+    const env = reconEnvOf(req as never)
+    const r = resetNotifyBacklog(env, getAuthAccount(req as never)?.email ?? 'unknown')
+    res.status(r.ok ? 200 : 409).json({ env, ...r })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
 

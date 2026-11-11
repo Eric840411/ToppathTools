@@ -655,3 +655,13 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
 - 修正：加 partial index `idx_recon_finding_ref_open (env, refType, refId, line) WHERE resolvedAt IS NULL`，本機 3451 筆 1.9 秒→11～17ms。**不**限最近 N 天、**不**改成只掃新列（會漏舊列後續變更）；busy_timeout 維持 5 秒（調大只會拉長阻塞）。`recordFinding` 去重刻意跨已結案，吃不到這個索引。
 - 部署後要看：對帳台「迴圈耗時」燈、worker 日誌是否恢復 15 秒一輪、locked 是否消失；仍慢再查持鎖交易。
 
+
+### 對帳告警積壓不補送（v5.81.26）
+
+**2026-11-12 正式站**：Live Ledger 告警有一段時間沒送出，積了 QAT 3,191／UAT 14,711 筆；恢復後每 3 分鐘送 60 筆、從最舊的開始送，群組被五天前的掉單洗版（卡片寫「128.5 小時前」）。水位線（09-21）只擋第一次啟用之前的，擋不住啟用之後才中斷的那段。
+
+- **最大年齡 24 小時**（`NOTIFY_MAX_AGE_MS`，`server/live-ledger-notify.ts`）：`detectedAt` 超過 24 小時還沒送的不再補送，**也不寫 `notifiedAt`**（它只代表真的送到了）。刻意不開放成設定——調大會讓已過期的重新排隊、再灌一次。
+- **看得見**：`/api/autospin/live-ledger/notify` 多回 `stale`（過期沒送的筆數）；`queued` 改成只算 24 小時內、跟實際會送的同一個下界。只剩過期的時健康列 `notify` 記 `stale`，不是綠燈。
+- **一次性清除積壓**：`POST /api/autospin/live-ledger/notify-backlog-reset?env=qat|uat`（只限管理員，**通知要先關**才可做，否則 409）。把水位線推到當下，略過筆數與時間記在 `recon_settings` 的 `notifyBacklogResetTs`／`notifyBacklogResetSkipped`，worker log 也有一行。不放在啟動流程：無條件清空會讓別的部署安靜漏掉有效告警（CodeX 1112）。
+- 操作：登入管理員帳號 → 對帳台「送出告警」關閉 → 瀏覽器 console 跑 `fetch('/api/autospin/live-ledger/notify-backlog-reset?env=uat',{method:'POST'}).then(r=>r.json()).then(console.log)`（QAT 同理）→ 確認回傳 `skipped` → 再把「送出告警」打開。
+- 回歸：`scripts/ui-checks/live-ledger-notify.mjs` 8b／8c，拿掉 24 小時下界會紅 3 條。

@@ -42,7 +42,8 @@ const check = (n, ok, extra = '') => {
 };
 
 // ── 先備份會動到的設定 ───────────────────────────────────────────────
-const TOUCHED = ['notifyWatermarkTs', 'notifyGraceSec', 'notifyIntervalSec', 'notifyEnabled', 'notifyLastSentTs'];
+const TOUCHED = ['notifyWatermarkTs', 'notifyGraceSec', 'notifyIntervalSec', 'notifyEnabled', 'notifyLastSentTs',
+  'notifyBacklogResetTs', 'notifyBacklogResetSkipped'];
 const backup = new Map(TOUCHED.map(k => [k,
   db.prepare('SELECT value FROM recon_settings WHERE env=? AND key=?').get(ENV, k)?.value ?? null]));
 const setSetting = (k, v) => db.prepare(
@@ -168,6 +169,49 @@ try {
   const wm1 = notify.notifyWatermark(ENV, now);
   const wm2 = notify.notifyWatermark(ENV, now + 999_000);
   check('第二次呼叫拿到同一個水位線', wm1 === wm2, `${wm1} vs ${wm2}`);
+
+  console.log('8b) 最大年齡：超過 24 小時沒送的不補送、不標已通知、健康列看得見（v5.81.26）');
+  // 2026-11-12 正式站：通知中斷後恢復，從最舊開始每 3 分鐘 60 筆灌進群組（卡片寫「128.5 小時前」）
+  setSetting('notifyWatermarkTs', now - 10 * 24 * 3600_000);
+  setSetting('notifyEnabled', 1);
+  setSetting('notifyLastSentTs', 0);
+  db.prepare(`UPDATE recon_finding SET notifiedAt=? WHERE env=? AND note LIKE '${TAG}%' AND notifiedAt IS NULL`).run(now, ENV);
+  const idStale = insertFinding(now - 5 * 24 * 3600_000, { note: '五天前' });
+  const idFresh = insertFinding(now - 600_000, { note: '十分鐘前' });
+  const rowsAge = notify.pendingFindings(ENV, now);
+  check('回傳的每一筆都在 24 小時內（LIMIT 無關）',
+    rowsAge.length > 0 && rowsAge.every(r => r.detectedAt > now - 24 * 3600_000));
+  check('十分鐘前那筆會送', rowsAge.some(r => r.id === Number(idFresh)));
+  check('staleCount 算得到五天前那筆', notify.staleCount(ENV, now) >= 1);
+  const st = notify.notifyStatus(ENV, now);
+  check('notifyStatus 的 queued 不含過期的', st.queued < st.queued + st.stale && st.stale >= 1, JSON.stringify({ q: st.queued, s: st.stale }));
+  received = [];
+  r = await notify.runNotifyCycle(ENV, now);
+  check('五天前那筆沒送、也沒被標已通知',
+    db.prepare('SELECT notifiedAt FROM recon_finding WHERE id=?').get(idStale)?.notifiedAt === null);
+  setSetting('notifyLastSentTs', 0);
+  r = await notify.runNotifyCycle(ENV, now + 1);
+  check('只剩過期的時健康列記 stale（不是綠燈）',
+    db.prepare("SELECT errKind FROM recon_source_health WHERE env=? AND source='notify'").get(ENV)?.errKind === 'stale',
+    JSON.stringify(r));
+
+  console.log('8c) 清除積壓：只在關閉時可做、推水位線、記錄略過筆數');
+  const idQueued = insertFinding(now - 600_000, { note: '清除前排隊中' });
+  let rr = notify.resetNotifyBacklog(ENV, 'check', now + 5);
+  check('通知開著時拒絕', rr.ok === false, JSON.stringify(rr));
+  setSetting('notifyEnabled', 0);
+  rr = notify.resetNotifyBacklog(ENV, 'check', now + 5);
+  check('關閉時可清除', rr.ok === true && rr.skipped >= 2, JSON.stringify(rr));
+  check('水位線推到清除當下', notify.notifyWatermark(ENV, now + 10) === now + 5);
+  check('清除不寫 notifiedAt',
+    db.prepare('SELECT notifiedAt FROM recon_finding WHERE id=?').get(idQueued)?.notifiedAt === null);
+  setSetting('notifyEnabled', 1);
+  check('清除後排隊中那筆不會再送', !notify.pendingFindings(ENV, now + 600_000).some(x => x.id === Number(idQueued)));
+  check('清除後 stale 歸零', notify.staleCount(ENV, now + 600_000) === 0);
+  check('清除後新的照樣會送', (() => {
+    const idAfter = insertFinding(now + 60_000, { note: '清除後新增' });
+    return notify.pendingFindings(ENV, now + 600_000).some(x => x.id === Number(idAfter));
+  })());
 
   console.log('9) buildBatch 的分組與排序');
   const sample = [
