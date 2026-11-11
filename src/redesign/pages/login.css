@@ -1,0 +1,328 @@
+/* ══════════════════════════════════════════════════════════════════
+   登入框（AuthLoginModal）新版樣式
+   使用者 1111 在 Lark 問「登入畫面是不是沒重新設計？」→「你修改下」。
+   原型 v7 沒有登入畫面，這裡用新版既有零件拼：
+     卡片   同 rd-modal 面板底色／框線／浮起
+     標題帶 同 .panel-h：滿版一條、左側強調色條（仙俠：鎏金菱形），說明字放標題帶下
+     分頁   同 .rd-tabs：內凹底座、選中那格填強調色
+     搜尋   同 .rd-field：34px 凹槽
+     帳號列 一列一個帳號，角色與 PIN 用膠囊；上次登入那列左側強調色條
+   只改樣式不改行為。舊仙俠 CSS（public/xianxia-complete.css）有大量 !important，
+   所以視覺屬性一律 !important，範圍限 data-ui=redesign。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 遮罩：整頁壓暗＋上方一點強調色光暈 ── */
+:root[data-ui="redesign"] .auth-login-overlay {
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--rd-accent) 16%, transparent), transparent 70%),
+    color-mix(in srgb, var(--rd-bg) 88%, #000) !important;
+  backdrop-filter: blur(6px) !important;
+  z-index: 10000 !important;
+}
+
+/* ── 卡片 ── */
+:root[data-ui="redesign"] .auth-login-modal {
+  position: relative;
+  width: min(420px, calc(100vw - 32px)) !important;
+  max-height: calc(100vh - 32px);
+  padding: 0 !important;
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 85%, transparent) !important;
+  border-radius: 14px !important;
+  color: var(--rd-fg) !important;
+  overflow: hidden auto;
+  animation: rd-modal-rise .2s var(--rd-ease);
+}
+:root[data-ui="redesign"] .auth-login-modal > .modal-body { padding: 16px 20px 20px !important; }
+
+/* ── 標題帶 ── */
+:root[data-ui="redesign"] .auth-login-modal > .auth-login-header {
+  position: relative;
+  justify-content: flex-start !important;
+  margin: 0 !important;
+  padding: 14px 20px 14px 33px !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), transparent) !important;
+}
+:root[data-ui="redesign"] .auth-login-modal > .auth-login-header::before {
+  content: "";
+  position: absolute; left: 20px; top: 50%;
+  width: 3px; height: 18px; margin-top: -9px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--rd-accent-2), var(--rd-accent));
+  box-shadow: 0 0 8px var(--rd-glow);
+}
+:root[data-ui="redesign"] .auth-login-modal > .auth-login-header h2 {
+  margin: 0 !important;
+  color: var(--rd-fg) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em !important;
+  text-shadow: none !important;
+}
+
+/* 舊版置中大鎖頭／菱形徽章：新版由標題帶帶出入口感，不再放 */
+:root[data-ui="redesign"] .auth-login-modal .auth-login-lock { display: none !important; }
+
+:root[data-ui="redesign"] .auth-login-copy {
+  margin: 0 0 14px !important;
+  color: var(--rd-fg-2) !important;
+  font-size: 13px !important;
+  text-align: left !important;
+}
+
+/* ── 分頁：內凹底座、兩格等寬 ── */
+:root[data-ui="redesign"] .auth-login-tabs {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px !important;
+  margin: 0 0 14px !important;
+  padding: 4px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: var(--rd-bg-2) !important;
+  box-shadow: var(--rd-well) !important;
+}
+:root[data-ui="redesign"] .auth-login-tab {
+  height: 32px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: none !important;
+  color: var(--rd-fg-2) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  transition: color .14s ease, background .14s ease;
+}
+:root[data-ui="redesign"] .auth-login-tab::before,
+:root[data-ui="redesign"] .auth-login-tab::after { display: none !important; }
+:root[data-ui="redesign"] .auth-login-tab:hover { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .auth-login-tab.active {
+  color: var(--rd-fg) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 30%, var(--rd-panel-2)), color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel))) !important;
+  box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"] .auth-login-tab:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: -2px; }
+
+/* ── 輸入框（搜尋／PIN／新增帳號表單）：34px 凹槽 ── */
+:root[data-ui="redesign"] :is(.auth-login-search, .auth-login-pin, .auth-login-form input) {
+  width: 100%;
+  box-sizing: border-box;
+  height: 34px !important;
+  padding: 0 11px !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 7px !important;
+  background: var(--rd-bg-2) !important;
+  box-shadow: var(--rd-well) !important;
+  color: var(--rd-fg) !important;
+  font-size: 13px !important;
+  letter-spacing: normal !important;
+  text-align: left !important;
+}
+:root[data-ui="redesign"] .auth-login-search { margin: 0 0 12px !important; }
+:root[data-ui="redesign"] :is(.auth-login-search, .auth-login-pin, .auth-login-form input)::placeholder { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] :is(.auth-login-search, .auth-login-pin, .auth-login-form input):focus {
+  outline: none !important;
+  border-color: var(--rd-accent) !important;
+  box-shadow: var(--rd-well), 0 0 0 3px color-mix(in srgb, var(--rd-accent) 22%, transparent) !important;
+}
+:root[data-ui="redesign"] .auth-login-pin-wrap { margin: 0 0 4px; }
+:root[data-ui="redesign"] .auth-login-form { display: flex; flex-direction: column; gap: 10px !important; margin: 0 0 4px; }
+
+/* ── 帳號列 ── */
+:root[data-ui="redesign"] .auth-login-list { gap: 6px !important; }
+:root[data-ui="redesign"] .auth-login-account {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 9px 12px 9px 14px !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 9px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 2%), var(--rd-panel-2)) !important;
+  box-shadow: var(--rd-elev-1) !important;
+  text-align: left;
+  cursor: pointer;
+  transform: none !important;
+  transition: border-color .14s ease, background .14s ease;
+}
+:root[data-ui="redesign"] .auth-login-account:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--rd-accent) 55%, var(--rd-line)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-accent) 12%, var(--rd-panel-2)), var(--rd-panel-2)) !important;
+}
+:root[data-ui="redesign"] .auth-login-account:focus-visible { outline: 2px solid var(--rd-accent-2); outline-offset: 1px; }
+:root[data-ui="redesign"] .auth-login-account:disabled { opacity: .6; cursor: progress; }
+
+/* 上次登入那列：左側強調色條 */
+:root[data-ui="redesign"] .auth-login-account:has(.auth-login-last-badge) {
+  border-color: color-mix(in srgb, var(--rd-accent) 45%, var(--rd-line)) !important;
+}
+:root[data-ui="redesign"] .auth-login-account:has(.auth-login-last-badge)::before {
+  content: "";
+  position: absolute; left: -1px; top: 10px; bottom: 10px;
+  width: 3px; border-radius: 0 2px 2px 0;
+  background: var(--rd-accent);
+  box-shadow: 0 0 8px var(--rd-glow);
+}
+
+:root[data-ui="redesign"] .auth-login-account-main { min-width: 0; gap: 2px !important; }
+:root[data-ui="redesign"] .auth-login-account-main strong {
+  color: var(--rd-fg) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+:root[data-ui="redesign"] .auth-login-account-main span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--rd-fg-3) !important;
+  font-size: 12px !important;
+}
+:root[data-ui="redesign"] .auth-login-account-meta {
+  flex: none;
+  gap: 6px !important;
+  color: var(--rd-fg-2) !important;
+  font-size: 11.5px !important;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+/* 上次／PIN 標記：小膠囊 */
+:root[data-ui="redesign"] .auth-login-last-badge {
+  padding: 1px 7px !important;
+  border: 1px solid color-mix(in srgb, var(--rd-accent) 50%, transparent) !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--rd-accent) 16%, transparent) !important;
+  color: var(--rd-accent-2) !important;
+  font-size: 10.5px !important;
+  box-shadow: none !important;
+}
+:root[data-ui="redesign"] .auth-login-seal {
+  display: inline-grid !important;
+  place-items: center;
+  min-width: 20px; height: 20px;
+  padding: 0 5px !important;
+  border: 1px solid var(--rd-line-2) !important;
+  border-radius: 999px !important;
+  background: var(--rd-bg-2) !important;
+  color: var(--rd-fg-2) !important;
+  font-family: inherit !important;
+  font-size: 10.5px !important;
+}
+:root[data-ui="redesign"] .auth-login-seal--open {
+  border-color: color-mix(in srgb, var(--rd-ios-on) 45%, transparent) !important;
+  color: color-mix(in srgb, var(--rd-ios-on) 80%, var(--rd-fg)) !important;
+}
+
+:root[data-ui="redesign"] .auth-login-divider {
+  height: 1px !important;
+  margin: 6px 2px !important;
+  background: var(--rd-line) !important;
+}
+
+/* ── 分頁器 ── */
+:root[data-ui="redesign"] .auth-login-pagination { margin-top: 10px !important; gap: 12px !important; }
+:root[data-ui="redesign"] .auth-login-page-btn {
+  width: 30px !important; height: 30px !important;
+  border: 1px solid var(--rd-line-2) !important;
+  border-radius: 7px !important;
+  background: var(--rd-panel-2) !important;
+  box-shadow: var(--rd-elev-1) !important;
+  color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"] .auth-login-page-btn:hover:not(:disabled) {
+  border-color: var(--rd-accent) !important;
+  color: var(--rd-fg) !important;
+}
+:root[data-ui="redesign"] .auth-login-page-btn:disabled { opacity: .35; box-shadow: none !important; }
+:root[data-ui="redesign"] .auth-login-page-info { color: var(--rd-fg-3) !important; font-size: 12px !important; font-variant-numeric: tabular-nums; }
+:root[data-ui="redesign"] .auth-login-empty { color: var(--rd-fg-3) !important; }
+
+/* ── 按鈕（PIN／新增帳號）：同 rd-btn ── */
+:root[data-ui="redesign"] .auth-login-actions { gap: 8px !important; margin-top: 14px !important; }
+:root[data-ui="redesign"] :is(.auth-login-primary, .auth-login-secondary) {
+  height: 36px !important;
+  padding: 0 16px !important;
+  border-radius: var(--rd-btn-r) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  text-shadow: none !important;
+}
+:root[data-ui="redesign"] :is(.auth-login-primary, .auth-login-secondary)::before,
+:root[data-ui="redesign"] :is(.auth-login-primary, .auth-login-secondary)::after { display: none !important; }
+:root[data-ui="redesign"] .auth-login-primary {
+  border: 1px solid color-mix(in srgb, var(--rd-accent) 70%, #000) !important;
+  background: linear-gradient(180deg, var(--rd-accent-2), var(--rd-accent)) !important;
+  color: #04101f !important;
+  box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"] .auth-login-primary:disabled { opacity: .45; }
+:root[data-ui="redesign"] .auth-login-secondary {
+  border: 1px solid var(--rd-line-2) !important;
+  background: var(--rd-panel-2) !important;
+  color: var(--rd-fg-2) !important;
+  box-shadow: var(--rd-elev-1) !important;
+}
+:root[data-ui="redesign"] .auth-login-secondary:hover { color: var(--rd-fg) !important; border-color: var(--rd-accent) !important; }
+
+:root[data-ui="redesign"] .auth-login-role-row button {
+  height: 32px !important;
+  border: 1px solid var(--rd-line-2) !important;
+  border-radius: 7px !important;
+  background: var(--rd-panel-2) !important;
+  color: var(--rd-fg-2) !important;
+}
+:root[data-ui="redesign"] .auth-login-role-row button.active {
+  border-color: var(--rd-accent) !important;
+  background: color-mix(in srgb, var(--rd-accent) 18%, var(--rd-panel-2)) !important;
+  color: var(--rd-fg) !important;
+}
+
+/* ══ 修仙版：同結構，只換配色與裝飾（鎏金角框、標題帶鎏金菱形、角色字鎏金） ══ */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-overlay {
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--rd-accent) 12%, transparent), transparent 70%),
+    linear-gradient(rgba(2, 8, 7, .84), rgba(2, 8, 7, .94)),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 18% / cover no-repeat !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal {
+  border-radius: 4px !important;
+  border-color: color-mix(in srgb, var(--rd-ornament) 40%, var(--rd-line-2)) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::before,
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::after {
+  width: 22px !important; height: 22px !important;
+  border-color: var(--rd-ornament) !important;
+  z-index: 1;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::before { inset: 5px auto auto 5px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::after { inset: auto 5px 5px auto !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header { padding-left: 38px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header::before {
+  left: 21px; width: 8px; height: 8px; margin-top: -4px; border-radius: 0;
+  background: var(--rd-ornament);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--rd-ornament) 60%, transparent);
+  transform: rotate(45deg);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header h2 { letter-spacing: .18em !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-tab.active { box-shadow: var(--rd-elev-1), 0 0 0 1px color-mix(in srgb, var(--rd-ornament) 55%, transparent) inset !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] :is(.auth-login-account, .auth-login-search, .auth-login-pin, .auth-login-form input, .auth-login-tabs, .auth-login-tab, .auth-login-page-btn, .auth-login-primary, .auth-login-secondary, .auth-login-role-row button) { border-radius: 4px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-account-meta { color: var(--rd-ornament) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-seal {
+  border-radius: 2px !important;
+  border-color: color-mix(in srgb, var(--rd-ornament) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--rd-ornament) 10%, transparent) !important;
+  color: var(--rd-ornament) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-seal--open {
+  border-color: color-mix(in srgb, var(--rd-accent) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--rd-accent) 10%, transparent) !important;
+  color: var(--rd-accent) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-primary { color: #04120f !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="redesign"] .auth-login-modal { animation: none; }
+}

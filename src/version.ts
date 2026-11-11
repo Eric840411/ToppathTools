@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.18'
+export const APP_VERSION = '5.81.19'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.19', date: '2026-11-11', changes: ['style(登入畫面 新版)：使用者 1111 反映登入框沒跟著改版 → 新增 src/redesign/pages/login.css：標題帶、內凹分頁、34px 搜尋凹槽、帳號列＋角色／PIN 膠囊、上次登入左側強調色條；修仙版同結構換鎏金角框與菱形。只改樣式不動行為'] },
   { version: '5.81.18', date: '2026-11-10', changes: ['fix(即時對照 SQUIDGAME 兩次查詢合併，CodeX 497df37)：①第二次（按下注時間）才查到的 handpay 原本被丟掉、繞過「附近有 handpay 不比」→ 兩份 handpay 都留 ②同單號兩次查回來注額或時間不同時，原本留後到那筆、可能假一致 → 改成整輪不比並說明'] },
   { version: '5.81.17', date: '2026-11-10', changes: ['fix(即時對照 SQUIDGAME 分開計時，CodeX 9dcb14c 兩項 P1)：①只按派彩時間查 Game Record，窗口內下注、5 分鐘後才派彩的長局永遠查不到、金額一直少 → 另外按下注時間（dateTimeType=1）查一次、依單號合併 ②handpay 防護原本只看下注時間，早下注、窗口內派彩的 handpay 會被當一般局算進去而假一致 → 改成 handpay 的下注～派彩跟窗口前後重疊就不比，沒有派彩時間也不比'] },
   { version: '5.81.16', date: '2026-11-10', changes: ['fix(即時對照 固定窗口，873-SQUIDGAME-1199 實測)：這台 Meter 的局數在派彩時才加、Coin In 在下注時加，原本兩者都按下注時間切，切點上有局在進行就只差局數、同窗口卡逾期待查。改成 SQUIDGAME 局數按派彩時間（截到整秒）、金額按下注時間切（54 段真資料全部對上）；其他機種不變。缺派彩時間不拿下注時間代填、窗口附近有 handpay 先不比；切點精度只能判切點待確認，不判一致'] },
