@@ -1286,6 +1286,11 @@ db.exec(`
   )
 `)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_open ON recon_finding (env, resolvedAt, detectedAt)`)
+// ⚠️ live-ledger 每輪 cleanupNonRoundFindings／resolveFinding 都用 (env,line,refType,refId) 查「未結案」那筆。
+//    只有上面那個 index 時等於 N×M：本機 QAT 3451×5525 每輪 1.9 秒，同步跑會卡住 worker event loop，
+//    交易裡有寫入時還握著寫鎖（2026-11-11 正式站 worker 70 秒一輪、Agent 重連、database is locked）。
+//    加這個後本機 17ms。recordFinding 不帶 resolvedAt IS NULL（跨已結案去重），吃不到這個，刻意不改（CodeX 1111）
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_ref_open ON recon_finding (env, refType, refId, line) WHERE resolvedAt IS NULL`)
 
 /**
  * 門檻參數存 DB 不寫死（規格書明訂）。

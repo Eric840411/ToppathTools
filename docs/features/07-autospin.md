@@ -647,3 +647,11 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
 3. 每列「明細」展開：對照範圍、Meter 起點→現在算式、三邊讀取時間；下方「逐局餘額檢查」按每次進機台列七欄與沒過的規則，
    預設「只看有問題的」，取消勾選看全部
 4. 渠道登入失敗時下方「渠道後台帳號」會自動展開，填一組 13 個渠道都能登入的帳號後儲存
+
+### 對帳迴圈卡住 worker（v5.81.25）
+
+- 症狀（2026-11-11 正式站）：worker 日誌約 70 秒才印一批（live-ledger 應 15 秒一輪）、Agent 同時被迫重連、Dashboard「Worker 無法連線」（health 1.8 秒逾時）、AutoSpin 上傳逾時、server 端 `SqliteError: database is locked`。
+- 嫌疑：`cleanupNonRoundFindings` 每輪撈全部 not_started／no_bet 的 spin，逐筆查 recon_finding 未結案那筆，只有 `(env, resolvedAt, detectedAt)` 索引可用＝N×M；better-sqlite3 是同步的，整段卡住 event loop，交易內一有寫入就握寫鎖（預設等鎖 5 秒）。
+- 修正：加 partial index `idx_recon_finding_ref_open (env, refType, refId, line) WHERE resolvedAt IS NULL`，本機 3451 筆 1.9 秒→11～17ms。**不**限最近 N 天、**不**改成只掃新列（會漏舊列後續變更）；busy_timeout 維持 5 秒（調大只會拉長阻塞）。`recordFinding` 去重刻意跨已結案，吃不到這個索引。
+- 部署後要看：對帳台「迴圈耗時」燈、worker 日誌是否恢復 15 秒一輪、locked 是否消失；仍慢再查持鎖交易。
+

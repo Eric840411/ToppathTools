@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.24'
+export const APP_VERSION = '5.81.25'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.25', date: '2026-11-11', changes: ['perf(對帳台 live-ledger)：recon_finding 加 partial index (env, refType, refId, line) WHERE resolvedAt IS NULL。每輪 cleanupNonRoundFindings／resolveFinding 逐筆查未結案告警原本是 N×M（本機 QAT 3451×5525 每輪 1.9 秒→17ms），同步執行會卡 worker、交易內寫入時握寫鎖；正式站 11-11 下午 worker 70 秒一輪、Agent 重連、Dashboard Worker 無法連線、Performance Meter database is locked 的嫌疑。邏輯與 busy_timeout 不動（CodeX 1111）'] },
   { version: '5.81.24', date: '2026-11-11', changes: ['fix(AutoSpin 隨機離開／低餘額重進)：離桌確認（leaveGMNtc errcode=0）後舊遊戲畫面還在就立刻 enter_game，被判成「已在遊戲中，跳過大廳」→ 沒重進 → 20 秒讀不到餘額停台 → watchdog 重啟（Spug RISINGROCKETS 實際踩到 3 次）。改成先等「大廳可見且舊遊戲指標都消失」最多 15 秒，等不到就停這台、不 reload（CodeX 1111）。回歸 test_reenter_lobby.py 13 條，拿掉等待／忽略新舊 DOM 重疊各自會紅'] },
   { version: '5.81.23', date: '2026-11-11', changes: ['fix(UAT 危險操作守衛)：.reserve-btn 用前綴比對會擋到 .reserve-btn-gray（預約框的 Exit To Lobby，只是離開）→ 規則表加 domExact（整個 class），只有 reserve 那條改；其他規則維持前綴（CodeX 1111）。Node 與錄製器注入版同一組回歸 9 條，各自突變會紅'] },
   { version: '5.81.22', date: '2026-11-11', changes: ['style(OSM 版號同步 渠道明細面板)：使用者回報修仙版這塊沒改到 → osm.css 補新版樣式：面板底色／框線、連線率條與版本色條凹槽、機型分組卡、表格表頭與格線、版本標籤；修仙版加鎏金邊與金玉表頭線。普通版原本也是舊色，一併改。版本色條各段顏色是資料色不動'] },
