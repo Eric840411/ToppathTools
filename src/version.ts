@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.21'
+export const APP_VERSION = '5.81.22'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.81.22', date: '2026-11-11', changes: ['style(OSM 版號同步 渠道明細面板)：使用者回報修仙版這塊沒改到 → osm.css 補新版樣式：面板底色／框線、連線率條與版本色條凹槽、機型分組卡、表格表頭與格線、版本標籤；修仙版加鎏金邊與金玉表頭線。普通版原本也是舊色，一併改。版本色條各段顏色是資料色不動'] },
   { version: '5.81.21', date: '2026-11-11', changes: ['style(登入畫面 帳號列)：使用者圈右側「角色＋鎖／開方塊」要重做、CodeX 出圖、使用者說這版可以 → 右欄改兩行：上行角色（限寬省略、滑鼠移上去看全名）、下行線框鎖圖示＋有 PIN／無 PIN；「上次」改成「上次登入」放姓名旁；登入中改顯示在角色那行。只動顯示，登入流程不變。手機點按看全名沒做（點整列＝登入，會衝突）'] },
   { version: '5.81.20', date: '2026-11-11', changes: ['style(登入畫面 修仙版)：使用者問「修仙版是不是沒運用美術圖」→ 改用其他修仙頁同一套素材：四角鎏金回紋（corner-tl.png）＋雙線內框、標題帶金→玉底線、遮罩加經絡線（meridian.png）、帳號圖示菱形印放回來'] },
   { version: '5.81.19', date: '2026-11-11', changes: ['style(登入畫面 新版)：使用者 1111 反映登入框沒跟著改版 → 新增 src/redesign/pages/login.css：標題帶、內凹分頁、34px 搜尋凹槽、帳號列＋角色／PIN 膠囊、上次登入左側強調色條；修仙版同結構換鎏金角框與菱形。只改樣式不動行為'] },

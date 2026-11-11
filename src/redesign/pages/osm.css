@@ -237,3 +237,77 @@
 :root[data-ui="redesign"] .osm-alert-config-row > .osm-lark-url-input { flex: 1 1 auto; min-width: 0; }
 :root[data-ui="redesign"] .osm-alert-cron-hint { color: var(--rd-fg-3) !important; }
 :root[data-ui="redesign"] .osm-alert-cron-hint code { background: var(--rd-panel-2) !important; color: var(--rd-fg-2) !important; border: 1px solid var(--rd-line); }
+
+/* ── 渠道明細面板（點左邊渠道列後右側那塊：連線率、版本色條、各機型分組表格）
+   1111 使用者截圖指出修仙版這塊還是舊的藍底（#162032／#0f172a 寫死在 App.css），兩版一起換成 --rd-* ── */
+:root[data-ui="redesign"] .osm-page .osm-detail-panel {
+  border: 1px solid color-mix(in srgb, var(--rd-line-2) 70%, transparent) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 85%, #fff 3%), var(--rd-panel) 60%, color-mix(in srgb, var(--rd-panel) 80%, #000)) !important;
+  box-shadow: var(--rd-elev-2) !important;
+}
+:root[data-ui="redesign"] .osm-page .osm-detail-panel::-webkit-scrollbar-thumb,
+:root[data-ui="redesign"] .osm-page .osm-machine-groups-scroll::-webkit-scrollbar-thumb { background: var(--rd-line-2); }
+:root[data-ui="redesign"] .osm-page .osm-detail-panel-header { border-bottom-color: var(--rd-line) !important; }
+:root[data-ui="redesign"] .osm-page .osm-detail-count { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .osm-page .osm-detail-time { color: var(--rd-fg-3) !important; }
+
+/* 連線率條：凹槽＋強調色 */
+:root[data-ui="redesign"] .osm-page .osm-detail-panel .osm-online-bar-track { height: 6px; background: var(--rd-bg-2) !important; box-shadow: var(--rd-well); }
+:root[data-ui="redesign"] .osm-page .osm-detail-panel .osm-online-bar-on { background: linear-gradient(90deg, var(--rd-accent), var(--rd-accent-2)) !important; }
+:root[data-ui="redesign"] .osm-page .osm-online-bar-lbl { color: var(--rd-fg-2) !important; }
+
+/* 版本色條：底槽換色；各段顏色是資料色（元件內寫死），不動 */
+:root[data-ui="redesign"] .osm-page .osm-vbar-track { background: var(--rd-bg-2) !important; box-shadow: var(--rd-well); }
+:root[data-ui="redesign"] .osm-page .osm-vbar-item { color: var(--rd-fg-2) !important; }
+:root[data-ui="redesign"] .osm-page .osm-vbar--empty { color: var(--rd-fg-3) !important; }
+
+/* 機型分組卡：同面板內層卡；標題列＝凹一階的底色 */
+:root[data-ui="redesign"] .osm-page .osm-machine-group-col {
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--rd-panel-2) 60%, var(--rd-panel)) !important;
+  box-shadow: var(--rd-elev-1);
+}
+:root[data-ui="redesign"] .osm-page .osm-type-group-header {
+  background: color-mix(in srgb, var(--rd-bg-2) 80%, var(--rd-panel)) !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+}
+:root[data-ui="redesign"] .osm-page .osm-type-badge { background: var(--rd-bg-2) !important; color: var(--rd-fg) !important; border: 1px solid var(--rd-line-2); }
+:root[data-ui="redesign"] .osm-page .osm-type-cat-ver { background: transparent !important; }
+:root[data-ui="redesign"] .osm-page :is(.osm-type-cat-label, .osm-type-count, .osm-type-target) { color: var(--rd-fg-3) !important; }
+:root[data-ui="redesign"] .osm-page .osm-type-cat-val { color: var(--rd-accent-2) !important; }
+
+/* 表格：表頭凹一階、格線用 --rd-line、滑過列淡亮 */
+:root[data-ui="redesign"] .osm-page .osm-machine-table th {
+  background: var(--rd-bg-2) !important;
+  color: var(--rd-fg-2) !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+}
+:root[data-ui="redesign"] .osm-page .osm-machine-table td { border-bottom-color: var(--rd-line) !important; color: var(--rd-fg-2) !important; background: transparent !important; }
+:root[data-ui="redesign"] .osm-page .osm-machine-table tbody tr { transition: background .12s ease; }
+:root[data-ui="redesign"] .osm-page .osm-machine-table tbody tr:hover { background: color-mix(in srgb, var(--rd-panel-2) 70%, transparent); }
+:root[data-ui="redesign"] .osm-page .osm-machine-table td:first-child { color: var(--rd-fg) !important; }
+:root[data-ui="redesign"] .osm-page .osm-version-tag { background: var(--rd-bg-2) !important; color: var(--rd-accent-2) !important; border: 1px solid var(--rd-line); }
+:root[data-ui="redesign"] .osm-page .osm-version-tag--diff {
+  background: color-mix(in srgb, var(--rd-warn) 12%, transparent) !important;
+  color: var(--rd-warn) !important;
+  border-color: color-mix(in srgb, var(--rd-warn) 35%, transparent);
+}
+
+/* 修仙版：直角、鎏金細框與表頭金→玉底線（同其他修仙表格） */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page :is(.osm-detail-panel, .osm-machine-group-col) { border-radius: 3px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page .osm-detail-panel { border-color: var(--xo-edge, var(--rd-line-2)) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page .osm-machine-group-col { border-color: color-mix(in srgb, var(--rd-ornament) 22%, var(--rd-line)) !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page .osm-detail-panel-header {
+  border-bottom-color: transparent !important;
+  background: linear-gradient(90deg, var(--rd-ornament), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-ornament)) 28%, var(--rd-line-2) 70%, transparent) left bottom / 100% 1px no-repeat !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page .osm-machine-table th {
+  border-bottom-color: transparent !important;
+  background:
+    linear-gradient(90deg, var(--rd-ornament), color-mix(in srgb, var(--rd-accent) 60%, var(--rd-ornament)) 40%, var(--rd-line-2)) left bottom / 100% 1px no-repeat,
+    var(--rd-bg-2) !important;
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page :is(.osm-type-badge, .osm-version-tag) { border-radius: 2px !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .osm-page .osm-type-cat-val { color: var(--rd-ornament) !important; }
