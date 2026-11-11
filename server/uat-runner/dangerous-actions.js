@@ -25,13 +25,20 @@
 /**
  * 規則表。
  *
- * @typedef {{ id: string, why: string, dom?: string[], node?: string[], text?: RegExp }} DangerRule
+ * @typedef {{ id: string, why: string, dom?: string[], domExact?: string[], node?: string[], text?: RegExp }} DangerRule
+ *
+ * dom      ＝前綴命中（選擇器字串裡出現就算，`.btn_cashout` 也擋 `.btn_cashoutX`）
+ * domExact ＝整個 class 才算：後面不能再接 [A-Za-z0-9_-]。
+ *            1111 T-004：`.reserve-btn` 用前綴會擋到 `.reserve-btn-gray`（預約框的「Exit To Lobby」，
+ *            只是離開、不會預約）。CodeX 1111：只把 reserve 這條改整個 class，其他規則維持前綴，
+ *            因為 cashout 等變體還沒查清楚，改了會漏。
  */
 export const DANGEROUS_RULES = [
   {
     id: 'reserve',
     why: '這會真的預約機台（鎖 24 小時，別人進不去）',
-    dom: ['.reserve-btn-long', '.reserve-btn', '.reserve-now'],
+    dom: ['.reserve-btn-long', '.reserve-now'],
+    domExact: ['.reserve-btn'],
     node: ['btn_reserve', 'reserve_btn', 'btn-reserve'],
     text: /reserve\s*now|立即預約|預約機台/i,
   },
@@ -103,6 +110,14 @@ export const DANGEROUS_RULES = [
  * @param {{ selector?: string, node?: string, text?: string }} what
  * @returns {{ id: string, why: string, strength: 'strong' | 'weak' } | null}
  */
+/** domExact 的比對：選擇器裡出現 sel，且後面不是 class 名稱可用的字元。瀏覽器注入版用同一個式子（DOM_EXACT_TAIL）。 */
+const DOM_EXACT_TAIL = '(?![A-Za-z0-9_-])'
+function escapeRe(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+export function selectorHitsDom(rule, selector) {
+  if ((rule.dom ?? []).some(sel => selector.includes(sel))) return true
+  return (rule.domExact ?? []).some(sel => new RegExp(escapeRe(sel) + DOM_EXACT_TAIL).test(selector))
+}
+
 export function classifyDanger(what = {}) {
   const selector = String(what.selector ?? '')
   const node = String(what.node ?? '')
@@ -110,7 +125,7 @@ export function classifyDanger(what = {}) {
   const nodeLeaf = node.includes('>') ? node.split('>').pop() : node
   const text = String(what.text ?? '')
   for (const rule of DANGEROUS_RULES) {
-    const hitDom = (rule.dom ?? []).some(sel => selector.includes(sel))
+    const hitDom = selectorHitsDom(rule, selector)
     const hitNode = (rule.node ?? []).some(n => nodeLeaf === n || node.includes(n))
     if (hitDom || hitNode) return { id: rule.id, why: rule.why, strength: 'strong' }
   }
@@ -208,7 +223,7 @@ export function guardDangerousStep({ step = {}, what = {}, startUrl = '', curren
  */
 export function dangerousRulesSource() {
   const plain = DANGEROUS_RULES.map(r => ({
-    id: r.id, why: r.why, dom: r.dom ?? [], node: r.node ?? [], text: r.text ? r.text.source : '', flags: r.text ? r.text.flags : '',
+    id: r.id, why: r.why, dom: r.dom ?? [], domExact: (r.domExact ?? []).map(sel => escapeRe(sel) + DOM_EXACT_TAIL), node: r.node ?? [], text: r.text ? r.text.source : '', flags: r.text ? r.text.flags : '',
   }))
   return [
     '(() => {',
@@ -222,7 +237,7 @@ export function dangerousRulesSource() {
     '      const leaf = node.indexOf(">") >= 0 ? node.split(">").pop() : node;',
     '      const text = String((what && what.text) || "");',
     '      for (let i = 0; i < RULES.length; i++) { const r = RULES[i];',
-    '        const hitDom = r.dom.some((s) => selector.indexOf(s) >= 0);',
+    '        const hitDom = r.dom.some((s) => selector.indexOf(s) >= 0) || r.domExact.some((re) => new RegExp(re).test(selector));',
     '        const hitNode = r.node.some((n) => leaf === n || node.indexOf(n) >= 0);',
     '        if (hitDom || hitNode) return { id: r.id, why: r.why, strength: "strong" }; }',
     '      for (let i = 0; i < RULES.length; i++) { const r = RULES[i];',

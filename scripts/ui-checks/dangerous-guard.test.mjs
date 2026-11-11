@@ -158,5 +158,31 @@ check('⑤ 別人的網域帶 uat 字樣也當正式', isProdLike('https://uat.e
 check('⑤ 起始是 QAT、操作當下已導到正式站 → 擋（放行也不接受）', !!throws(() => guardDangerousStep({ step: { ...reserveStep, allowDangerous: true }, what: { selector: reserveStep.selector }, startUrl: QAT, currentUrl: 'https://osm-h5.osmslot.com/game' })));
 check('⑤ 起始與當下都是 QAT → 放行可以過', !throws(() => guardDangerousStep({ step: { ...reserveStep, allowDangerous: true }, what: { selector: reserveStep.selector }, startUrl: QAT, currentUrl: 'https://uat-h5.osmslot.org/game' })));
 
+// ── 1111 T-004：reserve 改整個 class 比對，其他規則維持前綴（CodeX 1111）──────────
+// Node 版與錄製器注入版（dangerousRulesSource）跑同一組案例，兩邊不能漂
+{
+  const { dangerousRulesSource } = await import('../../server/uat-runner/dangerous-actions.js');
+  const win = {};
+  new Function('window', dangerousRulesSource())(win);
+  const injected = (what) => win.__uatDanger.classify(what);
+  const cases = [
+    ['.reserve-btn-gray:has-text("Exit To Lobby"):visible 不擋（Exit To Lobby 只是離開）', { selector: '.reserve-btn-gray:has-text("Exit To Lobby"):visible' }, null],
+    ['.function-btn .reserve-btn-gray 不擋', { selector: '.function-btn .reserve-btn-gray' }, null],
+    ['.reserve-btn 照擋', { selector: '.reserve-btn' }, 'reserve'],
+    ['.reserve-btn:has-text("Reserve Now") 照擋', { selector: '.reserve-btn:has-text("Reserve Now")' }, 'reserve'],
+    ['.reserve-btn.active 照擋（後面接另一個 class）', { selector: '.reserve-btn.active' }, 'reserve'],
+    ['.reserve-btn-long 照擋（自己一條）', { selector: '.reserve-btn-long' }, 'reserve'],
+    ['gray 與危險 class 同時出現仍擋', { selector: '.reserve-btn-gray, .reserve-btn' }, 'reserve'],
+    ['cashout 前綴變體照擋（.btn_cashoutX）', { selector: '.btn_cashoutX' }, 'cash-out'],
+    ['cashout 前綴變體照擋（.btn_cashout-confirm）', { selector: '.btn_cashout-confirm' }, 'cash-out'],
+  ];
+  for (const [title, what, want] of cases) {
+    const a = classifyDanger(what), b = injected(what);
+    const ida = a && a.strength === 'strong' ? a.id : null;
+    const idb = b && b.strength === 'strong' ? b.id : null;
+    check(`1111 ${title}`, ida === want && idb === want, `node=${ida} injected=${idb} want=${want}`);
+  }
+}
+
 console.log(`\n${fail ? '❌' : '✅'} ${pass} 過 / ${fail} 失敗`);
 assert.equal(fail, 0, '危險操作守衛測試有失敗項');
