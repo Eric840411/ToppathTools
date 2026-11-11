@@ -1744,6 +1744,41 @@ def read_balance(page):
 
 
 REENTRY_BALANCE_WAIT_SEC = 20.0
+REENTRY_LOBBY_WAIT_SEC = 15.0
+
+# 跟 is_in_game() 同一組「在遊戲裡」的指標
+GAME_INDICATOR_SELECTORS = ['.my-button.btn_spin', '.btn_spin .my-button',
+                            '.balance-bg.hand_balance', '.h-balance.hand_balance']
+
+
+def _any_visible(page, sel: str) -> bool:
+    try:
+        els = page.locator(sel).all()
+        return bool(els) and any(e.is_visible() for e in els)
+    except Exception:
+        return False
+
+
+def is_clean_lobby(page) -> bool:
+    """大廳機台列表看得到，**而且**舊遊戲的指標都已經消失。
+
+    ⚠️ 不能用 detect_seat_state()=='lobby'：它先看大廳，新舊 DOM 重疊時會回 lobby，
+       但 _enter_game_once 用的 is_in_game() 先看遊戲指標，照樣判成「已在遊戲中」（CodeX 1111）。
+    """
+    if not _any_visible(page, '#grid_gm_item'):
+        return False
+    return not any(_any_visible(page, sel) for sel in GAME_INDICATOR_SELECTORS)
+
+
+def wait_clean_lobby(page, timeout_sec=None) -> bool:
+    """離桌確認後等畫面真的切回大廳。停止訊號會中斷等待（回 False）。"""
+    deadline = time.time() + (REENTRY_LOBBY_WAIT_SEC if timeout_sec is None else timeout_sec)
+    while time.time() < deadline:
+        if is_clean_lobby(page):
+            return True
+        if stop_flag.wait(0.5):
+            return False
+    return is_clean_lobby(page)
 
 
 def wait_fresh_balance(page, since_ms: float, min_balance: float, timeout_sec: float = REENTRY_BALANCE_WAIT_SEC):
@@ -1774,6 +1809,18 @@ def leave_and_reenter(page, cfg: dict, mt: str, mp: dict, min_balance: float, re
     """
     if not leave_game(page, cfg, mt):
         log(f"[{mt}] ⚠️ {reason}：離桌未確認，停止這台 Spin（座位可能仍被佔用，請到後台 egmList 確認）")
+        return False
+    # ⚠️ 離桌確認（leaveGMNtc errcode=0）≠ 畫面已切回大廳。舊遊戲 DOM 還在時直接
+    #    enter_game，會被判成「已在遊戲中，跳過大廳」→ 根本沒重進 → 20 秒讀不到餘額
+    #    → 停這台 → watchdog 重啟（2026-11-11 Spug RISINGROCKETS 隨機離開連續 3 次）。
+    # ⚠️ 等不到就直接停，不 reload：reload 可能觸發自動恢復入座（CodeX 1111）。
+    #    這時離桌已確認、也還沒重進，所以收尾不用再離桌。
+    if not wait_clean_lobby(page):
+        mp['left_seat'] = True
+        if stop_flag.is_set():
+            return False
+        log(f"[{mt}] ⚠️ {reason}：已離桌，但 {REENTRY_LOBBY_WAIT_SEC:.0f} 秒內畫面沒有切回大廳"
+            f"（舊遊戲畫面還在），不重進、停止這台")
         return False
     # ⚠️ 一開始重進就不能再當「已離桌」：Join 送出但確認逾時、畫面判不出來時
     #    enter_game 也回 False，其實可能已入座——收尾要照樣離桌（CodeX c8b5859 P1）

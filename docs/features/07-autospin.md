@@ -60,6 +60,7 @@
 - **RECOVER（斷線重連）次數**：`PatchedWS` 監聽 WebSocket open/close 事件累計（`window.__wsRecoverCount`）。
 - **kickout 次數**：既有的低餘額自動離機→重進機台流程，新增計數器（`mp['kickout_count']`）。
   - **v5.81.6 低餘額／隨機離開的離桌重進**（`leave_and_reenter`）：原本只點舊選擇器（`.btn-exit` 等，現行機種沒有），沒離桌又被 enter_game 的「已在遊戲中」跳過，實測一路扣到 800。現在用 `leave_game` 確認離桌 → `enter_game`（AFT 從錢包轉入，實測每次補到 2,000,000）→ `wait_fresh_balance` 等 coin 更新時間晚於重進、且 ≥ 門檻才繼續。離不開（不重進）、重進失敗、20 秒內沒回到門檻（錢包可能也不夠）→ 停這台；重進失敗後只有畫面確認在大廳才讓收尾跳過 leave_game（`mp['left_seat']`；v5.81.7 CodeX：Join 送出但確認逾時時其實可能已入座）；離桌重進途中拋例外也停這台（外層 handler 只記錯誤，會繼續 Spin）。
+  - **v5.81.24 離桌後要等畫面真的回到大廳才重進**：leaveGMNtc errcode=0 只代表座位已還，前端切換可能還沒完成；舊遊戲 DOM 還在時 enter_game 會「已在遊戲中，跳過大廳」→ 沒重進 → 讀不到餘額停台 → watchdog 重啟（11-11 RISINGROCKETS 隨機離開連 3 次）。現在 `wait_clean_lobby` 最多等 15 秒「`#grid_gm_item` 可見**且** Spin／餘額指標都消失」（不能用 `detect_seat_state`：它先看大廳，新舊 DOM 重疊會回 lobby）；等不到就停這台、`left_seat=True`，**不 reload**（可能觸發自動恢復入座）。回歸：`python server/python/test_reenter_lobby.py`
 - **CR checks / 無回應**：沿用 `track_button_health()` 的被動事件，新增 `no_response` 判定——`CR_NO_RESPONSE_TIMEOUT`（60 秒）內沒有任何 daily-analysis 按鈕確認事件即視為異常（`check_cr_gap()`），沒有 response 也算問題。
 - **Spin/中獎/總贏分**：`mp['ok_spin_count']`/`win_count`/`total_win`，跟既有 Spin 結果判斷邏輯同步累計。
 
