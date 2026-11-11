@@ -224,14 +224,23 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
                       onClick={() => handleAccountClick(account)}
                     >
                       <span className="auth-login-account-main">
-                        <strong>{account.label}</strong>
-                        <span>{account.email}</span>
+                        <span className="auth-login-name-row">
+                          <strong>{account.label}</strong>
+                          {isSameEmail(lastLoginEmail, account.email) && <span className="auth-login-last-badge" title="Last used">上次登入</span>}
+                        </span>
+                        <span className="auth-login-email">{account.email}</span>
                       </span>
                       <span className="auth-login-account-meta">
-                        {isSameEmail(lastLoginEmail, account.email) && <span className="auth-login-last-badge" title="Last used">上次</span>}
-                        <span>{account.roleLabel ?? account.role.toUpperCase()}</span>
-                        {account.hasPIN ? <span className="auth-login-seal" title="PIN protected">鎖</span> : <span className="auth-login-seal auth-login-seal--open" title="No PIN">開</span>}
-                        {loginLoadingEmail === account.email && <span>...</span>}
+                        <span className="auth-login-role" title={account.roleLabel ?? account.role.toUpperCase()}>
+                          {loginLoadingEmail === account.email ? '登入中…' : (account.roleLabel ?? account.role.toUpperCase())}
+                        </span>
+                        <span className={`auth-login-pin-state${account.hasPIN ? '' : ' is-open'}`}>
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                            <rect x="3" y="7" width="10" height="7.5" rx="1.5" />
+                            <path d={account.hasPIN ? 'M5.5 7V5a2.5 2.5 0 0 1 5 0v2' : 'M5.5 7V5a2.5 2.5 0 0 1 4.9-.7'} />
+                          </svg>
+                          {account.hasPIN ? '有 PIN' : '無 PIN'}
+                        </span>
                       </span>
                     </button>
                   )
