@@ -280,25 +280,47 @@
   color: var(--rd-fg) !important;
 }
 
-/* ══ 修仙版：同結構，只換配色與裝飾（鎏金角框、標題帶鎏金菱形、角色字鎏金） ══ */
+/* ══ 修仙版：同結構，美術素材跟其他修仙頁同一套（xianxia-ornament.css 的 --xo-*）：
+   遮罩＝境界背景圖＋右下經絡線（meridian.png）（玉紋貼圖在背景圖層沒辦法單獨調到 .03 透明，疊上去太花，不放）；
+   卡片＝四角鎏金回紋（corner-tl.png）＋距 3px 雙線內框；標題帶底線金→玉漸層；
+   帳號圖示（XianxiaIcon account）留著，縮成標題帶下的菱形印 ══ */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-overlay {
   background:
+    url('/xianxia-ornament/meridian.png') right -36px bottom 40px / 640px auto no-repeat,
     radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--rd-accent) 12%, transparent), transparent 70%),
-    linear-gradient(rgba(2, 8, 7, .84), rgba(2, 8, 7, .94)),
+    linear-gradient(rgba(2, 8, 7, .80), rgba(2, 8, 7, .92)),
     url('/themes/xianxia/xianxia-dashboard-bg.png') center 18% / cover no-repeat !important;
 }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal {
   border-radius: 4px !important;
-  border-color: color-mix(in srgb, var(--rd-ornament) 40%, var(--rd-line-2)) !important;
+  border-color: var(--xo-edge) !important;
+  background:
+    var(--xo-frets), var(--xo-frame),
+    linear-gradient(180deg, color-mix(in srgb, var(--rd-panel-2) 92%, #fff 3%), var(--rd-panel) 55%, color-mix(in srgb, var(--rd-panel) 85%, #000)) !important;
 }
+/* 舊仙俠 CSS 的兩個簡單 L 角框，由上面的回紋取代 */
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::before,
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::after {
-  width: 22px !important; height: 22px !important;
-  border-color: var(--rd-ornament) !important;
-  z-index: 1;
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::after { display: none !important; }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header {
+  border-bottom-color: transparent !important;
+  background:
+    linear-gradient(90deg, var(--rd-ornament), color-mix(in srgb, var(--rd-accent) 70%, var(--rd-ornament)) 28%, var(--rd-line-2) 70%, transparent) left bottom / 100% 1px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, .05), transparent) !important;
 }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::before { inset: 5px auto auto 5px !important; }
-:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal::after { inset: auto 5px 5px auto !important; }
+/* 帳號圖示：菱形印，置中在說明字上方 */
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal .auth-login-lock {
+  display: grid !important;
+  place-items: center;
+  width: 42px !important; height: 42px !important;
+  margin: 6px auto 16px !important;
+  border: 1px solid color-mix(in srgb, var(--rd-ornament) 60%, transparent) !important;
+  border-radius: 3px !important;
+  background: color-mix(in srgb, var(--rd-ornament) 10%, var(--rd-panel)) !important;
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--rd-ornament) 12%, transparent), 0 0 18px color-mix(in srgb, var(--rd-ornament) 10%, transparent) !important;
+  transform: rotate(45deg);
+}
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal .auth-login-lock .xianxia-icon { width: 28px !important; height: 28px !important; transform: rotate(-45deg); }
+:root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-copy { text-align: center !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header { padding-left: 38px !important; }
 :root[data-ui="redesign"][data-theme-mode="xianxia"] .auth-login-modal > .auth-login-header::before {
   left: 21px; width: 8px; height: 8px; margin-top: -4px; border-radius: 0;
