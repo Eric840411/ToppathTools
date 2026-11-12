@@ -916,13 +916,13 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             : <button type="button" className="uat-btn is-quiet" disabled={queueBusy || libBusy || !checkedVisible.length} onClick={() => void removeFromMine(checkedVisible)}>{'移除'}</button>}
           <span>{`已勾 ${queueIds.length} 份`}</span>
         </div>
-        {/* v5.82.0 批次改綁：有勾就用勾的，沒勾就預設「我的」。⚠️ 編輯中有沒存的改動時不開——
+        {/* v5.82.0 批次改綁：只帶外面勾的；沒勾就一支都不預勾（v5.83.1，Lusa：清掉勾選卻自動帶了整份「我的」像 bug）。⚠️ 編輯中有沒存的改動時不開——
             伺服器改完會重新載入，沒存的改動會被蓋掉（或之後存檔把改綁蓋回去） */}
         <button type="button" className="uat-btn is-quiet" disabled={queueBusy || libBusy || dirty}
           title={dirty ? '目前這份有沒存的改動，先存檔再批次改綁' : undefined}
           onClick={() => setBulkRetargetOpen(true)}>{'批次改綁 TC 表格'}</button>
         {bulkRetargetOpen && <BatchRetargetDialog open scripts={scripts}
-          defaultIds={queueIds.length ? queueIds : mine.ids}
+          defaultIds={queueIds}
           onClose={() => setBulkRetargetOpen(false)}
           onOpenSingle={id => { setBulkRetargetOpen(false); selectScript(id); setRetargetOpen(true) }}
           onApplied={() => void loadScripts(selectedId || undefined)} />}

@@ -79,7 +79,7 @@ function bindingCountOf(script: AutoScript): number {
 export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpenSingle, onApplied }: {
   open: boolean
   scripts: AutoScript[]
-  /** 預設勾選的腳本（呼叫端決定：有勾的用勾的，沒有就用「我的」） */
+  /** 預設勾選的腳本：外面列表勾的那些；沒勾就是空的（v5.83.1） */
   defaultIds: string[]
   onClose: () => void
   /** 「逐筆處理」：關掉這個、開那一支的單支改綁彈窗 */
@@ -89,7 +89,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
 }) {
   const candidates = useMemo(() => scripts.filter(s => bindingCountOf(s) > 0), [scripts])
   const [picked, setPicked] = useState<string[]>(() => defaultIds.filter(id => candidates.some(s => s.id === id)))
-  // 預設帶進來的（勾選或「我的」）裡沒綁 TC 的支數——不講的話「勾了 33 支、這裡只有 29 支」看起來像漏掉（Lusa 1112）
+  // 預設帶進來的（外面勾的）裡沒綁 TC 的支數——不講的話「勾了 33 支、這裡只有 29 支」看起來像漏掉（Lusa 1112）
   const unboundDefaults = useMemo(() => scripts
     .filter(s => defaultIds.includes(s.id) && bindingCountOf(s) === 0).map(s => s.name), [scripts, defaultIds])
   const [url, setUrl] = useState('')
@@ -207,6 +207,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
               <button type="button" className="uat-btn is-quiet" onClick={() => setPicked([])}>清除</button>
               <span>{`已選 ${picked.length}／${candidates.length} 支（只列已綁 TC 的）`}</span>
             </div>
+            {!defaultIds.length && <p className="uat-inline-hint">外面沒有勾腳本，請在下面勾選要改綁的，或按「全選」。</p>}
             {unboundDefaults.length > 0 && (
               <p className="uat-inline-hint" title={unboundDefaults.join('\n')}>
                 {`另有 ${unboundDefaults.length} 支沒綁 TC，不用改綁、沒有列出：${unboundDefaults.slice(0, 4).join('、')}${unboundDefaults.length > 4 ? ' …' : ''}`}
