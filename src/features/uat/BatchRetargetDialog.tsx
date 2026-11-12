@@ -253,7 +253,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                           <tr key={r.old.recordId} className={r.suggestion ? '' : 'is-unset'}>
                             <td><b>{r.old.number || '（無編號）'}</b><small>{r.note}</small></td>
                             <td>{r.old.text}<small>舊記錄：{r.old.recordId}</small></td>
-                            <td>{r.suggestion ? <>{r.suggestion.text}<small>新記錄：{r.suggestion.recordId}</small></> : <span className="uat-retarget-warn">{r.note}</span>}</td>
+                            <td>{r.suggestion ? <><b>{r.suggestion.number}</b> {r.suggestion.text}<small>新記錄：{r.suggestion.recordId}</small>{r.reason !== 'matched' && <span className="uat-retarget-warn">{r.note}</span>}</> : <span className="uat-retarget-warn">{r.note}</span>}</td>
                           </tr>
                         ))}</tbody>
                       </table>

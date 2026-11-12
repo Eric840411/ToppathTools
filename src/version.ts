@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.82.3'
+export const APP_VERSION = '5.82.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.82.4', date: '2026-11-12', changes: ['fix(改綁 TC 配對)：Lusa 反映「T-072/074 卻要找 T-B-012」——新表是複製的、紀錄 ID 一樣但編號重編，只比編號配不上 → 先比紀錄 ID：內容一樣直接配上並註明編號變化，內容改過留候選要人確認；整份結果一對一，搶同一筆的改人工。批次視窗新表欄位也顯示新編號。單支與批次共用。CodeX 同意'] },
   { version: '5.82.3', date: '2026-11-12', changes: ['fix(批次改綁 TC)：Lusa 反映整批都是「舊腳本沒記擁有者（要管理員）」，只能逐支改就失去批次的意義 → 沒記擁有者的舊腳本，任何登入者都能批次改綁（單支本來就沒擋）；有擁有者且不是本人仍擋；套用時不補記擁有者。CodeX 同意'] },
   { version: '5.82.2', date: '2026-11-12', changes: ['style(批次改綁 TC)：Lusa 反映「我的勾了 33 支、視窗只有 29 支」——4 支沒綁 TC 不列入是對的，但畫面沒講 → 第一步加一行「另有 N 支沒綁 TC，不用改綁、沒有列出」並列名稱（滑鼠移上去看全部）。只加說明文字，行為不變'] },
   { version: '5.82.1', date: '2026-11-12', changes: ['fix(批次改綁 TC，CodeX review 2146a76 兩個 P2)：①斷線／讀回應失敗時例外往外拋，畫面卡在「套用中」、關閉鍵停用 → 請求改走 safePost（永不 throw），套用失敗時舊預覽、勾選、確認一起作廢、要重新檢查配對 ②「選取全部可套用」沒清掉「我已確認」→ 改勾選一律走 choose()（同時清確認）。回歸 scripts/ui-checks/batch-retarget-http.test.ts 6 條：斷線／讀到一半失敗／沒路由／正常，以及原始碼只准 choose() 改勾選、不准直接 fetch；拿掉 catch、全選直接 setChosen 各自會紅'] },

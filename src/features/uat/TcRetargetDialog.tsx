@@ -52,6 +52,8 @@ const REASON_LABEL: Record<RetargetPlanRow['reason'], string> = {
   'number-empty': '沒有編號',
   'number-duplicate': '編號重複',
   'not-found': '新表沒有',
+  'record-changed': '內容改過',
+  'target-conflict': '配到同一筆',
 }
 
 async function post<T>(url: string, body: unknown): Promise<T> {

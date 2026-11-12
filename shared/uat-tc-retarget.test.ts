@@ -254,3 +254,35 @@ test('批次：預覽後新表變了（recordId 換掉）→ plan-changed', () =
   assert.equal(batchRetargetStatus({ ...base, rows: allMatched, expectedPlanKey: key }), 'ready')
   assert.equal(batchRetargetStatus({ ...base, rows: changed, expectedPlanKey: key }), 'plan-changed')
 })
+
+// ── v5.82.4：同 recordId 優先（複製表重編號）──────────────────────────────
+const rb = (recordId: string, number: string, text: string) => ({ recordId, tableId: 'tblOLD', number, text, sub: '' })
+const rt = (recordId: string, number: string, text: string) => ({ recordId, number, text, sub: '' })
+test('同一筆紀錄、編號重編、內容一樣 → matched（舊 T-B-012 兩筆 → 新 T-072／T-074）', () => {
+  const plan = planTcRetarget(
+    [rb('recA', 'T-B-012', '預約 Reserve Now'), rb('recB', 'T-B-012', '取消預約')],
+    [rt('recA', 'T-072', '預約  Reserve Now'), rt('recB', 'T-074', '取消預約'), rt('recX', 'T-B-012', '別的')])
+  assert.deepEqual(plan.map(r => [r.reason, r.suggestion?.number]), [['matched', 'T-072'], ['matched', 'T-074']])
+  assert.match(plan[0].note, /T-B-012 → T-072/)
+})
+test('同一筆紀錄但內容改過 → record-changed、留候選，不退回編號規則', () => {
+  // 新表另有一筆編號一樣、內容一樣的：退回編號規則就會配到它，繞過確認
+  const plan = planTcRetarget([rb('recA', 'T-1', '舊內容')], [rt('recA', 'T-1', '新內容'), rt('recZ', 'T-1x', '舊內容')])
+  assert.equal(plan[0].reason, 'record-changed')
+  assert.equal(plan[0].suggestion?.recordId, 'recA')
+  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'needs-review')
+})
+test('舊綁定裡 recordId 重複 → 不用 ID 配，走原本的編號規則', () => {
+  const plan = planTcRetarget([rb('recA', 'T-1', 'x'), rb('recA', 'T-2', 'y')], [rt('recA', 'T-1', 'x'), rt('n2', 'T-2', 'y')])
+  assert.deepEqual(plan.map(r => [r.reason, r.note]), [['matched', '編號在兩邊都唯一'], ['matched', '編號在兩邊都唯一']])
+})
+test('ID 配對跟編號配對搶同一筆新 TC → 兩筆都 target-conflict', () => {
+  // r1 靠 ID 配到 recA（T-5）；r2 編號 T-5 在新表唯一，也配到 recA
+  const plan = planTcRetarget([rb('recA', 'T-1', 'x'), rb('r2', 'T-5', 'y')], [rt('recA', 'T-5', 'x')])
+  assert.deepEqual(plan.map(r => r.reason), ['target-conflict', 'target-conflict'])
+  assert.ok(plan.every(r => r.suggestion === null))
+})
+test('新表找不到這個 recordId → 照舊用編號配', () => {
+  const plan = planTcRetarget([rb('recOld', 'T-1', 'x')], [rt('recNew', 'T-1', 'x')])
+  assert.equal(plan[0].reason, 'matched'); assert.equal(plan[0].note, '編號在兩邊都唯一')
+})

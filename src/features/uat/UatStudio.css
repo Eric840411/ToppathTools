@@ -1713,6 +1713,8 @@ button.uat-launch-block { text-align: left; }
 .uat-retarget-tag.is-matched { color: #34d399; background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.3); }
 .uat-retarget-tag.is-number-empty,
 .uat-retarget-tag.is-number-duplicate,
+.uat-retarget-tag.is-record-changed,
+.uat-retarget-tag.is-target-conflict,
 .uat-retarget-tag.is-not-found { color: #eab308; background: rgba(234,179,8,.12); border-color: rgba(234,179,8,.3); }
 
 .uat-retarget-result { display: flex; flex-direction: column; gap: 6px; }

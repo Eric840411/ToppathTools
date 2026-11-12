@@ -47,6 +47,8 @@ export type RetargetReason =
   | 'number-empty'       // 舊綁定沒有編號，無從配對
   | 'number-duplicate'   // 編號在舊表或新表出現多次，不敢猜
   | 'not-found'          // 新表沒有這個編號
+  | 'record-changed'     // 新表有同一個 recordId，但內容不一樣：留候選，要人確認（v5.82.4）
+  | 'target-conflict'    // 兩筆以上舊綁定配到同一筆新 TC，不敢猜（v5.82.4）
 
 export interface RetargetPlanRow {
   old: RetargetBinding
@@ -124,7 +126,31 @@ export function planTcRetarget(oldBindings: RetargetBinding[], newTcs: RetargetT
     if (key && !newByPair.has(key)) newByPair.set(key, tc)
   }
 
-  return oldBindings.map(old => {
+  // 🚨 同 recordId 優先（v5.82.4，CodeX 1112）：同事的新表是同一個 base 複製出來的，recordId 跟舊綁定一樣，
+  //    但編號重編了（舊 T-B-012 兩筆 → 新 T-072、T-074；舊 T-A-001 → 新 T-001），只比編號全部配不上。
+  //    ⚠️ 飛書的 recordId 不是全域唯一，跨表同 ID 只是線索、不是證明 → 內容也要一樣才給 matched；
+  //    內容不同留候選但要人確認，而且**不能再退回編號規則**繞過確認。
+  const oldIdCounts = new Map<string, number>()
+  for (const b of oldBindings) if (b.recordId) oldIdCounts.set(b.recordId, (oldIdCounts.get(b.recordId) ?? 0) + 1)
+  const newIdCounts = new Map<string, number>()
+  const newById = new Map<string, RetargetTc>()
+  for (const tc of newTcs) {
+    if (!tc.recordId) continue
+    newIdCounts.set(tc.recordId, (newIdCounts.get(tc.recordId) ?? 0) + 1)
+    if (!newById.has(tc.recordId)) newById.set(tc.recordId, tc)
+  }
+
+  const rows: RetargetPlanRow[] = oldBindings.map(old => {
+    const idHit = old.recordId && oldIdCounts.get(old.recordId) === 1 && newIdCounts.get(old.recordId) === 1
+      ? newById.get(old.recordId) : undefined
+    if (idHit) {
+      const renumbered = normalizeTcNumber(old.number) !== normalizeTcNumber(idHit.number)
+      const numNote = renumbered ? `（編號 ${old.number || '空'} → ${idHit.number || '空'}）` : ''
+      if (normalizeTcText(old.text) === normalizeTcText(idHit.text)) {
+        return { old, suggestion: idHit, reason: 'matched' as const, note: `同一筆紀錄、內容一樣${numNote}` }
+      }
+      return { old, suggestion: idHit, reason: 'record-changed' as const, note: `同一筆紀錄但內容改過${numNote}，請確認` }
+    }
     const key = normalizeTcNumber(old.number)
     if (!key) {
       return { old, suggestion: null, reason: 'number-empty' as const, note: '舊綁定沒有編號，無法自動配對' }
@@ -152,6 +178,13 @@ export function planTcRetarget(oldBindings: RetargetBinding[], newTcs: RetargetT
     // ⚠️ 編號唯一時不比內容（沿用原規則）：內容改過也照樣給建議，由人在畫面上看
     return { old, suggestion: hit, reason: 'matched' as const, note: '編號在兩邊都唯一' }
   })
+
+  // 整份結果要一對一：ID 配對跟編號配對可能搶到同一筆新 TC（CodeX 1112）→ 搶到的全部改成要人處理
+  const taken = new Map<string, number>()
+  for (const r of rows) if (r.suggestion) taken.set(r.suggestion.recordId, (taken.get(r.suggestion.recordId) ?? 0) + 1)
+  return rows.map(r => r.suggestion && (taken.get(r.suggestion.recordId) ?? 0) > 1
+    ? { old: r.old, suggestion: null, reason: 'target-conflict' as const, note: `新表「${r.suggestion.number}」被兩筆以上舊綁定配到，請手動指定` }
+    : r)
 }
 
 export interface RetargetApplyInput<S extends { tcId?: string | null }> {
