@@ -65,6 +65,16 @@ function fmt(n: number | undefined | null, digits = 2): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
+/**
+ * RTP 照 OSM 後台 EGM Performance Meter 的顯示：小數兩位**直接捨去**，不四捨五入
+ * （2026-11-12 同事比對：104,578 ÷ 1,871,480 = 5.588%，後台顯示 5.58%，工具原本四捨五入成 5.59%）。
+ * 先四捨五入到小數 6 位再捨去，避免 0.29×100＝28.999… 這種浮點誤差被多砍一位。
+ */
+function fmtRtp(n: number | undefined | null): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—'
+  return fmt(Math.trunc(Math.round(n * 1e6) / 1e4) / 100)
+}
+
 export function MeterReconcilePage() {
   // 環境（QAT／UAT）：決定查哪個後台、後台設定顯示哪一組。放在查詢列最前面（使用者 1104 選）
   const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('meter'))
@@ -300,7 +310,7 @@ export function MeterReconcilePage() {
                   <div style={kvRow}><span className="st-k">Coin Out</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.meter.coinOut)}</span></div>
                   <div style={kvRow}><span className="st-k">Jackpot Wins</span><span className="st-v">{fmt(result.meter.jackpotWins)}</span></div>
                   <div style={kvRow}><span className="st-k">WIN / LOSE</span><span className="st-v" style={{ color: result.meter.winLoss < 0 ? '#f87171' : undefined }}>{fmt(result.meter.winLoss)}</span></div>
-                  <div style={kvRow}><span className="st-k">RTP</span><span className="st-v" style={{ color: result.meter.rtp < 0 ? '#f87171' : undefined }}>{fmt(result.meter.rtp)}%</span></div>
+                  <div style={kvRow}><span className="st-k">RTP</span><span className="st-v" style={{ color: result.meter.rtp < 0 ? '#f87171' : undefined }}>{fmtRtp(result.meter.rtp)}%</span></div>
                   <div style={{ ...kvRow, borderBottom: 'none' }}><span className="st-k">Games Played</span><span className="st-v">{fmt(result.meter.gamesPlayed, 0)}</span></div>
                 </>
               ) : <p className="st-dim">查無資料</p>}
