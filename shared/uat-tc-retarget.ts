@@ -348,6 +348,7 @@ export type BatchRetargetStatus =
   | 'forbidden'      // 不是自己的腳本（也不是管理員）
   | 'conflict'       // 預覽之後被改過
   | 'plan-changed'   // 預覽之後新表變了，配對結果跟人確認過的不一樣
+  | 'ready-with-changes' // 每筆都有候選，但有同一筆紀錄內容改過的：人逐支接受差異後才能批次套用（v5.82.6）
 
 export function batchRetargetStatus(args: {
   ownerEmail: string
@@ -370,7 +371,18 @@ export function batchRetargetStatus(args: {
   if (args.expectedPlanKey !== undefined && args.expectedPlanKey !== batchPlanKey(args.newTableId, args.rows)) return 'plan-changed'
   if (args.tableId && args.tableId === args.newTableId) return 'same-table'
   if (!args.rows.length) return 'no-bindings'
-  return args.rows.every(r => r.reason === 'matched' && r.suggestion) ? 'ready' : 'needs-review'
+  if (args.rows.every(r => r.reason === 'matched' && r.suggestion)) return 'ready'
+  if (args.rows.every(r => (r.reason === 'matched' || r.reason === 'record-changed') && r.suggestion)) return 'ready-with-changes'
+  return 'needs-review'
+}
+
+/**
+ * 這一支這次能不能批次套用（v5.82.6，CodeX 1112）。
+ * `ready-with-changes` 一定要這一支**明確**帶 `acceptChanges: true`——代表人展開看過差異並接受，
+ * 不是前端解鎖就算數；後端套用時重算狀態再呼叫這裡，planKey 擋「接受之後內容又變了」。
+ */
+export function batchCanApply(status: BatchRetargetStatus, acceptChanges: unknown): boolean {
+  return status === 'ready' || (status === 'ready-with-changes' && acceptChanges === true)
 }
 
 /** ready 的腳本用建議配對當 decisions。只在 `batchRetargetStatus` 回 ready 時呼叫。 */

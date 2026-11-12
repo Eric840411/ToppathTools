@@ -47,6 +47,14 @@ try {
     const steps = bindings.map(bd => ({ id: `s_${bd.recordId}`, type: 'wait', ms: 1, tcId: bd.recordId }))
     db.prepare("UPDATE frontend_auto_scripts SET table_id='tblCOPYTEST', bindings=?, steps=? WHERE id=?").run(JSON.stringify(bindings), JSON.stringify(steps), id)
   })
+  // 第 5 支（v5.82.6）：同一筆紀錄（recordId 跟新表一樣）但內容改過 → ready-with-changes
+  const changedId = ids[4]
+  {
+    const tc = uniqTcs[6]
+    const bindings = [{ recordId: tc.recordId, tableId: 'tblCOPYTEST', number: tc.number, text: `${tc.text}（舊版文字）`, sub: tc.sub ?? '' }]
+    const steps = [{ id: 's_chg', type: 'wait', ms: 1, tcId: tc.recordId }]
+    db.prepare("UPDATE frontend_auto_scripts SET table_id='tblCOPYTEST', bindings=?, steps=? WHERE id=?").run(JSON.stringify(bindings), JSON.stringify(steps), changedId)
+  }
   // 本機舊腳本 owner_email 都是空的 → 先全部記成測試用帳號的，再留一支空的（v5.82.3 起非管理員也能批次改綁）
   for (const id of ids) db.prepare('UPDATE frontend_auto_scripts SET owner_email=? WHERE id=?').run(user, id)
   const noOwnerId = ids[ids.length - 1]
@@ -66,6 +74,8 @@ try {
   const ready = plan.filter(p => p.status === 'ready')
   ck('模擬的 4 支（含編號重複靠內容配）都是 ready', ids.slice(0, 4).every(id => ready.some(p => p.scriptId === id)),
     JSON.stringify(plan.filter(p => ids.slice(0, 4).includes(p.scriptId)).map(p => p.status)))
+  const chg = plan.find(p => p.scriptId === changedId)
+  ck('同一筆紀錄內容改過 → ready-with-changes', chg?.status === 'ready-with-changes', chg?.status)
   ck('編號重複那支的配對理由寫「編號＋內容」', (plan.find(p => p.scriptId === ids[0])?.rows ?? []).every(x => x.note.includes('編號＋內容')))
   const review = plan.find(p => p.status === 'needs-review')
   if (ready.length >= 2) {
@@ -99,6 +109,17 @@ try {
     ck('套用的有寫備份', db.prepare('SELECT COUNT(*) n FROM uat_tc_retarget_backups WHERE script_id=? AND created_at >= ?').get(b.scriptId, t0).n >= 1)
   } else {
     console.log('    （ready 少於 2 支，套用段跳過）')
+  }
+  if (chg) {
+    const tableOf = id => db.prepare('SELECT table_id FROM frontend_auto_scripts WHERE id=?').get(id).table_id
+    const item = { scriptId: changedId, expectedUpdatedAt: chg.updatedAt, expectedPlanKey: chg.planKey }
+    r = await call('/api/osm-uat/retarget/batch-apply', { newLarkUrl: NEW_URL, items: [item] }, 'brt_user')
+    ck('內容改過、沒帶 acceptChanges 直接打 API → 不套用', r[1]?.results?.[0]?.status === 'ready-with-changes' && tableOf(changedId) === 'tblCOPYTEST', JSON.stringify(r[1]?.results))
+    r = await call('/api/osm-uat/retarget/batch-apply', { newLarkUrl: NEW_URL, items: [{ ...item, acceptChanges: 'true' }] }, 'brt_user')
+    ck('acceptChanges 不是布林 true（字串）→ 不套用', r[1]?.results?.[0]?.status === 'ready-with-changes' && tableOf(changedId) === 'tblCOPYTEST')
+    r = await call('/api/osm-uat/retarget/batch-apply', { newLarkUrl: NEW_URL, items: [{ ...item, acceptChanges: true }] }, 'brt_user')
+    ck('明確接受差異 → applied、綁到新表同一筆紀錄', r[1]?.results?.[0]?.status === 'applied' && tableOf(changedId) === r[1].newTableId
+      && JSON.parse(db.prepare('SELECT bindings FROM frontend_auto_scripts WHERE id=?').get(changedId).bindings)[0].recordId === uniqTcs[6].recordId, JSON.stringify(r[1]?.results))
   }
 } finally {
   const cols = Object.keys(backup[0] ?? {})

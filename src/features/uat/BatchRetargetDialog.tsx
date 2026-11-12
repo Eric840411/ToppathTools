@@ -17,7 +17,7 @@ import { safePost as post } from './batch-retarget-http'
  * ⚠️ 彈窗走 `createPortal`＋自己的 z-index（跟單支彈窗同一個理由，見 TcRetargetDialog.tsx 檔頭）。
  */
 
-type Status = 'ready' | 'needs-review' | 'no-bindings' | 'same-table' | 'forbidden' | 'conflict' | 'not-found' | 'plan-changed'
+type Status = 'ready' | 'ready-with-changes' | 'needs-review' | 'no-bindings' | 'same-table' | 'forbidden' | 'conflict' | 'not-found' | 'plan-changed'
 
 interface PlanScript {
   scriptId: string
@@ -39,6 +39,7 @@ interface ApplyResult {
 
 const STATUS_TEXT: Record<Status | 'applied', string> = {
   'ready': '全部配對',
+  'ready-with-changes': '內容改過，未接受差異',
   'needs-review': '要逐筆處理',
   'no-bindings': '沒綁 TC',
   'same-table': '已經是這張表',
@@ -51,11 +52,25 @@ const STATUS_TEXT: Record<Status | 'applied', string> = {
 
 const STATUS_TONE: Record<Status | 'applied', 'ok' | 'warn' | 'bad' | 'muted'> = {
   'ready': 'ok', 'applied': 'ok',
-  'needs-review': 'warn', 'conflict': 'warn', 'plan-changed': 'warn',
+  'needs-review': 'warn', 'ready-with-changes': 'warn', 'conflict': 'warn', 'plan-changed': 'warn',
   'forbidden': 'bad', 'not-found': 'bad',
   'no-bindings': 'muted', 'same-table': 'muted',
 }
 
+
+/** 新舊文字的相異段：前後相同的部分照常顯示，中間不同的那段標出來（只為了讓人看得到差在哪，不參與判定） */
+function diffParts(a: string, b: string): { pre: string; removed: string; added: string; post: string } {
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  let j = 0
+  while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++
+  return { pre: b.slice(0, i), removed: a.slice(i, a.length - j), added: b.slice(i, b.length - j), post: b.slice(b.length - j) }
+}
+
+function DiffText({ from, to }: { from: string; to: string }) {
+  const d = diffParts(from, to)
+  return <>{d.pre}{d.removed && <del className="uat-bulk-diff is-gone">{d.removed}</del>}{d.added && <mark className="uat-bulk-diff">{d.added}</mark>}{d.post}</>
+}
 
 function bindingCountOf(script: AutoScript): number {
   try { const v = JSON.parse(script.bindings || '[]'); return Array.isArray(v) ? v.length : 0 } catch { return 0 }
@@ -86,6 +101,8 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
   const [expanded, setExpanded] = useState<string | null>(null)
   const [view, setView] = useState<'all' | 'ready' | 'review'>('all')
   const [confirmed, setConfirmed] = useState(false)
+  /** 內容改過的腳本：人展開看過差異、勾「接受」的那幾支（v5.82.6）。換預覽／換網址一律清掉 */
+  const [accepted, setAccepted] = useState<string[]>([])
   const [results, setResults] = useState<ApplyResult[] | null>(null)
 
   /**
@@ -93,6 +110,12 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
    * ⚠️ 不要直接呼叫 setChosen——scripts/ui-checks/batch-retarget-http.test.ts 會檢查。
    */
   const choose = (next: string[] | ((prev: string[]) => string[])) => { setChosen(next); setConfirmed(false) }
+  /** 能不能勾進這次批次：全部配對的直接可以；內容改過的要先在展開裡接受差異（全選也不能繞過，CodeX 1112） */
+  const canPick = (s: PlanScript) => s.status === 'ready' || (s.status === 'ready-with-changes' && accepted.includes(s.scriptId))
+  const toggleAccept = (id: string) => {
+    if (accepted.includes(id)) { setAccepted(a => a.filter(x => x !== id)); choose(c => c.filter(x => x !== id)) }
+    else { setAccepted(a => [...a, id]); setConfirmed(false) }
+  }
 
   if (!open) return null
 
@@ -101,7 +124,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
   const changeUrl = (v: string) => {
     setUrl(v)
     // 換網址＝舊預覽作廢
-    if (plan) { setPlan(null); choose([]); setExpanded(null) }
+    if (plan) { setPlan(null); choose([]); setAccepted([]); setExpanded(null) }
   }
 
   const doPlan = async () => {
@@ -113,14 +136,16 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
     const list = res.scripts ?? []
     setPlan({ newTableId: res.newTableId ?? '', newTcCount: res.newTcCount ?? 0, scripts: list, url: url.trim() })
     choose(list.filter(s => s.status === 'ready').map(s => s.scriptId))
+    setAccepted([])
     setView('all')
   }
 
   const doApply = async () => {
     if (!plan) return
     const items = plan.scripts
-      .filter(s => chosen.includes(s.scriptId) && s.status === 'ready')
-      .map(s => ({ scriptId: s.scriptId, expectedUpdatedAt: s.updatedAt, expectedPlanKey: s.planKey }))
+      .filter(s => chosen.includes(s.scriptId) && canPick(s))
+      .map(s => ({ scriptId: s.scriptId, expectedUpdatedAt: s.updatedAt, expectedPlanKey: s.planKey,
+        ...(s.status === 'ready-with-changes' ? { acceptChanges: true } : {}) }))
     setBusy('apply'); setMsg(null)
     const res = await post<{ ok: boolean; message?: string; applied?: number; results?: ApplyResult[] }>(
       '/api/osm-uat/retarget/batch-apply', { newLarkUrl: plan.url, items })
@@ -129,7 +154,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
       // ⚠️ 請求本身失敗（逾時、斷線）時伺服器可能已經改了一部分——不要盲目重試。
       //    舊預覽作廢（勾選與確認一起清掉），要重新「檢查配對」，已改好的會顯示「已經是這張表」。
       setMsg({ text: `${res.message ?? '套用失敗'}。結果待確認：請重新「檢查配對」，已改好的會顯示「已經是這張表」。`, ok: false })
-      setPlan(null); choose([]); setExpanded(null)
+      setPlan(null); choose([]); setAccepted([]); setExpanded(null)
       onApplied()
       return
     }
@@ -139,11 +164,11 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
 
   const planRows = plan?.scripts ?? []
   const nameOf = (s: PlanScript | ApplyResult) => s.name ?? scripts.find(x => x.id === s.scriptId)?.name ?? s.scriptId
-  const readyRows = planRows.filter(s => s.status === 'ready')
-  const reviewRows = planRows.filter(s => s.status !== 'ready')
+  const readyRows = planRows.filter(s => s.status === 'ready' || s.status === 'ready-with-changes')
+  const reviewRows = planRows.filter(s => s.status !== 'ready' && s.status !== 'ready-with-changes')
   const shownPlan = (view === 'ready' ? readyRows : view === 'review' ? reviewRows : planRows)
     .filter(s => !q || nameOf(s).toLowerCase().includes(q))
-  const chosenTcCount = readyRows.filter(s => chosen.includes(s.scriptId)).reduce((n, s) => n + (s.rows?.length ?? 0), 0)
+  const chosenTcCount = readyRows.filter(s => canPick(s)).filter(s => chosen.includes(s.scriptId)).reduce((n, s) => n + (s.rows?.length ?? 0), 0)
   const unmatchedOf = (s: PlanScript) => (s.rows ?? []).filter(r => r.reason !== 'matched').length
 
   return createPortal(
@@ -220,15 +245,18 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                 <button type="button" className={view === 'ready' ? 'is-active' : ''} onClick={() => setView('ready')}>{`可套用 ${readyRows.length}`}</button>
                 <button type="button" className={view === 'review' ? 'is-active' : ''} onClick={() => setView('review')}>{`需處理 ${reviewRows.length}`}</button>
               </div>
-              <button type="button" className="uat-btn is-quiet" onClick={() => choose(readyRows.map(s => s.scriptId))}>選取全部可套用</button>
+              <button type="button" className="uat-btn is-quiet" onClick={() => choose(readyRows.filter(canPick).map(s => s.scriptId))}>選取全部可套用</button>
             </div>
             <table className="uat-retarget-table uat-bulk-table">
               <thead><tr><th /><th>腳本</th><th>目前表格</th><th>已綁</th><th>配對結果</th><th>操作</th></tr></thead>
               <tbody>
                 {shownPlan.map(s => {
-                  const ready = s.status === 'ready'
+                  const ready = canPick(s)
                   const total = s.rows?.length ?? 0
-                  const pill = ready ? `${total}／${total} 全部配對`
+                  const changedN = (s.rows ?? []).filter(r => r.reason === 'record-changed').length
+                  const isChanged = s.status === 'ready-with-changes'
+                  const pill = s.status === 'ready' ? `${total}／${total} 全部配對`
+                    : isChanged ? (ready ? `已接受 ${changedN} 筆內容差異` : `${changedN} 筆內容改過・展開確認`)
                     : s.status === 'needs-review' ? `${total - unmatchedOf(s)}／${total}・缺 ${unmatchedOf(s)} 筆`
                       : STATUS_TEXT[s.status]
                   return [
@@ -239,7 +267,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                       <td><b>{nameOf(s)}</b></td>
                       <td><code>{s.tableId || '—'}</code></td>
                       <td>{total} 筆</td>
-                      <td><span className={`uat-bulk-pill is-${STATUS_TONE[s.status]}`}>{pill}</span></td>
+                      <td><span className={`uat-bulk-pill is-${isChanged && ready ? 'ok' : STATUS_TONE[s.status]}`}>{pill}</span></td>
                       <td>
                         {s.rows?.length ? <button type="button" className="uat-btn is-quiet is-mini"
                           onClick={() => setExpanded(e => e === s.scriptId ? null : s.scriptId)}>{expanded === s.scriptId ? '收合配對' : '展開配對'}</button> : null}
@@ -253,10 +281,17 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                           <tr key={r.old.recordId} className={r.suggestion ? '' : 'is-unset'}>
                             <td><b>{r.old.number || '（無編號）'}</b><small>{r.note}</small></td>
                             <td>{r.old.text}<small>舊記錄：{r.old.recordId}</small></td>
-                            <td>{r.suggestion ? <><b>{r.suggestion.number}</b> {r.suggestion.text}<small>新記錄：{r.suggestion.recordId}</small>{r.reason !== 'matched' && <span className="uat-retarget-warn">{r.note}</span>}</> : <span className="uat-retarget-warn">{r.note}</span>}</td>
+                            <td>{r.suggestion ? <><b>{r.suggestion.number}</b> {r.reason === 'record-changed' ? <DiffText from={r.old.text} to={r.suggestion.text ?? ''} /> : r.suggestion.text}<small>新記錄：{r.suggestion.recordId}</small>{r.reason !== 'matched' && <span className="uat-retarget-warn">{r.note}</span>}</> : <span className="uat-retarget-warn">{r.note}</span>}</td>
                           </tr>
                         ))}</tbody>
                       </table>
+                      {isChanged && (
+                        <label className="uat-check uat-bulk-accept">
+                          <input type="checkbox" checked={accepted.includes(s.scriptId)} onChange={() => toggleAccept(s.scriptId)} />
+                          {`我接受這支的 ${changedN} 筆內容差異，改綁到新表的 TC`}
+                          <small>黃底是新表多出來的字、紅色刪除線是新表拿掉的字。接受後前面的勾選框才能勾，跟其他腳本一起套用。</small>
+                        </label>
+                      )}
                     </td></tr>,
                   ]
                 })}

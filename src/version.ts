@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.82.5'
+export const APP_VERSION = '5.82.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.82.6', date: '2026-11-12', changes: ['feat(批次改綁 TC)：Lusa 要「內容改過的確認完能自己打勾、一起批次套用」→ 同一筆紀錄內容改過的腳本歸到新狀態，展開會標出新表多了／拿掉哪些字，勾「我接受這支的內容差異」後前面的勾選框才能勾；全選也不會繞過。後端要這一支明確帶 acceptChanges:true 才套，接受後新表內容又變會擋成「新表在預覽後變了」；接受紀錄寫 log。CodeX 同意'] },
   { version: '5.82.5', date: '2026-11-12', changes: ['style(批次改綁 TC)：Lusa 反映展開配對後按鈕被推到畫面外——展開列的格子吃到操作欄的不換行，長 TC 內容撐出橫向捲軸 → 展開列改成會換行、固定欄寬'] },
   { version: '5.82.4', date: '2026-11-12', changes: ['fix(改綁 TC 配對)：Lusa 反映「T-072/074 卻要找 T-B-012」——新表是複製的、紀錄 ID 一樣但編號重編，只比編號配不上 → 先比紀錄 ID：內容一樣直接配上並註明編號變化，內容改過留候選要人確認；整份結果一對一，搶同一筆的改人工。批次視窗新表欄位也顯示新編號。單支與批次共用。CodeX 同意'] },
   { version: '5.82.3', date: '2026-11-12', changes: ['fix(批次改綁 TC)：Lusa 反映整批都是「舊腳本沒記擁有者（要管理員）」，只能逐支改就失去批次的意義 → 沒記擁有者的舊腳本，任何登入者都能批次改綁（單支本來就沒擋）；有擁有者且不是本人仍擋；套用時不補記擁有者。CodeX 同意'] },

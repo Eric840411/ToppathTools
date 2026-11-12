@@ -67,7 +67,7 @@ import {
   performRetarget, listRetargetBackups, getRetargetBackup, restoreFromSnapshot,
   type RetargetKind,
 } from '../uat-tc-retarget.js'
-import { planTcRetarget, batchRetargetStatus, batchDecisions, batchPlanKey, type RetargetBinding } from '../../shared/uat-tc-retarget.js'
+import { planTcRetarget, batchRetargetStatus, batchCanApply, batchDecisions, batchPlanKey, type RetargetBinding } from '../../shared/uat-tc-retarget.js'
 import { registerRecordedScriptRoutes, saveRecordedScriptDoc, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
@@ -702,8 +702,8 @@ router.post('/api/osm-uat/retarget/batch-apply', writeLimiter, async (req, res, 
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
     const body = req.body as { items?: unknown; newLarkUrl?: unknown }
     const items = Array.isArray(body.items)
-      ? (body.items as Array<{ scriptId?: unknown; expectedUpdatedAt?: unknown; expectedPlanKey?: unknown }>)
-        .map(it => ({ scriptId: String(it?.scriptId ?? ''), expectedUpdatedAt: Number(it?.expectedUpdatedAt), expectedPlanKey: String(it?.expectedPlanKey ?? '') }))
+      ? (body.items as Array<{ scriptId?: unknown; expectedUpdatedAt?: unknown; expectedPlanKey?: unknown; acceptChanges?: unknown }>)
+        .map(it => ({ scriptId: String(it?.scriptId ?? ''), expectedUpdatedAt: Number(it?.expectedUpdatedAt), expectedPlanKey: String(it?.expectedPlanKey ?? ''), acceptChanges: it?.acceptChanges === true }))
         .filter(it => it.scriptId && Number.isFinite(it.expectedUpdatedAt) && it.expectedPlanKey)
       : []
     const newLarkUrl = String(body.newLarkUrl ?? '').trim()
@@ -716,7 +716,7 @@ router.post('/api/osm-uat/retarget/batch-apply', writeLimiter, async (req, res, 
     const newTcs = list.tcs ?? []
     const newTableId = list.tableId ?? ''
 
-    const results = items.map(({ scriptId, expectedUpdatedAt, expectedPlanKey }) => {
+    const results = items.map(({ scriptId, expectedUpdatedAt, expectedPlanKey, acceptChanges }) => {
       const row = loadBatchFrontendRows([scriptId]).get(scriptId)
       if (!row) return { scriptId, status: 'not-found' as const }
       const oldBindings = parseJsonArray<RetargetBinding>(row.bindings)
@@ -726,7 +726,9 @@ router.post('/api/osm-uat/retarget/batch-apply', writeLimiter, async (req, res, 
         tableId: row.table_id ?? '', newTableId, rows: plan,
         expectedUpdatedAt, currentUpdatedAt: row.updated_at, expectedPlanKey,
       })
-      if (status !== 'ready') return { scriptId, name: row.name, status }
+      // ready-with-changes 要這一支明確帶 acceptChanges:true 才套（人接受內容差異；CodeX 1112）
+      if (!batchCanApply(status, acceptChanges)) return { scriptId, name: row.name, status }
+      if (status === 'ready-with-changes') console.log(`[retarget] ${account.email} 接受內容差異：${scriptId}（${row.name}）planKey=${expectedPlanKey.slice(0, 300)}`)
 
       const steps = parseJsonArray<{ tcId?: string | null }>(row.steps)
       const result = performRetarget({
@@ -734,7 +736,7 @@ router.post('/api/osm-uat/retarget/batch-apply', writeLimiter, async (req, res, 
         newLarkUrl, newTableId, newTcs,
         oldLarkUrl: row.lark_url, oldTableId: row.table_id, oldBindings,
       }, steps, batchDecisions(plan))
-      // ready ＝每一筆都配上，照理不會有 unresolved／blockers；真的有就不寫（備份已經留著，沒有副作用）
+      // ready／已接受的 ready-with-changes ＝每一筆都有候選，照理不會有 unresolved／blockers；真的有就不寫（備份已經留著，沒有副作用）
       if (result.unresolved.length || result.blockers.length || result.invalidDecisions.length) {
         return { scriptId, name: row.name, status: 'needs-review' as const, backupId: result.backupId }
       }

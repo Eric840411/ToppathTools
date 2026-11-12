@@ -270,7 +270,8 @@ test('同一筆紀錄但內容改過 → record-changed、留候選，不退回�
   const plan = planTcRetarget([rb('recA', 'T-1', '舊內容')], [rt('recA', 'T-1', '新內容'), rt('recZ', 'T-1x', '舊內容')])
   assert.equal(plan[0].reason, 'record-changed')
   assert.equal(plan[0].suggestion?.recordId, 'recA')
-  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'needs-review')
+  // v5.82.6 起不再是 needs-review：要人接受差異（batchCanApply）才批次套用
+  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'ready-with-changes')
 })
 test('舊綁定裡 recordId 重複 → 不用 ID 配，走原本的編號規則', () => {
   const plan = planTcRetarget([rb('recA', 'T-1', 'x'), rb('recA', 'T-2', 'y')], [rt('recA', 'T-1', 'x'), rt('n2', 'T-2', 'y')])
@@ -285,4 +286,34 @@ test('ID 配對跟編號配對搶同一筆新 TC → 兩筆都 target-conflict',
 test('新表找不到這個 recordId → 照舊用編號配', () => {
   const plan = planTcRetarget([rb('recOld', 'T-1', 'x')], [rt('recNew', 'T-1', 'x')])
   assert.equal(plan[0].reason, 'matched'); assert.equal(plan[0].note, '編號在兩邊都唯一')
+})
+
+// ── v5.82.6：內容改過的要人接受差異才能批次套用 ─────────────────────────
+import { batchCanApply } from './uat-tc-retarget.ts'
+test('只有同一筆紀錄內容改過（其他都配上）→ ready-with-changes', () => {
+  const plan = planTcRetarget([rb('recA', 'T-1', '舊'), rb('recB', 'T-2', '同')], [rt('recA', 'T-1', '新'), rt('recB', 'T-2', '同')])
+  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'ready-with-changes')
+})
+test('內容改過＋另有一筆配不上 → 仍是 needs-review（混入缺候選照擋）', () => {
+  const plan = planTcRetarget([rb('recA', 'T-1', '舊'), rb('recC', 'T-9', 'x')], [rt('recA', 'T-1', '新')])
+  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'needs-review')
+})
+test('內容改過＋搶同一筆 → 仍是 needs-review（衝突照擋）', () => {
+  const plan = planTcRetarget([rb('recA', 'T-1', '舊'), rb('r2', 'T-1', 'y')], [rt('recA', 'T-1', '新')])
+  assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'needs-review')
+})
+test('batchCanApply：ready-with-changes 一定要明確 acceptChanges === true', () => {
+  assert.equal(batchCanApply('ready', undefined), true)
+  assert.equal(batchCanApply('ready-with-changes', undefined), false)
+  assert.equal(batchCanApply('ready-with-changes', 'true'), false)
+  assert.equal(batchCanApply('ready-with-changes', 1), false)
+  assert.equal(batchCanApply('ready-with-changes', true), true)
+  assert.equal(batchCanApply('needs-review', true), false)
+  assert.equal(batchCanApply('plan-changed', true), false)
+})
+test('接受之後新表內容又變了 → plan-changed（接受的是舊的差異）', () => {
+  const before = planTcRetarget([rb('recA', 'T-1', '舊')], [rt('recA', 'T-1', '新')])
+  const after = planTcRetarget([rb('recA', 'T-1', '舊')], [rt('recA', 'T-1', '又改了')])
+  const st = batchRetargetStatus({ ...base, rows: after, expectedUpdatedAt: 1, currentUpdatedAt: 1, expectedPlanKey: batchPlanKey('tblNEW', before) })
+  assert.equal(st, 'plan-changed'); assert.equal(batchCanApply(st, true), false)
 })
