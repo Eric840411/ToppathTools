@@ -75,6 +75,9 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
 }) {
   const candidates = useMemo(() => scripts.filter(s => bindingCountOf(s) > 0), [scripts])
   const [picked, setPicked] = useState<string[]>(() => defaultIds.filter(id => candidates.some(s => s.id === id)))
+  // 預設帶進來的（勾選或「我的」）裡沒綁 TC 的支數——不講的話「勾了 33 支、這裡只有 29 支」看起來像漏掉（Lusa 1112）
+  const unboundDefaults = useMemo(() => scripts
+    .filter(s => defaultIds.includes(s.id) && bindingCountOf(s) === 0).map(s => s.name), [scripts, defaultIds])
   const [url, setUrl] = useState('')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState<'plan' | 'apply' | null>(null)
@@ -180,6 +183,11 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
               <button type="button" className="uat-btn is-quiet" onClick={() => setPicked([])}>清除</button>
               <span>{`已選 ${picked.length}／${candidates.length} 支（只列已綁 TC 的）`}</span>
             </div>
+            {unboundDefaults.length > 0 && (
+              <p className="uat-inline-hint" title={unboundDefaults.join('\n')}>
+                {`另有 ${unboundDefaults.length} 支沒綁 TC，不用改綁、沒有列出：${unboundDefaults.slice(0, 4).join('、')}${unboundDefaults.length > 4 ? ' …' : ''}`}
+              </p>
+            )}
             <div className="uat-bulk-pick">
               {candidates.filter(s => !q || s.name.toLowerCase().includes(q)).map(s => (
                 <label key={s.id} className="uat-bulk-pick-row">
