@@ -88,7 +88,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
 
   /**
    * 改勾選一律走這裡：勾選變了，「我已確認」就要重勾（CodeX 1112 P2：全選曾沿用舊的確認）。
-   * ⚠️ 不要直接呼叫 setChosen——batch-retarget-http.test.ts 會檢查。
+   * ⚠️ 不要直接呼叫 setChosen——scripts/ui-checks/batch-retarget-http.test.ts 會檢查。
    */
   const choose = (next: string[] | ((prev: string[]) => string[])) => { setChosen(next); setConfirmed(false) }
 

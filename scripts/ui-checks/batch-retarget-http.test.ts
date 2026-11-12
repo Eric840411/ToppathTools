@@ -1,7 +1,7 @@
-/** node --experimental-strip-types --test src/features/uat/batch-retarget-http.test.ts */
+/** node --experimental-strip-types --test scripts/ui-checks/batch-retarget-http.test.ts（放在 src 外：app 的 tsconfig 沒有 node 型別，放 src 會讓 build 失敗） */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { safePost } from './batch-retarget-http.ts'
+import { safePost } from '../../src/features/uat/batch-retarget-http.ts'
 
 const fake = (impl: () => Promise<Response>) => (() => impl()) as unknown as typeof fetch
 
@@ -24,13 +24,13 @@ test('正常 JSON 照原樣回', async () => {
 
 import { readFileSync } from 'node:fs'
 test('批次改綁：改勾選只能走 choose()（會一起清掉「我已確認」）', () => {
-  const src = readFileSync(new URL('./BatchRetargetDialog.tsx', import.meta.url), 'utf8')
+  const src = readFileSync(new URL('../../src/features/uat/BatchRetargetDialog.tsx', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '')
   const calls = src.match(/setChosen\(/g) ?? []
   assert.equal(calls.length, 1, `setChosen 只能出現在 choose() 裡，實際 ${calls.length} 處`)
   assert.match(src, /const choose = [^\n]*setChosen\(next\); setConfirmed\(false\)/)
 })
 test('批次改綁：請求一律走 safePost，不直接 fetch', () => {
-  const src = readFileSync(new URL('./BatchRetargetDialog.tsx', import.meta.url), 'utf8')
+  const src = readFileSync(new URL('../../src/features/uat/BatchRetargetDialog.tsx', import.meta.url), 'utf8')
   assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, ''), /\bfetch\(/)
 })
