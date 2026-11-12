@@ -67,7 +67,7 @@ import {
   performRetarget, listRetargetBackups, getRetargetBackup, restoreFromSnapshot,
   type RetargetKind,
 } from '../uat-tc-retarget.js'
-import { planTcRetarget, type RetargetBinding } from '../../shared/uat-tc-retarget.js'
+import { planTcRetarget, batchRetargetStatus, batchDecisions, batchPlanKey, type RetargetBinding } from '../../shared/uat-tc-retarget.js'
 import { registerRecordedScriptRoutes, saveRecordedScriptDoc, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
@@ -625,6 +625,128 @@ router.post('/api/osm-uat/retarget/apply', writeLimiter, async (req, res, next) 
       invalidDecisions: result.invalidDecisions,
       blockers: result.blockers,
     })
+  } catch (err) { next(err) }
+})
+
+// ─── 批次改綁（v5.82.0，只限 H5／PC 腳本）────────────────────────────────────
+// 2026-11-12 同事 30 支 H5 腳本要改綁到複製出來的新表。逐支呼叫單支端點的話是 60 次請求，
+// 撞 writeLimiter 每分鐘 60 次的上限，新表也要撈 60 次。所以預覽、套用各一次請求，新表各撈一次。
+// 判定規則在 shared/uat-tc-retarget.ts 的 batchRetargetStatus，預覽與套用共用。
+
+type BatchFrontendRow = {
+  id: string; name: string; lark_url: string; table_id: string; bindings: string; steps: string
+  owner_email: string; updated_at: number
+}
+const MAX_BATCH_RETARGET = 200
+
+function loadBatchFrontendRows(ids: string[]): Map<string, BatchFrontendRow> {
+  const stmt = db.prepare(`SELECT id, name, lark_url, table_id, bindings, steps, owner_email, updated_at
+    FROM frontend_auto_scripts WHERE id = ? AND deleted_at IS NULL`)
+  const out = new Map<string, BatchFrontendRow>()
+  for (const id of ids) {
+    const row = stmt.get(id) as BatchFrontendRow | undefined
+    if (row) out.set(id, row)
+  }
+  return out
+}
+
+function parseJsonArray<T>(raw: string): T[] {
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v as T[] : [] } catch { return [] }
+}
+
+function batchIds(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  const ids = [...new Set(raw.map(v => String(v ?? '')).filter(Boolean))]
+  return ids.length && ids.length <= MAX_BATCH_RETARGET ? ids : null
+}
+
+/** 預覽：新表撈一次，每支腳本算出狀態與配對明細。**不改任何東西。** */
+router.post('/api/osm-uat/retarget/batch-plan', writeLimiter, async (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const body = req.body as { scriptIds?: unknown; newLarkUrl?: unknown }
+    const ids = batchIds(body.scriptIds)
+    const newLarkUrl = String(body.newLarkUrl ?? '').trim()
+    if (!ids || !newLarkUrl) return res.status(400).json({ ok: false, message: `缺少 scriptIds（1～${MAX_BATCH_RETARGET} 支）或 newLarkUrl` })
+
+    const list = await fetchLarkTcList(newLarkUrl)
+    if (!list.ok) return res.status(400).json({ ok: false, message: `讀不到目標表：${list.message ?? '未知錯誤'}` })
+    const newTcs = list.tcs ?? []
+    const newTableId = list.tableId ?? ''
+    const rows = loadBatchFrontendRows(ids)
+
+    res.json({
+      ok: true, newTableId, newTcCount: newTcs.length,
+      scripts: ids.map(id => {
+        const row = rows.get(id)
+        if (!row) return { scriptId: id, status: 'not-found' as const }
+        const plan = planTcRetarget(parseJsonArray<RetargetBinding>(row.bindings), newTcs)
+        const status = batchRetargetStatus({
+          ownerEmail: row.owner_email ?? '', me: account.email, isAdmin: account.role === 'admin',
+          tableId: row.table_id ?? '', newTableId, rows: plan,
+        })
+        return { scriptId: id, name: row.name, tableId: row.table_id, updatedAt: row.updated_at, planKey: batchPlanKey(newTableId, plan), status, rows: plan }
+      }),
+    })
+  } catch (err) { next(err) }
+})
+
+/**
+ * 套用：只套 ready 的。新表重撈一次、每支重算一次狀態（不信前端），
+ * 預覽後被改過的（updatedAt 不同）擋下；寫入用 `WHERE updated_at = ?` 再擋一次同時修改。
+ */
+router.post('/api/osm-uat/retarget/batch-apply', writeLimiter, async (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const body = req.body as { items?: unknown; newLarkUrl?: unknown }
+    const items = Array.isArray(body.items)
+      ? (body.items as Array<{ scriptId?: unknown; expectedUpdatedAt?: unknown; expectedPlanKey?: unknown }>)
+        .map(it => ({ scriptId: String(it?.scriptId ?? ''), expectedUpdatedAt: Number(it?.expectedUpdatedAt), expectedPlanKey: String(it?.expectedPlanKey ?? '') }))
+        .filter(it => it.scriptId && Number.isFinite(it.expectedUpdatedAt) && it.expectedPlanKey)
+      : []
+    const newLarkUrl = String(body.newLarkUrl ?? '').trim()
+    if (!items.length || items.length > MAX_BATCH_RETARGET || !newLarkUrl) {
+      return res.status(400).json({ ok: false, message: `缺少 items（1～${MAX_BATCH_RETARGET} 支，每支要帶 expectedUpdatedAt 與 expectedPlanKey）或 newLarkUrl` })
+    }
+
+    const list = await fetchLarkTcList(newLarkUrl)
+    if (!list.ok) return res.status(400).json({ ok: false, message: `讀不到目標表：${list.message ?? '未知錯誤'}` })
+    const newTcs = list.tcs ?? []
+    const newTableId = list.tableId ?? ''
+
+    const results = items.map(({ scriptId, expectedUpdatedAt, expectedPlanKey }) => {
+      const row = loadBatchFrontendRows([scriptId]).get(scriptId)
+      if (!row) return { scriptId, status: 'not-found' as const }
+      const oldBindings = parseJsonArray<RetargetBinding>(row.bindings)
+      const plan = planTcRetarget(oldBindings, newTcs)
+      const status = batchRetargetStatus({
+        ownerEmail: row.owner_email ?? '', me: account.email, isAdmin: account.role === 'admin',
+        tableId: row.table_id ?? '', newTableId, rows: plan,
+        expectedUpdatedAt, currentUpdatedAt: row.updated_at, expectedPlanKey,
+      })
+      if (status !== 'ready') return { scriptId, name: row.name, status }
+
+      const steps = parseJsonArray<{ tcId?: string | null }>(row.steps)
+      const result = performRetarget({
+        kind: 'frontend', scriptId, scriptName: row.name, actor: account.email,
+        newLarkUrl, newTableId, newTcs,
+        oldLarkUrl: row.lark_url, oldTableId: row.table_id, oldBindings,
+      }, steps, batchDecisions(plan))
+      // ready ＝每一筆都配上，照理不會有 unresolved／blockers；真的有就不寫（備份已經留著，沒有副作用）
+      if (result.unresolved.length || result.blockers.length || result.invalidDecisions.length) {
+        return { scriptId, name: row.name, status: 'needs-review' as const, backupId: result.backupId }
+      }
+      const changed = db.prepare(`UPDATE frontend_auto_scripts SET lark_url = ?, table_id = ?, bindings = ?, steps = ?, updated_at = ?
+        WHERE id = ? AND updated_at = ? AND deleted_at IS NULL`)
+        .run(newLarkUrl, newTableId, JSON.stringify(result.bindings), JSON.stringify(result.steps), Date.now(), scriptId, row.updated_at).changes
+      if (!changed) return { scriptId, name: row.name, status: 'conflict' as const, backupId: result.backupId }
+      return { scriptId, name: row.name, status: 'applied' as const, bound: result.bindings.length, backupId: result.backupId }
+    })
+    const applied = results.filter(r => r.status === 'applied').length
+    console.log(`[retarget] 批次改綁 ${account.email}：${applied}／${results.length} 支套用 → ${newTableId}`)
+    res.json({ ok: true, newTableId, applied, results })
   } catch (err) { next(err) }
 })
 

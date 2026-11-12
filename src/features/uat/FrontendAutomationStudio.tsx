@@ -5,6 +5,7 @@ import { BlockEditor, needsTc, tcShortLabel, type BackendSnippetOption, type TcB
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { TcRetargetDialog } from './TcRetargetDialog'
+import { BatchRetargetDialog } from './BatchRetargetDialog'
 import { compileExecutableSteps, countExecutableSteps, createStep, newStepId, parseSteps, serializeSteps } from './step-model'
 import { createPauseGate } from './pause-gate'
 // ⚠️ 排隊的規則跟 Backend 共用同一支——各寫一份的話，「session 對不上要停」
@@ -68,6 +69,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
    */
   const [larkUrl, setLarkUrl] = useState('')
   const [retargetOpen, setRetargetOpen] = useState(false)
+  const [bulkRetargetOpen, setBulkRetargetOpen] = useState(false)
   const [bindings, setBindings] = useState<TcBindingOption[]>([])
   /** Lark 上這張表現有的 TC（給勾選用）。載入失敗要講，不要留一個空清單讓人以為沒 TC */
   const [tcPool, setTcPool] = useState<{ recordId: string; number: string; text: string }[]>([])
@@ -914,6 +916,16 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             : <button type="button" className="uat-btn is-quiet" disabled={queueBusy || libBusy || !checkedVisible.length} onClick={() => void removeFromMine(checkedVisible)}>{'移除'}</button>}
           <span>{`已勾 ${queueIds.length} 份`}</span>
         </div>
+        {/* v5.82.0 批次改綁：有勾就用勾的，沒勾就預設「我的」。⚠️ 編輯中有沒存的改動時不開——
+            伺服器改完會重新載入，沒存的改動會被蓋掉（或之後存檔把改綁蓋回去） */}
+        <button type="button" className="uat-btn is-quiet" disabled={queueBusy || libBusy || dirty}
+          title={dirty ? '目前這份有沒存的改動，先存檔再批次改綁' : undefined}
+          onClick={() => setBulkRetargetOpen(true)}>{'批次改綁 TC 表格'}</button>
+        {bulkRetargetOpen && <BatchRetargetDialog open scripts={scripts}
+          defaultIds={queueIds.length ? queueIds : mine.ids}
+          onClose={() => setBulkRetargetOpen(false)}
+          onOpenSingle={id => { setBulkRetargetOpen(false); selectScript(id); setRetargetOpen(true) }}
+          onApplied={() => void loadScripts(selectedId || undefined)} />}
         {libMsg && <p role="status" className="uat-inline-hint">{libMsg}</p>}
       </aside>
 

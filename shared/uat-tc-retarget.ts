@@ -76,6 +76,26 @@ function countByNumber(items: { number: string }[]): Map<string, number> {
   return counts
 }
 
+/** 內容只收斂空白、trim；**不**忽略大小寫或標點，不做模糊比對 */
+function normalizeTcText(value: string | null | undefined): string {
+  return String(value ?? '').replace(/[\s　]+/g, ' ').trim()
+}
+
+/** 編號＋內容的消歧鍵；任一邊是空的就沒有鍵。用 JSON tuple 序列化，避免拼接碰撞 */
+function pairKey(number: string | null | undefined, text: string | null | undefined): string {
+  const n = normalizeTcNumber(number), t = normalizeTcText(text)
+  return n && t ? JSON.stringify([n, t]) : ''
+}
+
+function countByPair(items: { number: string; text?: string }[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const it of items) {
+    const key = pairKey(it.number, it.text)
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
 /**
  * 產生「舊綁定 → 新表 TC」的**建議**配對。
  *
@@ -95,22 +115,41 @@ export function planTcRetarget(oldBindings: RetargetBinding[], newTcs: RetargetT
     const key = normalizeTcNumber(tc.number)
     if (key && !newByNumber.has(key)) newByNumber.set(key, tc)
   }
+  // 編號重複時的消歧鍵：編號＋完整內容（v5.82.0，CodeX 1112）
+  const oldPairCounts = countByPair(oldBindings)
+  const newPairCounts = countByPair(newTcs)
+  const newByPair = new Map<string, RetargetTc>()
+  for (const tc of newTcs) {
+    const key = pairKey(tc.number, tc.text)
+    if (key && !newByPair.has(key)) newByPair.set(key, tc)
+  }
 
   return oldBindings.map(old => {
     const key = normalizeTcNumber(old.number)
     if (!key) {
       return { old, suggestion: null, reason: 'number-empty' as const, note: '舊綁定沒有編號，無法自動配對' }
     }
-    if ((oldCounts.get(key) ?? 0) > 1) {
-      return { old, suggestion: null, reason: 'number-duplicate' as const, note: `編號「${old.number}」在這份腳本裡出現多次` }
-    }
-    if ((newCounts.get(key) ?? 0) > 1) {
-      return { old, suggestion: null, reason: 'number-duplicate' as const, note: `編號「${old.number}」在新表裡出現多次` }
+    const dupOld = (oldCounts.get(key) ?? 0) > 1
+    const dupNew = (newCounts.get(key) ?? 0) > 1
+    if (dupOld || dupNew) {
+      // 🚨 同一個編號在表裡常常用在好幾列（2026-11-12 同事的新表 T-004 有 6 列，靠內容區分），
+      //    舊腳本也常一支綁好幾筆同編號的。只看編號的話全部變成「編號重複」，複製出來的新表一筆都配不上。
+      //    改用「編號＋完整內容」：兩邊都唯一才配；內容只收斂空白，改一個字就不配（落到人工），不猜。
+      const pk = pairKey(old.number, old.text)
+      const hit = pk ? newByPair.get(pk) : undefined
+      if (pk && hit && (oldPairCounts.get(pk) ?? 0) === 1 && (newPairCounts.get(pk) ?? 0) === 1) {
+        return { old, suggestion: hit, reason: 'matched' as const, note: `編號「${old.number}」重複，以編號＋內容配對（兩邊都唯一）` }
+      }
+      return {
+        old, suggestion: null, reason: 'number-duplicate' as const,
+        note: `編號「${old.number}」在${dupOld ? '這份腳本' : '新表'}裡出現多次，內容也${pk ? '對不上或不唯一' : '是空的'}`,
+      }
     }
     const hit = newByNumber.get(key)
     if (!hit) {
       return { old, suggestion: null, reason: 'not-found' as const, note: `新表找不到編號「${old.number}」` }
     }
+    // ⚠️ 編號唯一時不比內容（沿用原規則）：內容改過也照樣給建議，由人在畫面上看
     return { old, suggestion: hit, reason: 'matched' as const, note: '編號在兩邊都唯一' }
   })
 }
@@ -255,4 +294,61 @@ export function restoreFromSnapshot<S extends { tcId?: string | null }>(
     //    超出範圍的不動——硬套會把後來加的步驟歸屬弄壞。
     steps: steps.map((s, i) => (owners.has(i) ? { ...s, tcId: owners.get(i) ?? null } : s)),
   }
+}
+
+// ─── 批次改綁（v5.82.0）────────────────────────────────────────────────────────
+/**
+ * 一支腳本在批次改綁裡的狀態。**預覽與套用用同一份判定**——伺服器套用前會重撈新表、重算一次，
+ * 不信前端帶回來的結果。
+ *
+ * 2026-11-12 同事要把 30 支 H5 腳本改綁到複製出來的新表（編號相同）。CodeX 1112：
+ * 人在總表上明確勾選並確認「採用建議配對」不算自動套用，但有三個前提——
+ *   ① 只有**每一筆都配上**的腳本能批次套用；有任何一筆要人選的，轉單支彈窗處理
+ *   ② 要驗擁有者（原本的改綁端點沒驗）
+ *   ③ 預覽後腳本被改過要擋下，不能用舊預覽覆蓋（H5 腳本沒有 revision，用 updatedAt 當版本）
+ */
+export type BatchRetargetStatus =
+  | 'ready'          // 每一筆都配上，可以批次套用
+  | 'needs-review'   // 有沒配上的，要開單支彈窗
+  | 'no-bindings'    // 沒綁 TC，不用改
+  | 'same-table'     // 已經是目標表
+  | 'forbidden'      // 不是自己的腳本（也不是管理員）
+  | 'conflict'       // 預覽之後被改過
+  | 'no-owner'       // 舊腳本沒記擁有者，只有管理員能批次改綁
+  | 'plan-changed'   // 預覽之後新表變了，配對結果跟人確認過的不一樣
+
+export function batchRetargetStatus(args: {
+  ownerEmail: string
+  me: string
+  isAdmin: boolean
+  tableId: string
+  newTableId: string
+  rows: RetargetPlanRow[]
+  /** 套用時才給：預覽當下的 updatedAt 與現在的 updatedAt */
+  expectedUpdatedAt?: number
+  currentUpdatedAt?: number
+  /** 套用時才給：預覽當下的配對摘要（batchPlanKey） */
+  expectedPlanKey?: string
+}): BatchRetargetStatus {
+  // 舊腳本沒有 owner_email（登入帳號擁有者是 1007 才開始記）——證明不了是本人的，批次只給管理員（CodeX 1112）。
+  if (!args.ownerEmail && !args.isAdmin) return 'no-owner'
+  if (args.ownerEmail && !args.isAdmin && args.ownerEmail.toLowerCase() !== args.me.toLowerCase()) return 'forbidden'
+  if (args.expectedUpdatedAt !== undefined && args.expectedUpdatedAt !== args.currentUpdatedAt) return 'conflict'
+  if (args.expectedPlanKey !== undefined && args.expectedPlanKey !== batchPlanKey(args.newTableId, args.rows)) return 'plan-changed'
+  if (args.tableId && args.tableId === args.newTableId) return 'same-table'
+  if (!args.rows.length) return 'no-bindings'
+  return args.rows.every(r => r.reason === 'matched' && r.suggestion) ? 'ready' : 'needs-review'
+}
+
+/** ready 的腳本用建議配對當 decisions。只在 `batchRetargetStatus` 回 ready 時呼叫。 */
+export function batchDecisions(rows: RetargetPlanRow[]): Record<string, string> {
+  return Object.fromEntries(rows.map(r => [r.old.recordId, r.suggestion?.recordId ?? '']))
+}
+
+/**
+ * 配對結果的摘要：人在預覽時看到、確認的那一份。套用時伺服器重算一次，摘要不同＝新表在預覽後變了
+ * （recordId 或內容換了），要人重新確認，不能套一份沒看過的結果（CodeX 1112 P1）。
+ */
+export function batchPlanKey(newTableId: string, rows: RetargetPlanRow[]): string {
+  return JSON.stringify([newTableId, rows.map(r => [r.old.recordId, r.suggestion?.recordId ?? '', r.suggestion?.number ?? '', r.suggestion?.text ?? ''])])
 }

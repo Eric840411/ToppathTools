@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.81.27'
+export const APP_VERSION = '5.82.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.82.0', date: '2026-11-12', changes: ['feat(H5／PC 工作台 批次改綁 TC 表格，同事 1112 要求、CodeX 出圖與審)：腳本清單下方新入口，選腳本＋貼新表 → 總表檢查配對（可展開舊／新 TC）→ 勾選並確認 → 一次套用，每支先備份；只批次套用每筆都配上的，其餘轉單支彈窗。新端點 /api/osm-uat/retarget/batch-plan、batch-apply：新表各撈一次、伺服器自己算配對、預覽後新表變了（planKey）或腳本被改過（updatedAt）都不套、沒記擁有者的舊腳本只限管理員。配對規則：編號重複時改用「編號＋完整內容」兩邊都唯一才配（同事新表 T-004 有 6 列，原本全判編號重複），單支彈窗同樣受益。回歸 uat-tc-retarget.test 33 條＋batch-retarget-route.mjs 打真 router 讀真 Lark 表，三項突變各自會紅'] },
   { version: '5.81.27', date: '2026-11-12', changes: ['fix(清除告警積壓，CodeX review a02c673 兩個 P2)：①關掉開關時可能還有一批正在等 deliverNotice，清除後照送並寫 notifiedAt → 同環境有批次在送就回 409 ②reconEnvOf 把漏帶／拼錯的 env 當 QAT → 此端點只收 qat|uat，否則 400。測試 queued 改驗精確增減；新增 notify-backlog-reset-route.mjs 打真 router（403／400／409／200），拿掉各項各自會紅'] },
   { version: '5.81.26', date: '2026-11-12', changes: ['fix(對帳告警 Live Ledger)：正式站通知中斷後恢復，從最舊開始每 3 分鐘 60 筆補送（QAT 3,191／UAT 14,711 筆、卡片寫 128.5 小時前）洗版 → 超過 24 小時沒送的不再補送、不寫 notifiedAt，/notify 多回 stale、健康列記 stale；新增管理員一次性清除積壓 POST /api/autospin/live-ledger/notify-backlog-reset（通知關閉時才可做、推水位線並記略過筆數）（CodeX 1112）。回歸 live-ledger-notify.mjs 8b／8c，拿掉 24 小時下界會紅'] },
   { version: '5.81.25', date: '2026-11-11', changes: ['perf(對帳台 live-ledger)：recon_finding 加 partial index (env, refType, refId, line) WHERE resolvedAt IS NULL。每輪 cleanupNonRoundFindings／resolveFinding 逐筆查未結案告警原本是 N×M（本機 QAT 3451×5525 每輪 1.9 秒→17ms），同步執行會卡 worker、交易內寫入時握寫鎖；正式站 11-11 下午 worker 70 秒一輪、Agent 重連、Dashboard Worker 無法連線、Performance Meter database is locked 的嫌疑。邏輯與 busy_timeout 不動（CodeX 1111）'] },

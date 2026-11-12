@@ -164,3 +164,88 @@ test('🚨 還原時後來新增的步驟不可以被動到（索引超出備份
   const r = restoreFromSnapshot(snap, after)
   assert.deepEqual(r.steps.map(s => s.tcId), ['rOld1', 'rLATER'])
 })
+
+// ─── 批次改綁 ────────────────────────────────────────────────────────────────
+import { batchRetargetStatus, batchDecisions } from './uat-tc-retarget.ts'
+
+const base = { ownerEmail: 'a@x', me: 'a@x', isAdmin: false, tableId: 'tblOLD', newTableId: 'tblNEW' }
+const allMatched = planTcRetarget([b('r1', 'T-1'), b('r2', 'T-2')], [t('n1', 'T-1'), t('n2', 'T-2')])
+const oneMissing = planTcRetarget([b('r1', 'T-1'), b('r2', 'T-9')], [t('n1', 'T-1'), t('n2', 'T-2')])
+
+test('批次：每一筆都配上才 ready', () => {
+  assert.equal(batchRetargetStatus({ ...base, rows: allMatched }), 'ready')
+})
+test('批次：有一筆沒配上 → needs-review（不批次套用）', () => {
+  assert.equal(batchRetargetStatus({ ...base, rows: oneMissing }), 'needs-review')
+})
+test('批次：別人的腳本 → forbidden；管理員可以', () => {
+  assert.equal(batchRetargetStatus({ ...base, me: 'b@x', rows: allMatched }), 'forbidden')
+  assert.equal(batchRetargetStatus({ ...base, me: 'b@x', isAdmin: true, rows: allMatched }), 'ready')
+  assert.equal(batchRetargetStatus({ ...base, me: 'A@X', rows: allMatched }), 'ready')
+})
+test('批次：預覽後被改過 → conflict', () => {
+  assert.equal(batchRetargetStatus({ ...base, rows: allMatched, expectedUpdatedAt: 1, currentUpdatedAt: 2 }), 'conflict')
+  assert.equal(batchRetargetStatus({ ...base, rows: allMatched, expectedUpdatedAt: 2, currentUpdatedAt: 2 }), 'ready')
+})
+test('批次：已經是目標表 → same-table；沒綁 → no-bindings', () => {
+  assert.equal(batchRetargetStatus({ ...base, newTableId: 'tblOLD', rows: allMatched }), 'same-table')
+  assert.equal(batchRetargetStatus({ ...base, rows: [] }), 'no-bindings')
+})
+test('批次：decisions 就是建議配對', () => {
+  assert.deepEqual(batchDecisions(allMatched), { r1: 'n1', r2: 'n2' })
+})
+
+// ─── 編號重複時用「編號＋內容」消歧（v5.82.0，CodeX 1112）──────────────────────
+const bt = (recordId: string, number: string, text: string) => ({ recordId, tableId: 'tblOLD', number, text, sub: '' })
+const nt = (recordId: string, number: string, text: string) => ({ recordId, number, text, sub: '' })
+
+test('雙邊編號重複但內容唯一 → 以編號＋內容配對', () => {
+  const plan = planTcRetarget(
+    [bt('o1', 'T-004', '積分頁面 說明'), bt('o2', 'T-004', '積分頁面 明細')],
+    [nt('n1', 'T-004', '積分頁面 明細'), nt('n2', 'T-004', '積分頁面 說明'), nt('n3', 'T-004', '其他')])
+  assert.equal(plan[0].suggestion?.recordId, 'n2')
+  assert.equal(plan[1].suggestion?.recordId, 'n1')
+  assert.ok(plan.every(r => r.reason === 'matched' && r.note.includes('編號＋內容')))
+})
+test('同編號同內容在新表重複 → 不猜', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', 'A')], [nt('n1', 'T-4', 'A'), nt('n2', 'T-4', 'A')])
+  assert.equal(plan[0].suggestion, null)
+  assert.equal(plan[0].reason, 'number-duplicate')
+})
+test('同編號同內容在舊腳本重複 → 不猜', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', 'A'), bt('o2', 'T-4', 'A')], [nt('n1', 'T-4', 'A'), nt('n2', 'T-4', 'B')])
+  assert.ok(plan.every(r => r.suggestion === null))
+})
+test('編號重複且內容空白 → 不配', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', ''), bt('o2', 'T-4', 'B')], [nt('n1', 'T-4', ''), nt('n2', 'T-4', 'B')])
+  assert.equal(plan[0].suggestion, null)
+  assert.equal(plan[1].suggestion?.recordId, 'n2')
+})
+test('內容只收斂空白：多空白、全形空白、前後空白仍配得上', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', ' 積分  頁面　說明 '), bt('o2', 'T-4', 'X')], [nt('n1', 'T-4', '積分 頁面 說明'), nt('n2', 'T-4', 'Y')])
+  assert.equal(plan[0].suggestion?.recordId, 'n1')
+})
+test('編號重複時內容改了一個字 → 不配（落到人工）', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', '說明五條正確'), bt('o2', 'T-4', 'B')], [nt('n1', 'T-4', '說明六條正確'), nt('n2', 'T-4', 'B')])
+  assert.equal(plan[0].suggestion, null)
+})
+test('編號重複時大小寫不同的內容不算一樣', () => {
+  const plan = planTcRetarget([bt('o1', 'T-4', 'Go Bet'), bt('o2', 'T-4', 'B')], [nt('n1', 'T-4', 'GO BET'), nt('n2', 'T-4', 'B')])
+  assert.equal(plan[0].suggestion, null)
+})
+test('編號唯一時不比內容（沿用原規則）', () => {
+  const plan = planTcRetarget([bt('o1', 'T-9', '舊內容')], [nt('n1', 'T-9', '新內容')])
+  assert.equal(plan[0].suggestion?.recordId, 'n1')
+})
+
+import { batchPlanKey } from './uat-tc-retarget.ts'
+test('批次：舊腳本沒記擁有者 → 只有管理員能批次', () => {
+  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', rows: allMatched }), 'no-owner')
+  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', isAdmin: true, rows: allMatched }), 'ready')
+})
+test('批次：預覽後新表變了（recordId 換掉）→ plan-changed', () => {
+  const key = batchPlanKey('tblNEW', allMatched)
+  const changed = planTcRetarget([b('r1', 'T-1'), b('r2', 'T-2')], [t('n1', 'T-1'), t('nX', 'T-2')])
+  assert.equal(batchRetargetStatus({ ...base, rows: allMatched, expectedPlanKey: key }), 'ready')
+  assert.equal(batchRetargetStatus({ ...base, rows: changed, expectedPlanKey: key }), 'plan-changed')
+})
