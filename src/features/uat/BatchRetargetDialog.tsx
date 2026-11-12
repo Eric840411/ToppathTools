@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RetargetPlanRow } from '../../../shared/uat-tc-retarget'
 import type { AutoScript } from './types'
+import { safePost as post } from './batch-retarget-http'
 
 /**
  * 「批次改綁 TC 表格」（v5.82.0，只限 H5／PC 腳本）。版面 CodeX 1112 出圖。
@@ -56,14 +57,6 @@ const STATUS_TONE: Record<Status | 'applied', 'ok' | 'warn' | 'bad' | 'muted'> =
   'no-bindings': 'muted', 'same-table': 'muted',
 }
 
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  const text = await res.text()
-  if (text.trimStart().startsWith('<')) {
-    return { ok: false, message: `後端沒有這個路由（${res.status}）——server 可能還沒更新到有這個功能的版本` } as T
-  }
-  try { return JSON.parse(text) as T } catch { return { ok: false, message: `回應不是 JSON（${res.status}）：${text.slice(0, 80)}` } as T }
-}
 
 function bindingCountOf(script: AutoScript): number {
   try { const v = JSON.parse(script.bindings || '[]'); return Array.isArray(v) ? v.length : 0 } catch { return 0 }
@@ -93,6 +86,12 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
   const [confirmed, setConfirmed] = useState(false)
   const [results, setResults] = useState<ApplyResult[] | null>(null)
 
+  /**
+   * 改勾選一律走這裡：勾選變了，「我已確認」就要重勾（CodeX 1112 P2：全選曾沿用舊的確認）。
+   * ⚠️ 不要直接呼叫 setChosen——batch-retarget-http.test.ts 會檢查。
+   */
+  const choose = (next: string[] | ((prev: string[]) => string[])) => { setChosen(next); setConfirmed(false) }
+
   if (!open) return null
 
   const step = results ? 3 : plan ? 2 : 1
@@ -100,7 +99,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
   const changeUrl = (v: string) => {
     setUrl(v)
     // 換網址＝舊預覽作廢
-    if (plan) { setPlan(null); setChosen([]); setConfirmed(false); setExpanded(null) }
+    if (plan) { setPlan(null); choose([]); setExpanded(null) }
   }
 
   const doPlan = async () => {
@@ -111,8 +110,8 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
     if (!res.ok) { setMsg({ text: res.message ?? '檢查配對失敗', ok: false }); return }
     const list = res.scripts ?? []
     setPlan({ newTableId: res.newTableId ?? '', newTcCount: res.newTcCount ?? 0, scripts: list, url: url.trim() })
-    setChosen(list.filter(s => s.status === 'ready').map(s => s.scriptId))
-    setConfirmed(false); setView('all')
+    choose(list.filter(s => s.status === 'ready').map(s => s.scriptId))
+    setView('all')
   }
 
   const doApply = async () => {
@@ -125,8 +124,10 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
       '/api/osm-uat/retarget/batch-apply', { newLarkUrl: plan.url, items })
     setBusy(null)
     if (!res.ok) {
-      // ⚠️ 請求本身失敗（逾時、斷線）時伺服器可能已經改了一部分——不要盲目重試，先重新檢查配對
+      // ⚠️ 請求本身失敗（逾時、斷線）時伺服器可能已經改了一部分——不要盲目重試。
+      //    舊預覽作廢（勾選與確認一起清掉），要重新「檢查配對」，已改好的會顯示「已經是這張表」。
       setMsg({ text: `${res.message ?? '套用失敗'}。結果待確認：請重新「檢查配對」，已改好的會顯示「已經是這張表」。`, ok: false })
+      setPlan(null); choose([]); setExpanded(null)
       onApplied()
       return
     }
@@ -212,7 +213,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                 <button type="button" className={view === 'ready' ? 'is-active' : ''} onClick={() => setView('ready')}>{`可套用 ${readyRows.length}`}</button>
                 <button type="button" className={view === 'review' ? 'is-active' : ''} onClick={() => setView('review')}>{`需處理 ${reviewRows.length}`}</button>
               </div>
-              <button type="button" className="uat-btn is-quiet" onClick={() => setChosen(readyRows.map(s => s.scriptId))}>選取全部可套用</button>
+              <button type="button" className="uat-btn is-quiet" onClick={() => choose(readyRows.map(s => s.scriptId))}>選取全部可套用</button>
             </div>
             <table className="uat-retarget-table uat-bulk-table">
               <thead><tr><th /><th>腳本</th><th>目前表格</th><th>已綁</th><th>配對結果</th><th>操作</th></tr></thead>
@@ -227,7 +228,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                     <tr key={s.scriptId}>
                       <td><input type="checkbox" disabled={!ready} checked={ready && chosen.includes(s.scriptId)}
                         aria-label={`套用：${nameOf(s)}`}
-                        onChange={() => { setChosen(c => c.includes(s.scriptId) ? c.filter(x => x !== s.scriptId) : [...c, s.scriptId]); setConfirmed(false) }} /></td>
+                        onChange={() => choose(c => c.includes(s.scriptId) ? c.filter(x => x !== s.scriptId) : [...c, s.scriptId])} /></td>
                       <td><b>{nameOf(s)}</b></td>
                       <td><code>{s.tableId || '—'}</code></td>
                       <td>{total} 筆</td>
@@ -260,7 +261,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                 我已確認目標表與勾選腳本的配對內容
                 <small>只套用勾選的腳本；每支先備份再改綁，可以在單支「改綁 TC 表格」裡還原。沒勾的腳本保持原狀。</small>
               </label>
-              <button type="button" className="uat-btn is-quiet" disabled={!!busy} onClick={() => { setPlan(null); setChosen([]); setConfirmed(false) }}>返回選擇</button>
+              <button type="button" className="uat-btn is-quiet" disabled={!!busy} onClick={() => { setPlan(null); choose([]) }}>返回選擇</button>
               <button type="button" className="uat-btn is-primary" disabled={!confirmed || !chosen.length || !!busy} onClick={() => void doApply()}>
                 {busy === 'apply' ? '套用中…' : `確認套用 ${chosen.length} 支・${chosenTcCount} 筆 TC`}
               </button>
