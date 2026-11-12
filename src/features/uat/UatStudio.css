@@ -1775,9 +1775,13 @@ button.uat-launch-block { text-align: left; }
 .uat-bulk-summary .is-ok b { color: #34d399; }
 .uat-bulk-summary .is-warn b { color: #eab308; }
 .uat-bulk-table td { vertical-align: middle; }
-.uat-bulk-table td:last-child { white-space: nowrap; }
+/* 只限腳本列的操作欄；展開配對那一列的 colSpan 格也是 last-child，nowrap 會讓長 TC 撐出橫向捲軸、把按鈕推到畫面外（11-12 Lusa） */
+.uat-bulk-table > tbody > tr:not(.uat-bulk-detail) > td:last-child { white-space: nowrap; }
 .uat-bulk-table td:last-child .uat-btn + .uat-btn { margin-left: 6px; }
-.uat-bulk-detail > td { background: rgba(15,23,42,.6); }
+.uat-bulk-detail > td { background: rgba(15,23,42,.6); white-space: normal; }
+.uat-bulk-detail .uat-retarget-table { table-layout: fixed; }
+.uat-bulk-detail .uat-retarget-table th:first-child { width: 22%; }
+.uat-bulk-detail .uat-retarget-table td { overflow-wrap: anywhere; }
 .uat-bulk-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
 .uat-bulk-pill.is-ok { color: #34d399; background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.3); }
 .uat-bulk-pill.is-warn { color: #eab308; background: rgba(234,179,8,.12); border-color: rgba(234,179,8,.3); }
