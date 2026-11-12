@@ -314,7 +314,6 @@ export type BatchRetargetStatus =
   | 'same-table'     // 已經是目標表
   | 'forbidden'      // 不是自己的腳本（也不是管理員）
   | 'conflict'       // 預覽之後被改過
-  | 'no-owner'       // 舊腳本沒記擁有者，只有管理員能批次改綁
   | 'plan-changed'   // 預覽之後新表變了，配對結果跟人確認過的不一樣
 
 export function batchRetargetStatus(args: {
@@ -330,8 +329,9 @@ export function batchRetargetStatus(args: {
   /** 套用時才給：預覽當下的配對摘要（batchPlanKey） */
   expectedPlanKey?: string
 }): BatchRetargetStatus {
-  // 舊腳本沒有 owner_email（登入帳號擁有者是 1007 才開始記）——證明不了是本人的，批次只給管理員（CodeX 1112）。
-  if (!args.ownerEmail && !args.isAdmin) return 'no-owner'
+  // 舊腳本沒有 owner_email（登入帳號擁有者是 1007 才開始記）：任何登入者都可以批次改綁，也不補記 owner
+  // （補了會連帶給刪除權限）。v5.82.0 原本只給管理員，同事 11-12 反映整批被擋、只能逐支改就失去意義，
+  // CodeX 同意放行（v5.82.3）。有 owner 且不是本人仍擋 forbidden。
   if (args.ownerEmail && !args.isAdmin && args.ownerEmail.toLowerCase() !== args.me.toLowerCase()) return 'forbidden'
   if (args.expectedUpdatedAt !== undefined && args.expectedUpdatedAt !== args.currentUpdatedAt) return 'conflict'
   if (args.expectedPlanKey !== undefined && args.expectedPlanKey !== batchPlanKey(args.newTableId, args.rows)) return 'plan-changed'

@@ -17,7 +17,7 @@ import { safePost as post } from './batch-retarget-http'
  * ⚠️ 彈窗走 `createPortal`＋自己的 z-index（跟單支彈窗同一個理由，見 TcRetargetDialog.tsx 檔頭）。
  */
 
-type Status = 'ready' | 'needs-review' | 'no-bindings' | 'same-table' | 'forbidden' | 'conflict' | 'not-found' | 'no-owner' | 'plan-changed'
+type Status = 'ready' | 'needs-review' | 'no-bindings' | 'same-table' | 'forbidden' | 'conflict' | 'not-found' | 'plan-changed'
 
 interface PlanScript {
   scriptId: string
@@ -45,7 +45,6 @@ const STATUS_TEXT: Record<Status | 'applied', string> = {
   'forbidden': '不是你的腳本',
   'conflict': '預覽後被修改過',
   'not-found': '找不到腳本',
-  'no-owner': '舊腳本沒記擁有者（要管理員）',
   'plan-changed': '新表在預覽後變了，請重新檢查',
   'applied': '已改綁',
 }
@@ -53,7 +52,7 @@ const STATUS_TEXT: Record<Status | 'applied', string> = {
 const STATUS_TONE: Record<Status | 'applied', 'ok' | 'warn' | 'bad' | 'muted'> = {
   'ready': 'ok', 'applied': 'ok',
   'needs-review': 'warn', 'conflict': 'warn', 'plan-changed': 'warn',
-  'forbidden': 'bad', 'not-found': 'bad', 'no-owner': 'bad',
+  'forbidden': 'bad', 'not-found': 'bad',
   'no-bindings': 'muted', 'same-table': 'muted',
 }
 
@@ -288,7 +287,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
                 <tr key={r.scriptId}>
                   <td><b>{nameOf(r)}</b></td>
                   <td><span className={`uat-bulk-pill is-${STATUS_TONE[r.status]}`}>{r.status === 'applied' ? `已改綁 ${r.bound} 筆` : STATUS_TEXT[r.status]}</span></td>
-                  <td>{r.status !== 'applied' && r.status !== 'forbidden' && r.status !== 'not-found' && r.status !== 'no-owner' &&
+                  <td>{r.status !== 'applied' && r.status !== 'forbidden' && r.status !== 'not-found' &&
                     <button type="button" className="uat-btn is-mini" onClick={() => onOpenSingle(r.scriptId)}>逐筆處理</button>}</td>
                 </tr>
               ))}</tbody>

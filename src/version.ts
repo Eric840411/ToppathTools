@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.82.2'
+export const APP_VERSION = '5.82.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.82.3', date: '2026-11-12', changes: ['fix(批次改綁 TC)：Lusa 反映整批都是「舊腳本沒記擁有者（要管理員）」，只能逐支改就失去批次的意義 → 沒記擁有者的舊腳本，任何登入者都能批次改綁（單支本來就沒擋）；有擁有者且不是本人仍擋；套用時不補記擁有者。CodeX 同意'] },
   { version: '5.82.2', date: '2026-11-12', changes: ['style(批次改綁 TC)：Lusa 反映「我的勾了 33 支、視窗只有 29 支」——4 支沒綁 TC 不列入是對的，但畫面沒講 → 第一步加一行「另有 N 支沒綁 TC，不用改綁、沒有列出」並列名稱（滑鼠移上去看全部）。只加說明文字，行為不變'] },
   { version: '5.82.1', date: '2026-11-12', changes: ['fix(批次改綁 TC，CodeX review 2146a76 兩個 P2)：①斷線／讀回應失敗時例外往外拋，畫面卡在「套用中」、關閉鍵停用 → 請求改走 safePost（永不 throw），套用失敗時舊預覽、勾選、確認一起作廢、要重新檢查配對 ②「選取全部可套用」沒清掉「我已確認」→ 改勾選一律走 choose()（同時清確認）。回歸 scripts/ui-checks/batch-retarget-http.test.ts 6 條：斷線／讀到一半失敗／沒路由／正常，以及原始碼只准 choose() 改勾選、不准直接 fetch；拿掉 catch、全選直接 setChosen 各自會紅'] },
   { version: '5.82.0', date: '2026-11-12', changes: ['feat(H5／PC 工作台 批次改綁 TC 表格，同事 1112 要求、CodeX 出圖與審)：腳本清單下方新入口，選腳本＋貼新表 → 總表檢查配對（可展開舊／新 TC）→ 勾選並確認 → 一次套用，每支先備份；只批次套用每筆都配上的，其餘轉單支彈窗。新端點 /api/osm-uat/retarget/batch-plan、batch-apply：新表各撈一次、伺服器自己算配對、預覽後新表變了（planKey）或腳本被改過（updatedAt）都不套、沒記擁有者的舊腳本只限管理員。配對規則：編號重複時改用「編號＋完整內容」兩邊都唯一才配（同事新表 T-004 有 6 列，原本全判編號重複），單支彈窗同樣受益。回歸 uat-tc-retarget.test 33 條＋batch-retarget-route.mjs 打真 router 讀真 Lark 表，三項突變各自會紅'] },

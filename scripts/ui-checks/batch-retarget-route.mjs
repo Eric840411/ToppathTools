@@ -47,12 +47,13 @@ try {
     const steps = bindings.map(bd => ({ id: `s_${bd.recordId}`, type: 'wait', ms: 1, tcId: bd.recordId }))
     db.prepare("UPDATE frontend_auto_scripts SET table_id='tblCOPYTEST', bindings=?, steps=? WHERE id=?").run(JSON.stringify(bindings), JSON.stringify(steps), id)
   })
-  // 本機舊腳本 owner_email 都是空的（非管理員會被擋成 no-owner）→ 先全部記成測試用帳號的
+  // 本機舊腳本 owner_email 都是空的 → 先全部記成測試用帳號的，再留一支空的（v5.82.3 起非管理員也能批次改綁）
   for (const id of ids) db.prepare('UPDATE frontend_auto_scripts SET owner_email=? WHERE id=?').run(user, id)
   const noOwnerId = ids[ids.length - 1]
   db.prepare("UPDATE frontend_auto_scripts SET owner_email='' WHERE id=?").run(noOwnerId)
   r = await call('/api/osm-uat/retarget/batch-plan', { scriptIds: ids, newLarkUrl: NEW_URL }, 'brt_user')
-  ck('非管理員：沒記擁有者的舊腳本 → no-owner', r[1]?.scripts?.find(x => x.scriptId === noOwnerId)?.status === 'no-owner')
+  { const st = r[1]?.scripts?.find(x => x.scriptId === noOwnerId)?.status
+    ck('非管理員：沒記擁有者的舊腳本不擋（不是 forbidden／no-owner）', !!st && st !== 'forbidden' && st !== 'no-owner', st) }
   const before = snap()
   r = await call('/api/osm-uat/retarget/batch-plan', { scriptIds: ids, newLarkUrl: NEW_URL }, 'brt_admin')
   ck('預覽 200', r[0] === 200 && r[1]?.ok, JSON.stringify(r[1]).slice(0, 200))
@@ -72,6 +73,8 @@ try {
     ready.sort((x, y) => ids.indexOf(x.scriptId) - ids.indexOf(y.scriptId))
     const [a, b] = ready
     db.prepare('UPDATE frontend_auto_scripts SET updated_at = updated_at + 1 WHERE id=?').run(a.scriptId)
+    // b 改成沒記擁有者：非管理員也要能套用，而且套用後 owner 維持空的（不補記，CodeX 1112）
+    db.prepare("UPDATE frontend_auto_scripts SET owner_email='' WHERE id=?").run(b.scriptId)
     const items = [a, b].map(p => ({ scriptId: p.scriptId, expectedUpdatedAt: p.updatedAt, expectedPlanKey: p.planKey }))
     if (review) items.push({ scriptId: review.scriptId, expectedUpdatedAt: review.updatedAt, expectedPlanKey: review.planKey })
     // 非管理員對 owner 不同的腳本（本機舊腳本 owner_email 都是空 → 改一支成別人的）
@@ -89,6 +92,7 @@ try {
       return row.table_id === r[1].newTableId && bs.every(x => x.tableId === r[1].newTableId)
         && st.every(x => bs.some(bd => bd.recordId === x.tcId)) && live.tcs.some(t => t.recordId === bs[0].recordId)
     })())
+    ck('沒記擁有者的套用後 owner 仍是空的', db.prepare('SELECT owner_email FROM frontend_auto_scripts WHERE id=?').get(b.scriptId).owner_email === '')
     if (review) ck('needs-review 的不套用', res[review.scriptId]?.status === 'needs-review')
     if (c) ck('別人的腳本（非管理員）→ forbidden', res[c.scriptId]?.status === 'forbidden')
     if (d) ck('預覽後配對變了（摘要不同）→ plan-changed、沒改', res[d.scriptId]?.status === 'plan-changed')

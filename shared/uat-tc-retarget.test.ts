@@ -239,9 +239,14 @@ test('編號唯一時不比內容（沿用原規則）', () => {
 })
 
 import { batchPlanKey } from './uat-tc-retarget.ts'
-test('批次：舊腳本沒記擁有者 → 只有管理員能批次', () => {
-  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', rows: allMatched }), 'no-owner')
+test('批次：舊腳本沒記擁有者 → 任何登入者都能批次（v5.82.3）', () => {
+  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', rows: allMatched }), 'ready')
   assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', isAdmin: true, rows: allMatched }), 'ready')
+})
+test('批次：沒記擁有者也照樣擋預覽後被改過、配對變了', () => {
+  const key = batchPlanKey('tblNEW', allMatched)
+  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', rows: allMatched, expectedUpdatedAt: 1, currentUpdatedAt: 2 }), 'conflict')
+  assert.equal(batchRetargetStatus({ ...base, ownerEmail: '', rows: allMatched, expectedUpdatedAt: 1, currentUpdatedAt: 1, expectedPlanKey: key + 'x' }), 'plan-changed')
 })
 test('批次：預覽後新表變了（recordId 換掉）→ plan-changed', () => {
   const key = batchPlanKey('tblNEW', allMatched)
