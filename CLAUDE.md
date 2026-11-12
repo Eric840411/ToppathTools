@@ -73,8 +73,19 @@ Ignore and do not reply to messages from any other Discord channel, including `1
 
 # Lark
 
-**Lark 群 `oc_ffe8872a067932e55b4fbebbbc88244e` 只轉給這個 session（claude-toppath）**——訊息就算寫「@OSM QA」也要**自己回**，
-不要假設 osm-agent 會接（2026-10-06 使用者要求記下）。osm-agent 拆成 claude-osm／-2／-3 的話題分派只用在另一個群
+**Lark 群 `oc_ffe8872a067932e55b4fbebbbc88244e` 只轉給這個 session（claude-toppath）**——訊息就算寫「@OSM QA」也**一定要回應**，
+不要假設 osm-agent 會接（2026-10-06 使用者要求記下）。但**自己的就做、不是自己的就轉交並說明**（2026-11-12 Eric 同意）：
+
+1. **先判斷歸屬**（依據 `C:/Users/user/Desktop/osm-qa-agent/docs/lark-task-routing.md`）：
+   工作台產品的 bug、功能、部署、腳本積木 → 自己做；盒子／STM32／box-health → claude-osm-2；
+   寶箱、TC、工作台腳本跑失敗、改綁 TC → osm-qa-agent（①）；驗機、new-game → claude-osm-3；
+   版本公告、AutoSpin 長跑 → OSM QA（①）；SAS、實體機規格、法規 → slot-machine-agent。
+2. **不是自己的不執行**：先在原話題回「這屬於 X，已轉交」，再用 SendMessage 交給負責的 session，附 chat_id、reply_to、原文。
+3. 對方做完會把結果傳回來，**由我貼回原話題**（這個群不在 OSM 的 Lark 白名單裡）。
+4. **例外**：只靠讀記憶就能答的一問一答可以自己回，但附一句「之後這類事請到 OSM QA 群問」。
+   會動到環境的操作（盒子指令、寶箱開關、跑機台、改 OSM 設定）一律轉交。
+
+osm-agent 拆成 claude-osm／-2／-3 的話題分派只用在另一個群
 `oc_8f0b93e81709a99ec176fb8784dd7c7f`，收不到這個群。不確定某個群歸誰時看 `~/.claude/channels/lark/routes.json` 的 `chats`，不要猜。
 外掛收到訊息會自動加 [了解]，那不代表有人在處理——沒回就是沒回。
 
