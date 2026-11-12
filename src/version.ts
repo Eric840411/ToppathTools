@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.83.2'
+export const APP_VERSION = '5.83.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.83.3', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：CodeX 補審 v5.83.2 指出先四捨五入到小數 6 位再捨去，會把真實的 5.5899996% 顯示成 5.59% → 規則抽到 shared/meter-rtp.ts，只把離整數不到 1e-9 的當浮點誤差、其餘直接捨去，補邊界測試（舊公式、單純 trunc 各紅兩條）'] },
   { version: '5.83.2', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：Lusa 反映 RTP 跟後台差 0.01（工具 5.59%、後台 5.58%）——104,578÷1,871,480＝5.588%，後台小數兩位直接捨去、工具四捨五入 → 改成捨去，跟後台一致。只影響顯示，不影響對帳判定'] },
   { version: '5.83.1', date: '2026-11-12', changes: ['fix(批次改綁 TC)：Lusa 反映外面清掉勾選、打開視窗卻自動勾了 29 支 → 只帶外面勾的，沒勾就一支都不預勾，視窗裡提示自己勾或按全選。CodeX 額度用完，先做、待補審'] },
   { version: '5.83.0', date: '2026-11-12', changes: ['feat(批次改綁 TC)：Lusa 要「內容改過的確認完能自己打勾、一起批次套用」→ 同一筆紀錄內容改過的腳本歸到新狀態，展開會標出新表多了／拿掉哪些字，勾「我接受這支的內容差異」後前面的勾選框才能勾；全選也不會繞過。後端要這一支明確帶 acceptChanges:true 才套，接受後新表內容又變會擋成「新表在預覽後變了」；接受紀錄寫 log。CodeX 同意'] },

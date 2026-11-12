@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { type MeterEnv, METER_ENV_LABEL, METER_PLACEHOLDER, readMeterEnv, writeMeterEnv } from './meter-env'
+import { truncRtp2 } from '../../shared/meter-rtp'
 
 interface MeterInfo {
   coinIn: number
@@ -65,14 +66,10 @@ function fmt(n: number | undefined | null, digits = 2): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
-/**
- * RTP 照 OSM 後台 EGM Performance Meter 的顯示：小數兩位**直接捨去**，不四捨五入
- * （2026-11-12 同事比對：104,578 ÷ 1,871,480 = 5.588%，後台顯示 5.58%，工具原本四捨五入成 5.59%）。
- * 先四捨五入到小數 6 位再捨去，避免 0.29×100＝28.999… 這種浮點誤差被多砍一位。
- */
+/** RTP 小數兩位直接捨去，跟後台一致；規則與邊界測試在 shared/meter-rtp.ts */
 function fmtRtp(n: number | undefined | null): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—'
-  return fmt(Math.trunc(Math.round(n * 1e6) / 1e4) / 100)
+  return fmt(truncRtp2(n))
 }
 
 export function MeterReconcilePage() {
