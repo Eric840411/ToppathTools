@@ -348,7 +348,7 @@ export type BatchRetargetStatus =
   | 'forbidden'      // 不是自己的腳本（也不是管理員）
   | 'conflict'       // 預覽之後被改過
   | 'plan-changed'   // 預覽之後新表變了，配對結果跟人確認過的不一樣
-  | 'ready-with-changes' // 每筆都有候選，但有同一筆紀錄內容改過的：人逐支接受差異後才能批次套用（v5.82.6）
+  | 'ready-with-changes' // 每筆都有候選，但有同一筆紀錄內容改過的：人逐支接受差異後才能批次套用（v5.83.0）
 
 export function batchRetargetStatus(args: {
   ownerEmail: string
@@ -377,7 +377,7 @@ export function batchRetargetStatus(args: {
 }
 
 /**
- * 這一支這次能不能批次套用（v5.82.6，CodeX 1112）。
+ * 這一支這次能不能批次套用（v5.83.0，CodeX 1112）。
  * `ready-with-changes` 一定要這一支**明確**帶 `acceptChanges: true`——代表人展開看過差異並接受，
  * 不是前端解鎖就算數；後端套用時重算狀態再呼叫這裡，planKey 擋「接受之後內容又變了」。
  */

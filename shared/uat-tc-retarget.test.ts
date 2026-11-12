@@ -270,7 +270,7 @@ test('同一筆紀錄但內容改過 → record-changed、留候選，不退回�
   const plan = planTcRetarget([rb('recA', 'T-1', '舊內容')], [rt('recA', 'T-1', '新內容'), rt('recZ', 'T-1x', '舊內容')])
   assert.equal(plan[0].reason, 'record-changed')
   assert.equal(plan[0].suggestion?.recordId, 'recA')
-  // v5.82.6 起不再是 needs-review：要人接受差異（batchCanApply）才批次套用
+  // v5.83.0 起不再是 needs-review：要人接受差異（batchCanApply）才批次套用
   assert.equal(batchRetargetStatus({ ...base, rows: plan }), 'ready-with-changes')
 })
 test('舊綁定裡 recordId 重複 → 不用 ID 配，走原本的編號規則', () => {
@@ -288,7 +288,7 @@ test('新表找不到這個 recordId → 照舊用編號配', () => {
   assert.equal(plan[0].reason, 'matched'); assert.equal(plan[0].note, '編號在兩邊都唯一')
 })
 
-// ── v5.82.6：內容改過的要人接受差異才能批次套用 ─────────────────────────
+// ── v5.83.0：內容改過的要人接受差異才能批次套用 ─────────────────────────
 import { batchCanApply } from './uat-tc-retarget.ts'
 test('只有同一筆紀錄內容改過（其他都配上）→ ready-with-changes', () => {
   const plan = planTcRetarget([rb('recA', 'T-1', '舊'), rb('recB', 'T-2', '同')], [rt('recA', 'T-1', '新'), rt('recB', 'T-2', '同')])

@@ -47,7 +47,7 @@ try {
     const steps = bindings.map(bd => ({ id: `s_${bd.recordId}`, type: 'wait', ms: 1, tcId: bd.recordId }))
     db.prepare("UPDATE frontend_auto_scripts SET table_id='tblCOPYTEST', bindings=?, steps=? WHERE id=?").run(JSON.stringify(bindings), JSON.stringify(steps), id)
   })
-  // 第 5 支（v5.82.6）：同一筆紀錄（recordId 跟新表一樣）但內容改過 → ready-with-changes
+  // 第 5 支（v5.83.0）：同一筆紀錄（recordId 跟新表一樣）但內容改過 → ready-with-changes
   const changedId = ids[4]
   {
     const tc = uniqTcs[6]

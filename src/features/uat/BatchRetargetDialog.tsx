@@ -101,7 +101,7 @@ export function BatchRetargetDialog({ open, scripts, defaultIds, onClose, onOpen
   const [expanded, setExpanded] = useState<string | null>(null)
   const [view, setView] = useState<'all' | 'ready' | 'review'>('all')
   const [confirmed, setConfirmed] = useState(false)
-  /** 內容改過的腳本：人展開看過差異、勾「接受」的那幾支（v5.82.6）。換預覽／換網址一律清掉 */
+  /** 內容改過的腳本：人展開看過差異、勾「接受」的那幾支（v5.83.0）。換預覽／換網址一律清掉 */
   const [accepted, setAccepted] = useState<string[]>([])
   const [results, setResults] = useState<ApplyResult[] | null>(null)
 
