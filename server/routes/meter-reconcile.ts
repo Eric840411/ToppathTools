@@ -622,8 +622,8 @@ const BOX_GR_PAGE = 500
 const BOX_GR_MAX = 20000
 const BOX_SPINS_MAX = 50000
 
-function sanitizeBoxLog(raw: unknown): Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'> | null {
-  const o = raw as { spins?: unknown; coverage?: unknown; gaps?: unknown } | null
+function sanitizeBoxLog(raw: unknown): Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps' | 'badSecs'> | null {
+  const o = raw as { spins?: unknown; coverage?: unknown; gaps?: unknown; badSecs?: unknown } | null
   if (!o || !Array.isArray(o.spins) || o.spins.length > BOX_SPINS_MAX) return null
   const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
   const numOrNull = (v: unknown) => (fin(v) ? v : null)
@@ -643,7 +643,8 @@ function sanitizeBoxLog(raw: unknown): Pick<BoxLogParse, 'spins' | 'coverage' | 
   const gaps = Array.isArray(o.gaps)
     ? (o.gaps as Array<{ start?: unknown; end?: unknown }>).filter(g => g && fin(g.start) && fin(g.end)).map(g => ({ start: g.start as number, end: g.end as number }))
     : []
-  return { spins, coverage, gaps }
+  const badSecs = Array.isArray(o.badSecs) ? (o.badSecs as unknown[]).filter(fin).slice(0, BOX_SPINS_MAX) : []
+  return { spins, coverage, gaps, badSecs }
 }
 
 router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {

@@ -152,7 +152,7 @@ interface BoxLogResult {
   complete: boolean
   grTotal: number
   items: BoxCompareItem[]
-  counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number }
+  counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number; nearBadLine: number }
   notes: string[]
   /** 前端解析資訊 */
   parsed: { files: number; spins: number; coverage: string; gaps: number; badLines: number }
@@ -326,7 +326,7 @@ export function MeterReconcilePage() {
       const res = await fetch('/api/osm/meter-reconcile/box-log', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined,
-          log: { spins: p.spins, coverage: p.coverage, gaps: p.gaps } }),
+          log: { spins: p.spins, coverage: p.coverage, gaps: p.gaps, badSecs: p.badSecs } }),
       })
       const d = await res.json()
       if (stale()) return

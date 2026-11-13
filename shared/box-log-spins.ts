@@ -25,6 +25,8 @@
 export const GAP_SEC = 15 * 60
 /** 結算時間離查詢視窗邊界這麼近的局不判（Game Record 以結算時間篩選，兩邊時鐘可能差幾秒） */
 export const EDGE_SEC = 10
+/** 解析不了的行離這筆 Game Record 的開局～結算這麼近 → 這筆可能就是那局，不判多出 */
+export const BAD_PAD_SEC = 5
 
 export type BoxSpin = {
   spinid: number
@@ -58,6 +60,8 @@ export type BoxLogParse = {
   gaps: Array<{ start: number; end: number }>
   /** 看起來是 action 4／5 但 JSON 解析不了的行數 */
   badLines: number
+  /** 解析不了的那幾行的時間（Unix 秒）；附近的 Game Record 只能列證據不足（CodeX 4c75d9a） */
+  badSecs: number[]
   lines: number
 }
 
@@ -89,6 +93,7 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
   // 每行的 time-of-day（秒），跨午夜時 +86400
   const lineTods: number[] = []
   let badLines = 0
+  const badTods: number[] = []
   let lines = 0
   let dayOffset = 0
   let lastTod = -1
@@ -107,11 +112,11 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
       else if (RECONNECT_RE.test(line)) events.push({ tod, kind: 'reconnect' })
       const am = ACTION_RE.exec(line)
       if (!am) continue
-      if (!am[2].startsWith('{')) { badLines++; continue }
+      if (!am[2].startsWith('{')) { badLines++; badTods.push(tod); continue }
       const br = BEGIN_RAW_RE.exec(am[2])
       let json: Record<string, unknown> | null = null
       try { json = JSON.parse(am[2]) } catch { json = null }
-      if (!json || !br || typeof json.spinid !== 'number') { badLines++; continue }
+      if (!json || !br || typeof json.spinid !== 'number') { badLines++; badTods.push(tod); continue }
       actions.push({ type: Number(am[1]) as 4 | 5, tod, json, beginRaw: br[1], text: am[2], lineIdx: lineTods.length - 1 })
     }
   }
@@ -122,7 +127,7 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
   // 用第一局的 begin_time（Unix 秒）跟它那行的 time-of-day 定出日期（日誌行只有時分秒）
   const anchor = uniq.find(a => a.type === 4) ?? uniq[0]
   const anchorUs = anchor ? toMicros(anchor.beginRaw) : null
-  if (!anchor || anchorUs === null) return { spins: [], coverage: null, gaps: [], badLines, lines }
+  if (!anchor || anchorUs === null) return { spins: [], coverage: null, gaps: [], badLines, badSecs: [], lines }
   const TZ = 8 * 3600
   const dayLocal = Math.round((anchorUs / 1e6 + TZ - anchor.tod) / 86400) * 86400
   const toSec = (tod: number) => dayLocal + tod - TZ
@@ -138,7 +143,7 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
   for (const [, o] of byKey) {
     const first = o.a4 ?? o.a5[0]
     const beginUs = toMicros(first.beginRaw)
-    if (beginUs === null) { badLines++; continue }
+    if (beginUs === null) { badLines++; badTods.push(first.tod); continue }
     const e = o.a5[0]
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
     spins.push({
@@ -177,7 +182,7 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] - sorted[i - 1] > GAP_SEC) gaps.push({ start: toSec(sorted[i - 1]), end: toSec(sorted[i]) })
   }
-  return { spins, coverage: { start: toSec(sorted[0]), end: toSec(sorted[sorted.length - 1]) }, gaps, badLines, lines }
+  return { spins, coverage: { start: toSec(sorted[0]), end: toSec(sorted[sorted.length - 1]) }, gaps, badLines, badSecs: badTods.map(toSec), lines }
 }
 
 /** Game Record 一筆（server 從 gameRecordList 明細挑出來的欄位） */
@@ -213,7 +218,7 @@ export type BoxCompareItem = {
 
 export type BoxCompareResult = {
   items: BoxCompareItem[]
-  counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number }
+  counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number; nearBadLine: number }
   notes: string[]
 }
 
@@ -233,11 +238,12 @@ function boxTenths(us: number): number[] {
  * 比對。window＝查詢視窗（Unix 秒，含頭不含尾；Game Record 依結算時間篩選）。
  * 只判日誌涵蓋、沒斷檔、離邊界 EDGE_SEC 以上的局；其他歸「日誌未涵蓋／邊界／未結束」不判。
  */
-export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'>, grRows: GrSpin[], window: { start: number; end: number }, opts: { grComplete?: boolean } = {}): BoxCompareResult {
+export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'> & { badSecs?: number[] }, grRows: GrSpin[], window: { start: number; end: number }, opts: { grComplete?: boolean } = {}): BoxCompareResult {
   // CodeX 4581462：Game Record 沒抓完整（缺頁／缺欄位）時，「GR 沒有」不代表後台沒寫 → 不判疑似漏寫
   const grComplete = opts.grComplete !== false
   let missingSkipped = 0
-  const counts = { suspect_missing: 0, duplicate: 0, suspect_extra: 0, amount_diff: 0, ambiguous: 0, resent: 0, is_error: 0, matched: 0, notCovered: 0, edge: 0, unfinished: 0 }
+  const counts = { suspect_missing: 0, duplicate: 0, suspect_extra: 0, amount_diff: 0, ambiguous: 0, resent: 0, is_error: 0, matched: 0, notCovered: 0, edge: 0, unfinished: 0, nearBadLine: 0 }
+  const badSecs = parse.badSecs ?? []
   const items: BoxCompareItem[] = []
   const notes: string[] = []
   const cov = parse.coverage
@@ -268,6 +274,8 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
     if (cands.length === 1) { const a = grBySpin.get(cands[0]) ?? []; a.push(g); grBySpin.set(cands[0], a); continue }
     if (nearEdge(g.payoutSec)) { counts.edge++; continue }
     if (!covered(g.boxBeginTime) || !covered(g.payoutSec)) { counts.notCovered++; continue }
+    // CodeX 4c75d9a：那局的開局／結束行可能就是解析不了的那幾行 → 證據不足，不判多出
+    if (badSecs.some(t => t >= g.boxBeginTime - BAD_PAD_SEC && t <= g.payoutSec + BAD_PAD_SEC)) { counts.nearBadLine++; continue }
     counts.suspect_extra++
     items.push({ kind: 'suspect_extra', spinid: g.spinid, beginSec: g.boxBeginTime, orderIds: [g.orderId], gr: [{ bet: g.bet, win: g.win }] })
   }
@@ -307,6 +315,7 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
   if (!cov) notes.push('日誌裡沒有任何一局，無法比對')
   if (parse.gaps.length) notes.push(`日誌有 ${parse.gaps.length} 段超過 ${GAP_SEC / 60} 分鐘沒有任何紀錄，那幾段的 Game Record 不判（可能是斷檔或沒開機）`)
   if (counts.notCovered) notes.push(`${counts.notCovered} 筆 Game Record 落在日誌沒涵蓋的時間，不判，要比對請補那段日誌`)
+  if (counts.nearBadLine) notes.push(`${counts.nearBadLine} 筆 Game Record 在日誌解析不了的那幾行附近，可能就是那幾局，不判多出`)
   if (counts.edge) notes.push(`${counts.edge} 局結算時間離查詢範圍邊界不到 ${EDGE_SEC} 秒，不判`)
   if (counts.unfinished) notes.push(`${counts.unfinished} 局在日誌裡沒有結束紀錄（日誌在那局中間截斷），不判`)
   if (counts.ambiguous) notes.push(`${counts.ambiguous} 筆 Game Record 同時對到日誌裡兩局以上，沒有強配，那幾局也不判漏寫，請人工確認`)

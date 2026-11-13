@@ -202,6 +202,17 @@ function run(lines: string[], rows: GrSpin[], win = WIN) {
   const p = parseBoxLogs([[heartbeat(DAY0 + 1), ...lines].join('\n')])
   ok('截斷的 action 行 → badLines 1', p.badLines === 1, p.badLines)
 }
+// 一局的開局／結束行都截斷、前後心跳完整 → 那局的 GR 不能判疑似多出（CodeX 4c75d9a）
+{
+  const hb: string[] = []
+  for (let s = DAY0 + 1; s < DAY0 + 86400; s += 600) hb.push(heartbeat(s))
+  const broken = spinLines(41, `${DAY0 + 3600}.5`, 10, 0).map(l => l.replace(/, "begin_time": .*$/, ', "beg'))
+  const p = parseBoxLogs([[...hb, ...spinLines(40, `${DAY0 + 1800}.5`, 10, 0), ...broken, ...spinLines(42, `${DAY0 + 9000}.5`, 10, 0)].sort().join('\n')])
+  const rows = [gr('A40', 40, DAY0 + 1800.5, 10, 0, DAY0 + 1802), gr('B41', 41, DAY0 + 3600.5, 10, 0, DAY0 + 3602), gr('C43', 43, DAY0 + 20000.5, 10, 0, DAY0 + 20002)]
+  const r = compareBoxLog(p, rows, WIN)
+  ok('壞行附近的 GR → nearBadLine，不算多出', r.counts.nearBadLine === 1 && !r.items.some(i => i.kind === 'suspect_extra' && i.orderIds.includes('B41')), r)
+  ok('離壞行遠的 GR 照判多出', r.items.some(i => i.kind === 'suspect_extra' && i.orderIds.includes('C43')), r.items)
+}
 // Game Record 沒抓完整 → 「GR 沒有」不判漏寫，其他照判（CodeX 4581462）
 {
   const hb: string[] = []
