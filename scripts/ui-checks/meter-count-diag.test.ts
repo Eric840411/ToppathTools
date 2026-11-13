@@ -2,7 +2,7 @@
  * Performance Meter 局數分段定位（v5.84.0，Lusa 1113）。npx tsx scripts/ui-checks/meter-count-diag.test.ts
  * 跑的是產品那一份（server/meter-count-diag.ts），不在測試裡重寫切段規則。
  */
-import { buildCountIntervals, summarizeCountDiag, fmtLocal, type HourBucket, type IntervalResult } from '../../server/meter-count-diag.ts'
+import { buildCountIntervals, summarizeCountDiag, fmtLocal, hourBucketFromRow, type HourBucket, type IntervalResult } from '../../server/meter-count-diag.ts'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -45,6 +45,19 @@ ok(iv.length === 2 && iv[1].edge && iv[1].start === T0 + 24 * H - 1 && iv[1].met
 iv = buildCountIntervals([B(0, 1), B(0, 1), B(1, 3)], T0, T0 + H)
 ok(iv.length === 1 && iv[0].meterGames === 2, '重複時間的快照不產生 0 秒的段', iv)
 
+// CodeX 5faf105：自訂起始時間 → 視窗前的快照不能用（不能把跨過起點的整段差值套進來）
+iv = buildCountIntervals([B(0, 100), B(1, 110), B(2, 130), B(3, 160)], T0 + 90 * 60, T0 + 3 * H)
+ok(iv.length === 2 && iv[0].edge && iv[0].start === T0 + 90 * 60 && iv[0].end === T0 + 2 * H && iv[1].meterGames === 30, '⚠️ 視窗從 01:30 起 → 00:00、01:00 快照不用；01:30～02:00 是 edge', iv)
+
+// 快照缺值不能被 Number() 轉成 0
+ok(hourBucketFromRow({ '2': 1794412800, '5': 117, useLastData: 0 }, 'x', '5')?.games === 117, '正常快照 → HourBucket')
+ok(hourBucketFromRow({ '2': '1794412800', '5': '117' }, 'x', '5')?.epoch === 1794412800, '字串數字也收')
+for (const bad of [null, '', ' ', undefined]) {
+  ok(hourBucketFromRow({ '2': bad, '5': 117 }, 'x', '5') === null, `⚠️ 欄位 2 = ${JSON.stringify(bad)} → null（不能當 0）`)
+  ok(hourBucketFromRow({ '2': 1794412800, '5': bad }, 'x', '5') === null, `⚠️ 局數 = ${JSON.stringify(bad)} → null`)
+}
+ok(hourBucketFromRow({ '2': 1, '5': 1, useLastData: 1 }, 'x', '5')?.stale === true, 'useLastData=1 → stale')
+
 // ── summarize ──
 const R = (h1: number, h2: number, m: number | null, g: number | null, extra: Partial<IntervalResult> = {}): IntervalResult =>
   ({ start: T0 + h1 * H, end: T0 + h2 * H, label: `${h1}～${h2}`, meterGames: m, spans: 1, stale: false, reset: false, edge: false, grCount: g, diff: m === null || g === null ? null : m - g, ...extra })
@@ -56,7 +69,8 @@ ok(s.dataRequests.length === 2 && s.dataRequests[0].includes('2026-11-11 17:55:0
 
 // 11/12 情境：整點快照時間差 → 相鄰一正一負抵銷，不列為要查的區間
 s = summarizeCountDiag([R(0, 1, 9, 10), R(1, 2, 11, 10), R(2, 3, 5, 5)], { meterGames: 25, grCount: 25 })
-ok(s.cancelled.length === 1 && s.dataRequests.length === 0 && s.notes.some(x => /快照/.test(x)), '⚠️ 相鄰一正一負互相抵銷 → 說明是快照時間差，不索取日誌', s)
+ok(s.cancelled.length === 1 && s.notes.some(x => /疑似.*快照/.test(x) && /漏寫/.test(x)), '相鄰一正一負互相抵銷 → 標「疑似快照時間差」，也說明可能是漏寫＋重複', s)
+ok(s.dataRequests.length === 3 && s.dataRequests.slice(0, 2).every(x => x.includes('疑似快照時間差')), '⚠️ CodeX 5faf105：抵銷的兩段照樣索取日誌（不能據此免查）', s.dataRequests)
 // 不相鄰的一正一負不能被當成抵銷
 s = summarizeCountDiag([R(0, 1, 9, 10), R(1, 2, 5, 5), R(2, 3, 11, 10)], { meterGames: 25, grCount: 25 })
 ok(s.cancelled.length === 0 && s.dataRequests.length === 3, '不相鄰的一正一負 → 不算抵銷，兩段都要查', s)
@@ -69,6 +83,10 @@ ok(s.cancelled.length === 0 && s.dataRequests.length === 3, '⚠️ 相鄰兩段
 s = summarizeCountDiag([R(0, 1, 9, 9), R(1, 2, 5, null, { error: 'Game Record code=50000' })], { meterGames: 14, grCount: 14 })
 ok(!s.complete && s.mismatched.length === 1 && s.notes.some(x => /查詢失敗/.test(x)) && s.dataRequests[0].includes('查詢失敗'), '⚠️ 某段查詢失敗 → 標不完整、該段列入，不當 0 筆', s)
 ok(!s.notes.some(x => /加總/.test(x)), '有查詢失敗時不做加總比對（會誤報）', s.notes)
+
+// 略過缺值快照 → 不完整
+s = summarizeCountDiag([R(0, 2, 9, 9)], { meterGames: 9, grCount: 9 }, { skippedBuckets: 1 })
+ok(!s.complete && s.notes.some(x => /缺時間或局數/.test(x)), '⚠️ CodeX 5faf105：有快照缺值被略過 → 不能標 complete', s)
 
 // 重置段
 s = summarizeCountDiag([R(0, 1, null, 7, { reset: true })], { meterGames: 0, grCount: 7 })

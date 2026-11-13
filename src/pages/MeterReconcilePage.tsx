@@ -114,14 +114,14 @@ function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
             <thead><tr><th>時段</th><th>Meter 局數</th><th>Game Record 筆數</th><th>差</th><th>備註</th></tr></thead>
             <tbody>
               {diag.mismatched.map((r, i) => (
-                <tr key={r.start} style={inCancel.has(i) ? { opacity: 0.6 } : undefined}>
+                <tr key={r.start}>
                   <td>{r.label}</td>
                   <td>{r.meterGames ?? '—'}</td>
                   <td>{r.grCount ?? '—'}</td>
                   <td style={{ color: '#f87171' }}>{r.diff === null ? '—' : r.diff > 0 ? `+${r.diff}` : r.diff}</td>
                   <td className="st-dim">
                     {[
-                      inCancel.has(i) && '與相鄰時段抵銷（快照時間差）',
+                      inCancel.has(i) && '與相鄰時段抵銷，疑似快照時間差',
                       r.edge && 'Meter 沒有快照涵蓋',
                       r.spans > 1 && `Meter 跨 ${r.spans} 個快照`,
                       r.reset && '計數器重置',

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
 import { apiProblem, countDelta, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
-import { buildCountIntervals, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
+import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
 export const router = Router()
 
@@ -415,6 +415,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     let meterRow: Record<string, unknown> | null = null
     let baselineRow: Record<string, unknown> | null = null
     const hourList: HourBucket[] = []
+    let hourSkipped = 0
     let hourBuckets = 0   // v5.57.0：視窗內的 hourly bucket 數（0＝沒資料、1＝算不出差值，都不能判通過）
     const apiProblems = [apiProblem('EGM Hourly Meter', hourData, METER_VALID.hourly)].filter((x): x is string => !!x)
     const nextDate = nextDateStr(date)
@@ -432,8 +433,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       if (!inWindow) continue
       hourBuckets++
       // v5.84.0 局數分段定位用：欄位 2 在 hourly 是快照的 Unix 秒數；缺值就不收（定位會標不完整，不影響判定）
-      { const ep = Number(row['2']), g = Number(row[FIELD.gamesPlayed])
-        if (Number.isFinite(ep) && Number.isFinite(g)) hourList.push({ epoch: ep, label: hourStr, games: g, stale: Number(row.useLastData) === 1 }) }
+      // CodeX 5faf105：Number(null)／Number('') 是 0 → 先用 isNum 驗，缺值的快照計數、標不完整
+      { const hb = hourBucketFromRow(row, hourStr, FIELD.gamesPlayed); if (hb) hourList.push(hb); else hourSkipped++ }
       if (!baselineRow) baselineRow = row // 保留整天範圍內第一個 bucket 當基準線
       meterRow = row // 保留最後一筆（整天範圍內最新的 bucket，才能跟 Game Record 的整天加總對齊）
     }
@@ -581,7 +582,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
             return { ...iv, grCount: n, diff: iv.meterGames === null ? null : iv.meterGames - n }
           } catch (e) { return { ...iv, grCount: null, diff: null, error: String(e) } }
         })
-        countDiag = { ...summarizeCountDiag(results, { meterGames: meter!.gamesPlayed, grCount: gameRecord.recordCount }), intervals: results }
+        countDiag = { ...summarizeCountDiag(results, { meterGames: meter!.gamesPlayed, grCount: gameRecord.recordCount }, { skippedBuckets: hourSkipped }), intervals: results }
       } catch (e) { countDiag = { error: `分段定位失敗：${e instanceof Error ? e.message : String(e)}` } }
     }
 
