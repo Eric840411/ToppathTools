@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.83.4'
+export const APP_VERSION = '5.84.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.84.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：Lusa 反映 150 機 11/11 Game Record 一局寫了兩次（沒中獎），Coin Out 吻合就判「一致」→ 局數（Meter Games Played vs Game Record 筆數）不同也判不一致，Coin Out 與局數都不對時兩個原因都寫；局數不同時自動逐段比 Meter 每小時快照局數與同時段 Game Record 筆數，列出對不上的時段、相鄰抵銷的快照時間差、計數器重置、查詢失敗，並列出要提供的盒子日誌時段（首尾各 +5 分）。下注額仍只顯示不判。CodeX 同意'] },
   { version: '5.83.4', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：CodeX 指出 v5.83.3 的 1e-9 門檻只靠「coinIn < 1e9」的註解假設 → RTP 改用原始 coinIn／coinOut／jackpotWins 做 BigInt 精確十進位運算再捨去，不再有範圍假設；值大到只能指數表示時才退回浮點。測試 11 條，v5.83.2、v5.83.3 兩種寫法都會紅'] },
   { version: '5.83.3', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：CodeX 補審 v5.83.2 指出先四捨五入到小數 6 位再捨去，會把真實的 5.5899996% 顯示成 5.59% → 規則抽到 shared/meter-rtp.ts，只把離整數不到 1e-9 的當浮點誤差、其餘直接捨去，補邊界測試（舊公式、單純 trunc 各紅兩條）'] },
   { version: '5.83.2', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：Lusa 反映 RTP 跟後台差 0.01（工具 5.59%、後台 5.58%）——104,578÷1,871,480＝5.588%，後台小數兩位直接捨去、工具四捨五入 → 改成捨去，跟後台一致。只影響顯示，不影響對帳判定'] },

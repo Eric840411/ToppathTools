@@ -18,6 +18,20 @@ interface HandPayItem {
   username?: string
 }
 
+interface CountInterval {
+  start: number; end: number; label: string
+  meterGames: number | null; grCount: number | null; diff: number | null
+  spans: number; stale: boolean; reset: boolean; edge: boolean; error?: string
+}
+interface CountDiag {
+  complete: boolean
+  mismatched: CountInterval[]
+  cancelled: Array<[number, number]>
+  notes: string[]
+  dataRequests: string[]
+  intervals: CountInterval[]
+}
+
 interface MeterResult {
   ok: boolean
   machineName: string
@@ -37,6 +51,8 @@ interface MeterResult {
   gameRecord: { totalBet: number; totalWin: number; betRewardCredits: number; recordCount: number }
   jackpotAbnormality: { records: HandPayItem[]; sumHandpay: number; count: number }
   rawMeterRow: Record<string, unknown> | null
+  /** v5.84.0：局數不同時的分段定位（舊紀錄沒有這欄） */
+  countDiag?: CountDiag | { error: string } | null
   message?: string
 }
 
@@ -72,6 +88,62 @@ function fmtRtp(m: { coinIn: number; coinOut: number; jackpotWins: number; rtp: 
   if (exact !== null) return fmt(exact)
   // 值大到只能用指數表示：退回後端的浮點 rtp，畫面照樣捨去
   return Number.isFinite(m.rtp) ? fmt(Math.trunc(m.rtp * 100) / 100) : '—'
+}
+
+/** v5.84.0：局數不同時，逐段比 Meter 局數與 Game Record 筆數，列出對不上的區間與要提供的資料 */
+function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
+  if ('error' in diag) {
+    return (
+      <section className="section-card st-card">
+        <h3 className="section-title">局數差異定位</h3>
+        <p className="st-msg-err" style={{ margin: 0 }}>{diag.error}（判定不受影響，仍是不一致）</p>
+      </section>
+    )
+  }
+  const inCancel = new Set(diag.cancelled.flat())
+  return (
+    <section className="section-card st-card">
+      <h3 className="section-title">局數差異定位</h3>
+      <div className="st-hint" style={{ marginBottom: 6 }}>
+        逐段比對 Meter 每小時快照的局數與同時段 Game Record 筆數，只列出對不上的區間。只能縮小範圍，原因要看盒子日誌確認。
+      </div>
+      {diag.mismatched.length === 0
+        ? <div className="st-dim">每一段都對得上（差異可能在整天查詢的頭尾邊界），請重查一次確認。</div>
+        : (
+          <table className="st-diag-table">
+            <thead><tr><th>時段</th><th>Meter 局數</th><th>Game Record 筆數</th><th>差</th><th>備註</th></tr></thead>
+            <tbody>
+              {diag.mismatched.map((r, i) => (
+                <tr key={r.start} style={inCancel.has(i) ? { opacity: 0.6 } : undefined}>
+                  <td>{r.label}</td>
+                  <td>{r.meterGames ?? '—'}</td>
+                  <td>{r.grCount ?? '—'}</td>
+                  <td style={{ color: '#f87171' }}>{r.diff === null ? '—' : r.diff > 0 ? `+${r.diff}` : r.diff}</td>
+                  <td className="st-dim">
+                    {[
+                      inCancel.has(i) && '與相鄰時段抵銷（快照時間差）',
+                      r.edge && 'Meter 沒有快照涵蓋',
+                      r.spans > 1 && `Meter 跨 ${r.spans} 個快照`,
+                      r.reset && '計數器重置',
+                      r.error && `查詢失敗：${r.error}`,
+                    ].filter(Boolean).join('、')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      {diag.notes.length > 0 && (
+        <ul className="st-diag-notes">{diag.notes.map(n => <li key={n}>{n}</li>)}</ul>
+      )}
+      {diag.dataRequests.length > 0 && (
+        <>
+          <h3 className="section-title" style={{ marginTop: 10 }}>請提供</h3>
+          <ul className="st-diag-notes">{diag.dataRequests.map(n => <li key={n}>{n}</li>)}</ul>
+        </>
+      )}
+    </section>
+  )
 }
 
 export function MeterReconcilePage() {
@@ -275,10 +347,21 @@ export function MeterReconcilePage() {
               </div>
             </div>
             <div className="st-verdict-num">
-              <div className="st-verdict-k">實際 − 預期（差值）</div>
+              <div className="st-verdict-k">Coin Out 實際 − 預期</div>
               <div className="st-verdict-v" style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.delta)}</div>
+              {!noNumbers && result.meter && (() => {
+                const cd = result.meter.gamesPlayed - result.gameRecord.recordCount
+                return (
+                  <>
+                    <div className="st-verdict-k" style={{ marginTop: 6 }}>局數 Meter − Game Record</div>
+                    <div className="st-verdict-v" style={{ color: cd === 0 ? undefined : '#f87171' }}>{cd > 0 ? `+${cd}` : cd}</div>
+                  </>
+                )
+              })()}
             </div>
           </section>
+
+          {result.countDiag && <CountDiagCard diag={result.countDiag} />}
 
           {/* Formula */}
           <section className="section-card st-card st-formula">

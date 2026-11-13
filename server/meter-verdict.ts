@@ -9,7 +9,11 @@
  *   - Hourly 視窗內 0 個 bucket → noData（就算 fallback 到 daily、或 Game Record 有筆數；daily 只留作參考，不判通過）
  *   - 只有 1 個 bucket → noData：「最後 − 第一」必然是 0，算不出整段差值，也不能當成沒活動的證據
  *   - ≥ 2 個 bucket、Game Record 0 筆、而且 coinIn／coinOut／jackpotWins／gamesPlayed／Bet／Win／Attendant JP 全是 0 → noActivity
- *   - 其他照舊：差值 < 0.005 → pass，否則 fail
+ *   - 其他：Coin Out 差值 < 0.005 **且** 局數一致 → pass，否則 fail
+ *
+ * v5.84.0（Lusa 1113、CodeX 同意）：局數（Meter Games Played 差值 vs Game Record 筆數）不同也判 fail。
+ *   起因：11/11 150 機 Game Record 一局寫了兩次（沒中獎），Coin Out 照樣吻合 → 原本判「一致」。
+ *   Coin Out 與局數都不對時兩個原因都要寫出來；下注額（Coin In vs 總 Bet）只顯示、不判。
  */
 export type MeterStatus = 'pass' | 'fail' | 'noData' | 'noActivity' | 'apiError'
 
@@ -35,9 +39,25 @@ export function meterVerdict(p: MeterVerdictInput): { status: MeterStatus; pass:
   const m = p.meter
   const allZero = !!m && [m.coinIn, m.coinOut, m.jackpotWins, m.gamesPlayed, p.gameRecord.totalBet, p.gameRecord.totalWin, p.attendantPaidJp].every(ZERO)
   if (p.gameRecord.recordCount === 0 && allZero) return { status: 'noActivity', pass: false, why: '這段時間沒有下注（局數、金額、Game Record 都是 0），沒有可對帳的數字' }
-  const pass = ZERO(p.delta)
-  return { status: pass ? 'pass' : 'fail', pass, why: pass ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差' }
+  const reasons = mismatchReasons(p)
+  const pass = reasons.length === 0
+  return { status: pass ? 'pass' : 'fail', pass, why: pass ? '一致 — Coin Out 與局數都吻合' : `不一致 — ${reasons.join('；')}` }
 }
+
+/** 局數差（Meter − Game Record）；沒有 meter 時回 null */
+export function countDelta(p: Pick<MeterVerdictInput, 'meter' | 'gameRecord'>): number | null {
+  return p.meter ? p.meter.gamesPlayed - p.gameRecord.recordCount : null
+}
+
+function mismatchReasons(p: MeterVerdictInput): string[] {
+  const out: string[] = []
+  if (!ZERO(p.delta)) out.push(`Coin Out 差 ${fmt2(p.delta)}`)
+  const cd = countDelta(p)
+  if (cd !== null && cd !== 0) out.push(`局數不同（Meter ${p.meter!.gamesPlayed} 局、Game Record ${p.gameRecord.recordCount} 筆，差 ${cd > 0 ? '+' : ''}${cd}）`)
+  return out
+}
+
+const fmt2 = (n: number) => n.toFixed(2)
 
 /** 後台 API 回應是否有效：code 20000，且 pick 拿得到預期的資料 */
 export function apiProblem(name: string, d: unknown, valid: (d: any) => boolean): string | null {
@@ -47,9 +67,10 @@ export function apiProblem(name: string, d: unknown, valid: (d: any) => boolean)
 }
 
 /** 歷史紀錄的摘要（依 status，不能再用 pass ? 一致 : 不一致——沒資料會被寫成「不一致」） */
-export function meterHistoryLine(head: string, v: { status: MeterStatus; why: string }, delta: number): string {
+export function meterHistoryLine(head: string, v: { status: MeterStatus; why: string }, _delta: number): string {
   if (v.status === 'pass') return `${head}— ✅ 一致`
-  if (v.status === 'fail') return `${head}— ❌ 不一致（差值 ${delta.toFixed(2)}）`
+  // v5.84.0：fail 可能是 Coin Out、局數或兩者——寫原因，不能只寫金額差值（局數不同時會變成「差值 0.00」）
+  if (v.status === 'fail') return `${head}— ❌ ${v.why}`
   return `${head}— ⚪ ${v.why}`
 }
 

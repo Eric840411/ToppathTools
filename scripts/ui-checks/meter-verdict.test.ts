@@ -25,7 +25,7 @@ ok(v.status === 'noData' && /只有 1 個/.test(v.why), '只有 1 個 bucket（�
 v = V({ meter: zeroMeter, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 }, delta: 0 })
 ok(v.status === 'noActivity' && !v.pass, '≥2 個 bucket、全部是 0、Game Record 0 筆 → noActivity（不是通過）', v)
 v = V({ meter: { ...zeroMeter, gamesPlayed: 3 }, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 }, delta: 0 })
-ok(v.status === 'pass', '局數有增加、金額全 0 → 不是 noActivity（照一般比對）', v)
+ok(v.status === 'fail' && /局數不同/.test(v.why), '局數有增加、金額全 0 → 不是 noActivity；Game Record 0 筆 → 局數不同判 fail（v5.84.0）', v)
 // 有活動、Coin Out 0
 v = V({ meter: { coinIn: 500, coinOut: 0, jackpotWins: 0, gamesPlayed: 20 }, gameRecord: { totalBet: 500, totalWin: 0, recordCount: 20 }, delta: 0 })
 ok(v.status === 'pass', '有下注、Coin Out 0、預期也是 0 → pass（不能被當成沒活動）', v)
@@ -62,7 +62,23 @@ ok(v.status === 'apiError' && !v.pass, '⚠️ API 失敗被轉成 0 → apiErro
 // 歷史紀錄
 const H = (p: Partial<MeterVerdictInput>, d = 0) => meterHistoryLine('2026-10-14（Gaming Day 06:00起）', V(p), d)
 ok(H({}) === '2026-10-14（Gaming Day 06:00起）— ✅ 一致', '歷史：pass → ✅ 一致', H({}))
-ok(H({ delta: -120 }, -120) === '2026-10-14（Gaming Day 06:00起）— ❌ 不一致（差值 -120.00）', '歷史：fail → ❌ 不一致', H({ delta: -120 }, -120))
+ok(H({ delta: -120 }, -120) === '2026-10-14（Gaming Day 06:00起）— ❌ 不一致 — Coin Out 差 -120.00', '歷史：Coin Out fail → ❌ 寫原因', H({ delta: -120 }, -120))
+// v5.84.0（Lusa 1113）：局數不同也是 fail
+const lusa = { meter: { coinIn: 3900900, coinOut: 3607217, jackpotWins: 0, gamesPlayed: 6587 }, gameRecord: { totalBet: 3900300, totalWin: 3607217, recordCount: 6588 }, delta: 0 }
+v = V(lusa)
+ok(v.status === 'fail' && !v.pass && v.why === '不一致 — 局數不同（Meter 6587 局、Game Record 6588 筆，差 -1）', '⚠️ 11/11 150 機實際數字：Coin Out 吻合、局數 6587 vs 6588 → fail（原本判一致）', v)
+ok(!/差值 0/.test(H(lusa)) && /局數不同/.test(H(lusa)), '⚠️ 歷史：局數不同 → 不能寫成「差值 0.00」', H(lusa))
+v = V({ ...lusa, delta: 528 })
+ok(v.status === 'fail' && /Coin Out 差 528\.00；局數不同/.test(v.why), 'Coin Out 與局數都不對 → 兩個原因都寫', v)
+v = V({ ...lusa, meter: { ...lusa.meter, gamesPlayed: 6589 } })
+ok(v.status === 'fail' && /差 \+1/.test(v.why), 'Meter 多 → 差 +1', v)
+v = V({ meter: { ...lusa.meter, coinIn: 1 }, gameRecord: { ...lusa.gameRecord, recordCount: 6587 } })
+ok(v.status === 'pass', '下注額不同但局數、Coin Out 都對 → pass（下注只顯示不判）', v)
+// 優先序不變：apiError／noData 先於局數
+v = V({ ...lusa, apiProblems: ['Game Record code=50000'] })
+ok(v.status === 'apiError', 'API 無效 → apiError 優先於局數不同', v)
+v = V({ ...lusa, hourBuckets: 1 })
+ok(v.status === 'noData', '只有 1 個 bucket → noData 優先於局數不同', v)
 ok(/— ⚪ 沒有 EGM Hourly Meter 資料/.test(H({ hourBuckets: 0, meter: null })), '⚠️ 歷史：noData → ⚪ 寫原因（原本會寫 ✅ 一致）', H({ hourBuckets: 0, meter: null }))
 ok(/— ⚪ 這段時間沒有下注/.test(H({ meter: zeroMeter, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 } })), '歷史：noActivity → ⚪ 沒有下注')
 

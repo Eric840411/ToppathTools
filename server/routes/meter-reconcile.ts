@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
-import { apiProblem, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
+import { apiProblem, countDelta, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
+import { buildCountIntervals, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
 export const router = Router()
 
@@ -413,6 +414,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const hourItems: Record<string, unknown>[] = hourData?.data?.items ?? []
     let meterRow: Record<string, unknown> | null = null
     let baselineRow: Record<string, unknown> | null = null
+    const hourList: HourBucket[] = []
     let hourBuckets = 0   // v5.57.0：視窗內的 hourly bucket 數（0＝沒資料、1＝算不出差值，都不能判通過）
     const apiProblems = [apiProblem('EGM Hourly Meter', hourData, METER_VALID.hourly)].filter((x): x is string => !!x)
     const nextDate = nextDateStr(date)
@@ -429,6 +431,9 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
         : rowDate === date
       if (!inWindow) continue
       hourBuckets++
+      // v5.84.0 局數分段定位用：欄位 2 在 hourly 是快照的 Unix 秒數；缺值就不收（定位會標不完整，不影響判定）
+      { const ep = Number(row['2']), g = Number(row[FIELD.gamesPlayed])
+        if (Number.isFinite(ep) && Number.isFinite(g)) hourList.push({ epoch: ep, label: hourStr, games: g, stale: Number(row.useLastData) === 1 }) }
       if (!baselineRow) baselineRow = row // 保留整天範圍內第一個 bucket 當基準線
       meterRow = row // 保留最後一筆（整天範圍內最新的 bucket，才能跟 Game Record 的整天加總對齊）
     }
@@ -555,6 +560,31 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const verdict = meterVerdict({ apiProblems, hourBuckets, usedDaily, meter, gameRecord, attendantPaidJp, delta })
     const pass = verdict.pass
 
+    // v5.84.0（Lusa 1113、CodeX 同意）：局數不同 → 逐段比 Meter 局數與 Game Record 筆數，定位對不上的區間。
+    // 只在 fail 且局數有差時跑；查詢失敗不能當 0、也不改變上面的判定（CodeX）。
+    let countDiag: (ReturnType<typeof summarizeCountDiag> & { intervals: IntervalResult[] }) | { error: string } | null = null
+    const cd = countDelta({ meter, gameRecord })
+    if (verdict.status === 'fail' && cd !== null && cd !== 0) {
+      try {
+        if (hourList.length < 2) throw new Error('hourly 快照缺時間欄位，無法分段')
+        const ws = Math.floor(Date.parse(windowStartIso) / 1000), we = Math.floor(Date.parse(windowEndIso) / 1000)
+        const intervals = buildCountIntervals(hourList, ws, we)
+        const iso = (sec: number) => new Date(sec * 1000).toISOString()
+        const results = await mapLimit(intervals, 4, async (iv): Promise<IntervalResult> => {
+          const p = new URLSearchParams(grParams)
+          p.delete('dateTime[]'); p.append('dateTime[]', iso(iv.start)); p.append('dateTime[]', iso(iv.end))
+          try {
+            const d = await meterPost(env, profile, cfg, '/egm/reports/gameRecordList', p)
+            const pr = apiProblem('Game Record', d, METER_VALID.gameRecord)
+            if (pr) return { ...iv, grCount: null, diff: null, error: pr }
+            const n = Number(d?.data?.total ?? 0)
+            return { ...iv, grCount: n, diff: iv.meterGames === null ? null : iv.meterGames - n }
+          } catch (e) { return { ...iv, grCount: null, diff: null, error: String(e) } }
+        })
+        countDiag = { ...summarizeCountDiag(results, { meterGames: meter!.gamesPlayed, grCount: gameRecord.recordCount }), intervals: results }
+      } catch (e) { countDiag = { error: `分段定位失敗：${e instanceof Error ? e.message : String(e)}` } }
+    }
+
     const result = {
       ok: true,
       machineName, source: profile, date, dayBoundary: boundary,
@@ -564,6 +594,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       meter, gameRecord,
       jackpotAbnormality: { records: jpItems, sumHandpay: attendantPaidJp, count: jpItems.length },
       rawMeterRow: meterRow,
+      countDiag,
     }
 
     addHistory(

@@ -16,7 +16,7 @@
 **公式**：
 - OSM：預期 Coin Out = Game Record 總 Win ＋ Attendant Paid JP − Jackpot Wins
 - GCP：預期 Coin Out = Game Record 總 Win（GCP 的 Game Record 本身就含 Jackpot Wins + Attendant Paid JP，不用另外加減；目前只有 jackpotWins=0 的 GCP 案例驗證過，尚未遇到非 0 案例）
-- 判定門檻：完全一致（誤差 < 0.005）才算 PASS
+- 判定門檻：Coin Out 完全一致（誤差 < 0.005）**且局數一致**才算 PASS（局數規則 v5.84.0，見下方「局數不同也判不一致」）
 - **核心概念**：後台自己的 `TotalCoinOut = Jackpot Wins + Coin Out` 這個恆等式一定成立；而 Jackpot Wins 有沒有被同一筆 Game Record 的 Payout 吃掉，取決於該次中獎走哪個派彩管道——沒被吃掉的部分一定會走 Attendant Paid JP（getHandPayRecord），兩者互補、恆等式 `Game Record 總 Win + Attendant Paid JP = Jackpot Wins + Coin Out` 一定成立，移項就是上面 OSM 的公式。
 - 已用三個真實案例驗證：Rising Rockets Emperor-141（2026-07-22，Jackpot Wins=0，公式退化成單純比對）、Triple Treasure Pot(4321aruze)（2026-07-27，Jackpot Wins=75,685 全部走 Attendant Paid JP，Payout 完全不含）、DFDC3 88 Fortunes（2026-07-28，Jackpot Wins=5,000 全部併入同一筆 Game Record 的 Payout，Attendant Paid JP=0）——三種情境皆 pass=true, delta=0。此工具仍屬「雛形」階段，公式在同一天內已經來回修正三次（見下方修正歷程），之後遇到新的不一致案例，優先懷疑公式本身還有沒覆蓋到的情境，而不是機台真的有問題。
 - **公式修正歷程**（同一天內三次修正，記錄下來避免之後又走回頭路）：① 最原始版本會扣 Jackpot Wins + Attendant Paid JP，Triple Treasure Pot 算出離譜負數，一度以為「不該扣任何東西」；② 改成不扣任何東西後，DFDC3（Jackpot Wins 併入同一筆 Payout）又算錯，因為 Payout 本身已經含 Jackpot Wins；③ 最終發現關鍵是 Jackpot Wins 有沒有被同一筆 Game Record 吃掉，改成上面的「+ Attendant Paid JP − Jackpot Wins」公式，兩個相反案例才同時驗證通過。
@@ -63,6 +63,19 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - 各 API「有效」的判斷 `METER_VALID` route 與測試共用一份
 - Egm DayCount 對帳（兩邊都是 0 也算一致）可能有同樣的問題，**另案**（CodeX）
 - 測試：`scripts/ui-checks/meter-verdict.test.ts` 19 條；真 server 對 data.db 副本打 QAT：查不存在的機台 → noData（原本是「完全吻合」）
+
+## 局數不同也判不一致＋分段定位（v5.84.0，Lusa 1113、CodeX 同意）
+
+- **起因**：UAT CP 150 Rising Rockets 11/11，Game Record 一局寫了兩次（spinid 696，兩筆單號不同、沒中獎），Coin Out 照樣吻合 → 原本判「一致」。同事要求：局數不同直接判不一致，並協助找原因。
+- **判定**（`server/meter-verdict.ts`）：apiError／noData／noActivity 優先序不變；之後 Coin Out 差值或局數（Meter Games Played 差值 − Game Record 筆數）任一不對 → fail，兩個原因都寫進 `why`。下注額（Coin In vs 總 Bet）只顯示不判。歷史摘要改寫 `why`，不再寫「差值 0.00」。
+- **分段定位**（`server/meter-count-diag.ts`，只在 fail 且局數有差時跑）：相鄰 hourly 快照的 Games Played 差值＝那段 Meter 局數，同時段打 gameRecordList（pageSize 1 只讀 total，併發 4）比筆數；回 `countDiag`。
+  - 實測（QAT 1112）：dateTime[] **含頭不含尾、以秒為單位**（小數秒捨去），用快照時間切段不會重複算；hourly 欄位 2＝快照 Unix 秒；自然日一天 26 筆（多 05:59:59、23:59:59）；Squid Game - 1199 逐段全部吻合、加總 1404＝整天。
+  - `useLastData=1`（沒收到新快照）→ 併到下一個真快照、標「跨 N 個快照」；差值為負＝計數器重置 → 該段 Meter 局數 null；視窗頭尾沒被快照涵蓋 → edge 段（Meter 0）。
+  - 相鄰兩段一正一負互相抵銷 → 標為快照時間差（Meter 整點快照在整點後幾秒才讀），不索取日誌；同方向或不相鄰不算。
+  - 查詢失敗不當 0、標不完整；分段加總 ≠ 整天 → 提醒重查。定位失敗不改判定。
+  - 「請提供」：每個可疑時段的盒子日誌（首尾各 +5 分）＋ Game Record 明細（看同 spinid 兩筆）。
+- **限制**：只能定位區間，不能證實原因；「疑似重複寫入」（同 spinid＋開局時間）要拉全部明細，尚未做。
+- **測試**：`npx tsx scripts/ui-checks/meter-verdict.test.ts`（67 條；拿掉局數規則紅 5 條）、`npx tsx scripts/ui-checks/meter-count-diag.test.ts`（19 條；拿掉併段、把抵銷改成不看正負都會紅）
 
 ## UAT 設定值（1014 osm-qa-agent 從 UAT CP 後台頁面的 config.js 讀到）
 工具沒有綁環境，換「後台設定」的值就能查 UAT：
