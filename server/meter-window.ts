@@ -48,3 +48,21 @@ export function resolveQueryWindow(date: string, boundary: 'gaming' | 'calendar'
     customStart: cs ? cs.clock : null, customEnd: ce ? ce.clock : null,
   }
 }
+
+/**
+ * v5.89.0：EGM Hourly Meter 只有整點快照（快照 N 點＝N:00 當下的累計值），
+ * 自訂時間時 Meter 也要跟著縮，不能整天（Eric 11-13：只填結束 14:00:00 就是查 06:00～14:00）。
+ * 起點取「不晚於起點」的最後一個快照，終點取「不早於終點」的第一個快照；
+ * 時間不在整點時 Meter 只能往外擴到整點，aligned=false 讓畫面註明。
+ * 傳入的快照要先依 epoch 排序、只含查詢那一天（gaming／calendar day）範圍內的。
+ */
+export function pickMeterSnapshots<T extends { epoch: number }>(snaps: T[], windowStart: number, windowEnd: number):
+  { first: T; last: T; count: number; aligned: boolean } | null {
+  if (snaps.length === 0) return null
+  let fi = 0
+  for (let i = 0; i < snaps.length; i++) if (snaps[i].epoch <= windowStart) fi = i
+  let li = snaps.length - 1
+  for (let i = snaps.length - 1; i >= fi; i--) if (snaps[i].epoch >= windowEnd) li = i
+  const first = snaps[fi], last = snaps[li]
+  return { first, last, count: li - fi + 1, aligned: first.epoch === windowStart && last.epoch === windowEnd }
+}

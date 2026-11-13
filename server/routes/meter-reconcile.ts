@@ -3,11 +3,16 @@ import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
 import { apiProblem, countDelta, isNum, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
 import { winLossJackpotTerm } from '../../shared/meter-rtp.js'
-import { nextDateStr, resolveQueryWindow, toUtcIso } from '../meter-window.js'
+import { nextDateStr, pickMeterSnapshots, resolveQueryWindow, toUtcIso } from '../meter-window.js'
 import { compareBoxLog, type BoxLogParse, type BoxSpin, type GrSpin } from '../../shared/box-log-spins.js'
 import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
 export const router = Router()
+
+/** Meter 快照 Unix 秒 → UTC+8 的「YYYY-MM-DD HH:mm」 */
+function fmtSnapLocal(sec: number): string {
+  return new Date(sec * 1000 + 8 * 3600_000).toISOString().slice(0, 16).replace('T', ' ')
+}
 
 // ─── Performance Meter 對帳 ──────────────────────────────────────────────────
 // 比對 OSM/GCP EGM Metering 的 Coin Out 與 Game Record + Jackpot Abnormality 加總，
@@ -404,6 +409,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     let baselineRow: Record<string, unknown> | null = null
     const hourList: HourBucket[] = []
     let hourSkipped = 0
+    const daySnaps: { epoch: number; row: Record<string, unknown> }[] = []
     let hourBuckets = 0   // v5.57.0：視窗內的 hourly bucket 數（0＝沒資料、1＝算不出差值，都不能判通過）
     const apiProblems = [apiProblem('EGM Hourly Meter', hourData, METER_VALID.hourly)].filter((x): x is string => !!x)
     const nextDate = nextDateStr(date)
@@ -419,12 +425,25 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
         ? (rowDate === date && rowHour >= dayStartHour) || (rowDate === nextDate && rowHour < dayStartHour)
         : rowDate === date
       if (!inWindow) continue
-      hourBuckets++
+      // v5.89.0：先收齊這一天的快照，迴圈後再依自訂時間挑起訖快照
+      const epoch = isNum(row['2']) ? Number(row['2']) : Math.floor(Date.parse(toUtcIso(rowDate, rowHour)) / 1000)
+      daySnaps.push({ epoch, row })
       // v5.84.0 局數分段定位用：欄位 2 在 hourly 是快照的 Unix 秒數；缺值就不收（定位會標不完整，不影響判定）
       // CodeX 5faf105：Number(null)／Number('') 是 0 → 先用 isNum 驗，缺值的快照計數、標不完整
       { const hb = hourBucketFromRow(row, hourStr, FIELD.gamesPlayed); if (hb) hourList.push(hb); else hourSkipped++ }
-      if (!baselineRow) baselineRow = row // 保留整天範圍內第一個 bucket 當基準線
-      meterRow = row // 保留最後一筆（整天範圍內最新的 bucket，才能跟 Game Record 的整天加總對齊）
+    }
+    // v5.89.0：Meter 跟著自訂時間縮（Eric 11-13：只填結束 14:00:00＝查 06:00～14:00，不能顯示整天）。
+    // 沒填自訂時間時 = 整天第一個～最後一個快照（跟以前一樣）。Meter 只有整點快照，非整點會往外擴、畫面註明。
+    daySnaps.sort((a, b) => a.epoch - b.epoch)
+    const winStartSec = Math.floor(Date.parse(win.startIso) / 1000), winEndSec = Math.floor(Date.parse(win.endIso) / 1000)
+    const hasCustom = !!(win.customStart || win.customEnd)
+    const picked = pickMeterSnapshots(daySnaps, winStartSec, winEndSec)
+    let meterWindow: { startLocal: string; endLocal: string; aligned: boolean } | null = null
+    if (picked) {
+      baselineRow = picked.first.row
+      meterRow = picked.last.row
+      hourBuckets = picked.count
+      if (hasCustom) meterWindow = { startLocal: fmtSnapLocal(picked.first.epoch), endLocal: fmtSnapLocal(picked.last.epoch), aligned: picked.aligned }
     }
     // 找不到 hourly bucket 時 fallback 用當日 daily 總計（無基準線可減，直接用原始累計值）
     // ⚠️ v5.57.0（CodeX）：daily 只留作參考，判定一律 noData（meterVerdict），不能因為 fallback 有數字就判通過
@@ -581,7 +600,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       attendantPaidJp,
       meter, gameRecord,
       jackpotAbnormality: { records: jpItems, sumHandpay: attendantPaidJp, count: jpItems.length },
-      rawMeterRow: meterRow,
+      rawMeterRow: meterRow, meterWindow,
       countDiag,
     }
 

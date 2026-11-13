@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.88.0'
+export const APP_VERSION = '5.89.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.89.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：有自訂時間時 EGM Hourly Meter 也跟著縮——取「不晚於起點」與「不早於終點」的整點快照相減，不再拿整天（Eric 11-13：只填結束 14:00:00＝查 06:00～14:00，不能顯示整個內容）', 'Meter 只有整點快照，填非整點會往外擴到整點，Meter 卡片註明；沒填自訂時間時跟以前一樣是整天', '實測 UAT moneygong-149 11/13 只填結束 14:00:00：原本 Meter 仍是整天 338 局、改後只算 06:00～14:00', 'test: meter-window.test.ts 加 5 項（pickMeterSnapshots）'] },
   { version: '5.88.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：自訂時間改成起訖兩格（起始 to 結束），可只填一邊、可到秒；Gaming Day 下早於 06:00 的時間算隔天凌晨；結束不晚於起始會擋下（Eric 11-13 要求）', '範圍只縮 Game Record／Jackpot Abnormality／盒子日誌比對；EGM Hourly Meter 仍是整天 bucket（報表本身只支援整天）', 'fix: 自訂時間欄位太窄，「下午 04:…」被截斷，加寬並加「清除」', '時間窗計算抽到 server/meter-window.ts，test: meter-window.test.ts 8 項；拿掉「早於 06:00 算隔天」1 項轉紅'] },
   { version: '5.87.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：WIN/LOSE、RTP 依 CP／NC 分開算——CP（OSM）＝Coin In − Coin Out − Jackpot Wins；NC（GCP）＝Coin In − Coin Out（NC 的 Coin Out 已含 Jackpot Wins，原本也扣會重複）；RTP 兩邊都是 WIN/LOSE ÷ Coin In。規則在 shared/meter-rtp.ts 的 winLossJackpotTerm，前後端共用', '公式列多一行顯示目前來源的 WIN/LOSE 與 RTP 公式（Eric 11-13 要求追加）', 'CP 的算法不變；只影響 NC 的 WIN/LOSE／RTP 顯示，不影響 Coin Out 與局數的判定', 'test: meter-rtp.test.ts 15 項；把 NC 改回也扣 Jackpot Wins，2 項轉紅'] },
   { version: '5.86.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：局數判定把 Jackpot Abnormality（handpay）的 JP 局算進來——Meter 局數 = Game Record 筆數＋handpay 筆數就判一致，結論註明「含 N 筆 Jackpot Abnormality 的 JP 局」；上方「局數 Meter − Game Record − JP」同步扣掉', '起因：UAT moneygong-149 11/13 Meter 338 局、Game Record 328 筆被判失敗，差的 10 局全在 Jackpot Abnormality（逐筆用 order_id 核對都不在 Game Record 裡）。Eric 確認兩邊互斥、不會重複算', '加回 handpay 仍對不上就照樣判失敗，原因寫出 handpay 筆數；DFDC3 那種 JP 併在同一筆 Game Record 的情況沒有 handpay 紀錄，不受影響', 'test: meter-verdict.test.ts 73 項；拿掉 countDelta 扣 handpay 那段，3 項轉紅'] },

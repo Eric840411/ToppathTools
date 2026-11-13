@@ -43,7 +43,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 操作 | 說明 |
 |------|------|
 | 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 查詢範圍（Gaming Day／自然日），一鍵拉三邊資料比對 |
-| 自訂時間（選填，起始 to 結束） | v5.88.0 起是起訖兩格（`customStartTime`／`customEndTime`，HH:mm 或 HH:mm:ss），可只填一邊；只縮 Game Record／Jackpot Abnormality／盒子日誌比對的範圍，EGM Hourly Meter 仍是整天。Gaming Day 下早於 06:00 的時間算隔天凌晨；結束不晚於起始會回 400。時間窗算法在 `server/meter-window.ts`（`resolveQueryWindow`，/query 與 /box-log 共用），測試 `npx tsx server/meter-window.test.ts` |
+| 自訂時間（選填，起始 to 結束） | v5.88.0 起是起訖兩格（`customStartTime`／`customEndTime`，HH:mm 或 HH:mm:ss），可只填一邊；Game Record／Jackpot Abnormality／盒子日誌比對照填的時間查；**v5.89.0 起 EGM Hourly Meter 也跟著縮**：取「不晚於起點」與「不早於終點」的整點快照相減（`pickMeterSnapshots`），非整點會往外擴到整點並在 Meter 卡片註明（回傳 `meterWindow`）。沒填自訂時間＝整天，跟以前一樣。Gaming Day 下早於 06:00 的時間算隔天凌晨；結束不晚於起始會回 400。時間窗算法在 `server/meter-window.ts`（`resolveQueryWindow`，/query 與 /box-log 共用），測試 `npx tsx server/meter-window.test.ts` |
 | 清除（自訂時間旁） | 清掉起訖兩格，回到整天 |
 | 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
 | 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |

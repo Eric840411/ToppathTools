@@ -44,6 +44,8 @@ interface MeterResult {
   customEndTime?: string | null
   windowStartLocal?: string
   windowEndLocal?: string
+  /** v5.89.0：有自訂時間時 Meter 實際取的整點快照範圍；aligned=false 代表非整點、往外擴了 */
+  meterWindow?: { startLocal: string; endLocal: string; aligned: boolean } | null
   pass: boolean
   /** v5.57.0：沒資料／沒活動／API 無效都不是 pass（舊的歷史紀錄沒有這欄，退回看 pass） */
   status?: 'pass' | 'fail' | 'noData' | 'noActivity' | 'apiError'
@@ -482,7 +484,7 @@ export function MeterReconcilePage() {
         </div>
         <p className="st-q-hint">
           查詢範圍：比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒。
-          自訂時間：選填，可只填起始或結束、可到秒；只縮小 Game Record／Jackpot Abnormality 的範圍（EGM Hourly Meter 仍是整天）。Gaming Day 下早於 06:00 的時間算隔天凌晨。
+          自訂時間：選填，可只填起始或結束、可到秒；Game Record／Jackpot Abnormality 照填的時間查，EGM Hourly Meter 取對應的整點快照相減（只有整點快照，填非整點會往外擴到整點）。Gaming Day 下早於 06:00 的時間算隔天凌晨。
           盒子日誌：選填，可一次選多個檔，只在瀏覽器解析、原檔不會上傳；有選的話會逐局對 Game Record，找出重複寫入、漏寫、多出、金額不同的局。
         </p>
       </section>
@@ -511,7 +513,7 @@ export function MeterReconcilePage() {
               <div className="st-verdict-sub">
                 {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）
                 {result.customStartTime || result.customEndTime
-                  ? <span style={{ color: '#fbbf24' }}> · Game Record 範圍 {result.windowStartLocal ?? result.customStartTime} ~ {result.windowEndLocal ?? result.customEndTime}</span>
+                  ? <span style={{ color: '#fbbf24' }}> · 查詢範圍 {result.windowStartLocal ?? result.customStartTime} ~ {result.windowEndLocal ?? result.customEndTime}</span>
                   : '整天加總'}
               </div>
             </div>
@@ -558,7 +560,9 @@ export function MeterReconcilePage() {
             <section className="section-card st-card">
               <h3 className="section-title">EGM Hourly Meter（差異值）</h3>
               <div className="st-hint st-card-sub">
-                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 查詢範圍內最後一個 bucket − 第一個 bucket · 可拿來對照 EGM Performance Meter（該報表通常要等到約 15:15 才有當日數據）
+                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.meterWindow
+                  ? <span style={{ color: '#fbbf24' }}>{result.meterWindow.startLocal} ~ {result.meterWindow.endLocal} 快照相減{result.meterWindow.aligned ? '' : '（Meter 只有整點快照，已往外擴到整點，可能跟 Game Record 對不齊）'}</span>
+                  : '查詢範圍內最後一個 bucket − 第一個 bucket'} · 可拿來對照 EGM Performance Meter（該報表通常要等到約 15:15 才有當日數據）
               </div>
               {result.meter ? (
                 <>
