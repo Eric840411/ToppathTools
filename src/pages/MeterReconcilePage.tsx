@@ -197,16 +197,19 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
               <table className="st-diag-table">
                 <thead><tr><th>類型</th><th>spinid</th><th>開局時間</th><th>Game Record 單號</th><th>日誌 押注／贏分</th><th>Game Record 押注／贏分</th></tr></thead>
                 <tbody>
-                  {rows.map((it, i) => (
-                    <tr key={i}>
-                      <td style={{ color: BOX_KIND_BAD.includes(it.kind) ? '#f87171' : undefined }}>{BOX_KIND_LABEL[it.kind]}</td>
+                  {rows.map((it, i) => {
+                    // 有問題的列整列紅字（使用者 1113：單號、金額一眼看得出來）
+                    const isBad = BOX_KIND_BAD.includes(it.kind)
+                    return (
+                    <tr key={i} style={isBad ? { color: '#f87171', fontWeight: 600 } : undefined}>
+                      <td>{BOX_KIND_LABEL[it.kind]}</td>
                       <td>{it.spinid}</td>
                       <td>{fmtLocalSec(it.beginSec)}</td>
                       <td>{it.orderIds.length ? it.orderIds.join('、') : '—'}</td>
                       <td>
                         {it.box ? `${it.box.bet ?? '—'}／${it.box.win ?? '—'}` : '—'}
                         {it.box && (it.box.resends > 0 || it.box.reconnects > 0 || it.box.endSends > 1) && (
-                          <span className="st-dim">（{[
+                          <span className={isBad ? undefined : 'st-dim'}>（{[
                             it.box.resends > 0 && `重送 ${it.box.resends} 次`,
                             it.box.reconnects > 0 && `斷線重連 ${it.box.reconnects} 次`,
                             it.box.endSends > 1 && `結束訊息印 ${it.box.endSends} 次${it.box.endVariants > 1 ? '、內容不同' : ''}`,
@@ -215,7 +218,8 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
                       </td>
                       <td>{it.gr?.length ? it.gr.map(g => `${g.bet}／${g.win}`).join('、') : '—'}</td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             )}
