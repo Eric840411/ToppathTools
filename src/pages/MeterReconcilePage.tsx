@@ -201,7 +201,7 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
                     // 有問題的列整列紅字（使用者 1113：單號、金額一眼看得出來）
                     const isBad = BOX_KIND_BAD.includes(it.kind)
                     return (
-                    <tr key={i} style={isBad ? { color: '#f87171', fontWeight: 600 } : undefined}>
+                    <tr key={i} className={isBad ? 'st-diag-bad' : undefined}>
                       <td>{BOX_KIND_LABEL[it.kind]}</td>
                       <td>{it.spinid}</td>
                       <td>{fmtLocalSec(it.beginSec)}</td>

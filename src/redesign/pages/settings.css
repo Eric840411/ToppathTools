@@ -194,6 +194,8 @@
 .st-diag-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .st-diag-table th, .st-diag-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--rd-line, rgba(148,163,184,.18)); overflow-wrap: anywhere; }
 .st-diag-table th { color: var(--rd-fg-3, #64748b); font-weight: 600; }
+/* 盒子日誌逐局比對：有問題的列。.main-content td（普通版）與仙俠版 td 都有指定字色會蓋掉 tr 的繼承，要直接打在 td 上、權重壓過仙俠那條 */
+.main-content .st-diag-table tr.st-diag-bad > td { color: #f87171 !important; font-weight: 600; background: rgba(248, 113, 113, .12); }
 .st-diag-notes { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; }
 .st-g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
 .st-card-sub { margin: 0 0 8px; }
