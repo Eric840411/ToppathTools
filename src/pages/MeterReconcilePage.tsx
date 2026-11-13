@@ -205,7 +205,7 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
                       <td>{BOX_KIND_LABEL[it.kind]}</td>
                       <td>{it.spinid}</td>
                       <td>{fmtLocalSec(it.beginSec)}</td>
-                      <td>{it.orderIds.length ? it.orderIds.join('、') : '—'}</td>
+                      <td>{it.orderIds.length ? it.orderIds.map(id => <div key={id} style={{ whiteSpace: 'nowrap' }}>{id}</div>) : '—'}</td>
                       <td>
                         {it.box ? `${it.box.bet ?? '—'}／${it.box.win ?? '—'}` : '—'}
                         {it.box && (it.box.resends > 0 || it.box.reconnects > 0 || it.box.endSends > 1) && (
@@ -216,7 +216,7 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
                           ].filter(Boolean).join('、')}）</span>
                         )}
                       </td>
-                      <td>{it.gr?.length ? it.gr.map(g => `${g.bet}／${g.win}`).join('、') : '—'}</td>
+                      <td>{it.gr?.length ? it.gr.map((g, i) => <div key={i} style={{ whiteSpace: 'nowrap' }}>{g.bet}／{g.win}</div>) : '—'}</td>
                     </tr>
                     )
                   })}

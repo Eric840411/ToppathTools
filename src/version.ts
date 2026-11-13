@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.85.6'
+export const APP_VERSION = '5.85.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.85.7', date: '2026-11-13', changes: ['style(盒子日誌逐局比對)：同一局有多張 Game Record 時，單號一張一行（不再用頓號串成一段、換行時把單號切成兩半），Game Record 押注／贏分也一筆一行對齊。純樣式'] },
   { version: '5.85.6', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：v5.85.4 的整列紅字實際沒生效——字色寫在 tr 上，被 .main-content td（普通版）與仙俠版 td 字色規則蓋掉，畫面只變粗體白字。改成 tr.st-diag-bad > td 直接上色並加淡紅底，兩種主題實測都是紅字'] },
   { version: '5.85.5', date: '2026-11-13', changes: ['fix(Performance Meter 對帳)：盒子日誌選了之後可以按「清除」取消（有選檔才出現），清掉檔案選擇與日誌比對結果，上方對帳結果不動；原檔本來就只在瀏覽器解析、沒上傳，沒有後端要刪。清除後還在跑或還沒啟動的日誌比對都作廢（CodeX 1113 P2：對帳還沒回來就清除，不能再用舊檔案啟動比對）'] },
   { version: '5.85.4', date: '2026-11-13', changes: ['style(盒子日誌逐局比對)：重複寫入／漏寫／多出／金額不同等有問題的列整列改紅字（單號、押注贏分一起紅），重送次數也跟著紅；只有重送的列維持原色。純樣式'] },
