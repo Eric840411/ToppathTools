@@ -3,6 +3,7 @@ import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
 import { apiProblem, countDelta, isNum, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
 import { winLossJackpotTerm } from '../../shared/meter-rtp.js'
+import { nextDateStr, resolveQueryWindow, toUtcIso } from '../meter-window.js'
 import { compareBoxLog, type BoxLogParse, type BoxSpin, type GrSpin } from '../../shared/box-log-spins.js'
 import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
@@ -26,23 +27,6 @@ function channelOf(env: MeterEnv, profile: Profile, cfg: Record<string, string>)
   if (cfg.channel_id) return cfg.channel_id
   return env === 'qat' ? (profile === 'osm' ? '873' : '892') : ''
 }
-
-/** 查詢日期的隔天（用於 dateTime[] 上界／gaming day 邊界跨日計算）。 */
-function nextDateStr(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + 1)
-  return d.toISOString().slice(0, 10)
-}
-
-/** 後台自己的 Game Record 查詢介面（有 DevTools 截圖佐證）送出的 dateTime[] 其實是
- * ISO UTC 字串（例如 "2026-07-26T22:00:00.000Z"），不是單純日期字串——這才是真正能對齊
- * 整天邊界的格式，先前用 "YYYY-MM-DD HH:mm:ss" 這種空白分隔字串完全被後端忽略時分秒。
- * 使用者操作介面的時區固定是 UTC+8（已用真實請求反推驗證：本地 06:00 對應 UTC 前一天 22:00）。 */
-function toUtcIso(dateStr: string, hh: number, mm = 0, ss = 0): string {
-  const t = `${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.000+08:00`
-  return new Date(t).toISOString()
-}
-
 
 // 已用 hourly-meter 差值反算驗證過的欄位語意（見對話紀錄）。
 // 注意：欄位 2（daily=RTP）在 egmMeterHourList 裡被挪用成該小時 bucket 的 Unix timestamp，
@@ -365,8 +349,8 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
 // ─── 對帳查詢 ───────────────────────────────────────────────────────────────
 
 router.post('/api/osm/meter-reconcile/query', async (req, res) => {
-  const { machineName, source, date, dayBoundary, customStartTime } = req.body as {
-    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string
+  const { machineName, source, date, dayBoundary, customStartTime, customEndTime } = req.body as {
+    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string; customEndTime?: string
   }
   if (!machineName || !date) {
     return res.status(400).json({ ok: false, message: 'machineName / date 皆為必填' })
@@ -376,7 +360,6 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
   // 不需要跟著調整）。用途：機台當天實際發生過 meter reset，Game Record 卻仍把 reset 前的紀錄
   // 算進整天加總，導致跟 meter 對不上——手動輸入實際 reset 時間，只narrow Game Record 這一側即可。
   // 已用真實案例驗證這支 API 確實支援秒級時間窗過濾（之前「dateTime[] 忽略時分秒」的結論是測試方法有誤）。
-  const customStartMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(customStartTime ?? '')
   // 查詢範圍：'gaming'＝Gaming Day（本地 06:00 ~ 隔天 06:00），'calendar'＝自然日（00:00 ~ 24:00）。
   // 完整移植自 OSM/GCP 後台自己的 EGM Hourly Meter 頁面（Gaming Day 打勾 + Date Type 單選）——
   // 這支報表只支援這兩種整天邊界，做不到像 Game Record 那樣精準到分秒，所以拿掉原本的「查詢小時」
@@ -385,6 +368,9 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
   const dayStartHour = boundary === 'calendar' ? 0 : 6
   const apiDateType = boundary === 'calendar' ? '1' : '0'
+  // v5.88.0：自訂起始／結束時間（可到秒、可跨到 gaming day 的隔天凌晨）
+  const win = resolveQueryWindow(date, boundary, customStartTime, customEndTime)
+  if ('error' in win) return res.status(400).json({ ok: false, message: win.error })
   const env = parseMeterEnv((req.body as { env?: unknown })?.env)
   if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
   const profile: Profile = source === 'gcp' ? 'gcp' : 'osm'
@@ -487,12 +473,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     // 用 ISO UTC 格式送出（已用實際後台頁面截到的 Network request 反推出真正格式：
     // dateTime[]=2026-07-26T22:00:00.000Z 這種 ISO UTC，本地 UTC+8 06:00 = UTC 前一天 22:00，
     // 先前用 "YYYY-MM-DD HH:mm:ss" 空白分隔字串完全被後端忽略時分秒，就是格式不對）。
-    const customStartHour = customStartMatch ? parseInt(customStartMatch[1], 10) : null
-    const customStartMin = customStartMatch ? parseInt(customStartMatch[2], 10) : null
-    const windowStartIso = customStartMatch ? toUtcIso(date, customStartHour!, customStartMin!) : toUtcIso(date, dayStartHour)
-    const windowEndIso = toUtcIso(nextDate, dayStartHour)
-    const windowStartLocal = customStartMatch ? `${date} ${customStartMatch[0]}:00` : `${date} ${String(dayStartHour).padStart(2, '0')}:00:00`
-    const windowEndLocal = `${nextDate} ${String(dayStartHour).padStart(2, '0')}:00:00`
+    const { startIso: windowStartIso, endIso: windowEndIso, startLocal: windowStartLocal, endLocal: windowEndLocal } = win
 
     // ② Game Record 加總（gameRecordList 本身有 sumData，不用逐頁手動加總）
     const grParams = new URLSearchParams({
@@ -594,7 +575,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const result = {
       ok: true,
       machineName, source: profile, date, dayBoundary: boundary,
-      customStartTime: customStartMatch ? customStartMatch[0] : null,
+      customStartTime: win.customStart, customEndTime: win.customEnd,
+      windowStartLocal, windowEndLocal,
       pass, status: verdict.status, statusWhy: verdict.why, hourBuckets, usedDaily, expectedCoinOut, actualCoinOut, delta,
       attendantPaidJp,
       meter, gameRecord,
@@ -606,7 +588,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     addHistory(
       'meter-reconcile',
       `${machineName}（${env.toUpperCase()}・${profile.toUpperCase()}）`,
-      meterHistoryLine(`${date}（${customStartMatch ? `${customStartMatch[0]} 起算` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）`, verdict, delta),
+      meterHistoryLine(`${date}（${win.customStart || win.customEnd ? `${windowStartLocal} ~ ${windowEndLocal}` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）`, verdict, delta),
       result,
     )
 
@@ -650,8 +632,8 @@ function sanitizeBoxLog(raw: unknown): Pick<BoxLogParse, 'spins' | 'coverage' | 
 }
 
 router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {
-  const { machineName, source, date, dayBoundary, customStartTime, log } = req.body as {
-    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string; log?: unknown
+  const { machineName, source, date, dayBoundary, customStartTime, customEndTime, log } = req.body as {
+    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string; customEndTime?: string; log?: unknown
   }
   if (!machineName || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, message: 'machineName / date 皆為必填' })
   const parsed = sanitizeBoxLog(log)
@@ -666,10 +648,9 @@ router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {
 
   // 視窗跟 /query 同一套算法
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
-  const dayStartHour = boundary === 'calendar' ? 0 : 6
-  const cs = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(customStartTime ?? '')
-  const startIso = cs ? toUtcIso(date, parseInt(cs[1], 10), parseInt(cs[2], 10)) : toUtcIso(date, dayStartHour)
-  const endIso = toUtcIso(nextDateStr(date), dayStartHour)
+  const win = resolveQueryWindow(date, boundary, customStartTime, customEndTime)
+  if ('error' in win) return res.status(400).json({ ok: false, message: win.error })
+  const { startIso, endIso } = win
 
   try {
     const base = new URLSearchParams({

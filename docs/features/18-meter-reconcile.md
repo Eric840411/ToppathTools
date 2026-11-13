@@ -43,7 +43,8 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 操作 | 說明 |
 |------|------|
 | 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 查詢範圍（Gaming Day／自然日），一鍵拉三邊資料比對 |
-| 自訂起始時間（選填） | 機台當天有 meter reset 時，手動輸入實際 reset 時間（HH:mm），只 narrow Game Record／Jackpot Abnormality 這兩支查詢的起點，EGM Hourly Meter 不受影響 |
+| 自訂時間（選填，起始 to 結束） | v5.88.0 起是起訖兩格（`customStartTime`／`customEndTime`，HH:mm 或 HH:mm:ss），可只填一邊；只縮 Game Record／Jackpot Abnormality／盒子日誌比對的範圍，EGM Hourly Meter 仍是整天。Gaming Day 下早於 06:00 的時間算隔天凌晨；結束不晚於起始會回 400。時間窗算法在 `server/meter-window.ts`（`resolveQueryWindow`，/query 與 /box-log 共用），測試 `npx tsx server/meter-window.test.ts` |
+| 清除（自訂時間旁） | 清掉起訖兩格，回到整天 |
 | 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
 | 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
 | 查看三邊明細 | EGM Hourly Meter 差異值（Coin In/Out/Jackpot/RTP/WIN-LOSE，卡片標題刻意不叫「EGM Performance Meter」——EGM Performance Meter 那支日報表通常要等到約 15:15 才有當日數據，這裡顯示的是用 EGM Hourly Meter 差值算出來、可拿來即時對照的版本）、Game Record 加總（含 Bet Reward Credits／泥碼下注額，取自 `gameRecordList` sumData 的 `bet_nima` 欄位）、Jackpot Abnormality 明細列表並排顯示 |

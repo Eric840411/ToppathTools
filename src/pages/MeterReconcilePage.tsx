@@ -40,6 +40,10 @@ interface MeterResult {
   date: string
   dayBoundary: 'gaming' | 'calendar'
   customStartTime: string | null
+  /** v5.88.0 */
+  customEndTime?: string | null
+  windowStartLocal?: string
+  windowEndLocal?: string
   pass: boolean
   /** v5.57.0：沒資料／沒活動／API 無效都不是 pass（舊的歷史紀錄沒有這欄，退回看 pass） */
   status?: 'pass' | 'fail' | 'noData' | 'noActivity' | 'apiError'
@@ -231,6 +235,12 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
   )
 }
 
+/** Game Record／JP 卡片副標的時間範圍（舊歷史紀錄只有 customStartTime） */
+function grRangeLabel(r: MeterResult): string {
+  if (r.customEndTime || (r.customStartTime && r.windowStartLocal)) return `${r.windowStartLocal} ~ ${r.windowEndLocal}`
+  return r.customStartTime ? `${r.date} ${r.customStartTime} 起` : `${r.date} 整日`
+}
+
 export function MeterReconcilePage() {
   // 環境（QAT／UAT）：決定查哪個後台、後台設定顯示哪一組。放在查詢列最前面（使用者 1104 選）
   const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('meter'))
@@ -242,6 +252,7 @@ export function MeterReconcilePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [dayBoundary, setDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
   const [customStartTime, setCustomStartTime] = useState('')
+  const [customEndTime, setCustomEndTime] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<MeterResult | null>(null)
   const [error, setError] = useState('')
@@ -337,7 +348,7 @@ export function MeterReconcilePage() {
       if (!p.coverage) { setBoxError('日誌裡找不到任何一局（action_type:4／5），請確認是盒子日誌'); return }
       const res = await fetch('/api/osm/meter-reconcile/box-log', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined,
+        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined, customEndTime: customEndTime || undefined,
           log: { spins: p.spins, coverage: p.coverage, gaps: p.gaps, badSecs: p.badSecs } }),
       })
       const d = await res.json()
@@ -374,7 +385,7 @@ export function MeterReconcilePage() {
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined }),
+        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined, customEndTime: customEndTime || undefined }),
       })
       const d = await res.json()
       if (stale()) return
@@ -443,8 +454,17 @@ export function MeterReconcilePage() {
             </div>
           </div>
           <div className="st-q-f">
-            <label className="st-q-l" htmlFor="pm-start">自訂起始時間</label>
-            <input id="pm-start" className="lst-field st-q-time" type="time" value={customStartTime} onChange={e => setCustomStartTime(e.target.value)} />
+            <label className="st-q-l" htmlFor="pm-start">自訂時間（選填）</label>
+            <div className="st-q-range">
+              <input id="pm-start" className="lst-field st-q-time" type="time" step={1} aria-label="自訂起始時間" title="自訂起始時間"
+                value={customStartTime} onChange={e => setCustomStartTime(e.target.value)} />
+              <span className="st-q-range-to">to</span>
+              <input id="pm-end" className="lst-field st-q-time" type="time" step={1} aria-label="自訂結束時間" title="自訂結束時間"
+                value={customEndTime} onChange={e => setCustomEndTime(e.target.value)} />
+              {(customStartTime || customEndTime) && (
+                <button type="button" className="lst-btn" onClick={() => { setCustomStartTime(''); setCustomEndTime('') }} title="清掉自訂時間，回到整天">清除</button>
+              )}
+            </div>
           </div>
           <div className="st-q-f">
             <label className="st-q-l" htmlFor="pm-boxlog">盒子日誌（選填）</label>
@@ -462,7 +482,7 @@ export function MeterReconcilePage() {
         </div>
         <p className="st-q-hint">
           查詢範圍：比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒。
-          自訂起始時間：選填，機台當天有 meter reset 時用。
+          自訂時間：選填，可只填起始或結束、可到秒；只縮小 Game Record／Jackpot Abnormality 的範圍（EGM Hourly Meter 仍是整天）。Gaming Day 下早於 06:00 的時間算隔天凌晨。
           盒子日誌：選填，可一次選多個檔，只在瀏覽器解析、原檔不會上傳；有選的話會逐局對 Game Record，找出重複寫入、漏寫、多出、金額不同的局。
         </p>
       </section>
@@ -490,8 +510,8 @@ export function MeterReconcilePage() {
               </div>
               <div className="st-verdict-sub">
                 {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）
-                {result.customStartTime
-                  ? <span style={{ color: '#fbbf24' }}> · Game Record 自 {result.customStartTime} 起算</span>
+                {result.customStartTime || result.customEndTime
+                  ? <span style={{ color: '#fbbf24' }}> · Game Record 範圍 {result.windowStartLocal ?? result.customStartTime} ~ {result.windowEndLocal ?? result.customEndTime}</span>
                   : '整天加總'}
               </div>
             </div>
@@ -555,7 +575,7 @@ export function MeterReconcilePage() {
             <section className="section-card st-card">
               <h3 className="section-title">Game Record 加總</h3>
               <div className="st-hint st-card-sub">
-                gameRecordList · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.gameRecord.recordCount} 筆
+                gameRecordList · {grRangeLabel(result)} · {result.gameRecord.recordCount} 筆
               </div>
               <div style={kvRow}><span className="st-k">總 Bet</span><span className="st-v">{fmt(result.gameRecord.totalBet)}</span></div>
               <div style={kvRow}><span className="st-k">總 Win</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
@@ -566,7 +586,7 @@ export function MeterReconcilePage() {
             <section className="section-card st-card">
               <h3 className="section-title">Jackpot Abnormality（Attendant Paid JP）</h3>
               <div className="st-hint st-card-sub">
-                getHandPayRecord · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.jackpotAbnormality.count} 筆
+                getHandPayRecord · {grRangeLabel(result)} · {result.jackpotAbnormality.count} 筆
               </div>
               {result.jackpotAbnormality.records.length === 0
                 ? <p className="st-dim">當日無 Handpay 記錄</p>

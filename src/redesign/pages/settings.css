@@ -163,7 +163,9 @@
 .st-q-l { font-size: 11px; line-height: 1.2; color: var(--rd-fg-3, #64748b); white-space: nowrap; }
 .st-q .lst-field { width: 100%; }
 .st-q input[type="date"].lst-field { width: 142px; }
-.st-q .lst-field.st-q-time { width: 104px; }
+.st-q .lst-field.st-q-time { width: 148px; flex: 0 0 auto; }
+.st-q-range { display: flex; align-items: center; gap: 6px; }
+.st-q-range-to { font-size: 12px; color: var(--rd-fg-3, #64748b); }
 .st-q .lst-field.st-q-file { width: 220px; padding-top: 4px; font-size: 12px; }
 :root[data-ui="redesign"] .st-seg.rd-tabs { height: 34px; padding: 2px; gap: 2px; border-radius: 8px; box-sizing: border-box; align-items: stretch; }
 :root[data-ui="redesign"] .st-seg .rd-tab { display: inline-flex; align-items: center; padding: 0 10px; font-size: 12.5px; border-radius: 6px; }
