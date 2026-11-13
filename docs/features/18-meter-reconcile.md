@@ -91,7 +91,8 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - **實測依據**（claude-osm-2，0150 11/11 全天 6586 局）：`box_begin_time` 是 begin_time 四捨五入到 4 位（不是截斷）；第 5、6 位剛好 50 的平手局後台是浮點四捨五入、方向不定（.55195→.5519）→ 兩邊都當候選。bet／win 單位一致。斷線重送不再印 JSON，只印 `thread_loop_check_action resend!!!`、斷線是 `start reconnect`；重送一次後台就多一個 order_id、box_begin_time 不變。跨日開始的局只有 action 5。真資料跑出 6585 對上＋spinid 696 三筆重複＝GR 6588 筆。
 - **v5.85.1（CodeX 審 4581462）**：多候選涉及的日誌局不判漏寫；被截斷的開局／結束行算 badLines、標不完整；GR 沒抓完整時不判疑似漏寫（重複、金額不同照判）；GR bet／win 缺值算缺欄位；前端每次查詢一個序號（`querySeq`），舊回應不蓋新結果。
 - **v5.85.2（CodeX 複審 4c75d9a）**：解析不了的行的時間（badSecs）一起送 server；開局～結算前後 5 秒內有壞行的 GR 列「證據不足」（nearBadLine），不判疑似多出。
-- **測試**：`npx tsx shared/box-log-spins.test.ts`（46 條；壞行附近照判多出也會紅；配對只用 spinid、拿掉涵蓋檢查、未結束不歸類、多候選強配、拿掉邊界、isError 判漏寫、視窗外也判、不去重、多候選局判漏寫、GR 不完整照判漏寫、截斷行安靜略過、不看 querySeq，各自會紅）；`node scripts/ui-checks/meter-box-log-shot.mjs <日誌檔>` 打本機真路由截圖
+- **v5.85.3（Lusa 反映看不出重複）**：表格上方紅字摘要 `boxProblemSummary`（重複寫入 N 局（Game Record 多 M 筆）、疑似漏寫／多出、金額不同）；`mergeResentRows`：同一局已有別的列（帶日誌資料的）時，重送列併掉，重送次數看那列的日誌欄；只有重送的局保留一列。只改呈現，counts 不變。
+- **測試**：`npx tsx shared/box-log-spins.test.ts`（52 條，含重送列沒併會紅；壞行附近照判多出也會紅；配對只用 spinid、拿掉涵蓋檢查、未結束不歸類、多候選強配、拿掉邊界、isError 判漏寫、視窗外也判、不去重、多候選局判漏寫、GR 不完整照判漏寫、截斷行安靜略過、不看 querySeq，各自會紅）；`node scripts/ui-checks/meter-box-log-shot.mjs <日誌檔>` 打本機真路由截圖
 
 ## UAT 設定值（1014 osm-qa-agent 從 UAT CP 後台頁面的 config.js 讀到）
 工具沒有綁環境，換「後台設定」的值就能查 UAT：

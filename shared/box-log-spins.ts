@@ -323,3 +323,30 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
   notes.push('「疑似漏寫／疑似多出」是依日誌推斷：日誌記的是盒子送出，不代表後台一定收到；給開發時請附原始日誌')
   return { items, counts, notes }
 }
+
+/** 有問題的分類（畫面標紅、摘要列出） */
+export const BOX_BAD_KINDS: BoxCompareKind[] = ['duplicate', 'suspect_missing', 'suspect_extra', 'amount_diff']
+
+/**
+ * 畫面用（v5.85.3，Lusa 1113「看不出那三筆重複」）：同一局已經有別的列（重複寫入／漏寫／金額不同／isError）時，
+ * 「盒子重送／斷線重連」那列併掉——重送次數本來就顯示在那一列的日誌欄，不讓同一局出現兩次。
+ * 只有重送、沒有別的問題的局照樣保留一列（後台只有 1 筆＝重送沒造成重複，留著當參考）。
+ * 只改呈現，不改 counts。
+ */
+export function mergeResentRows(items: BoxCompareItem[]): BoxCompareItem[] {
+  const key = (it: BoxCompareItem) => `${it.spinid}@${it.beginSec}`
+  const covered = new Set(items.filter(it => it.kind !== 'resent' && it.box).map(key))
+  return items.filter(it => it.kind !== 'resent' || !covered.has(key(it)))
+}
+
+/** 摘要：「重複寫入 1 局（多 2 筆）、疑似漏寫 3 局」；沒有問題回空陣列 */
+export function boxProblemSummary(items: BoxCompareItem[]): string[] {
+  const out: string[] = []
+  const dup = items.filter(it => it.kind === 'duplicate')
+  if (dup.length) out.push(`重複寫入 ${dup.length} 局（Game Record 多 ${dup.reduce((n, it) => n + Math.max(0, it.orderIds.length - 1), 0)} 筆）`)
+  const n = (k: BoxCompareKind) => items.filter(it => it.kind === k).length
+  if (n('suspect_missing')) out.push(`疑似漏寫 ${n('suspect_missing')} 局`)
+  if (n('suspect_extra')) out.push(`疑似多出 ${n('suspect_extra')} 筆`)
+  if (n('amount_diff')) out.push(`押注或贏分不同 ${n('amount_diff')} 局`)
+  return out
+}

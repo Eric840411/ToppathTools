@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.85.2'
+export const APP_VERSION = '5.85.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.85.3', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：Lusa 反映「看不出那三筆重複」——表格上方加紅字摘要（例：重複寫入 1 局（Game Record 多 2 筆））；同一局已有重複寫入／漏寫／金額不同／isError 列時，「盒子重送／斷線重連」那列併掉（重送次數本來就在該列日誌欄），同一局不再出現兩次；只有重送、後台沒重複的局照舊保留一列。只改呈現、不改判定與統計'] },
   { version: '5.85.2', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：CodeX 複審 4c75d9a [P2]——日誌有解析不了的行時，原本只在畫面標不完整，比對照樣把那局的 Game Record 判成疑似多出 → 解析不了的行的時間一起送 server，開局～結算前後 5 秒內有壞行的 GR 改列證據不足、不判多出；回歸 46 條，拿掉會紅'] },
   { version: '5.85.1', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：CodeX 審 4581462 的四項 [P2]——多候選（對到多局）涉及的日誌局不再判疑似漏寫；被截斷的開局／結束行算「解析不了」、標比對不完整，不再安靜略過；Game Record 沒抓完整時不判疑似漏寫（重複、金額不同照判）；每次查詢有自己的序號，上一台的日誌比對回應不會蓋掉下一台。另外 Game Record 押注／贏分缺值不再被當成 0。回歸 44 條，四項各自拿掉會紅'] },
   { version: '5.85.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：Lusa 要「可以選擇要不要上傳盒子日誌」→ 查詢列加「盒子日誌（選填）」，可選多檔；瀏覽器解析（原檔不上傳），逐局（spinid＋開局時間）對整段 Game Record 明細，列出重複寫入、疑似漏寫、疑似多出、押注或贏分不同，另標盒子重送結束訊息與 isError 局；日誌沒涵蓋、斷檔、邊界、未結束的局不判並說明。不影響對帳判定。CodeX 審過設計'] },

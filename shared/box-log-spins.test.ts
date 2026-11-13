@@ -4,7 +4,7 @@
  *     多候選不強配、begin_time 不經浮點。
  */
 import { readFileSync } from 'fs'
-import { parseBoxLogs, compareBoxLog, toMicros, GAP_SEC, type GrSpin } from './box-log-spins.js'
+import { parseBoxLogs, compareBoxLog, toMicros, GAP_SEC, mergeResentRows, boxProblemSummary, type GrSpin } from './box-log-spins.js'
 
 let pass = 0
 const fails: string[] = []
@@ -139,6 +139,22 @@ function run(lines: string[], rows: GrSpin[], win = WIN) {
   ok('696 三筆 → duplicate 帶 3 張單號', dup?.orderIds.length === 3 && dup.spinid === 696, r.items)
   ok('696 重送 3 次、斷線 1 次，算在 696 不算 697', rs?.spinid === 696 && rs.box?.resends === 3 && rs.box?.reconnects === 1 && r.items.filter(i => i.kind === 'resent').length === 1, r.items)
   ok('697 正常配上', r.counts.matched === 1, r.counts)
+}
+// v5.85.3 畫面：同一局已有重複寫入列 → 重送列併掉；只有重送的局保留；摘要算出多幾筆
+{
+  const b = DAY0 + 3600
+  const lines = [...spinLines(696, `${b}.314227`, 528, 0), `${hms(b + 10)}|INFO|thread_loop_check_action resend!!! 1`,
+    ...spinLines(697, `${b + 25}.6154728`, 528, 0), `${hms(b + 30)}|INFO|thread_loop_check_action resend!!! 1`, ...spinLines(698, `${b + 60}.5`, 528, 0)]
+  const r = run(lines, [gr('DB7', 696, b + 0.3142, 528, 0, b + 2), gr('DC2', 696, b + 0.3142, 528, 0, b + 12), gr('DCD', 696, b + 0.3142, 528, 0, b + 22),
+    gr('DD0', 697, b + 25.6155, 528, 0, b + 27), gr('DE0', 698, b + 60.5, 528, 0, b + 62)])
+  const rows = mergeResentRows(r.items)
+  ok('696 只剩重複寫入一列（重送併進去）', rows.filter(i => i.spinid === 696).length === 1 && rows.find(i => i.spinid === 696)?.kind === 'duplicate', rows)
+  ok('併掉後重送次數仍在重複寫入列', rows.find(i => i.spinid === 696)?.box?.resends === 1, rows)
+  ok('697 只有重送 → 保留一列', rows.filter(i => i.spinid === 697 && i.kind === 'resent').length === 1, rows)
+  ok('counts 不變（resent 仍算 2）', r.counts.resent === 2 && r.counts.duplicate === 1, r.counts)
+  const sum = boxProblemSummary(r.items)
+  ok('摘要：重複寫入 1 局（多 2 筆）', sum.length === 1 && sum[0] === '重複寫入 1 局（Game Record 多 2 筆）', sum)
+  ok('沒問題 → 摘要空', boxProblemSummary(r.items.filter(i => i.kind === 'resent')).length === 0)
 }
 // 重送內容不同要留下差異
 {

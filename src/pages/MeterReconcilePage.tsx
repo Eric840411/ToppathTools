@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { type MeterEnv, METER_ENV_LABEL, METER_PLACEHOLDER, readMeterEnv, writeMeterEnv } from './meter-env'
 import { rtpTrunc2 } from '../../shared/meter-rtp'
-import { parseBoxLogs, type BoxCompareItem, type BoxCompareKind } from '../../shared/box-log-spins'
+import { parseBoxLogs, mergeResentRows, boxProblemSummary, BOX_BAD_KINDS, type BoxCompareItem, type BoxCompareKind } from '../../shared/box-log-spins'
 
 interface MeterInfo {
   coinIn: number
@@ -167,7 +167,7 @@ const BOX_KIND_LABEL: Record<BoxCompareKind, string> = {
   resent: '盒子重送／斷線重連',
   is_error: '盒子標記錯誤（isError）',
 }
-const BOX_KIND_BAD: BoxCompareKind[] = ['duplicate', 'suspect_missing', 'suspect_extra', 'amount_diff']
+const BOX_KIND_BAD = BOX_BAD_KINDS
 
 function fmtLocalSec(sec: number): string {
   return new Date((sec + 8 * 3600) * 1000).toISOString().replace('T', ' ').slice(0, 23)
@@ -181,6 +181,8 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
       {error && <p className="st-msg-err" style={{ margin: 0 }}>{error}（對帳判定不受影響）</p>}
       {box && (() => {
         const bad = BOX_KIND_BAD.reduce((n, k) => n + box.counts[k], 0)
+        const rows = mergeResentRows(box.items)
+        const problems = boxProblemSummary(box.items)
         return (
           <>
             <div className="st-hint" style={{ marginBottom: 6 }}>
@@ -188,11 +190,14 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
               {bad ? '' : '，沒有發現異常'}
               {!box.complete && <span style={{ color: '#fbbf24' }}> · 比對不完整，原因見下方說明</span>}
             </div>
-            {box.items.length > 0 && (
+            {problems.length > 0 && (
+              <div style={{ color: '#f87171', fontWeight: 600, marginBottom: 6 }}>發現：{problems.join('、')}</div>
+            )}
+            {rows.length > 0 && (
               <table className="st-diag-table">
                 <thead><tr><th>類型</th><th>spinid</th><th>開局時間</th><th>Game Record 單號</th><th>日誌 押注／贏分</th><th>Game Record 押注／贏分</th></tr></thead>
                 <tbody>
-                  {box.items.map((it, i) => (
+                  {rows.map((it, i) => (
                     <tr key={i}>
                       <td style={{ color: BOX_KIND_BAD.includes(it.kind) ? '#f87171' : undefined }}>{BOX_KIND_LABEL[it.kind]}</td>
                       <td>{it.spinid}</td>
