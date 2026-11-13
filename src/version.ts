@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.85.0'
+export const APP_VERSION = '5.85.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.85.1', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：CodeX 審 4581462 的四項 [P2]——多候選（對到多局）涉及的日誌局不再判疑似漏寫；被截斷的開局／結束行算「解析不了」、標比對不完整，不再安靜略過；Game Record 沒抓完整時不判疑似漏寫（重複、金額不同照判）；每次查詢有自己的序號，上一台的日誌比對回應不會蓋掉下一台。另外 Game Record 押注／贏分缺值不再被當成 0。回歸 44 條，四項各自拿掉會紅'] },
   { version: '5.85.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：Lusa 要「可以選擇要不要上傳盒子日誌」→ 查詢列加「盒子日誌（選填）」，可選多檔；瀏覽器解析（原檔不上傳），逐局（spinid＋開局時間）對整段 Game Record 明細，列出重複寫入、疑似漏寫、疑似多出、押注或贏分不同，另標盒子重送結束訊息與 isError 局；日誌沒涵蓋、斷檔、邊界、未結束的局不判並說明。不影響對帳判定。CodeX 審過設計'] },
   { version: '5.84.2', date: '2026-11-13', changes: ['fix(Performance Meter 局數定位)：CodeX 複審 [P2]——自訂起始時間晚於最後一個快照時視窗內 0 個快照，原本回「完整、每一段都對得上」其實一段都沒查 → 明講「查詢範圍內沒有 hourly 快照，無法分段定位」、不標完整'] },
   { version: '5.84.1', date: '2026-11-13', changes: ['fix(Performance Meter 局數定位)：CodeX 審 v5.84.0 的兩項 [P2] 與一項風險——自訂起始時間時只用視窗內的快照（原本拿整天分段跟縮短後的 Game Record 比，會一直叫人重查）；相鄰一正一負抵銷只標「疑似快照時間差」、照樣索取日誌（也可能是漏寫＋重複各一筆）；快照缺時間／局數欄位不再被 Number() 轉成 0，略過的會標「不完整」'] },

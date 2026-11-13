@@ -227,6 +227,7 @@ export function MeterReconcilePage() {
   const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('meter'))
   // 切環境時，還沒回來的舊請求不能蓋掉新畫面（CodeX 1104）
   const envSeq = useRef(0)
+  const querySeq = useRef(0)
   const [machineName, setMachineName] = useState('')
   const [source, setSource] = useState<'osm' | 'gcp'>('osm')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -312,11 +313,14 @@ export function MeterReconcilePage() {
   }
 
   /** 盒子日誌逐局比對：瀏覽器解析，只送每局清單給 server 對 Game Record 明細 */
-  async function runBoxCompare(seq: number) {
+  async function runBoxCompare(seq: number, q: number) {
+    // CodeX 4581462：切環境（envSeq）或又按了一次查詢（querySeq）都讓這次結果作廢——上一台還沒回來就查下一台，舊回應不能蓋掉新結果
+    const stale = () => seq !== envSeq.current || q !== querySeq.current
     setBoxLoading(true); setBoxError(''); setBox(null)
     try {
       const files = [...boxFiles].sort((a, b) => a.name.localeCompare(b.name))
       const texts = await Promise.all(files.map(f => f.text()))
+      if (stale()) return
       const p = parseBoxLogs(texts)
       if (!p.coverage) { setBoxError('日誌裡找不到任何一局（action_type:4／5），請確認是盒子日誌'); return }
       const res = await fetch('/api/osm/meter-reconcile/box-log', {
@@ -325,39 +329,41 @@ export function MeterReconcilePage() {
           log: { spins: p.spins, coverage: p.coverage, gaps: p.gaps } }),
       })
       const d = await res.json()
-      if (seq !== envSeq.current) return
+      if (stale()) return
       if (!d.ok) { setBoxError(d.message || '比對失敗'); return }
       const notes: string[] = [...d.notes]
-      if (p.badLines) notes.unshift(`日誌有 ${p.badLines} 行看起來是開局／結束紀錄但解析不了，已略過`)
+      if (p.badLines) notes.unshift(`日誌有 ${p.badLines} 行看起來是開局／結束紀錄但解析不了（可能被截斷），已略過，比對不完整`)
       setBox({ ...d, notes, complete: d.complete && p.badLines === 0,
         parsed: { files: files.length, spins: p.spins.length, coverage: `${fmtLocalSec(p.coverage.start).slice(0, 19)} ～ ${fmtLocalSec(p.coverage.end).slice(0, 19)}`, gaps: p.gaps.length, badLines: p.badLines } })
     } catch (e) {
-      if (seq !== envSeq.current) return
+      if (stale()) return
       setBoxError(`比對失敗：${e}`)
     } finally {
-      if (seq === envSeq.current) setBoxLoading(false)
+      if (!stale()) setBoxLoading(false)
     }
   }
 
   async function handleQuery() {
     if (!machineName.trim()) { setError('請輸入機台名稱'); return }
-    setLoading(true); setError(''); setResult(null); setBox(null); setBoxError('')
+    setLoading(true); setError(''); setResult(null); setBox(null); setBoxError(''); setBoxLoading(false)
     const seq = envSeq.current
+    const q = ++querySeq.current
+    const stale = () => seq !== envSeq.current || q !== querySeq.current
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined }),
       })
       const d = await res.json()
-      if (seq !== envSeq.current) return
+      if (stale()) return
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
       setResult(d)
-      if (boxFiles.length) void runBoxCompare(seq)
+      if (boxFiles.length) void runBoxCompare(seq, q)
     } catch (e) {
-      if (seq !== envSeq.current) return
+      if (stale()) return
       setError(`查詢失敗：${e}`)
     } finally {
-      if (seq === envSeq.current) setLoading(false)
+      if (!stale()) setLoading(false)
     }
   }
 

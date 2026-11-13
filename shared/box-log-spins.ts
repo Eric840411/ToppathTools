@@ -71,7 +71,8 @@ export function toMicros(raw: string): number | null {
 }
 
 const LINE_RE = /^(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?\|/
-const ACTION_RE = /DoactionResultReq action_type:([45]) (\{.*\})\s*$/
+/** 先認出是開局／結束那一行，再驗 JSON——被截斷（缺結尾 }）的行要算 badLines，不能安靜略過（CodeX 4581462） */
+const ACTION_RE = /DoactionResultReq action_type:([45]) (.*?)\s*$/
 /** JSON 裡 begin_time 的原字串（JSON.parse 會把它變成浮點） */
 const BEGIN_RAW_RE = /"begin_time"\s*:\s*([0-9.]+)/
 const RESEND_RE = /\|thread_loop_check_action resend!!!/
@@ -106,6 +107,7 @@ export function parseBoxLogs(texts: string[]): BoxLogParse {
       else if (RECONNECT_RE.test(line)) events.push({ tod, kind: 'reconnect' })
       const am = ACTION_RE.exec(line)
       if (!am) continue
+      if (!am[2].startsWith('{')) { badLines++; continue }
       const br = BEGIN_RAW_RE.exec(am[2])
       let json: Record<string, unknown> | null = null
       try { json = JSON.parse(am[2]) } catch { json = null }
@@ -231,7 +233,10 @@ function boxTenths(us: number): number[] {
  * 比對。window＝查詢視窗（Unix 秒，含頭不含尾；Game Record 依結算時間篩選）。
  * 只判日誌涵蓋、沒斷檔、離邊界 EDGE_SEC 以上的局；其他歸「日誌未涵蓋／邊界／未結束」不判。
  */
-export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'>, grRows: GrSpin[], window: { start: number; end: number }): BoxCompareResult {
+export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'>, grRows: GrSpin[], window: { start: number; end: number }, opts: { grComplete?: boolean } = {}): BoxCompareResult {
+  // CodeX 4581462：Game Record 沒抓完整（缺頁／缺欄位）時，「GR 沒有」不代表後台沒寫 → 不判疑似漏寫
+  const grComplete = opts.grComplete !== false
+  let missingSkipped = 0
   const counts = { suspect_missing: 0, duplicate: 0, suspect_extra: 0, amount_diff: 0, ambiguous: 0, resent: 0, is_error: 0, matched: 0, notCovered: 0, edge: 0, unfinished: 0 }
   const items: BoxCompareItem[] = []
   const notes: string[] = []
@@ -250,9 +255,12 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
     }
   }
   const grBySpin = new Map<BoxSpin, GrSpin[]>()
+  // 被多候選 GR 對到的日誌局：沒強配，所以也不能判漏寫（CodeX 4581462）
+  const inAmbiguous = new Set<BoxSpin>()
   for (const g of grRows) {
     const cands = idx.get(`${g.spinid}@${grTenths(g.boxBeginTime)}`) ?? []
     if (cands.length > 1) {
+      for (const c of cands) inAmbiguous.add(c)
       counts.ambiguous++
       items.push({ kind: 'ambiguous', spinid: g.spinid, beginSec: g.boxBeginTime, orderIds: [g.orderId], gr: [{ bet: g.bet, win: g.win }] })
       continue
@@ -275,7 +283,8 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
       if (!s.ended || s.endSec === null) { if (inWindow(beginSec)) counts.unfinished++; continue }
       if (!inWindow(s.endSec)) continue
       if (nearEdge(s.endSec)) { counts.edge++; continue }
-      if (s.isError) continue
+      if (s.isError || inAmbiguous.has(s)) continue
+      if (!grComplete) { missingSkipped++; continue }
       counts.suspect_missing++
       items.push({ kind: 'suspect_missing', spinid: s.spinid, beginSec, orderIds: [], box })
       continue
@@ -300,7 +309,8 @@ export function compareBoxLog(parse: Pick<BoxLogParse, 'spins' | 'coverage' | 'g
   if (counts.notCovered) notes.push(`${counts.notCovered} 筆 Game Record 落在日誌沒涵蓋的時間，不判，要比對請補那段日誌`)
   if (counts.edge) notes.push(`${counts.edge} 局結算時間離查詢範圍邊界不到 ${EDGE_SEC} 秒，不判`)
   if (counts.unfinished) notes.push(`${counts.unfinished} 局在日誌裡沒有結束紀錄（日誌在那局中間截斷），不判`)
-  if (counts.ambiguous) notes.push(`${counts.ambiguous} 筆 Game Record 同時對到日誌裡兩局以上，沒有強配，請人工確認`)
+  if (counts.ambiguous) notes.push(`${counts.ambiguous} 筆 Game Record 同時對到日誌裡兩局以上，沒有強配，那幾局也不判漏寫，請人工確認`)
+  if (missingSkipped) notes.push(`Game Record 沒抓完整，${missingSkipped} 局在 Game Record 找不到的不判漏寫（重查一次再看）`)
   notes.push('「疑似漏寫／疑似多出」是依日誌推斷：日誌記的是盒子送出，不代表後台一定收到；給開發時請附原始日誌')
   return { items, counts, notes }
 }

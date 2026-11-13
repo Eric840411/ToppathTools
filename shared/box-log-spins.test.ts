@@ -3,6 +3,7 @@
  * 守：spinid 循環不能誤配、重送／重複寫入要抓到、日誌沒涵蓋／斷檔／邊界／未結束不能判成漏寫或多出、
  *     多候選不強配、begin_time 不經浮點。
  */
+import { readFileSync } from 'fs'
 import { parseBoxLogs, compareBoxLog, toMicros, GAP_SEC, type GrSpin } from './box-log-spins.js'
 
 let pass = 0
@@ -192,6 +193,34 @@ function run(lines: string[], rows: GrSpin[], win = WIN) {
 {
   const r = run([...spinLines(20, `${DAY0 + 3600}.12340`, 10, 0), ...spinLines(20, `${DAY0 + 3600}.12341`, 10, 0)], [gr('H20', 20, DAY0 + 3600.1234, 10, 0, DAY0 + 3602)])
   ok('多候選 → ambiguous，不強配', r.counts.ambiguous === 1 && r.counts.matched === 0, r.counts)
+  ok('多候選涉及的日誌局不判漏寫（CodeX 4581462）', r.counts.suspect_missing === 0, r.counts)
+}
+// 被截斷的開局／結束行（缺結尾 }）要算 badLines，不能安靜略過（CodeX 4581462）
+{
+  const lines = spinLines(21, `${DAY0 + 3600}.5`, 10, 0)
+  lines[0] = lines[0].replace(/, "begin_time": .*$/, ', "begin_ti')
+  const p = parseBoxLogs([[heartbeat(DAY0 + 1), ...lines].join('\n')])
+  ok('截斷的 action 行 → badLines 1', p.badLines === 1, p.badLines)
+}
+// Game Record 沒抓完整 → 「GR 沒有」不判漏寫，其他照判（CodeX 4581462）
+{
+  const hb: string[] = []
+  for (let s = DAY0 + 1; s < DAY0 + 86400; s += 600) hb.push(heartbeat(s))
+  const p = parseBoxLogs([[...hb, ...spinLines(31, `${DAY0 + 3600}.5`, 10, 0), ...spinLines(32, `${DAY0 + 7200}.5`, 10, 30)].sort().join('\n')])
+  const rows = [gr('K32', 32, DAY0 + 7200.5, 10, 20, DAY0 + 7202)]
+  const full = compareBoxLog(p, rows, WIN)
+  const part = compareBoxLog(p, rows, WIN, { grComplete: false })
+  ok('GR 完整 → 31 判疑似漏寫', full.counts.suspect_missing === 1, full.counts)
+  ok('GR 不完整 → 不判漏寫、留說明', part.counts.suspect_missing === 0 && part.notes.some(n => n.includes('沒抓完整')), part)
+  ok('GR 不完整 → 金額不同照判', part.counts.amount_diff === 1, part.counts)
+}
+// 前端：日誌比對的回應要同時看環境序號與查詢序號（CodeX 4581462：上一台的回應不能蓋掉下一台）
+{
+  const src = readFileSync(new URL('../src/pages/MeterReconcilePage.tsx', import.meta.url), 'utf8')
+  const fn = src.slice(src.indexOf('async function runBoxCompare'), src.indexOf('async function handleQuery'))
+  ok('runBoxCompare 用 querySeq 判斷過期', /querySeq\.current/.test(fn) && /if \(stale\(\)\) return/.test(fn))
+  const hq = src.slice(src.indexOf('async function handleQuery'), src.indexOf('const inputStyle'))
+  ok('handleQuery 每次查詢遞增 querySeq', /\+\+querySeq\.current/.test(hq))
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

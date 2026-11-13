@@ -696,7 +696,8 @@ router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {
       const items: Record<string, unknown>[] = d?.data?.items ?? []
       for (const it of items) {
         const orderId = String(it.order_id ?? '')
-        if (!orderId || !isNum(it.spinid) || !isNum(it.box_begin_time) || !isNum(it.payout_time)) { missingFields++; continue }
+        // CodeX 4581462：bet／win 也要驗，null 被 Number() 轉成 0 會誤判金額
+        if (!orderId || !isNum(it.spinid) || !isNum(it.box_begin_time) || !isNum(it.payout_time) || !isNum(it.bet) || !isNum(it.win)) { missingFields++; continue }
         byOrder.set(orderId, {
           orderId, spinid: Number(it.spinid), boxBeginTime: Number(it.box_begin_time),
           bet: Number(it.bet), win: Number(it.win), payoutSec: Number(it.payout_time),
@@ -707,10 +708,10 @@ router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {
     // 分頁期間有新紀錄寫入會讓頁面位移：用 order_id 去重後數量對不上 total 就標不完整（CodeX 1113）
     const got = byOrder.size + missingFields
     const complete = got === total && missingFields === 0
-    if (missingFields) notes.push(`${missingFields} 筆 Game Record 缺 spinid／開局時間／結算時間，沒辦法逐局比對`)
+    if (missingFields) notes.push(`${missingFields} 筆 Game Record 缺 spinid／開局時間／結算時間／押注／贏分，沒辦法逐局比對`)
     if (got !== total) notes.push(`Game Record 總筆數 ${total}，分頁實際抓到 ${got} 筆（查詢期間可能有新紀錄寫入），請重查一次`)
     const window = { start: Date.parse(startIso) / 1000, end: Date.parse(endIso) / 1000 }
-    const cmp = compareBoxLog(parsed, [...byOrder.values()], window)
+    const cmp = compareBoxLog(parsed, [...byOrder.values()], window, { grComplete: complete })
     res.json({ ok: true, complete, grTotal: total, window, items: cmp.items, counts: cmp.counts, notes: [...notes, ...cmp.notes] })
   } catch (e) {
     res.status(500).json({ ok: false, message: `盒子日誌比對失敗：${e instanceof Error ? e.message : String(e)}` })
