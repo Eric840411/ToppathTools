@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.84.1'
+export const APP_VERSION = '5.84.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.84.2', date: '2026-11-13', changes: ['fix(Performance Meter 局數定位)：CodeX 複審 [P2]——自訂起始時間晚於最後一個快照時視窗內 0 個快照，原本回「完整、每一段都對得上」其實一段都沒查 → 明講「查詢範圍內沒有 hourly 快照，無法分段定位」、不標完整'] },
   { version: '5.84.1', date: '2026-11-13', changes: ['fix(Performance Meter 局數定位)：CodeX 審 v5.84.0 的兩項 [P2] 與一項風險——自訂起始時間時只用視窗內的快照（原本拿整天分段跟縮短後的 Game Record 比，會一直叫人重查）；相鄰一正一負抵銷只標「疑似快照時間差」、照樣索取日誌（也可能是漏寫＋重複各一筆）；快照缺時間／局數欄位不再被 Number() 轉成 0，略過的會標「不完整」'] },
   { version: '5.84.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：Lusa 反映 150 機 11/11 Game Record 一局寫了兩次（沒中獎），Coin Out 吻合就判「一致」→ 局數（Meter Games Played vs Game Record 筆數）不同也判不一致，Coin Out 與局數都不對時兩個原因都寫；局數不同時自動逐段比 Meter 每小時快照局數與同時段 Game Record 筆數，列出對不上的時段、相鄰抵銷的快照時間差、計數器重置、查詢失敗，並列出要提供的盒子日誌時段（首尾各 +5 分）。下注額仍只顯示不判。CodeX 同意'] },
   { version: '5.83.4', date: '2026-11-12', changes: ['fix(Performance Meter 對帳)：CodeX 指出 v5.83.3 的 1e-9 門檻只靠「coinIn < 1e9」的註解假設 → RTP 改用原始 coinIn／coinOut／jackpotWins 做 BigInt 精確十進位運算再捨去，不再有範圍假設；值大到只能指數表示時才退回浮點。測試 11 條，v5.83.2、v5.83.3 兩種寫法都會紅'] },

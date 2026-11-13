@@ -115,6 +115,8 @@ const PAD = 5 * 60
 export function summarizeCountDiag(results: IntervalResult[], day: { meterGames: number; grCount: number }, opts: { skippedBuckets?: number } = {}): CountDiagSummary {
   const notes: string[] = []
   const skipped = opts.skippedBuckets ?? 0
+  // CodeX 5a46e0b [P2]：沒有任何區間＝一段都沒查，不能回 complete、也不能讓畫面說「每一段都對得上」
+  if (results.length === 0) return { complete: false, mismatched: [], cancelled: [], notes: ['查詢範圍內沒有 hourly 快照，無法分段定位'], dataRequests: [] }
   // CodeX 5faf105：快照缺時間或局數欄位 → 那段被併進相鄰區間，結果不完整（不能標 complete）
   if (skipped) notes.push(`${skipped} 個 hourly 快照缺時間或局數欄位，已略過，相鄰區間的範圍因此變大，定位結果不完整`)
   const failed = results.filter(r => r.grCount === null)

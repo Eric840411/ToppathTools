@@ -108,7 +108,7 @@ function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
         逐段比對 Meter 每小時快照的局數與同時段 Game Record 筆數，只列出對不上的區間。只能縮小範圍，原因要看盒子日誌確認。
       </div>
       {diag.mismatched.length === 0
-        ? <div className="st-dim">每一段都對得上（差異可能在整天查詢的頭尾邊界），請重查一次確認。</div>
+        ? <div className="st-dim">{diag.complete ? '每一段都對得上（差異可能在整天查詢的頭尾邊界），請重查一次確認。' : '沒有完成分段定位，原因見下方說明。'}</div>
         : (
           <table className="st-diag-table">
             <thead><tr><th>時段</th><th>Meter 局數</th><th>Game Record 筆數</th><th>差</th><th>備註</th></tr></thead>

@@ -14,6 +14,7 @@ const B = (h: number, games: number, stale = false, sec = 0): HourBucket => ({ e
 ok(fmtLocal(T0) === '2026-11-11 00:00:00', 'fmtLocal 是 UTC+8', fmtLocal(T0))
 
 // 一般：每小時一段，差值就是局數；視窗與快照對齊 → 沒有 edge
+let s0: ReturnType<typeof summarizeCountDiag>
 let iv = buildCountIntervals([B(0, 100), B(1, 110), B(2, 130)], T0, T0 + 2 * H)
 ok(iv.length === 2 && iv[0].meterGames === 10 && iv[1].meterGames === 20 && !iv[0].edge, '每小時一段、差值＝局數', iv)
 ok(iv[0].start === T0 && iv[0].end === T0 + H && iv[1].start === iv[0].end, '區間首尾相接（含頭不含尾，不重複算）', iv)
@@ -48,6 +49,12 @@ ok(iv.length === 1 && iv[0].meterGames === 2, '重複時間的快照不產生 0 
 // CodeX 5faf105：自訂起始時間 → 視窗前的快照不能用（不能把跨過起點的整段差值套進來）
 iv = buildCountIntervals([B(0, 100), B(1, 110), B(2, 130), B(3, 160)], T0 + 90 * 60, T0 + 3 * H)
 ok(iv.length === 2 && iv[0].edge && iv[0].start === T0 + 90 * 60 && iv[0].end === T0 + 2 * H && iv[1].meterGames === 30, '⚠️ 視窗從 01:30 起 → 00:00、01:00 快照不用；01:30～02:00 是 edge', iv)
+
+// CodeX 5a46e0b [P2]：整日有快照、但自訂視窗內 0 個快照
+iv = buildCountIntervals([B(0, 1), B(1, 2), B(2, 3)], T0 + 2 * H + 1800, T0 + 2 * H + 3000)
+ok(iv.length === 0, '視窗晚於最後一個快照 → 沒有區間', iv)
+s0 = summarizeCountDiag(iv.map(x => ({ ...x, grCount: 0, diff: 0 })), { meterGames: 2, grCount: 5 })
+ok(!s0.complete && s0.notes.some(x => /沒有 hourly 快照/.test(x)), '⚠️ 沒有任何區間 → 不完整＋說明（不能回「每段都對得上」）', s0)
 
 // 快照缺值不能被 Number() 轉成 0
 ok(hourBucketFromRow({ '2': 1794412800, '5': 117, useLastData: 0 }, 'x', '5')?.games === 117, '正常快照 → HourBucket')

@@ -570,6 +570,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
         if (hourList.length < 2) throw new Error('hourly 快照缺時間欄位，無法分段')
         const ws = Math.floor(Date.parse(windowStartIso) / 1000), we = Math.floor(Date.parse(windowEndIso) / 1000)
         const intervals = buildCountIntervals(hourList, ws, we)
+        // CodeX 5a46e0b [P2]：自訂起點晚於最後一個快照 → 視窗內 0 個快照，明講無法定位，不能回「每段都對得上」
+        if (intervals.length === 0) throw new Error('查詢範圍內沒有 hourly 快照，無法分段定位')
         const iso = (sec: number) => new Date(sec * 1000).toISOString()
         const results = await mapLimit(intervals, 4, async (iv): Promise<IntervalResult> => {
           const p = new URLSearchParams(grParams)
