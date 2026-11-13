@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.85.4'
+export const APP_VERSION = '5.85.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.85.5', date: '2026-11-13', changes: ['fix(Performance Meter 對帳)：盒子日誌選了之後可以按「清除」取消（有選檔才出現），清掉檔案選擇與日誌比對結果，上方對帳結果不動；原檔本來就只在瀏覽器解析、沒上傳，沒有後端要刪。清除後還在跑或還沒啟動的日誌比對都作廢（CodeX 1113 P2：對帳還沒回來就清除，不能再用舊檔案啟動比對）'] },
   { version: '5.85.4', date: '2026-11-13', changes: ['style(盒子日誌逐局比對)：重複寫入／漏寫／多出／金額不同等有問題的列整列改紅字（單號、押注贏分一起紅），重送次數也跟著紅；只有重送的列維持原色。純樣式'] },
   { version: '5.85.3', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：Lusa 反映「看不出那三筆重複」——表格上方加紅字摘要（例：重複寫入 1 局（Game Record 多 2 筆））；同一局已有重複寫入／漏寫／金額不同／isError 列時，「盒子重送／斷線重連」那列併掉（重送次數本來就在該列日誌欄），同一局不再出現兩次；只有重送、後台沒重複的局照舊保留一列。只改呈現、不改判定與統計'] },
   { version: '5.85.2', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：CodeX 複審 4c75d9a [P2]——日誌有解析不了的行時，原本只在畫面標不完整，比對照樣把那局的 Game Record 判成疑似多出 → 解析不了的行的時間一起送 server，開局～結算前後 5 秒內有壞行的 GR 改列證據不足、不判多出；回歸 46 條，拿掉會紅'] },

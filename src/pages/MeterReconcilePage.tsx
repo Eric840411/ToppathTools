@@ -247,6 +247,9 @@ export function MeterReconcilePage() {
   const [error, setError] = useState('')
   // v5.85.0：盒子日誌（選填）——只在瀏覽器解析，不上傳原檔
   const [boxFiles, setBoxFiles] = useState<File[]>([])
+  const boxInputRef = useRef<HTMLInputElement>(null)
+  // 按「清除」後，還在跑的日誌比對回來也不能再把結果放回畫面
+  const boxClearSeq = useRef(0)
   const [box, setBox] = useState<BoxLogResult | null>(null)
   const [boxLoading, setBoxLoading] = useState(false)
   const [boxError, setBoxError] = useState('')
@@ -322,9 +325,9 @@ export function MeterReconcilePage() {
   }
 
   /** 盒子日誌逐局比對：瀏覽器解析，只送每局清單給 server 對 Game Record 明細 */
-  async function runBoxCompare(seq: number, q: number) {
+  async function runBoxCompare(seq: number, q: number, clearSeq: number) {
     // CodeX 4581462：切環境（envSeq）或又按了一次查詢（querySeq）都讓這次結果作廢——上一台還沒回來就查下一台，舊回應不能蓋掉新結果
-    const stale = () => seq !== envSeq.current || q !== querySeq.current
+    const stale = () => seq !== envSeq.current || q !== querySeq.current || clearSeq !== boxClearSeq.current
     setBoxLoading(true); setBoxError(''); setBox(null)
     try {
       const files = [...boxFiles].sort((a, b) => a.name.localeCompare(b.name))
@@ -352,11 +355,21 @@ export function MeterReconcilePage() {
     }
   }
 
+  /** 取消已選的盒子日誌：清掉檔案選擇與這份日誌的比對結果，對帳結果不動 */
+  function clearBoxFiles() {
+    boxClearSeq.current++
+    setBoxFiles([])
+    if (boxInputRef.current) boxInputRef.current.value = ''
+    setBox(null); setBoxError(''); setBoxLoading(false)
+  }
+
   async function handleQuery() {
     if (!machineName.trim()) { setError('請輸入機台名稱'); return }
     setLoading(true); setError(''); setResult(null); setBox(null); setBoxError(''); setBoxLoading(false)
     const seq = envSeq.current
     const q = ++querySeq.current
+    // CodeX 1113：對帳還沒回來就按清除，回來時不能再拿舊的檔案啟動日誌比對
+    const clearSeq = boxClearSeq.current
     const stale = () => seq !== envSeq.current || q !== querySeq.current
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
@@ -367,7 +380,7 @@ export function MeterReconcilePage() {
       if (stale()) return
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
       setResult(d)
-      if (boxFiles.length) void runBoxCompare(seq, q)
+      if (boxFiles.length && clearSeq === boxClearSeq.current) void runBoxCompare(seq, q, clearSeq)
     } catch (e) {
       if (stale()) return
       setError(`查詢失敗：${e}`)
@@ -435,8 +448,13 @@ export function MeterReconcilePage() {
           </div>
           <div className="st-q-f">
             <label className="st-q-l" htmlFor="pm-boxlog">盒子日誌（選填）</label>
-            <input id="pm-boxlog" className="lst-field st-q-file" type="file" multiple accept=".log,.txt,text/plain"
-              onChange={e => setBoxFiles(Array.from(e.target.files ?? []))} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input id="pm-boxlog" ref={boxInputRef} className="lst-field st-q-file" type="file" multiple accept=".log,.txt,text/plain"
+                onChange={e => setBoxFiles(Array.from(e.target.files ?? []))} />
+              {boxFiles.length > 0 && (
+                <button type="button" className="lst-btn" onClick={clearBoxFiles} title="取消已選的盒子日誌，連同這份日誌的比對結果一起清掉">清除</button>
+              )}
+            </div>
           </div>
           <button type="button" className="submit-btn lst-btn st-q-go" onClick={handleQuery} disabled={loading}>
             {loading ? '查詢中…' : '查詢對帳'}
