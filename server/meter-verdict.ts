@@ -14,6 +14,10 @@
  * v5.84.0（Lusa 1113、CodeX 同意）：局數（Meter Games Played 差值 vs Game Record 筆數）不同也判 fail。
  *   起因：11/11 150 機 Game Record 一局寫了兩次（沒中獎），Coin Out 照樣吻合 → 原本判「一致」。
  *   Coin Out 與局數都不對時兩個原因都要寫出來；下注額（Coin In vs 總 Bet）只顯示、不判。
+ *
+ * v5.86.0（Eric 1113，moneygong-149）：Jackpot Abnormality（handpay）的局不會進 Game Record，兩邊互斥、不會重複
+ *   （使用者確認：Jackpot Abnormality 有就 Game Record 沒有，反之亦然；UAT 11/13 逐筆用 order_id 核對 10 筆都不在 GR 裡）。
+ *   所以局數改比 Meter Games Played vs Game Record 筆數＋handpay 筆數。DFDC3 那種 JP 併在同一筆 GR 的情況沒有 handpay 紀錄，不受影響。
  */
 export type MeterStatus = 'pass' | 'fail' | 'noData' | 'noActivity' | 'apiError'
 
@@ -27,6 +31,8 @@ export type MeterVerdictInput = {
   meter: { coinIn: number; coinOut: number; jackpotWins: number; gamesPlayed: number } | null
   gameRecord: { totalBet: number; totalWin: number; recordCount: number }
   attendantPaidJp: number
+  /** 查詢視窗內的 Jackpot Abnormality（handpay）筆數：這些局不進 Game Record（v5.86.0） */
+  handpayCount?: number
   delta: number
 }
 
@@ -41,19 +47,19 @@ export function meterVerdict(p: MeterVerdictInput): { status: MeterStatus; pass:
   if (p.gameRecord.recordCount === 0 && allZero) return { status: 'noActivity', pass: false, why: '這段時間沒有下注（局數、金額、Game Record 都是 0），沒有可對帳的數字' }
   const reasons = mismatchReasons(p)
   const pass = reasons.length === 0
-  return { status: pass ? 'pass' : 'fail', pass, why: pass ? '一致 — Coin Out 與局數都吻合' : `不一致 — ${reasons.join('；')}` }
+  return { status: pass ? 'pass' : 'fail', pass, why: pass ? `一致 — Coin Out 與局數都吻合${p.handpayCount ? `（局數含 ${p.handpayCount} 筆 Jackpot Abnormality 的 JP 局）` : ''}` : `不一致 — ${reasons.join('；')}` }
 }
 
-/** 局數差（Meter − Game Record）；沒有 meter 時回 null */
-export function countDelta(p: Pick<MeterVerdictInput, 'meter' | 'gameRecord'>): number | null {
-  return p.meter ? p.meter.gamesPlayed - p.gameRecord.recordCount : null
+/** 局數差（Meter − Game Record − handpay）；沒有 meter 時回 null。handpay 的局不進 Game Record（v5.86.0） */
+export function countDelta(p: Pick<MeterVerdictInput, 'meter' | 'gameRecord' | 'handpayCount'>): number | null {
+  return p.meter ? p.meter.gamesPlayed - p.gameRecord.recordCount - (p.handpayCount ?? 0) : null
 }
 
 function mismatchReasons(p: MeterVerdictInput): string[] {
   const out: string[] = []
   if (!ZERO(p.delta)) out.push(`Coin Out 差 ${fmt2(p.delta)}`)
   const cd = countDelta(p)
-  if (cd !== null && cd !== 0) out.push(`局數不同（Meter ${p.meter!.gamesPlayed} 局、Game Record ${p.gameRecord.recordCount} 筆，差 ${cd > 0 ? '+' : ''}${cd}）`)
+  if (cd !== null && cd !== 0) out.push(`局數不同（Meter ${p.meter!.gamesPlayed} 局、Game Record ${p.gameRecord.recordCount} 筆${p.handpayCount ? `＋Jackpot Abnormality ${p.handpayCount} 筆` : ''}，差 ${cd > 0 ? '+' : ''}${cd}）`)
   return out
 }
 

@@ -3,7 +3,7 @@
  *   npx tsx scripts/ui-checks/meter-verdict.test.ts
  * 原本：EGM Hourly Meter 沒資料 → actualCoinOut = meter?.coinOut ?? 0，Game Record 0 筆 → 「0 = 0 通過 — Coin Out 完全吻合」
  */
-import { meterVerdict, apiProblem, meterHistoryLine, METER_VALID, missingMeterFields, isNum, type MeterVerdictInput } from '../../server/meter-verdict.ts'
+import { meterVerdict, countDelta, apiProblem, meterHistoryLine, METER_VALID, missingMeterFields, isNum, type MeterVerdictInput } from '../../server/meter-verdict.ts'
 
 let fail = 0, n = 0
 const ok = (c: boolean, label: string, got?: unknown) => { n++; if (!c) fail++; console.log(`${c ? '✅' : '❌'} ${label}${!c && got !== undefined ? `：${JSON.stringify(got)}` : ''}`) }
@@ -81,6 +81,20 @@ v = V({ ...lusa, hourBuckets: 1 })
 ok(v.status === 'noData', '只有 1 個 bucket → noData 優先於局數不同', v)
 ok(/— ⚪ 沒有 EGM Hourly Meter 資料/.test(H({ hourBuckets: 0, meter: null })), '⚠️ 歷史：noData → ⚪ 寫原因（原本會寫 ✅ 一致）', H({ hourBuckets: 0, meter: null }))
 ok(/— ⚪ 這段時間沒有下注/.test(H({ meter: zeroMeter, gameRecord: { totalBet: 0, totalWin: 0, recordCount: 0 } })), '歷史：noActivity → ⚪ 沒有下注')
+
+// v5.86.0（Eric 1113，moneygong-149）：Jackpot Abnormality 的 JP 局不進 Game Record → 局數要加回 handpay 筆數
+const mg = { meter: { coinIn: 30800, coinOut: 8660, jackpotWins: 36432, gamesPlayed: 338 }, gameRecord: { totalBet: 29568, totalWin: 8660, recordCount: 328 }, attendantPaidJp: 36432, delta: 0 }
+v = V({ ...mg, handpayCount: 10 })
+ok(v.status === 'pass' && /含 10 筆 Jackpot Abnormality/.test(v.why), '⚠️ 1113 moneygong-149：Meter 338 = Game Record 328＋handpay 10 → pass，結論註明 JP 局', v)
+v = V({ ...mg })
+ok(v.status === 'fail' && /差 \+10/.test(v.why), '沒帶 handpay 筆數 → 照舊判局數不同（+10）', v)
+v = V({ ...mg, handpayCount: 9 })
+ok(v.status === 'fail' && /Game Record 328 筆＋Jackpot Abnormality 9 筆，差 \+1/.test(v.why), '加回 handpay 仍差 1 局 → fail，原因寫出 handpay 筆數', v)
+v = V({ ...mg, handpayCount: 11 })
+ok(v.status === 'fail' && /差 -1/.test(v.why), 'handpay 多算（GR＋handpay 超過 Meter）→ fail', v)
+v = V({ handpayCount: 0 })
+ok(v.status === 'pass' && v.why === '一致 — Coin Out 與局數都吻合', '沒有 handpay → 結論文字不變', v)
+ok(countDelta({ ...mg, handpayCount: 10 }) === 0 && countDelta({ ...mg }) === 10, 'countDelta 扣掉 handpay（局數差異定位只在扣完仍不一致時才跑）')
 
 console.log(`\n${n - fail}/${n} 通過`)
 process.exit(fail ? 1 : 0)

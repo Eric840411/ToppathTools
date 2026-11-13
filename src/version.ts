@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.85.8'
+export const APP_VERSION = '5.86.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.86.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：局數判定把 Jackpot Abnormality（handpay）的 JP 局算進來——Meter 局數 = Game Record 筆數＋handpay 筆數就判一致，結論註明「含 N 筆 Jackpot Abnormality 的 JP 局」；上方「局數 Meter − Game Record − JP」同步扣掉', '起因：UAT moneygong-149 11/13 Meter 338 局、Game Record 328 筆被判失敗，差的 10 局全在 Jackpot Abnormality（逐筆用 order_id 核對都不在 Game Record 裡）。Eric 確認兩邊互斥、不會重複算', '加回 handpay 仍對不上就照樣判失敗，原因寫出 handpay 筆數；DFDC3 那種 JP 併在同一筆 Game Record 的情況沒有 handpay 紀錄，不受影響', 'test: meter-verdict.test.ts 73 項；拿掉 countDelta 扣 handpay 那段，3 項轉紅'] },
   { version: '5.85.8', date: '2026-11-13', changes: ['style(Performance Meter 對帳)：公式列與三張來源卡（EGM Hourly Meter／Game Record 加總／Jackpot Abnormality）移到「局數差異定位」上面，順序改成 結論 → 公式 → 三張卡 → 局數差異定位 → 盒子日誌逐局比對 → 原始欄位對照表。純樣式'] },
   { version: '5.85.7', date: '2026-11-13', changes: ['style(盒子日誌逐局比對)：同一局有多張 Game Record 時，單號一張一行（不再用頓號串成一段、換行時把單號切成兩半），Game Record 押注／贏分也一筆一行對齊。純樣式'] },
   { version: '5.85.6', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：v5.85.4 的整列紅字實際沒生效——字色寫在 tr 上，被 .main-content td（普通版）與仙俠版 td 字色規則蓋掉，畫面只變粗體白字。改成 tr.st-diag-bad > td 直接上色並加淡紅底，兩種主題實測都是紅字'] },

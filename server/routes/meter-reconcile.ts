@@ -559,13 +559,13 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const actualCoinOut = meter?.coinOut ?? 0
     const delta = actualCoinOut - expectedCoinOut
     // v5.57.0：沒資料／只有 1 個 bucket／沒活動／API 無效都不算通過（原本 0 = 0 會判「完全吻合」）
-    const verdict = meterVerdict({ apiProblems, hourBuckets, usedDaily, meter, gameRecord, attendantPaidJp, delta })
+    const verdict = meterVerdict({ apiProblems, hourBuckets, usedDaily, meter, gameRecord, attendantPaidJp, handpayCount: jpItems.length, delta })
     const pass = verdict.pass
 
     // v5.84.0（Lusa 1113、CodeX 同意）：局數不同 → 逐段比 Meter 局數與 Game Record 筆數，定位對不上的區間。
     // 只在 fail 且局數有差時跑；查詢失敗不能當 0、也不改變上面的判定（CodeX）。
     let countDiag: (ReturnType<typeof summarizeCountDiag> & { intervals: IntervalResult[] }) | { error: string } | null = null
-    const cd = countDelta({ meter, gameRecord })
+    const cd = countDelta({ meter, gameRecord, handpayCount: jpItems.length })
     if (verdict.status === 'fail' && cd !== null && cd !== 0) {
       try {
         if (hourList.length < 2) throw new Error('hourly 快照缺時間欄位，無法分段')

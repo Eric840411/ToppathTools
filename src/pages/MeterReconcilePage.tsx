@@ -499,10 +499,12 @@ export function MeterReconcilePage() {
               <div className="st-verdict-k">Coin Out 實際 − 預期</div>
               <div className="st-verdict-v" style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.delta)}</div>
               {!noNumbers && result.meter && (() => {
-                const cd = result.meter.gamesPlayed - result.gameRecord.recordCount
+                // v5.86.0：Jackpot Abnormality 的 JP 局不進 Game Record，要加回來比
+                const hp = result.jackpotAbnormality?.count ?? 0
+                const cd = result.meter.gamesPlayed - result.gameRecord.recordCount - hp
                 return (
                   <>
-                    <div className="st-verdict-k" style={{ marginTop: 6 }}>局數 Meter − Game Record</div>
+                    <div className="st-verdict-k" style={{ marginTop: 6 }}>局數 Meter − Game Record{hp ? ' − JP' : ''}</div>
                     <div className="st-verdict-v" style={{ color: cd === 0 ? undefined : '#f87171' }}>{cd > 0 ? `+${cd}` : cd}</div>
                   </>
                 )

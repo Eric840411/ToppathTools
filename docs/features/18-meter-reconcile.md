@@ -76,7 +76,8 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
   - 查詢失敗不當 0、標不完整；分段加總 ≠ 整天 → 提醒重查。定位失敗不改判定。
   - 「請提供」：每個可疑時段的盒子日誌（首尾各 +5 分）＋ Game Record 明細（看同 spinid 兩筆）。
 - **限制**：只能定位區間，不能證實原因；「疑似重複寫入」（同 spinid＋開局時間）要拉全部明細，尚未做。
-- **測試**：`npx tsx scripts/ui-checks/meter-verdict.test.ts`（67 條；拿掉局數規則紅 5 條）、`npx tsx scripts/ui-checks/meter-count-diag.test.ts`（35 條；拿掉併段、抵銷不看正負、視窗篩選、抵銷段索取日誌、缺值檢查都會紅）
+- **v5.86.0 Jackpot Abnormality 的局要加回來**（Eric 1113，UAT moneygong-149）：handpay 的 JP 局不會進 Game Record，兩邊互斥不重複（Eric 確認；11/13 那 10 筆逐筆用 order_id 核對都不在 Game Record）。局數改比 `Meter Games Played − Game Record 筆數 − handpay 筆數`（`countDelta`、`handpayCount`＝視窗內 getHandPayRecord 筆數），一致時 `why` 註明「含 N 筆 Jackpot Abnormality 的 JP 局」；分段定位也只在扣完仍不一致時才跑。畫面上方改顯示「局數 Meter − Game Record − JP」。CodeX 原本建議逐筆用單號比、防 handpay 同時出現在 GR；使用者確認互斥後改用筆數，⚠️ 只驗過 UAT 這一台這一天。
+- **測試**：`npx tsx scripts/ui-checks/meter-verdict.test.ts`（73 條；拿掉局數規則紅 5 條；拿掉扣 handpay 紅 3 條）、`npx tsx scripts/ui-checks/meter-count-diag.test.ts`（35 條；拿掉併段、抵銷不看正負、視窗篩選、抵銷段索取日誌、缺值檢查都會紅）
 
 ## 盒子日誌逐局比對（v5.85.0，Lusa 1113 要求；CodeX 審過設計）
 
