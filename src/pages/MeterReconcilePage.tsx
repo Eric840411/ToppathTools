@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { type MeterEnv, METER_ENV_LABEL, METER_PLACEHOLDER, readMeterEnv, writeMeterEnv } from './meter-env'
 import { rtpTrunc2 } from '../../shared/meter-rtp'
+import { parseBoxLogs, type BoxCompareItem, type BoxCompareKind } from '../../shared/box-log-spins'
 
 interface MeterInfo {
   coinIn: number
@@ -146,6 +147,81 @@ function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
   )
 }
 
+/** v5.85.0：盒子日誌逐局比對結果 */
+interface BoxLogResult {
+  complete: boolean
+  grTotal: number
+  items: BoxCompareItem[]
+  counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number }
+  notes: string[]
+  /** 前端解析資訊 */
+  parsed: { files: number; spins: number; coverage: string; gaps: number; badLines: number }
+}
+
+const BOX_KIND_LABEL: Record<BoxCompareKind, string> = {
+  duplicate: '重複寫入（同一局 Game Record 有多筆）',
+  suspect_missing: '疑似漏寫（日誌有、Game Record 沒有）',
+  suspect_extra: '疑似多出（Game Record 有、日誌沒有）',
+  amount_diff: '押注或贏分不同',
+  ambiguous: '對到多局，無法確定',
+  resent: '盒子重送／斷線重連',
+  is_error: '盒子標記錯誤（isError）',
+}
+const BOX_KIND_BAD: BoxCompareKind[] = ['duplicate', 'suspect_missing', 'suspect_extra', 'amount_diff']
+
+function fmtLocalSec(sec: number): string {
+  return new Date((sec + 8 * 3600) * 1000).toISOString().replace('T', ' ').slice(0, 23)
+}
+
+function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading: boolean; error: string }) {
+  return (
+    <section className="section-card st-card">
+      <h3 className="section-title">盒子日誌逐局比對</h3>
+      {loading && <div className="st-dim">比對中…（解析日誌、抓整段 Game Record 明細）</div>}
+      {error && <p className="st-msg-err" style={{ margin: 0 }}>{error}（對帳判定不受影響）</p>}
+      {box && (() => {
+        const bad = BOX_KIND_BAD.reduce((n, k) => n + box.counts[k], 0)
+        return (
+          <>
+            <div className="st-hint" style={{ marginBottom: 6 }}>
+              日誌 {box.parsed.files} 個檔、{box.parsed.spins} 局（{box.parsed.coverage}）· Game Record {box.grTotal} 筆 · 對上 {box.counts.matched} 局
+              {bad ? '' : '，沒有發現異常'}
+              {!box.complete && <span style={{ color: '#fbbf24' }}> · 比對不完整，原因見下方說明</span>}
+            </div>
+            {box.items.length > 0 && (
+              <table className="st-diag-table">
+                <thead><tr><th>類型</th><th>spinid</th><th>開局時間</th><th>Game Record 單號</th><th>日誌 押注／贏分</th><th>Game Record 押注／贏分</th></tr></thead>
+                <tbody>
+                  {box.items.map((it, i) => (
+                    <tr key={i}>
+                      <td style={{ color: BOX_KIND_BAD.includes(it.kind) ? '#f87171' : undefined }}>{BOX_KIND_LABEL[it.kind]}</td>
+                      <td>{it.spinid}</td>
+                      <td>{fmtLocalSec(it.beginSec)}</td>
+                      <td>{it.orderIds.length ? it.orderIds.join('、') : '—'}</td>
+                      <td>
+                        {it.box ? `${it.box.bet ?? '—'}／${it.box.win ?? '—'}` : '—'}
+                        {it.box && (it.box.resends > 0 || it.box.reconnects > 0 || it.box.endSends > 1) && (
+                          <span className="st-dim">（{[
+                            it.box.resends > 0 && `重送 ${it.box.resends} 次`,
+                            it.box.reconnects > 0 && `斷線重連 ${it.box.reconnects} 次`,
+                            it.box.endSends > 1 && `結束訊息印 ${it.box.endSends} 次${it.box.endVariants > 1 ? '、內容不同' : ''}`,
+                          ].filter(Boolean).join('、')}）</span>
+                        )}
+                      </td>
+                      <td>{it.gr?.length ? it.gr.map(g => `${g.bet}／${g.win}`).join('、') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {box.notes.length > 0 && <ul className="st-diag-notes">{box.notes.map(n => <li key={n}>{n}</li>)}</ul>}
+          </>
+        )
+      })()}
+    </section>
+  )
+}
+
 export function MeterReconcilePage() {
   // 環境（QAT／UAT）：決定查哪個後台、後台設定顯示哪一組。放在查詢列最前面（使用者 1104 選）
   const [env, setEnvState] = useState<MeterEnv>(() => readMeterEnv('meter'))
@@ -159,6 +235,11 @@ export function MeterReconcilePage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<MeterResult | null>(null)
   const [error, setError] = useState('')
+  // v5.85.0：盒子日誌（選填）——只在瀏覽器解析，不上傳原檔
+  const [boxFiles, setBoxFiles] = useState<File[]>([])
+  const [box, setBox] = useState<BoxLogResult | null>(null)
+  const [boxLoading, setBoxLoading] = useState(false)
+  const [boxError, setBoxError] = useState('')
 
   const [configOpen, setConfigOpen] = useState(false)
   const [osmConfig, setOsmConfig] = useState<BackendConfig>(EMPTY_CFG)
@@ -173,7 +254,7 @@ export function MeterReconcilePage() {
     envSeq.current++
     writeMeterEnv('meter', next)
     setEnvState(next)
-    setResult(null); setError(''); setLoading(false); setCfgMsg(null)
+    setResult(null); setError(''); setLoading(false); setCfgMsg(null); setBox(null); setBoxError(''); setBoxLoading(false)
     setOsmConfig(EMPTY_CFG); setGcpConfig(EMPTY_CFG)
   }
 
@@ -230,9 +311,37 @@ export function MeterReconcilePage() {
     }
   }
 
+  /** 盒子日誌逐局比對：瀏覽器解析，只送每局清單給 server 對 Game Record 明細 */
+  async function runBoxCompare(seq: number) {
+    setBoxLoading(true); setBoxError(''); setBox(null)
+    try {
+      const files = [...boxFiles].sort((a, b) => a.name.localeCompare(b.name))
+      const texts = await Promise.all(files.map(f => f.text()))
+      const p = parseBoxLogs(texts)
+      if (!p.coverage) { setBoxError('日誌裡找不到任何一局（action_type:4／5），請確認是盒子日誌'); return }
+      const res = await fetch('/api/osm/meter-reconcile/box-log', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ env, machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined,
+          log: { spins: p.spins, coverage: p.coverage, gaps: p.gaps } }),
+      })
+      const d = await res.json()
+      if (seq !== envSeq.current) return
+      if (!d.ok) { setBoxError(d.message || '比對失敗'); return }
+      const notes: string[] = [...d.notes]
+      if (p.badLines) notes.unshift(`日誌有 ${p.badLines} 行看起來是開局／結束紀錄但解析不了，已略過`)
+      setBox({ ...d, notes, complete: d.complete && p.badLines === 0,
+        parsed: { files: files.length, spins: p.spins.length, coverage: `${fmtLocalSec(p.coverage.start).slice(0, 19)} ～ ${fmtLocalSec(p.coverage.end).slice(0, 19)}`, gaps: p.gaps.length, badLines: p.badLines } })
+    } catch (e) {
+      if (seq !== envSeq.current) return
+      setBoxError(`比對失敗：${e}`)
+    } finally {
+      if (seq === envSeq.current) setBoxLoading(false)
+    }
+  }
+
   async function handleQuery() {
     if (!machineName.trim()) { setError('請輸入機台名稱'); return }
-    setLoading(true); setError(''); setResult(null)
+    setLoading(true); setError(''); setResult(null); setBox(null); setBoxError('')
     const seq = envSeq.current
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
@@ -243,6 +352,7 @@ export function MeterReconcilePage() {
       if (seq !== envSeq.current) return
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
       setResult(d)
+      if (boxFiles.length) void runBoxCompare(seq)
     } catch (e) {
       if (seq !== envSeq.current) return
       setError(`查詢失敗：${e}`)
@@ -308,6 +418,11 @@ export function MeterReconcilePage() {
             <label className="st-q-l" htmlFor="pm-start">自訂起始時間</label>
             <input id="pm-start" className="lst-field st-q-time" type="time" value={customStartTime} onChange={e => setCustomStartTime(e.target.value)} />
           </div>
+          <div className="st-q-f">
+            <label className="st-q-l" htmlFor="pm-boxlog">盒子日誌（選填）</label>
+            <input id="pm-boxlog" className="lst-field st-q-file" type="file" multiple accept=".log,.txt,text/plain"
+              onChange={e => setBoxFiles(Array.from(e.target.files ?? []))} />
+          </div>
           <button type="button" className="submit-btn lst-btn st-q-go" onClick={handleQuery} disabled={loading}>
             {loading ? '查詢中…' : '查詢對帳'}
           </button>
@@ -315,6 +430,7 @@ export function MeterReconcilePage() {
         <p className="st-q-hint">
           查詢範圍：比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒。
           自訂起始時間：選填，機台當天有 meter reset 時用。
+          盒子日誌：選填，可一次選多個檔，只在瀏覽器解析、原檔不會上傳；有選的話會逐局對 Game Record，找出重複寫入、漏寫、多出、金額不同的局。
         </p>
       </section>
 
@@ -362,6 +478,7 @@ export function MeterReconcilePage() {
           </section>
 
           {result.countDiag && <CountDiagCard diag={result.countDiag} />}
+          {(boxLoading || box || boxError) && <BoxLogCard box={box} loading={boxLoading} error={boxError} />}
 
           {/* Formula */}
           <section className="section-card st-card st-formula">

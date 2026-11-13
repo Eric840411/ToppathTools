@@ -164,6 +164,7 @@
 .st-q .lst-field { width: 100%; }
 .st-q input[type="date"].lst-field { width: 142px; }
 .st-q .lst-field.st-q-time { width: 104px; }
+.st-q .lst-field.st-q-file { width: 220px; padding-top: 4px; font-size: 12px; }
 :root[data-ui="redesign"] .st-seg.rd-tabs { height: 34px; padding: 2px; gap: 2px; border-radius: 8px; box-sizing: border-box; align-items: stretch; }
 :root[data-ui="redesign"] .st-seg .rd-tab { display: inline-flex; align-items: center; padding: 0 10px; font-size: 12.5px; border-radius: 6px; }
 :root[data-ui="redesign"] .st-seg .rd-tab[aria-pressed="true"] { font-weight: 700; }

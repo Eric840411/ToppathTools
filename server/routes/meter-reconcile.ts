@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
-import { apiProblem, countDelta, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
+import { apiProblem, countDelta, isNum, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
+import { compareBoxLog, type BoxLogParse, type BoxSpin, type GrSpin } from '../../shared/box-log-spins.js'
 import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
 export const router = Router()
@@ -610,5 +611,108 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     res.json(result)
   } catch (e) {
     res.status(500).json({ ok: false, message: `查詢失敗: ${e}` })
+  }
+})
+
+// ─── 盒子日誌逐局比對（v5.85.0，Lusa 1113）────────────────────────────────────
+// 日誌在瀏覽器解析（shared/box-log-spins.ts），這裡只收精簡的每局清單；日誌本身不上傳、不保存。
+// Game Record 抓整個查詢視窗的明細（不只局數對不上的時段：金額不同可能出現在局數剛好對上的時段，CodeX 1113）。
+
+const BOX_GR_PAGE = 500
+const BOX_GR_MAX = 20000
+const BOX_SPINS_MAX = 50000
+
+function sanitizeBoxLog(raw: unknown): Pick<BoxLogParse, 'spins' | 'coverage' | 'gaps'> | null {
+  const o = raw as { spins?: unknown; coverage?: unknown; gaps?: unknown } | null
+  if (!o || !Array.isArray(o.spins) || o.spins.length > BOX_SPINS_MAX) return null
+  const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  const numOrNull = (v: unknown) => (fin(v) ? v : null)
+  const spins: BoxSpin[] = []
+  for (const s of o.spins as Record<string, unknown>[]) {
+    if (!s || !fin(s.spinid) || !fin(s.beginUs) || typeof s.beginRaw !== 'string') return null
+    spins.push({
+      spinid: s.spinid, beginRaw: s.beginRaw.slice(0, 32), beginUs: s.beginUs,
+      bet: numOrNull(s.bet), win: numOrNull(s.win), ended: s.ended === true,
+      endSends: fin(s.endSends) ? s.endSends : 0, endVariants: fin(s.endVariants) ? s.endVariants : 0,
+      endSec: numOrNull(s.endSec), isError: s.isError === true, nima: fin(s.nima) ? s.nima : 0,
+      resends: fin(s.resends) ? s.resends : 0, reconnects: fin(s.reconnects) ? s.reconnects : 0,
+    })
+  }
+  const c = o.coverage as { start?: unknown; end?: unknown } | null
+  const coverage = c && fin(c.start) && fin(c.end) ? { start: c.start, end: c.end } : null
+  const gaps = Array.isArray(o.gaps)
+    ? (o.gaps as Array<{ start?: unknown; end?: unknown }>).filter(g => g && fin(g.start) && fin(g.end)).map(g => ({ start: g.start as number, end: g.end as number }))
+    : []
+  return { spins, coverage, gaps }
+}
+
+router.post('/api/osm/meter-reconcile/box-log', async (req, res) => {
+  const { machineName, source, date, dayBoundary, customStartTime, log } = req.body as {
+    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string; log?: unknown
+  }
+  if (!machineName || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, message: 'machineName / date 皆為必填' })
+  const parsed = sanitizeBoxLog(log)
+  if (!parsed) return res.status(400).json({ ok: false, message: `盒子日誌解析結果格式不對（或超過 ${BOX_SPINS_MAX} 局）` })
+  const env = parseMeterEnv((req.body as { env?: unknown })?.env)
+  if (!env) return res.status(400).json({ ok: false, message: 'env 需為 qat 或 uat' })
+  const profile: Profile = source === 'gcp' ? 'gcp' : 'osm'
+  const cfg = loadMeterConfig(env, profile)
+  if (!cfg.base_url) return res.status(400).json({ ok: false, message: missingConfigMessage(env, profile) })
+  const channelId = channelOf(env, profile, cfg)
+  if (!channelId) return res.status(400).json({ ok: false, message: `${env.toUpperCase()} 的後台沒有填 Channel ID` })
+
+  // 視窗跟 /query 同一套算法
+  const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
+  const dayStartHour = boundary === 'calendar' ? 0 : 6
+  const cs = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(customStartTime ?? '')
+  const startIso = cs ? toUtcIso(date, parseInt(cs[1], 10), parseInt(cs[2], 10)) : toUtcIso(date, dayStartHour)
+  const endIso = toUtcIso(nextDateStr(date), dayStartHour)
+
+  try {
+    const base = new URLSearchParams({
+      clientMachineName: machineName, playerId: '', playerName: '', orderId: '',
+      page: '1', pageSize: String(BOX_GR_PAGE), dateTimeType: '0',
+      playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,ALL',
+      bgType: profile === 'gcp' ? '2' : '0', dataType: '0', isall: 'false', channelId,
+    })
+    base.append('dateTime[]', startIso); base.append('dateTime[]', endIso)
+    const byOrder = new Map<string, GrSpin>()
+    const notes: string[] = []
+    let total = -1
+    let missingFields = 0
+    for (let page = 1; ; page++) {
+      const p = new URLSearchParams(base); p.set('page', String(page))
+      const d = await meterPost(env, profile, cfg, '/egm/reports/gameRecordList', p)
+      // 第 2 頁起 sumData 是空陣列（QAT 1113 實測）→ 只有第 1 頁用完整檢查，之後只驗 items／total
+      const pr = page === 1
+        ? apiProblem('Game Record', d, METER_VALID.gameRecord)
+        : apiProblem('Game Record', d, (x: any) => Array.isArray(x?.data?.items) && Number.isFinite(Number(x?.data?.total)))
+      // CodeX 1113：任何一頁失敗就不能拿殘缺明細判漏寫——直接回錯
+      if (pr) return res.status(502).json({ ok: false, message: `Game Record 第 ${page} 頁查詢失敗：${pr}` })
+      if (total < 0) {
+        total = Number(d?.data?.total ?? 0)
+        if (total > BOX_GR_MAX) return res.status(400).json({ ok: false, message: `這段時間 Game Record 有 ${total} 筆，超過 ${BOX_GR_MAX} 筆上限，請用自訂起始時間縮小範圍` })
+      }
+      const items: Record<string, unknown>[] = d?.data?.items ?? []
+      for (const it of items) {
+        const orderId = String(it.order_id ?? '')
+        if (!orderId || !isNum(it.spinid) || !isNum(it.box_begin_time) || !isNum(it.payout_time)) { missingFields++; continue }
+        byOrder.set(orderId, {
+          orderId, spinid: Number(it.spinid), boxBeginTime: Number(it.box_begin_time),
+          bet: Number(it.bet), win: Number(it.win), payoutSec: Number(it.payout_time),
+        })
+      }
+      if (items.length < BOX_GR_PAGE || page * BOX_GR_PAGE >= total) break
+    }
+    // 分頁期間有新紀錄寫入會讓頁面位移：用 order_id 去重後數量對不上 total 就標不完整（CodeX 1113）
+    const got = byOrder.size + missingFields
+    const complete = got === total && missingFields === 0
+    if (missingFields) notes.push(`${missingFields} 筆 Game Record 缺 spinid／開局時間／結算時間，沒辦法逐局比對`)
+    if (got !== total) notes.push(`Game Record 總筆數 ${total}，分頁實際抓到 ${got} 筆（查詢期間可能有新紀錄寫入），請重查一次`)
+    const window = { start: Date.parse(startIso) / 1000, end: Date.parse(endIso) / 1000 }
+    const cmp = compareBoxLog(parsed, [...byOrder.values()], window)
+    res.json({ ok: true, complete, grTotal: total, window, items: cmp.items, counts: cmp.counts, notes: [...notes, ...cmp.notes] })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `盒子日誌比對失敗：${e instanceof Error ? e.message : String(e)}` })
   }
 })

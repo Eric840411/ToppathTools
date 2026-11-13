@@ -78,6 +78,18 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - **限制**：只能定位區間，不能證實原因；「疑似重複寫入」（同 spinid＋開局時間）要拉全部明細，尚未做。
 - **測試**：`npx tsx scripts/ui-checks/meter-verdict.test.ts`（67 條；拿掉局數規則紅 5 條）、`npx tsx scripts/ui-checks/meter-count-diag.test.ts`（35 條；拿掉併段、抵銷不看正負、視窗篩選、抵銷段索取日誌、缺值檢查都會紅）
 
+## 盒子日誌逐局比對（v5.85.0，Lusa 1113 要求；CodeX 審過設計）
+
+- **操作**：查詢列「盒子日誌（選填）」選一個或多個日誌檔 → 按查詢對帳 → 對帳結果下面多一張「盒子日誌逐局比對」。不選就跟原本一樣。
+- **日誌不上傳**：瀏覽器用 `shared/box-log-spins.ts` 的 `parseBoxLogs` 解析（16MB 約 0.14 秒），只把每局清單（spinid、begin_time、bet、win、結束訊息送幾次）送 `POST /api/osm/meter-reconcile/box-log`；server 不存日誌。
+- **日誌格式**（0150 實檔）：`HH:MM:SS.mmm|LEVEL|…`；`DoactionResultReq action_type:4 {…}` 開局（spinid、bet、begin_time）、`action_type:5 {…}` 結束（win、isError、nima）。spinid 1～999 循環 → 配對鍵是 **spinid＋begin_time**。日誌行只有時分秒，日期用第一局的 begin_time 反推；跨午夜自動 +1 天。
+- **Game Record 明細**：整個查詢視窗（跟 /query 同一套邊界、自訂起始時間）分頁 500 抓完，`order_id` 去重；任一頁失敗直接回錯（不拿殘缺明細判漏寫）；去重後筆數 ≠ total 標不完整、叫人重查；超過 20,000 筆要縮小範圍。
+- **配對**：Game Record `box_begin_time` 只有 4 位小數 → 日誌 begin_time（整數微秒，不經浮點）截斷與四捨五入到 0.1ms 都算候選；一筆對到兩局以上標「對到多局」不強配。
+- **分類**：重複寫入（同局 GR ≥2 筆）、疑似漏寫（日誌已結束、GR 沒有）、疑似多出（GR 有、日誌涵蓋時間內沒有）、押注或贏分不同；另列盒子重送結束訊息（留次數與內容是否不同）、isError 局。
+- **不判的**：日誌沒涵蓋的時間、斷檔（超過 15 分鐘沒有任何一行；閒置心跳約 10 分鐘一行）、結算離視窗邊界 <10 秒、日誌在那局中間截斷（沒有結束紀錄）、結算時間在視窗外（GR 依結算時間篩選）、isError 局不算漏寫。各自寫進說明。
+- **限制**：日誌記的是盒子「送出」，不代表後台收到 → 漏寫／多出一律寫「疑似」。不影響對帳判定。
+- **測試**：`npx tsx shared/box-log-spins.test.ts`（29 條；配對只用 spinid、拿掉涵蓋檢查、未結束不歸類、多候選強配、拿掉邊界、isError 判漏寫、視窗外也判、不去重，8 種突變各自會紅）
+
 ## UAT 設定值（1014 osm-qa-agent 從 UAT CP 後台頁面的 config.js 讀到）
 工具沒有綁環境，換「後台設定」的值就能查 UAT：
 - Base URL：`https://uat-backendservertest.osmslot.org`（UAT CP 後台 `config.js` 的 `DOMAIN_URL.serverUrl`）
