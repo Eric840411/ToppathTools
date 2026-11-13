@@ -542,6 +542,7 @@ export function MeterReconcilePage() {
 
           {/* Formula */}
           <section className="section-card st-card st-formula">
+            <div className="st-formula-line">
             <b>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
             {result.source === 'osm' ? (
               <>
@@ -554,11 +555,13 @@ export function MeterReconcilePage() {
             )}
             　＝<b style={{ color: '#7dd3fc' }}>{fmt(result.expectedCoinOut)}</b>
             　實際（EGM Meter Coin Out）＝<b style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.actualCoinOut)}</b>
-            <br />
+            </div>
+            <div className="st-formula-line">
             WIN / LOSE ＝{result.source === 'osm'
               ? <><b>Coin In</b> − <b>Coin Out</b> − <b>Jackpot Wins</b></>
               : <><b>Coin In</b> − <b>Coin Out</b>（NC 的 Coin Out 已含 Jackpot Wins，不再另扣）</>}
             　RTP ＝ <b>WIN / LOSE</b> ÷ <b>Coin In</b>
+            </div>
           </section>
 
           {/* Three source cards */}

@@ -191,6 +191,8 @@
   font-size: 12.5px; line-height: 1.7; color: var(--rd-fg-2, #94a3b8); font-variant-numeric: tabular-nums;
 }
 .st-formula b { color: var(--rd-fg, #e2e8f0); font-weight: 600; }
+/* v5.89.2：flex 容器裡 <br> 不會換行，公式第二行被拆散 → 每行自己一個 flex 列、佔滿一整行 */
+.st-formula .st-formula-line { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 
 /* 三張來源卡 */
 .st-diag-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
