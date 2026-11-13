@@ -161,7 +161,7 @@ interface BoxLogResult {
   counts: Record<BoxCompareKind, number> & { matched: number; notCovered: number; edge: number; unfinished: number; nearBadLine: number }
   notes: string[]
   /** 前端解析資訊 */
-  parsed: { files: number; spins: number; coverage: string; gaps: number; badLines: number }
+  parsed: { files: number; spins: number; coverage: string; gaps: number; badLines: number; inWindow: number | null }
 }
 
 const BOX_KIND_LABEL: Record<BoxCompareKind, string> = {
@@ -192,7 +192,8 @@ function BoxLogCard({ box, loading, error }: { box: BoxLogResult | null; loading
         return (
           <>
             <div className="st-hint" style={{ marginBottom: 6 }}>
-              日誌 {box.parsed.files} 個檔、{box.parsed.spins} 局（{box.parsed.coverage}）· Game Record {box.grTotal} 筆 · 對上 {box.counts.matched} 局
+              日誌 {box.parsed.files} 個檔、{box.parsed.spins} 局（{box.parsed.coverage}）
+              {box.parsed.inWindow !== null && box.parsed.inWindow !== box.parsed.spins && `，查詢時間內 ${box.parsed.inWindow} 局，另 ${box.parsed.spins - box.parsed.inWindow} 局在時間外不比對`} · Game Record {box.grTotal} 筆 · 對上 {box.counts.matched} 局
               {bad ? '' : '，沒有發現異常'}
               {!box.complete && <span style={{ color: '#fbbf24' }}> · 比對不完整，原因見下方說明</span>}
             </div>
@@ -358,8 +359,13 @@ export function MeterReconcilePage() {
       if (!d.ok) { setBoxError(d.message || '比對失敗'); return }
       const notes: string[] = [...d.notes]
       if (p.badLines) notes.unshift(`日誌有 ${p.badLines} 行看起來是開局／結束紀錄但解析不了（可能被截斷），已略過，比對不完整`)
+      // 跟 compareBoxLog 同一個判準：有結束的局看結算時間，沒結束的看開局時間
+      const w = d.window as { start?: number; end?: number } | undefined
+      const inWindow = w && Number.isFinite(w.start) && Number.isFinite(w.end)
+        ? p.spins.filter(s => { const t = s.ended && s.endSec !== null ? s.endSec : s.beginUs / 1e6; return t >= w.start! && t < w.end! }).length
+        : null
       setBox({ ...d, notes, complete: d.complete && p.badLines === 0,
-        parsed: { files: files.length, spins: p.spins.length, coverage: `${fmtLocalSec(p.coverage.start).slice(0, 19)} ～ ${fmtLocalSec(p.coverage.end).slice(0, 19)}`, gaps: p.gaps.length, badLines: p.badLines } })
+        parsed: { files: files.length, spins: p.spins.length, coverage: `${fmtLocalSec(p.coverage.start).slice(0, 19)} ～ ${fmtLocalSec(p.coverage.end).slice(0, 19)}`, gaps: p.gaps.length, badLines: p.badLines, inWindow } })
     } catch (e) {
       if (stale()) return
       setBoxError(`比對失敗：${e}`)

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.89.0'
+export const APP_VERSION = '5.89.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.89.1', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：摘要原本只寫整份日誌的局數，設了自訂時間會看起來比 Game Record 多一截 → 日誌局數比查詢時間內的局多時，補一句「查詢時間內 N 局，另 M 局在時間外不比對」（判準跟比對同一套：有結束看結算時間、沒結束看開局時間）。只改顯示，不改判定（Eric 11-13 同意）'] },
   { version: '5.89.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：有自訂時間時 EGM Hourly Meter 也跟著縮——取「不晚於起點」與「不早於終點」的整點快照相減，不再拿整天（Eric 11-13：只填結束 14:00:00＝查 06:00～14:00，不能顯示整個內容）', 'Meter 只有整點快照，填非整點會往外擴到整點，Meter 卡片註明；沒填自訂時間時跟以前一樣是整天', '實測 UAT moneygong-149 11/13 只填結束 14:00:00：原本 Meter 仍是整天 338 局、改後只算 06:00～14:00', 'test: meter-window.test.ts 加 5 項（pickMeterSnapshots）'] },
   { version: '5.88.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：自訂時間改成起訖兩格（起始 to 結束），可只填一邊、可到秒；Gaming Day 下早於 06:00 的時間算隔天凌晨；結束不晚於起始會擋下（Eric 11-13 要求）', '範圍只縮 Game Record／Jackpot Abnormality／盒子日誌比對；EGM Hourly Meter 仍是整天 bucket（報表本身只支援整天）', 'fix: 自訂時間欄位太窄，「下午 04:…」被截斷，加寬並加「清除」', '時間窗計算抽到 server/meter-window.ts，test: meter-window.test.ts 8 項；拿掉「早於 06:00 算隔天」1 項轉紅'] },
   { version: '5.87.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：WIN/LOSE、RTP 依 CP／NC 分開算——CP（OSM）＝Coin In − Coin Out − Jackpot Wins；NC（GCP）＝Coin In − Coin Out（NC 的 Coin Out 已含 Jackpot Wins，原本也扣會重複）；RTP 兩邊都是 WIN/LOSE ÷ Coin In。規則在 shared/meter-rtp.ts 的 winLossJackpotTerm，前後端共用', '公式列多一行顯示目前來源的 WIN/LOSE 與 RTP 公式（Eric 11-13 要求追加）', 'CP 的算法不變；只影響 NC 的 WIN/LOSE／RTP 顯示，不影響 Coin Out 與局數的判定', 'test: meter-rtp.test.ts 15 項；把 NC 改回也扣 Jackpot Wins，2 項轉紅'] },

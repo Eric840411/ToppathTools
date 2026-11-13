@@ -96,6 +96,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - **v5.85.3（Lusa 反映看不出重複）**：表格上方紅字摘要 `boxProblemSummary`（重複寫入 N 局（Game Record 多 M 筆）、疑似漏寫／多出、金額不同）；`mergeResentRows`：同一局已有別的列（帶日誌資料的）時，重送列併掉，重送次數看那列的日誌欄；只有重送的局保留一列。只改呈現，counts 不變。
 - **v5.85.4**：有問題的列（`BOX_BAD_KINDS`）整列紅字加粗，單號與押注／贏分一起紅；「盒子重送／斷線重連」列維持原色。純樣式。（**v5.85.6 修正**：字色寫在 tr 會被 `.main-content td` 與仙俠版 td 規則蓋掉，只剩粗體白字；改成 `tr.st-diag-bad > td` 上色＋淡紅底，權重要壓過仙俠那條 `:root[...] :where(.main-content td)`）
 - **v5.85.7**：同一局多張 Game Record 時，單號與 Game Record 押注／贏分都一筆一行（`nowrap`），不再頓號串接後被換行切斷。純樣式。
+- **v5.89.1**：摘要的「日誌 N 局」是整份檔案的局數；有自訂時間、日誌比查詢範圍長時，補「查詢時間內 X 局，另 Y 局在時間外不比對」（前端用 server 回的 `window` 算，判準同 `compareBoxLog`：有結束看 `endSec`、沒結束看開局）。時間外的局本來就不判漏寫，只是畫面沒講。只改顯示。
 - **v5.85.8**：版面順序改成 結論 → 公式 → 三張來源卡 → 局數差異定位 → 盒子日誌逐局比對 → 原始欄位對照表（使用者要求公式與三張卡排在局數差異定位上面）。純樣式。
 - **v5.85.5**：盒子日誌欄有選檔時多一顆「清除」，清掉 `boxFiles`、input value 與盒子比對卡，對帳結果保留；`boxClearSeq` 讓清除前已啟動或尚未啟動（`handleQuery` 開頭就記序號）的日誌比對都作廢。檔案沒上傳，沒有後端刪除。
 - **測試**：`npx tsx shared/box-log-spins.test.ts`（52 條，含重送列沒併會紅；壞行附近照判多出也會紅；配對只用 spinid、拿掉涵蓋檢查、未結束不歸類、多候選強配、拿掉邊界、isError 判漏寫、視窗外也判、不去重、多候選局判漏寫、GR 不完整照判漏寫、截斷行安靜略過、不看 querySeq，各自會紅）；`node scripts/ui-checks/meter-box-log-shot.mjs <日誌檔>` 打本機真路由截圖
