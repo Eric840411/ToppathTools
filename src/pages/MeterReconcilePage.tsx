@@ -510,9 +510,6 @@ export function MeterReconcilePage() {
             </div>
           </section>
 
-          {result.countDiag && <CountDiagCard diag={result.countDiag} />}
-          {(boxLoading || box || boxError) && <BoxLogCard box={box} loading={boxLoading} error={boxError} />}
-
           {/* Formula */}
           <section className="section-card st-card st-formula">
             <b>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
@@ -579,6 +576,9 @@ export function MeterReconcilePage() {
               <div style={{ ...kvRow, marginTop: 4, borderBottom: 'none' }}><span className="st-k">Attendant Paid JP 小計</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.attendantPaidJp)}</span></div>
             </section>
           </div>
+
+          {result.countDiag && <CountDiagCard diag={result.countDiag} />}
+          {(boxLoading || box || boxError) && <BoxLogCard box={box} loading={boxLoading} error={boxError} />}
 
           {/* Raw field debug */}
           <details className="section-card st-card st-details">
