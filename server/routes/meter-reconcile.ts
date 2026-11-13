@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { db, addHistory } from '../shared.js'
 import { type MeterEnv, type MeterProfile, parseMeterEnv, loadMeterConfig, saveMeterConfigValue, migrateMeterConfigEnv, legacyUnclassified, missingConfigMessage } from '../meter-config.js'
 import { apiProblem, countDelta, isNum, meterHistoryLine, meterVerdict, METER_VALID, missingMeterFields } from '../meter-verdict.js'
+import { winLossJackpotTerm } from '../../shared/meter-rtp.js'
 import { compareBoxLog, type BoxLogParse, type BoxSpin, type GrSpin } from '../../shared/box-log-spins.js'
 import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
@@ -473,7 +474,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       const coinIn = meterDelta(FIELD.coinIn)
       const coinOut = meterDelta(FIELD.coinOut)
       const jackpotWins = meterDelta(FIELD.jackpotWins)
-      const winLoss = coinIn - coinOut - jackpotWins // 已驗證公式：WIN/LOSE = CoinIn − CoinOut − JackpotWins
+      // CP：WIN/LOSE = CoinIn − CoinOut − JackpotWins；NC：CoinIn − CoinOut（NC 的 Coin Out 已含 Jackpot Wins，Eric 11-13）
+      const winLoss = coinIn - coinOut - winLossJackpotTerm(profile, jackpotWins)
       return {
         coinIn, coinOut, jackpotWins, winLoss,
         rtp: coinIn !== 0 ? (winLoss / coinIn) * 100 : 0, // 已驗證公式：RTP = WIN/LOSE ÷ CoinIn × 100

@@ -5,8 +5,18 @@
  * 用原始 meter 值做**精確**十進位運算（BigInt），不經過浮點 RTP：
  * - 先四捨五入到固定小數位再捨去，會把真實的 5.5899996% 進位成 5.59%（CodeX 11-12 指出）；
  * - 只把「離整數 < 某門檻」當浮點誤差，門檻對夠大的 coinIn 一樣會誤進位（CodeX 11-12 第二輪指出）。
- * WIN/LOSE 也在這裡用 coinIn − coinOut − jackpotWins 重算，後端那份是浮點相減、可能帶誤差。
+ * WIN/LOSE 也在這裡重算（後端那份是浮點相減、可能帶誤差）；要扣多少 Jackpot Wins 由 winLossJackpotTerm 決定。
  */
+
+/**
+ * WIN/LOSE 要扣的 Jackpot Wins（Eric 2026-11-13）：
+ * - CP（osm）：WIN/LOSE = Coin In − Coin Out − Jackpot Wins
+ * - NC（gcp）：WIN/LOSE = Coin In − Coin Out（NC 的 Coin Out 已經含 Jackpot Wins，再扣會重複）
+ * RTP 兩邊都是 WIN/LOSE ÷ Coin In。前後端都呼叫這一份，不要各寫一份。
+ */
+export function winLossJackpotTerm(source: 'osm' | 'gcp', jackpotWins: number): number {
+  return source === 'osm' ? jackpotWins : 0
+}
 
 /** 數字的十進位精確表示（值 = int ÷ 10^scale）；指數表示法（極大／極小）回 null。 */
 function toDecimal(n: number): { int: bigint; scale: number } | null {

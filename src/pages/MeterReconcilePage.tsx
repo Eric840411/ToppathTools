@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { type MeterEnv, METER_ENV_LABEL, METER_PLACEHOLDER, readMeterEnv, writeMeterEnv } from './meter-env'
-import { rtpTrunc2 } from '../../shared/meter-rtp'
+import { rtpTrunc2, winLossJackpotTerm } from '../../shared/meter-rtp'
 import { parseBoxLogs, mergeResentRows, boxProblemSummary, BOX_BAD_KINDS, type BoxCompareItem, type BoxCompareKind } from '../../shared/box-log-spins'
 
 interface MeterInfo {
@@ -84,8 +84,8 @@ function fmt(n: number | undefined | null, digits = 2): string {
 }
 
 /** RTP 小數兩位直接捨去，跟後台一致；用原始 meter 值精確算（規則與邊界測試在 shared/meter-rtp.ts） */
-function fmtRtp(m: { coinIn: number; coinOut: number; jackpotWins: number; rtp: number }): string {
-  const exact = rtpTrunc2(m.coinIn, m.coinOut, m.jackpotWins)
+function fmtRtp(m: { coinIn: number; coinOut: number; jackpotWins: number; rtp: number }, source: 'osm' | 'gcp'): string {
+  const exact = rtpTrunc2(m.coinIn, m.coinOut, winLossJackpotTerm(source, m.jackpotWins))
   if (exact !== null) return fmt(exact)
   // 值大到只能用指數表示：退回後端的浮點 rtp，畫面照樣捨去
   return Number.isFinite(m.rtp) ? fmt(Math.trunc(m.rtp * 100) / 100) : '—'
@@ -526,6 +526,11 @@ export function MeterReconcilePage() {
             )}
             　＝<b style={{ color: '#7dd3fc' }}>{fmt(result.expectedCoinOut)}</b>
             　實際（EGM Meter Coin Out）＝<b style={{ color: tone.fg }}>{noNumbers ? '—' : fmt(result.actualCoinOut)}</b>
+            <br />
+            WIN / LOSE ＝{result.source === 'osm'
+              ? <><b>Coin In</b> − <b>Coin Out</b> − <b>Jackpot Wins</b></>
+              : <><b>Coin In</b> − <b>Coin Out</b>（NC 的 Coin Out 已含 Jackpot Wins，不再另扣）</>}
+            　RTP ＝ <b>WIN / LOSE</b> ÷ <b>Coin In</b>
           </section>
 
           {/* Three source cards */}
@@ -541,7 +546,7 @@ export function MeterReconcilePage() {
                   <div style={kvRow}><span className="st-k">Coin Out</span><span className="st-v" style={{ color: '#7dd3fc' }}>{fmt(result.meter.coinOut)}</span></div>
                   <div style={kvRow}><span className="st-k">Jackpot Wins</span><span className="st-v">{fmt(result.meter.jackpotWins)}</span></div>
                   <div style={kvRow}><span className="st-k">WIN / LOSE</span><span className="st-v" style={{ color: result.meter.winLoss < 0 ? '#f87171' : undefined }}>{fmt(result.meter.winLoss)}</span></div>
-                  <div style={kvRow}><span className="st-k">RTP</span><span className="st-v" style={{ color: result.meter.rtp < 0 ? '#f87171' : undefined }}>{fmtRtp(result.meter)}%</span></div>
+                  <div style={kvRow}><span className="st-k">RTP</span><span className="st-v" style={{ color: result.meter.rtp < 0 ? '#f87171' : undefined }}>{fmtRtp(result.meter, result.source)}%</span></div>
                   <div style={{ ...kvRow, borderBottom: 'none' }}><span className="st-k">Games Played</span><span className="st-v">{fmt(result.meter.gamesPlayed, 0)}</span></div>
                 </>
               ) : <p className="st-dim">查無資料</p>}

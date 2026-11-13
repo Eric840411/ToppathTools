@@ -2,7 +2,7 @@
  * shared/meter-rtp 的單元測試。跑法：npx tsx shared/meter-rtp.test.ts
  * 守：真實值不得被進位（後台是捨去）、浮點誤差不得被多砍一位、夠大的 coinIn 也不能靠門檻猜。
  */
-import { rtpTrunc2 } from './meter-rtp.js'
+import { rtpTrunc2, winLossJackpotTerm } from './meter-rtp.js'
 
 let pass = 0
 const fails: string[] = []
@@ -26,6 +26,12 @@ eq('負但不到 0.01 → 0', rtpTrunc2(1000, 1000.05, 0), 0)
 eq('coinIn 0 → 0', rtpTrunc2(0, 5, 0), 0)
 eq('剛好整數 → 不扣', rtpTrunc2(3, 2, 0), 33.33)
 eq('指數表示法 → null（呼叫端退回）', rtpTrunc2(1e21, 1, 0), null)
+
+// CP／NC 的 WIN/LOSE（Eric 11-13）：CP 扣 Jackpot Wins，NC 的 Coin Out 已含 Jackpot Wins 不再扣
+eq('CP 扣 Jackpot Wins', winLossJackpotTerm('osm', 36432), 36432)
+eq('NC 不扣 Jackpot Wins', winLossJackpotTerm('gcp', 36432), 0)
+eq('CP 實例 moneygong-149 → -46.40', rtpTrunc2(30800, 8660, winLossJackpotTerm('osm', 36432)), -46.4)
+eq('NC 1000/900/50 → 10（不扣 50）', rtpTrunc2(1000, 900, winLossJackpotTerm('gcp', 50)), 10)
 
 console.log(`\n${pass} pass, ${fails.length} fail`)
 if (fails.length) process.exit(1)
