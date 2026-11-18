@@ -598,21 +598,28 @@ router.get('/api/api-capture/runs/:id', (req, res) => {
  * 參數簽名；格式版本跟目前不同（例如 v5.90.1 起 HTTP 送出參數改成 query／body 兩層）就從存下來的原始事件重建再存回，
  * 不能拿舊格式直接比（CodeX 1118 [P2]：同一個 {"amount":18} 會被報「缺少 amount、新增 body.amount」）
  */
-function signatureOf(r: RunRow): Signature | null {
-  if (!r.signature) return null
+function signatureOf(r: RunRow): { sig: Signature | null; stale: boolean } {
+  if (!r.signature) return { sig: null, stale: false }
   const sig = JSON.parse(r.signature) as Signature
-  if (sig.version === SIGNATURE_VERSION) return sig
+  if (sig.version === SIGNATURE_VERSION) return { sig, stale: false }
+  // ⚠️ 原始事件超過保留期（180 天）會被清掉：那時重建出來是空簽名，存回去就把舊的蓋掉、之後比對全變「未觀測／新 API」
+  //    （CodeX 1118 [P2]）→ 沒有原始資料就保留舊簽名、標示「無法跨版本比較」
+  const raw = (db.prepare('SELECT (SELECT COUNT(*) FROM api_capture_events WHERE run_id = ?) + (SELECT COUNT(*) FROM api_capture_backend WHERE run_id = ?) AS n').get(r.id, r.id) as { n: number }).n
+  if (!raw) return { sig: null, stale: true }
   const rebuilt = buildSignature({ backend: loadBackend(r.id), front: loadFront(r.id) })
   patchRun(r.id, { signature: JSON.stringify(rebuilt) })
-  return rebuilt
+  return { sig: rebuilt, stale: false }
 }
 
 function compareFor(r: RunRow, baselineId: string | undefined, ignoreVolatile: boolean) {
   const base = baselineId === 'none' ? undefined : baselineId ? getRun(baselineId) : (r.baseline_run_id ? getRun(r.baseline_run_id) : findDefaultBaseline(r))
   const cur = signatureOf(r)
-  const bs = base ? signatureOf(base) : null
-  const diff = cur ? diffSignatures(cur, bs, { ignoreVolatile }) : null
-  return { base, diff }
+  const bs = base ? signatureOf(base) : { sig: null, stale: false }
+  const stale = cur.stale || bs.stale
+  const note = stale ? `${cur.stale ? '本次' : '基準'}紀錄是舊格式簽名、原始資料已過保留期，無法跨版本比較` : ''
+  // 任一邊無法比較就不出差異（不能把「沒資料」當成「沒有任何 API」去比）
+  const diff = stale || !cur.sig ? null : diffSignatures(cur.sig, bs.sig, { ignoreVolatile })
+  return { base, diff, note }
 }
 
 router.get('/api/api-capture/runs/:id/compare', (req, res) => {
@@ -620,10 +627,10 @@ router.get('/api/api-capture/runs/:id/compare', (req, res) => {
   const r = getRun(req.params.id)
   if (!r) return res.status(404).json({ ok: false, message: '找不到這筆紀錄' })
   const q = z.object({ baseline: z.string().optional(), ignoreVolatile: z.enum(['0', '1']).default('1') }).parse(req.query)
-  const { base, diff } = compareFor(r, q.baseline, q.ignoreVolatile === '1')
+  const { base, diff, note } = compareFor(r, q.baseline, q.ignoreVolatile === '1')
   const candidates = (db.prepare(`SELECT * FROM api_capture_runs WHERE id <> ? AND signature IS NOT NULL ORDER BY started_at DESC LIMIT 100`).all(r.id) as RunRow[])
     .map(c => ({ id: c.id, env: c.env, account: c.account, machine: c.machine, status: c.status, startedAt: c.started_at, sameTarget: c.env === r.env && c.channel_id === r.channel_id && c.account === r.account && c.machine_key === r.machine_key }))
-  res.json({ ok: true, baseline: base ? publicRun(base) : null, defaultBaselineId: r.baseline_run_id ?? findDefaultBaseline(r)?.id ?? null, diff, candidates })
+  res.json({ ok: true, baseline: base ? publicRun(base) : null, defaultBaselineId: r.baseline_run_id ?? findDefaultBaseline(r)?.id ?? null, diff, note, candidates })
 })
 
 router.get('/api/api-capture/runs/:id/excel', (req, res) => {
@@ -636,7 +643,7 @@ router.get('/api/api-capture/runs/:id/excel', (req, res) => {
   const cal = r.time_calibration ? JSON.parse(r.time_calibration) as Calibration : null
   const comp = r.completeness ? JSON.parse(r.completeness) as { front: { complete: boolean; reasons: string[] }; backend: { complete: boolean; reasons: string[]; inWindow: number; outsideWindow: number } } : null
   const steps = front.filter((e): e is Extract<FrontEvent, { kind: 'step' }> => e.kind === 'step')
-  const { base, diff } = compareFor(r, q.baseline, q.ignoreVolatile === '1')
+  const { base, diff, note } = compareFor(r, q.baseline, q.ignoreVolatile === '1')
   const buf = buildExcel({
     title: `API 參數紀錄｜${ENV_LABEL[r.env]}｜帳號 ${r.account}（渠道 ${r.channel_id}）｜機台 ${r.machine}`,
     infoLines: [
@@ -651,7 +658,7 @@ router.get('/api/api-capture/runs/:id/excel', (req, res) => {
     ],
     timeline: buildTimeline(steps, loadBackend(r.id), off),
     front, offsetMs: off, includeNoise: q.noise === '1', diff,
-    baselineLabel: base ? `${base.id}（${fmtTs(base.started_at)}，${ENV_LABEL[base.env]} ${base.account} 機台 ${base.machine}）` : '無基準',
+    baselineLabel: (base ? `${base.id}（${fmtTs(base.started_at)}，${ENV_LABEL[base.env]} ${base.account} 機台 ${base.machine}）` : '無基準') + (note ? `｜${note}` : ''),
   })
   const name = `API參數紀錄_${ENV_LABEL[r.env]}_${r.account}_${r.machine_key}_${fmtTs(r.started_at).slice(0, 10).replace(/-/g, '')}.xlsx`
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

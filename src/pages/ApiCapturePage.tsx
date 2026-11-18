@@ -28,7 +28,7 @@ interface Detail { run: Run; timeline: TimelineRow[]; ws: WsRow[]; wsTotal: numb
 interface DiffItem { part: 'request' | 'response'; path: string; kind: 'added' | 'missing' | 'type' | 'value'; before: string; after: string; volatile: boolean }
 interface ApiDiff { key: string; label: string; source: 'backend' | 'http' | 'ws'; direction: string; status: 'same' | 'changed' | 'new-api' | 'unobserved'; items: DiffItem[] }
 interface Compare {
-  baseline: Run | null; defaultBaselineId: string | null
+  baseline: Run | null; defaultBaselineId: string | null; note?: string
   diff: { hasBaseline: boolean; counts: { added: number; missing: number; type: number; value: number; volatileIgnored: number; newApi: number; unobserved: number }; apis: ApiDiff[] } | null
   candidates: { id: string; env: Env; account: string; machine: string; status: Status; startedAt: number; sameTarget: boolean }[]
 }
@@ -405,6 +405,7 @@ export function ApiCapturePage() {
             {(compare?.candidates ?? []).map(c => <option key={c.id} value={c.id}>{fmt(c.startedAt)}｜{ENV_LABEL[c.env]} {c.account} 機台 {c.machine}{c.sameTarget ? '' : '（不同對象）'}｜{STATUS_TEXT[c.status]}</option>)}
           </select>
           <div className="acp-hint">{live ? '紀錄完成後才會比對' : compare?.baseline ? `基準：${fmt(compare.baseline.startedAt)}（${compare.baseline.account}／機台 ${compare.baseline.machine}）` : '無基準'}</div>
+          {compare?.note && <div className="acp-note">{compare.note}</div>}
           {compare?.diff?.hasBaseline && (
             <>
               <div className="acp-counts">

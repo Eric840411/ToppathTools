@@ -74,6 +74,8 @@ export function buildExcel(input: ExcelInput): Buffer {
       if (!a.items.length) { info.push([`${a.label}（${a.direction}）`, STATUS_LABEL[a.status]]); continue }
       for (const it of a.items) info.push([`${a.label}（${a.direction}）`, STATUS_LABEL[a.status], it.part, it.path, KIND_LABEL[it.kind], it.before, it.after])
     }
+  } else if (input.diff === null && input.baselineLabel.includes('無法跨版本比較')) {
+    info.push(['沒有比對：' + input.baselineLabel.split('｜').pop()])
   } else {
     info.push(['無基準：同環境＋同渠道＋同帳號＋同機台沒有更早的成功紀錄'])
   }

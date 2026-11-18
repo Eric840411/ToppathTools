@@ -43,6 +43,7 @@
    時間戳、流水號（key 像 time/timestamp/reference/roundId/transactionId/hash/token/_id，或值像 13 位毫秒、24 位 ObjectId）**只忽略值**，存在與型別照樣比；
    基準有、這次沒錄到的 API 標「**未觀測**」，不算刪除；這次多出來的 API 標「新 API」。
    參數簽名有格式版本（`SIGNATURE_VERSION`，目前 2）：比對時遇到舊版本，從 DB 裡的原始事件重建再存回，不拿舊格式直接比（CodeX 1118 [P2]）。
+   **原始事件已過 180 天保留期被清掉時不重建**（重建出空簽名會把舊的蓋掉、之後全報未觀測），保留舊簽名、畫面與 Excel 標「無法跨版本比較」、不出差異（v5.90.3，CodeX 1118 [P2]）。
    比對對象：後台每個 event（authenticate／balance／recharge／recordBet…）、前台 HTTP（排除雜訊與靜態檔；送出參數＝`request.query.*`＋`request.body.*`，v5.90.1 起含網址 query）、前台 WS route（console 的 SEND/ON，`ON: 0` 是推播）。
 6. **遮罩**：`server/api-capture/mask.ts` 一支，agent 送出前、server 落盤前、匯出 Excel 前各過一次。OSM 玩家 token（`32hex-uid`，含網址編碼後的 `%3D…`）、後台登入 token、JSON／網址／console 裡的 token、password、privateMapKey 等一律 `***`。
    前台 HTTP 預設把 GA、xtrace（阿里雲 RUM）、posthog、RTC 等第三方當雜訊：照樣保留但內容截短、畫面與 Excel 預設不顯示、不進比對。
@@ -82,7 +83,7 @@ agent 本機時鐘常常不準（本機慢 160 秒那次）。順序：
 ## 驗證
 - `npx tsx server/api-capture/core.test.ts`（78 項，含 CodeX 1118 的兩個重現：均勻局距歧義、HTTP query 變更）：遮罩、機台輸入、時間校正（1113 fixture）、時間軸、參數簽名、**注入差異**（新增／型別變更／缺少／時間戳忽略／新 API／未觀測）、Excel 四分頁與遮罩、後台分頁（假 fetch：分頁、total 不符、某頁失敗、登入失敗、40200 重登）
 - 突變（`.tmp` 腳本，跑完還原）：拿掉比對邏輯 8 紅、型別混成值 1 紅、未觀測當缺少 3 紅、時間戳不忽略 1 紅、時間校正失效 6 紅、歧義選最早 3 紅、HTTP query 不進比對 1 紅、遮罩拿掉玩家 token 1 紅、筆數不符不標不完整 1 紅
-- 端對端冒煙（DB 副本＋build 後 main 3999／worker 3998＋假 agent WS＋假後台 3997 回 1113 fixture）63 項：斷線隔離（重連回報收尾中仍鎖、done 後才放）、舊版 agent 只能人工解除（別人不能解）、重啟後機台鎖與重任務鎖從 DB 復原、agent 重連回報已停止才放、**舊格式簽名重建不誤報**；注入「斷線直接放鎖」＋「舊簽名不重建」→ 8 項紅；其餘：權限、密碼密文、網址檢查、機台鎖、完成＋recordBet 校時、遮罩、預設基準與注入的型別變更、Excel 四分頁、取消、agent 斷線、**逾時→送 stop→寬限期過了標失敗但鎖保留→遲到的 done 才放鎖**、**worker 重啟→紀錄標失敗＋重任務鎖釋放→可再開**、普通版／修仙版畫面無 pageerror、無 emoji
+- 端對端冒煙（DB 副本＋build 後 main 3999／worker 3998＋假 agent WS＋假後台 3997 回 1113 fixture）66 項：過期舊簽名不重建、不出差異、不被蓋掉；斷線隔離（重連回報收尾中仍鎖、done 後才放）、舊版 agent 只能人工解除（別人不能解）、重啟後機台鎖與重任務鎖從 DB 復原、agent 重連回報已停止才放、**舊格式簽名重建不誤報**；注入「斷線直接放鎖」＋「舊簽名不重建」→ 8 項紅；其餘：權限、密碼密文、網址檢查、機台鎖、完成＋recordBet 校時、遮罩、預設基準與注入的型別變更、Excel 四分頁、取消、agent 斷線、**逾時→送 stop→寬限期過了標失敗但鎖保留→遲到的 done 才放鎖**、**worker 重啟→紀錄標失敗＋重任務鎖釋放→可再開**、普通版／修仙版畫面無 pageerror、無 emoji
 - fixture：`server/__fixtures__/api-capture/front-1113.json`、`backend-1113.json`（由 osm-qa-agent 1113 原始資料轉換，已遮罩、WS 只留部分幀）
 - ⚠️ **未經真 agent／真機台驗證**；UAT 後台 Log 端點未實測
 
