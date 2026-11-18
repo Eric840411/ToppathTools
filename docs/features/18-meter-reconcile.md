@@ -129,7 +129,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 - 整天查詢時另外打 `egmPerformanceMeter`（gameDay／dateType 跟著 Gaming Day／自然日走），結果另列「後台 EGM Performance Meter 日報對照」卡，**不影響主判定**（主判定仍是 Hourly vs Game Record）；查詢失敗不拖垮主對帳。
 - 三組比對（邏輯在 `server/meter-perf-daily.ts`）：
-  1. 日報內部公式：欄 26 WIN/LOSE vs 用 6/10/29 現算；欄 2 RTP vs WIN/LOSE ÷ Coin In（**欄 2 尺度未實測**，小數與 % 兩種都比，容差 0.01 個百分點）
+  1. 日報內部公式：欄 26 WIN/LOSE vs 用 6/10/29 現算；欄 2 RTP **尺度（小數或 %）未實測，目前只列出不判定**（v5.91.1 CodeX：兩種都接受會放過 100 倍錯誤；確認後改 `RTP_RAW_SCALE`）
   2. 日報 vs Hourly 差值：Coin In／Coin Out／Jackpot Wins／Games Played（Hourly 至少 2 個快照才比）
   3. 日報 vs Game Record：Coin Out（OSM＝GR 總 Win＋Attendant Paid JP−日報 JP；GCP＝GR 總 Win）、Games Played（GR 筆數＋JP 筆數）
 - 有自訂時間 → 不比（日報只有整天）；查無資料 → 「尚未產生」（約 15:15 後才有當日）不算錯；API 失敗／缺欄 → 無法比對，不當 0。
@@ -138,3 +138,4 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 操作 | 說明 |
 |---|---|
 | 看後台日報有沒有錯 | 整天查詢後看「後台 EGM Performance Meter 日報對照」卡，不一致的列標紅，「比對」欄看是公式、Hourly 還是 Game Record 對不上 |
+- v5.91.1（CodeX 審 d2f8585）：Game Record／Jackpot／Hourly 回應無效時不跟它比；有列無法驗證 → 整卡黃色「無法完整驗證」；查詢日距今 ≥2 天仍查無日報 → 「可能缺報」（黃色），不再當尚未產生。

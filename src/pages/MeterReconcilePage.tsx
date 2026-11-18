@@ -156,9 +156,9 @@ function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
 
 /** v5.85.0：盒子日誌逐局比對結果 */
 /** v5.91.0：後台 EGM Performance Meter 日報對照（server/meter-perf-daily.ts） */
-interface PerfDailyCheck { group: 'formula' | 'hourly' | 'gameRecord'; label: string; daily: number | null; other: number | null; otherLabel: string; diff: number | null; ok: boolean | null; note?: string }
+interface PerfDailyCheck { group: 'formula' | 'hourly' | 'gameRecord'; label: string; daily: number | null; other: number | null; otherLabel: string; diff: number | null; ok: boolean | null; note?: string; info?: boolean }
 interface PerfDaily {
-  status: 'ok' | 'mismatch' | 'skipped' | 'notReady' | 'apiError'
+  status: 'ok' | 'partial' | 'mismatch' | 'missing' | 'skipped' | 'notReady' | 'apiError'
   why: string
   values?: { coinIn: number; coinOut: number; jackpotWins: number; gamesPlayed: number; winLossRaw: number | null; rtpRaw: number | null; winLossCalc: number; rtpCalc: number | null }
   checks: PerfDailyCheck[]
@@ -168,9 +168,10 @@ const PD_GROUP: Record<PerfDailyCheck['group'], string> = { formula: '日報內�
 
 function PerfDailyCard({ pd, fmt }: { pd: PerfDaily; fmt: (n: number | null | undefined, d?: number) => string }) {
   const bad = pd.status === 'mismatch'
+  const warn = pd.status === 'missing' || pd.status === 'partial'
   const good = pd.status === 'ok'
-  const fg = bad ? '#f87171' : good ? '#4ade80' : '#cbd5e1'
-  const border = bad ? 'rgba(239,68,68,.45)' : good ? 'rgba(34,197,94,.35)' : 'rgba(148,163,184,.4)'
+  const fg = bad ? '#f87171' : warn ? '#fbbf24' : good ? '#4ade80' : '#cbd5e1'
+  const border = bad ? 'rgba(239,68,68,.45)' : warn ? 'rgba(251,191,36,.45)' : good ? 'rgba(34,197,94,.35)' : 'rgba(148,163,184,.4)'
   const v = pd.values
   return (
     <section className="section-card st-card" style={{ borderColor: border }}>
@@ -202,7 +203,7 @@ function PerfDailyCard({ pd, fmt }: { pd: PerfDaily; fmt: (n: number | null | un
                   <td style={{ padding: '4px 6px', textAlign: 'right' }}>{c.daily === null ? '—' : rtp ? String(c.daily) : fmt(c.daily, c.label === 'Games Played' ? 0 : undefined)}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right' }}>{c.other === null ? '—' : rtp ? `${c.other.toFixed(4)}%` : fmt(c.other, c.label === 'Games Played' ? 0 : undefined)}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', color: col }}>{c.diff === null ? '—' : fmt(c.diff, c.label === 'Games Played' ? 0 : undefined)}</td>
-                  <td style={{ padding: '4px 6px', color: col, fontWeight: 700 }}>{c.ok === null ? '無法比' : c.ok ? '一致' : '不一致'}</td>
+                  <td style={{ padding: '4px 6px', color: col, fontWeight: 700 }}>{c.ok === null ? (c.info ? '參考' : '無法比') : c.ok ? '一致' : '不一致'}</td>
                 </tr>
               )
             })}

@@ -594,7 +594,14 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
 
     // v5.91.0（Eric 1118、CodeX 同意）：另外對照後台 EGM Performance Meter 日報；獨立結果，不改上面的主判定，失敗也不拖垮主對帳
     let perfDaily: PerfDailyResult
-    if (hasCustom) perfDaily = comparePerfDaily({ profile, hasCustom: true, apiError: null, row: null, hourly: null, gameRecord, attendantPaidJp, handpayCount: jpItems.length })
+    // CodeX d2f8585 [P2]：各來源的有效性要帶進去，無效的來源不能拿轉成 0 的值比
+    const srcBad = (name: string) => apiProblems.some(x => x.startsWith(name))
+    const pdBase = {
+      profile, gameRecord, attendantPaidJp, handpayCount: jpItems.length,
+      grValid: !srcBad('Game Record'), jpValid: !srcBad('Jackpot Abnormality'),
+      date, todayLocal: new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10),
+    }
+    if (hasCustom) perfDaily = comparePerfDaily({ ...pdBase, hasCustom: true, apiError: null, row: null, hourly: null })
     else {
       try {
         const pdParams = new URLSearchParams({
@@ -609,12 +616,11 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
         const pd = await meterGet(env, profile, cfg, perfPath, pdParams)
         const pr = apiProblem('EGM Performance Meter', pd, METER_VALID.daily)
         perfDaily = comparePerfDaily({
-          profile, hasCustom: false, apiError: pr, row: pr ? null : (pd?.data?.items?.[0] ?? null),
-          hourly: meter && !usedDaily && hourBuckets >= 2 ? meter : null,
-          gameRecord, attendantPaidJp, handpayCount: jpItems.length,
+          ...pdBase, hasCustom: false, apiError: pr, row: pr ? null : (pd?.data?.items?.[0] ?? null),
+          hourly: meter && !usedDaily && hourBuckets >= 2 && !srcBad('EGM Hourly Meter') ? meter : null,
         })
       } catch (e) {
-        perfDaily = comparePerfDaily({ profile, hasCustom: false, apiError: e instanceof Error ? e.message : String(e), row: null, hourly: null, gameRecord, attendantPaidJp, handpayCount: jpItems.length })
+        perfDaily = comparePerfDaily({ ...pdBase, hasCustom: false, apiError: e instanceof Error ? e.message : String(e), row: null, hourly: null })
       }
     }
 

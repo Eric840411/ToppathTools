@@ -10,7 +10,7 @@
 import { winLossJackpotTerm } from '../shared/meter-rtp.js'
 import { isNum } from './meter-verdict.js'
 
-export type PerfDailyStatus = 'ok' | 'mismatch' | 'skipped' | 'notReady' | 'apiError'
+export type PerfDailyStatus = 'ok' | 'partial' | 'mismatch' | 'missing' | 'skipped' | 'notReady' | 'apiError'
 
 export type PerfDailyCheck = {
   group: 'formula' | 'hourly' | 'gameRecord'
@@ -22,6 +22,8 @@ export type PerfDailyCheck = {
   diff: number | null
   ok: boolean | null
   note?: string
+  /** 只列出參考、不算進判定 */
+  info?: boolean
 }
 
 export type PerfDailyResult = {
@@ -42,12 +44,13 @@ const MONEY_TOL = 0.005
 const eq = (a: number, b: number, tol = MONEY_TOL) => Math.abs(a - b) <= tol
 
 /**
- * 欄 2（RTP）的尺度沒實測過是小數（0.0558）還是百分比（5.58）——兩種都試，任一種在捨去容差內就算一致。
- * 後台畫面 RTP 是小數兩位直接捨去，所以容差取 0.01 個百分點（小數尺度 0.0001）。
+ * 欄 2（RTP）的尺度沒實測過是小數（0.0558）還是百分比（5.58）。CodeX d2f8585 [P2]：兩種都接受會把 100 倍錯誤放過
+ * → 尺度確認前只顯示、不判定（ok:null＋info，列為「參考」，不算進「無法完整驗證」）。確認後改這裡。
  */
-export function rtpRawMatches(raw: number, calcPct: number): boolean {
-  return Math.abs(raw * 100 - calcPct) < 0.01 + 1e-9 || Math.abs(raw - calcPct) < 0.01 + 1e-9
-}
+export const RTP_RAW_SCALE: 'fraction' | 'percent' | null = null
+
+/** YYYY-MM-DD 相差天數（b − a） */
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000)
 
 export type PerfDailyInput = {
   profile: 'osm' | 'gcp'
@@ -61,12 +64,22 @@ export type PerfDailyInput = {
   gameRecord: { totalWin: number; recordCount: number }
   attendantPaidJp: number
   handpayCount: number
+  /** CodeX d2f8585 [P2]：Game Record／Jackpot Abnormality 回應無效時不能拿轉成 0 的值比 */
+  grValid: boolean
+  jpValid: boolean
+  /** 查詢日期與今天（UTC+8）——過了產生期限還查無日報＝缺報，不能當「尚未產生」 */
+  date: string
+  todayLocal: string
 }
 
 export function comparePerfDaily(p: PerfDailyInput): PerfDailyResult {
   if (p.hasCustom) return { status: 'skipped', why: '日報只有整天，有填自訂時間就不比對（清掉自訂時間再查）', checks: [] }
   if (p.apiError) return { status: 'apiError', why: `EGM Performance Meter 查詢失敗，無法比對：${p.apiError}`, checks: [] }
-  if (!p.row) return { status: 'notReady', why: '後台日報查無這台這天的資料（當日數據約 15:15 後才產生；不算錯）', checks: [] }
+  if (!p.row) {
+    // 日報約當天 15:15 後才有（Gaming Day 跨到隔天 06:00）；保守給到查詢日 +1 天，超過就算缺報
+    if (dayDiff(p.date, p.todayLocal) >= 2) return { status: 'missing', why: `後台日報查無這台 ${p.date} 的資料——已過產生時間，可能缺報（或機台名稱／渠道不對）`, checks: [] }
+    return { status: 'notReady', why: '後台日報查無這台這天的資料（當日數據約 15:15 後才產生；還在期限內，不算錯）', checks: [] }
+  }
 
   const need = [F.coinIn, F.coinOut, F.jackpotWins, F.gamesPlayed]
   const miss = need.filter(k => !isNum(p.row![k]))
@@ -85,9 +98,12 @@ export function comparePerfDaily(p: PerfDailyInput): PerfDailyResult {
     ? { group: 'formula', label: 'WIN/LOSE', daily: null, other: winLossCalc, otherLabel: '用 Coin In／Out／JP 現算', diff: null, ok: null, note: '日報沒有欄位 26' }
     : { group: 'formula', label: 'WIN/LOSE', daily: winLossRaw, other: winLossCalc, otherLabel: '用 Coin In／Out／JP 現算', diff: winLossRaw - winLossCalc, ok: eq(winLossRaw, winLossCalc) })
   if (rtpRaw === null || rtpCalc === null) {
-    checks.push({ group: 'formula', label: 'RTP', daily: rtpRaw, other: rtpCalc, otherLabel: 'WIN/LOSE ÷ Coin In', diff: null, ok: null, note: rtpCalc === null ? 'Coin In 為 0，算不出 RTP' : '日報沒有欄位 2' })
+    checks.push({ group: 'formula', label: 'RTP', daily: rtpRaw, other: rtpCalc, otherLabel: 'WIN/LOSE ÷ Coin In（%）', diff: null, ok: null, note: rtpCalc === null ? 'Coin In 為 0，算不出 RTP' : '日報沒有欄位 2' })
+  } else if (RTP_RAW_SCALE === null) {
+    checks.push({ group: 'formula', label: 'RTP', daily: rtpRaw, other: rtpCalc, otherLabel: 'WIN/LOSE ÷ Coin In（%）', diff: null, ok: null, info: true, note: '欄 2 是小數還是 % 尚未確認，只列出、不判定' })
   } else {
-    checks.push({ group: 'formula', label: 'RTP', daily: rtpRaw, other: rtpCalc, otherLabel: 'WIN/LOSE ÷ Coin In（%）', diff: null, ok: rtpRawMatches(rtpRaw, rtpCalc), note: '欄 2 尺度（小數或 %）未實測，兩種都比' })
+    const rawPct = RTP_RAW_SCALE === 'fraction' ? rtpRaw * 100 : rtpRaw
+    checks.push({ group: 'formula', label: 'RTP', daily: rtpRaw, other: rtpCalc, otherLabel: 'WIN/LOSE ÷ Coin In（%）', diff: rawPct - rtpCalc, ok: Math.abs(rawPct - rtpCalc) < 0.01 + 1e-9 })
   }
 
   // ② 日報 vs Hourly 差值
@@ -99,15 +115,29 @@ export function comparePerfDaily(p: PerfDailyInput): PerfDailyResult {
   }
 
   // ③ 日報 vs Game Record（OSM 的預期 Coin Out 要用日報自己的 Jackpot Wins；GCP 的 Game Record 已含 JP）
-  const expOut = p.profile === 'osm' ? p.gameRecord.totalWin + p.attendantPaidJp - jackpotWins : p.gameRecord.totalWin
-  checks.push({ group: 'gameRecord', label: 'Coin Out', daily: coinOut, other: expOut, otherLabel: p.profile === 'osm' ? 'GR 總 Win + Attendant Paid JP − 日報 JP' : 'GR 總 Win', diff: coinOut - expOut, ok: eq(coinOut, expOut) })
-  const expGames = p.gameRecord.recordCount + p.handpayCount
-  checks.push({ group: 'gameRecord', label: 'Games Played', daily: gamesPlayed, other: expGames, otherLabel: p.handpayCount ? 'GR 筆數 + JP 筆數' : 'GR 筆數', diff: gamesPlayed - expGames, ok: gamesPlayed === expGames })
+  const outLabel = p.profile === 'osm' ? 'GR 總 Win + Attendant Paid JP − 日報 JP' : 'GR 總 Win'
+  const gamesLabel = p.handpayCount ? 'GR 筆數 + JP 筆數' : 'GR 筆數'
+  if (!p.grValid || !p.jpValid) {
+    const note = `${[!p.grValid && 'Game Record', !p.jpValid && 'Jackpot Abnormality'].filter(Boolean).join('、')} 回應無效，不比`
+    checks.push({ group: 'gameRecord', label: 'Coin Out', daily: coinOut, other: null, otherLabel: outLabel, diff: null, ok: null, note })
+    checks.push({ group: 'gameRecord', label: 'Games Played', daily: gamesPlayed, other: null, otherLabel: gamesLabel, diff: null, ok: null, note })
+  } else {
+    const expOut = p.profile === 'osm' ? p.gameRecord.totalWin + p.attendantPaidJp - jackpotWins : p.gameRecord.totalWin
+    checks.push({ group: 'gameRecord', label: 'Coin Out', daily: coinOut, other: expOut, otherLabel: outLabel, diff: coinOut - expOut, ok: eq(coinOut, expOut) })
+    const expGames = p.gameRecord.recordCount + p.handpayCount
+    checks.push({ group: 'gameRecord', label: 'Games Played', daily: gamesPlayed, other: expGames, otherLabel: gamesLabel, diff: gamesPlayed - expGames, ok: gamesPlayed === expGames })
+  }
 
   const bad = checks.filter(c => c.ok === false)
   const groupName = { formula: '日報內部公式', hourly: '與 Hourly 差值', gameRecord: '與 Game Record' } as const
+  // CodeX d2f8585 [P2]：有列無法驗證（缺欄、來源無效）不能整卡顯示一致；info 列（RTP 尺度未確認）只是參考
+  const unverified = checks.filter(c => c.ok === null && !c.info)
+  const listOf = (cs: PerfDailyCheck[]) => [...new Set(cs.map(c => groupName[c.group]))].map(g => `${g}（${cs.filter(c => groupName[c.group] === g).map(c => c.label).join('、')}）`).join('；')
+  const partial = unverified.length > 0 || !p.hourly
   const why = bad.length
-    ? `後台日報不一致：${[...new Set(bad.map(c => groupName[c.group]))].map(g => `${g}（${bad.filter(c => groupName[c.group] === g).map(c => c.label).join('、')}）`).join('；')}`
-    : p.hourly ? '後台日報與 Hourly、Game Record 都一致' : '後台日報與 Game Record 一致（沒有 Hourly 差值可比）'
-  return { status: bad.length ? 'mismatch' : 'ok', why, values: { coinIn, coinOut, jackpotWins, gamesPlayed, winLossRaw, rtpRaw, winLossCalc, rtpCalc }, checks, raw: p.row }
+    ? `後台日報不一致：${listOf(bad)}`
+    : partial
+      ? `沒發現不一致，但無法完整驗證：${[unverified.length ? listOf(unverified) : '', !p.hourly ? '沒有 Hourly 差值可比' : ''].filter(Boolean).join('；')}`
+      : '後台日報與 Hourly、Game Record 都一致'
+  return { status: bad.length ? 'mismatch' : partial ? 'partial' : 'ok', why, values: { coinIn, coinOut, jackpotWins, gamesPlayed, winLossRaw, rtpRaw, winLossCalc, rtpCalc }, checks, raw: p.row }
 }
