@@ -31,6 +31,7 @@ const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m 
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
 const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
 const EgmDayCountPage = lazy(() => import('./pages/EgmDayCountPage').then(m => ({ default: m.EgmDayCountPage })))
+const ApiCapturePage = lazy(() => import('./pages/ApiCapturePage').then(m => ({ default: m.ApiCapturePage })))
 const WeeklyReportPage = lazy(() => import('./pages/WeeklyReportPage').then(m => ({ default: m.WeeklyReportPage })))
 const OfficePage = lazy(() => import('./pages/OfficePage').then(m => ({ default: m.OfficePage })))
 const MeegleAccountPage = lazy(() => import('./pages/MeegleAccountPage').then(m => ({ default: m.MeegleAccountPage })))
@@ -76,7 +77,7 @@ import { PageHead, Crumb } from './redesign/PageHead'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'osm-releases' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'api-capture' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
 type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
 
 type SubTab = {
@@ -248,6 +249,14 @@ const groups: Group[] = [
         icon: 'E',
         iconClass: 'tab-icon--osm',
         description: '比對 Egm DayCount 彙總報表與 User Detail 逐筆列回推加總是否一致',
+      },
+      {
+        id: 'api-capture',
+        label: 'API 參數紀錄',
+        themeLabel: '符脈留痕',
+        icon: 'A',
+        iconClass: 'tab-icon--osm',
+        description: '指定帳號進機台最小注下注，錄前台 WS／HTTP、抓後台 Log Third Http／Bet Req 彙整成時間軸，跟上次比對參數差異並匯出 Excel',
       },
     ],
   },
@@ -1134,6 +1143,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'ui-screenshot' && <UiScreenshotPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'meter-reconcile' && <MeterReconcilePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'api-capture' && <ApiCapturePage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <AutoSpinNotifySettingsPage />}
             {currentGroup?.id === 'lark-notify' && <LarkNotifySettingsPage />}

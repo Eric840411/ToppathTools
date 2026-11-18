@@ -1,0 +1,347 @@
+{
+ "logThirdHttpReq": [
+  {
+   "_id": {
+    "$oid": "6af6cb22a874adfbc0b9f369"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recharge",
+   "event": "recharge",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"gameId\":\"osmdfdcgrand\",\"amount\":999936,\"moneyMud\":0,\"reference\":\"dfdcgrand01443506121a1d408da20-ou\",\"timestamp\":1794558754823,\"machineId\":\"873-DFDCGRAND-0144\",\"studioId\":\"cp\",\"hash\":\"4e8898eb9d9f4ad29e179a40de2d803a\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":999936,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"6af6cb22b1cb9537a6e490e7\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558754823,
+   "restime": 1794558754857,
+   "useTime": 34,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "dfdcgrand01443506121a1d408da20-ou",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558754858"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558754858"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6caf8a874adfbc0b9f345"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recharge",
+   "event": "recharge",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"gameId\":\"osmdfdcgrand\",\"amount\":-1000000,\"moneyMud\":0,\"reference\":\"dfdcgrand01443506121a1d408da20-in\",\"timestamp\":1794558712352,\"machineId\":\"873-DFDCGRAND-0144\",\"studioId\":\"cp\",\"hash\":\"e7d049167ddb4712b7a1ad6da48b28ad\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":0,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"6af6caf8b1cb9537a6e490d3\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558712353,
+   "restime": 1794558712394,
+   "useTime": 41,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "dfdcgrand01443506121a1d408da20-in",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558712396"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558712396"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6caedfe086ba6db2b9bf1"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/authenticate",
+   "event": "authenticate",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"hash\":\"78a0765da81e3998859fd313c763190d\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":1000000,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"username\":\"9421000006\",\"nickname\":\"高老庄小班长\",\"playerLevel\":1,\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558701805,
+   "restime": 1794558701813,
+   "useTime": 8,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "",
+   "gmid": "",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558701814"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558701814"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6cadb9f2056ddd3848a02"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/authenticate",
+   "event": "authenticate",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"hash\":\"78a0765da81e3998859fd313c763190d\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":1000000,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"username\":\"9421000006\",\"nickname\":\"高老庄小班长\",\"playerLevel\":1,\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558683628,
+   "restime": 1794558683635,
+   "useTime": 7,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "",
+   "gmid": "",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558683636"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558683636"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6caadfe086ba6db2b9bea"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/authenticate",
+   "event": "authenticate",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"hash\":\"78a0765da81e3998859fd313c763190d\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":1000000,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"username\":\"9421000006\",\"nickname\":\"高老庄小班长\",\"playerLevel\":1,\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558637611,
+   "restime": 1794558637619,
+   "useTime": 8,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "",
+   "gmid": "",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558637620"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558637620"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6c9f8a874adfbc0b9f33e"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/balance",
+   "event": "balance",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"hash\":\"78a0765da81e3998859fd313c763190d\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":1000000,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558456219,
+   "restime": 1794558456271,
+   "useTime": 52,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "",
+   "gmid": "",
+   "username": "",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558456272"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558456272"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6c9f79f2056ddd38489c2"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/authenticate",
+   "event": "authenticate",
+   "postData": "{\"providerId\":\"wayigame\",\"token\":\"***\",\"hash\":\"78a0765da81e3998859fd313c763190d\"}",
+   "roundId": "",
+   "result": "{\"currency\":\"PHP\",\"balance\":1000000,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"username\":\"9421000006\",\"nickname\":\"高老庄小班长\",\"playerLevel\":1,\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558455511,
+   "restime": 1794558455519,
+   "useTime": 8,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "",
+   "gmid": "",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558455520"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558455520"
+    }
+   },
+   "__v": 0
+  }
+ ],
+ "logThirdHttpBetReq": [
+  {
+   "_id": {
+    "$oid": "6af6cb16a874adfbc0b9f362"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recordBet",
+   "event": "recordBet",
+   "postData": "{\"providerId\":\"wayigame\",\"userId\":350612,\"gameId\":\"osmdfdcgrand\",\"roundId\":\"873-DFDCGRAND-0144|6AF6CB11004\",\"amount\":18,\"reference\":\"873-DFDCGRAND-0144|6AF6CB11004350612\",\"betTimestamp\":1794558737410,\"betType\":\"record\",\"withholding\":0,\"payout\":8,\"payoutTimestamp\":1794558742050,\"validBet\":18,\"machineId\":\"873-DFDCGRAND-0144\",\"machineName\":\"144-DFDCGRAND\",\"studioId\":\"cp\",\"moneyAfter\":999936,\"isDelayed\":false,\"jackpotAmount\":0,\"roundActivityId\":\"\",\"hitJackpot\":false,\"isFake\":false,\"jackpotContribution\":0,\"jackpotContributions\":[0,0,0,0,0],\"bgtype\":\"osm\",\"isHybrid\":false,\"usedCash\":18,\"usedMoneyMud\":0,\"remainingMoneyMud\":0,\"initialMoneyMud\":0,\"hash\":\"4b961535b71f289b9814fde7f4a107ec\"}",
+   "roundId": "873-DFDCGRAND-0144|6AF6CB11004",
+   "result": "{\"currency\":\"PHP\",\"balance\":0,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"76671ff17e3e79346d5b92b85a9284ac\",\"pulsarId\":\"(38681,1560,2,0)\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558742062,
+   "restime": 1794558742115,
+   "useTime": 53,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "873-DFDCGRAND-0144|6AF6CB11004350612",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558742115"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558742115"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6cb10a874adfbc0b9f35d"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recordBet",
+   "event": "recordBet",
+   "postData": "{\"providerId\":\"wayigame\",\"userId\":350612,\"gameId\":\"osmdfdcgrand\",\"roundId\":\"873-DFDCGRAND-0144|6AF6CB0D003\",\"amount\":18,\"reference\":\"873-DFDCGRAND-0144|6AF6CB0D003350612\",\"betTimestamp\":1794558733300,\"betType\":\"record\",\"withholding\":0,\"payout\":0,\"payoutTimestamp\":1794558736610,\"validBet\":18,\"machineId\":\"873-DFDCGRAND-0144\",\"machineName\":\"144-DFDCGRAND\",\"studioId\":\"cp\",\"moneyAfter\":999946,\"isDelayed\":false,\"jackpotAmount\":0,\"roundActivityId\":\"\",\"hitJackpot\":false,\"isFake\":false,\"jackpotContribution\":0,\"jackpotContributions\":[0,0,0,0,0],\"bgtype\":\"osm\",\"isHybrid\":false,\"usedCash\":18,\"usedMoneyMud\":0,\"remainingMoneyMud\":0,\"initialMoneyMud\":0,\"hash\":\"60405e0fe7172992196b62b87b602588\"}",
+   "roundId": "873-DFDCGRAND-0144|6AF6CB0D003",
+   "result": "{\"currency\":\"PHP\",\"balance\":0,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"efe0f736fc824dffc5f22fcf0e0745ab\",\"pulsarId\":\"(38681,1559,2,0)\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558736615,
+   "restime": 1794558736668,
+   "useTime": 53,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "873-DFDCGRAND-0144|6AF6CB0D003350612",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558736668"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558736668"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6cb0ca874adfbc0b9f358"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recordBet",
+   "event": "recordBet",
+   "postData": "{\"providerId\":\"wayigame\",\"userId\":350612,\"gameId\":\"osmdfdcgrand\",\"roundId\":\"873-DFDCGRAND-0144|6AF6CB08002\",\"amount\":18,\"reference\":\"873-DFDCGRAND-0144|6AF6CB08002350612\",\"betTimestamp\":1794558728920,\"betType\":\"record\",\"withholding\":0,\"payout\":0,\"payoutTimestamp\":1794558732660,\"validBet\":18,\"machineId\":\"873-DFDCGRAND-0144\",\"machineName\":\"144-DFDCGRAND\",\"studioId\":\"cp\",\"moneyAfter\":999964,\"isDelayed\":false,\"jackpotAmount\":0,\"roundActivityId\":\"\",\"hitJackpot\":false,\"isFake\":false,\"jackpotContribution\":0,\"jackpotContributions\":[0,0,0,0,0],\"bgtype\":\"osm\",\"isHybrid\":false,\"usedCash\":18,\"usedMoneyMud\":0,\"remainingMoneyMud\":0,\"initialMoneyMud\":0,\"hash\":\"1da279c80ec416ae07b4ac9b322439ea\"}",
+   "roundId": "873-DFDCGRAND-0144|6AF6CB08002",
+   "result": "{\"currency\":\"PHP\",\"balance\":0,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"4a0ede5be9b9909f979480453ab3a35e\",\"pulsarId\":\"(38681,1558,2,0)\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558732673,
+   "restime": 1794558732724,
+   "useTime": 51,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "873-DFDCGRAND-0144|6AF6CB08002350612",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558732725"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558732725"
+    }
+   },
+   "__v": 0
+  },
+  {
+   "_id": {
+    "$oid": "6af6cb08a874adfbc0b9f353"
+   },
+   "wholeUrl": "http://qat-tgapi.osmslot.org/recordBet",
+   "event": "recordBet",
+   "postData": "{\"providerId\":\"wayigame\",\"userId\":350612,\"gameId\":\"osmdfdcgrand\",\"roundId\":\"873-DFDCGRAND-0144|6AF6CB05001\",\"amount\":18,\"reference\":\"873-DFDCGRAND-0144|6AF6CB05001350612\",\"betTimestamp\":1794558725270,\"betType\":\"record\",\"withholding\":0,\"payout\":0,\"payoutTimestamp\":1794558728290,\"validBet\":18,\"machineId\":\"873-DFDCGRAND-0144\",\"machineName\":\"144-DFDCGRAND\",\"studioId\":\"cp\",\"moneyAfter\":999982,\"isDelayed\":false,\"jackpotAmount\":0,\"roundActivityId\":\"\",\"hitJackpot\":false,\"isFake\":false,\"jackpotContribution\":0,\"jackpotContributions\":[0,0,0,0,0],\"bgtype\":\"osm\",\"isHybrid\":false,\"usedCash\":18,\"usedMoneyMud\":0,\"remainingMoneyMud\":0,\"initialMoneyMud\":0,\"hash\":\"a929cefb6d3cc829d854869bf1d05b9a\"}",
+   "roundId": "873-DFDCGRAND-0144|6AF6CB05001",
+   "result": "{\"currency\":\"PHP\",\"balance\":0,\"moneyMud\":0,\"userId\":350612,\"channelId\":873,\"transactionId\":\"1d82242037c5f7833c3e1a30e40327ca\",\"pulsarId\":\"(38681,1557,2,0)\",\"error\":0}",
+   "state": 200,
+   "reqtime": 1794558728300,
+   "restime": 1794558728376,
+   "useTime": 76,
+   "error": 0,
+   "isSuccess": true,
+   "userid": "350612",
+   "reference": "873-DFDCGRAND-0144|6AF6CB05001350612",
+   "gmid": "873-DFDCGRAND-0144",
+   "username": "9421000006",
+   "createdAt": {
+    "$date": {
+     "$numberLong": "1794558728377"
+    }
+   },
+   "updatedAt": {
+    "$date": {
+     "$numberLong": "1794558728377"
+    }
+   },
+   "__v": 0
+  }
+ ]
+}

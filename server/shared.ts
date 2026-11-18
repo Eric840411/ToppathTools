@@ -2386,6 +2386,8 @@ export const ALL_PAGE_KEYS = [
   'osm-releases','osm-releases-edit','osm-releases-manage',
   // 文書工具（Eric Office 嵌入，v5.68.0）：/office/* 靜態檔與 /api/office/apps 都驗這個 key
   'office',
+  // API 參數紀錄（v5.90.0）：前台 WS／HTTP＋後台 Log Third 彙整、與上次比對
+  'api-capture',
   // 功能開關（不是頁面）：沿用同一套權限 key 機制，讓後台權限頁不用另外長出第二套 UI。
   // canAccess() 只查 tabId，多出來的 key 不會影響側邊欄。
   'jira-ai-format','jira-ai-review',

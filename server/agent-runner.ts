@@ -51,6 +51,8 @@ import { MachineTestRunner, noteOsmObservation } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
 import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
+import { ApiCaptureFrontRunner } from './api-capture/front-runner.js'
+import { API_CAPTURE_CHUNK_SIZE, type ApiCaptureStartMessage, type FrontEvent } from './api-capture/types.js'
 import type { Page } from 'playwright'
 // 錄製期間回報網路請求時，用同一套規則把網址收斂成可比對的樣式——
 // 規則只能有一份，兩邊各寫一份遲早漂移
@@ -64,7 +66,7 @@ const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim(
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
 // ui-ss-pool：UI 截圖支援「只從指定 gmid 白名單挑機」（Machine Model 選擇）。伺服器看到沒有這項就不派白名單任務——
 // 舊 agent 會把 `遊戲 / model / machineType` 當成 `遊戲 / model` 比對，默默拍到別的 Machine Model（CodeX 2026-10-02）
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,uat-run-tc,autospin,backend-uat,ui-ss-pool')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,uat-run-tc,autospin,backend-uat,ui-ss-pool,api-capture')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -167,6 +169,8 @@ function writeSourceVersion(v: string | null | undefined) {
 }
 
 let currentRunner: { stop: () => void } | null = null
+/** API 參數紀錄（v5.90.0）正在跑的那一筆。停止只認 runId，不跟其他派工的 stop 混用 */
+let apiCaptureRun: { runId: string; runner: ApiCaptureFrontRunner } | null = null
 /** 後台錄製用的瀏覽器。錄製只會有一個 session，多開沒有意義而且會佔滿螢幕 */
 let backendRecordBrowser: import('playwright').Browser | null = null
 let backendRecordSessionId: string | null = null
@@ -2952,6 +2956,54 @@ function connect() {
       const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
       console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
         + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))
+      return
+    }
+
+    // ── API 參數紀錄（docs/features/35-api-capture.md）：錄前台 WS／HTTP，分批送回 server ──
+    if (msg.type === 'api_capture_start') {
+      const m = msg as ApiCaptureStartMessage
+      if (apiCaptureRun) {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'api_capture_done', runId: m.runId, ok: false, cancelled: false, error: '這台 agent 已經在跑另一筆 API 參數紀錄', total: 0, chunks: 0, agentNow: Date.now(), startedAt: Date.now(), finishedAt: Date.now(), spins: [], stopReason: 'error', payoutObservable: false, exitOk: true }))
+        return
+      }
+      console.log(`[Agent:${AGENT_LABEL}] API 參數紀錄 ${m.runId} 開始（機台 ${m.machine}）`)
+      const runner = new ApiCaptureFrontRunner(m)
+      apiCaptureRun = { runId: m.runId, runner }
+      currentRunner = runner
+      let seq = 0
+      let total = 0
+      const send = (payload: object) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload)) }
+      const flush = () => {
+        const items: FrontEvent[] = runner.drain()
+        for (let i = 0; i < items.length; i += API_CAPTURE_CHUNK_SIZE) {
+          const part = items.slice(i, i + API_CAPTURE_CHUNK_SIZE)
+          send({ type: 'api_capture_chunk', runId: m.runId, seq: seq++, items: part })
+          total += part.length
+        }
+      }
+      const timer = setInterval(flush, 3000)
+      runner.on('progress', (p: { phase: string; message: string; spin?: number }) => send({ type: 'api_capture_progress', runId: m.runId, ...p }))
+      runner.on('flush', flush)
+      void runner.run()
+        .then(result => {
+          flush()
+          send({ type: 'api_capture_done', runId: m.runId, ...result, total, chunks: seq, agentNow: Date.now() })
+          console.log(`[Agent:${AGENT_LABEL}] API 參數紀錄 ${m.runId} 結束（${result.ok ? '成功' : result.cancelled ? '取消' : `失敗：${result.error}`}，${total} 筆事件）`)
+        })
+        .catch(err => {
+          flush()
+          send({ type: 'api_capture_done', runId: m.runId, ok: false, cancelled: false, error: String(err), total, chunks: seq, agentNow: Date.now(), startedAt: Date.now(), finishedAt: Date.now(), spins: [], stopReason: 'error', payoutObservable: false, exitOk: false })
+        })
+        .finally(() => {
+          clearInterval(timer)
+          if (currentRunner === runner) currentRunner = null
+          if (apiCaptureRun?.runner === runner) apiCaptureRun = null
+        })
+      return
+    }
+    if (msg.type === 'api_capture_stop') {
+      const runId = (msg as { runId?: string }).runId
+      if (apiCaptureRun && apiCaptureRun.runId === runId) apiCaptureRun.runner.stop()
       return
     }
 

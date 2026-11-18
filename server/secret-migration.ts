@@ -16,7 +16,9 @@ import { encryptSecret, isCurrentKeySecret, isSecretConfigKey, secretKeyStatus }
 
 type Target = { table: string; column: string; where?: string; filter?: (row: Record<string, unknown>) => boolean; extra?: string }
 
-export const SECRET_SETTINGS_KEYS = ['openai_api_key', 'tunnel_webhook_url', 'sls_accessKeyId', 'sls_accessKeySecret', 'internal_identity_secret']
+export const SECRET_SETTINGS_KEYS = ['openai_api_key', 'tunnel_webhook_url', 'sls_accessKeyId', 'sls_accessKeySecret', 'internal_identity_secret',
+  // API 參數紀錄的後台密碼（v5.90.0；寫入時就加密，這裡是保險）
+  'api_capture_backend_qat_password', 'api_capture_backend_uat_password']
 
 export const SECRET_TARGETS: Target[] = [
   { table: 'settings', column: 'value', where: `key IN (${SECRET_SETTINGS_KEYS.map(k => `'${k}'`).join(',')})` },

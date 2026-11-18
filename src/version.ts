@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.89.3'
+export const APP_VERSION = '5.90.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.90.0', date: '2026-11-18', changes: ['feat(API 參數紀錄)：新工具（OSM Tools → API 參數紀錄），為「獨立 OSM TP 系統」逐支對參數——指定帳號（大廳連結）由 Local Agent 進機台、最小注 Spin 到停止條件（有派彩／固定局數），錄前台 WS／HTTP；server 再查後台同帳號同時段的 Log Third Http Req／Bet Req，以 recordBet 對齊校時、彙整成時間軸，跟同環境＋渠道＋帳號＋機台的上一筆成功紀錄比對（新增／缺少／型別變更／值變更分開、時間戳流水號只忽略值、未觀測不算刪除），匯出四分頁 Excel。版面照 CodeX 設計圖，架構 CodeX 定案', '後台查詢任何一頁失敗、筆數對不上、登入失敗都標「不完整」；後台帳密由管理員在頁面設定、密碼加密存放；token／密碼落盤、回傳、匯出前都遮成 ***；GA／xtrace 等第三方 HTTP 預設排除', '鎖：重任務鎖＋機台鎖／帳號鎖（含環境），成功／失敗／取消／agent 斷線／逾時都釋放；新表 api_capture_runs／api_capture_events／api_capture_backend', '⚠️ agent 要「更新程式碼」並重開才有 api-capture 能力；未經真 agent／真機台驗證；UAT 後台 Log 端點未實測', 'test: server/api-capture/core.test.ts 72 項（1113 實跑 fixture），7 種突變都會紅'] },
   { version: '5.89.3', date: '2026-11-18', changes: ['fix(worker)：正式站更新後 worker 開機卡死（CPU 93%、3010 沒開，Local Agent／install.bat 全部 fetch failed）——開機的 backfillFindings 去重查詢跨已結案、吃不到 partial index，資料多時 N×M 全表掃描，而且 ESM 下排在 listen 綁 port 之前。補完整索引 idx_recon_finding_ref，回填延後 30 秒到 listen 之後'] },
   { version: '5.89.2', date: '2026-11-13', changes: ['fix(Performance Meter 對帳)：公式列第二行（WIN/LOSE、RTP）跑版——新版畫面的公式列是 flex，<br> 不會換行，「WIN / LOSE ＝」被擠到下一行、公式本身跑到上一行。改成每行一個區塊、各自換行。純版面'] },
   { version: '5.89.1', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：摘要原本只寫整份日誌的局數，設了自訂時間會看起來比 Game Record 多一截 → 日誌局數比查詢時間內的局多時，補一句「查詢時間內 N 局，另 M 局在時間外不比對」（判準跟比對同一套：有結束看結算時間、沒結束看開局時間）。只改顯示，不改判定（Eric 11-13 同意）'] },

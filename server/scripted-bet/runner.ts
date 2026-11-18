@@ -360,7 +360,7 @@ function machineCodeCandidates(machineCode: string): string[] {
   return [...new Set([trimmed, withoutSite, compact].filter(Boolean))]
 }
 
-async function clickJoinButton(page: Page, emit: (msg: string) => void): Promise<boolean> {
+export async function clickJoinButton(page: Page, emit: (msg: string) => void): Promise<boolean> {
   const joinXpaths = [
     "//div[contains(@class,'gm-info-box')]//span[normalize-space(text())='Join']",
     "//*[self::button or self::div or self::span or self::a][normalize-space(.)='Join']",
@@ -523,7 +523,7 @@ async function findSpinButton(page: Page, preferredSelector?: string): Promise<S
   return null
 }
 
-async function clickSpin(page: Page, preferredSelector?: string): Promise<string | null> {
+export async function clickSpin(page: Page, preferredSelector?: string): Promise<string | null> {
   const button = await findSpinButton(page, preferredSelector)
   if (!button) return null
   await button.el.evaluate((node: Element) => (node as HTMLElement).click())
@@ -571,7 +571,7 @@ async function clickConfiguredTouchPoints(
   }
 }
 
-async function waitSpinSettle(page: Page, shouldStop: () => boolean, spinSelector?: string) {
+export async function waitSpinSettle(page: Page, shouldStop: () => boolean, spinSelector?: string) {
   const selectors = spinSelector ? [spinSelector] : [
     '.my-button.btn_spin',
     '.btn_spin .my-button',

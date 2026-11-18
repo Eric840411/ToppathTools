@@ -178,6 +178,7 @@ function shouldProxyPathToWorker(p: string): boolean {
   if (p.startsWith('/api/machine-test/')) return true
   if (p.startsWith('/api/local-agent/')) return true
   if (p.startsWith('/api/scripted-bet/')) return true
+  if (p.startsWith('/api/api-capture/')) return true
   if (p === '/api/settings/tunnel-url') return true
   if (p.startsWith('/api/osm-uat/')) return true
   if (p.startsWith('/api/autospin/')) return true

@@ -63,6 +63,13 @@ import {
   handleScriptedBetAgentEvent,
   router as scriptedBetRouter,
 } from './routes/scripted-bet.js'
+import {
+  router as apiCaptureRouter,
+  handleApiCaptureAgentMessage,
+  handleApiCaptureAgentDisconnect,
+  initApiCapture,
+} from './routes/api-capture.js'
+import type { ApiCaptureChunk, ApiCaptureDone, ApiCaptureProgress } from './api-capture/types.js'
 import { getAiAgentMonitorSnapshot } from './routes/gemini.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { isGuardedPath, isInternalPath, isLoopbackDirect, publicApiRule } from './public-routes.js'
@@ -551,6 +558,7 @@ app.use(autospinRouter)
 app.use(osmUatRouter)
 app.use(machineTestRouter)
 app.use(scriptedBetRouter)
+app.use(apiCaptureRouter)
 app.use('/api/ui-screenshot', uiScreenshotRouter)
 app.use(frontendAutoRouter)
 
@@ -714,6 +722,12 @@ wss.on('connection', (ws, req) => {
 
       if (msg.type === 'scripted_bet_done' && msg.sessionId) {
         handleScriptedBetAgentDone(msg.sessionId)
+        return
+      }
+
+      // API 參數紀錄：進度／分批事件／結束。只收「這條連線目前手上那一筆」的（舊連線晚到的不算數）
+      if (msg.type === 'api_capture_progress' || msg.type === 'api_capture_chunk' || msg.type === 'api_capture_done') {
+        handleApiCaptureAgentMessage(msg as unknown as ApiCaptureProgress | ApiCaptureChunk | ApiCaptureDone, runId => agentLifecycle.ownsSession(myInfo, runId))
         return
       }
 
@@ -1006,6 +1020,9 @@ const agentLifecycle = createAgentLifecycle({
     if (info.sessionId && !handledByBackendUat) {
       if (info.sessionId.startsWith('sb_')) {
         handleScriptedBetAgentDisconnect(info.sessionId, reason)
+      } else if (info.sessionId.startsWith('ac_')) {
+        // API 參數紀錄：標失敗、放掉機台／帳號鎖與重任務鎖（不能掉進下面的機台測試取消）
+        handleApiCaptureAgentDisconnect(info.sessionId, reason)
       } else {
         // 機台測試：整個 session 中斷（停其他 agent、釋放重任務鎖、沒跑完的標失敗、通知畫面）
         abortMachineTestSession(info.sessionId, reason, {
@@ -1043,6 +1060,8 @@ process.on('unhandledRejection', reason => {
 // Live Ledger 後台拉取迴圈。⚠️ 掛在 worker 不是 server——AutoSpin 的 agent 連線與
 // recon-spin 觀測都在這個 process，兩邊各跑一份會對同一個後台重複查詢。
 startLiveLedgerLoop()
+// API 參數紀錄：上一個 process 留下的「執行中」標失敗（鎖只在記憶體）
+initApiCapture()
 
 // 預設只聽本機：所有對外流量都經過 main（:3000）的登入檢查再 proxy 過來。
 // worker 若真的要放在另一台主機，設 WORKER_HOST=0.0.0.0 並自行用防火牆限制來源（資安審查 2026-10-19）

@@ -125,6 +125,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'meter-reconcile': 'Meter 對帳',
   'osm-releases': 'OSM 版本更新紀錄',
   'egm-daycount': 'Egm DayCount 對帳',
+  'api-capture': 'API 參數紀錄',
 }
 type FeatureFilter = 'all' | keyof typeof FEATURE_LABELS
 const DEFAULT_FEATURE_COLOR = '#64748b'
@@ -162,6 +163,7 @@ const FEATURE_COLORS: Record<string, string> = {
   'meter-reconcile': '#f97316',
   'osm-releases': '#84cc16',
   'egm-daycount': '#eab308',
+  'api-capture': '#22d3ee',
 }
 
 /** 篩選區的功能分組（使用者 1103：35 個功能攤成一片看不出差異）。只影響排列，不影響篩選。
@@ -169,7 +171,7 @@ const FEATURE_COLORS: Record<string, string> = {
 const FEATURE_GROUPS: { label: string; keys: string[] }[] = [
   { label: 'Meegle', keys: ['meegle-batch-create', 'meegle-batch-comment', 'meegle-batch-status', 'meegle-batch-edit', 'meegle-backfill', 'meegle-account', 'jira', 'jira-comment'] },
   { label: 'OSM 版本', keys: ['osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'osm-config-compare', 'osm-releases'] },
-  { label: '機台與對帳', keys: ['machine-test', 'ui-screenshot', 'scripted-bet', 'autospin', 'live-ledger', 'meter-reconcile', 'egm-daycount'] },
+  { label: '機台與對帳', keys: ['machine-test', 'ui-screenshot', 'scripted-bet', 'autospin', 'live-ledger', 'meter-reconcile', 'egm-daycount', 'api-capture'] },
   { label: 'Game Show', keys: ['gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2'] },
   { label: '文件與其他', keys: ['testcase', 'image-check', 'weekly-report', 'lark-notify'] },
 ]

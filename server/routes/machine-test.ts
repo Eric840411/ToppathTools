@@ -77,6 +77,11 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/set-audio-device.ps1': join(SERVER_ROOT, 'machine-test', 'set-audio-device.ps1'),
   'scripted-bet/runner.ts':        join(SERVER_ROOT, 'scripted-bet', 'runner.ts'),
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
+  // API 參數紀錄（v5.90.0）：agent-runner.ts 靜態 import front-runner，它再帶 types／mask／parse；漏一個 agent 會在 import 當下炸掉
+  'api-capture/front-runner.ts':   join(SERVER_ROOT, 'api-capture', 'front-runner.ts'),
+  'api-capture/types.ts':          join(SERVER_ROOT, 'api-capture', 'types.ts'),
+  'api-capture/mask.ts':           join(SERVER_ROOT, 'api-capture', 'mask.ts'),
+  'api-capture/parse.ts':          join(SERVER_ROOT, 'api-capture', 'parse.ts'),
   // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
   'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
   // scripted-bet/runner.ts 開瀏覽器時掛出站攔截（v5.66.4），agent 端少這支會在 import 當下炸掉
