@@ -68,6 +68,7 @@ import {
   handleApiCaptureAgentMessage,
   handleApiCaptureAgentDisconnect,
   initApiCapture,
+  onApiCaptureAgentReady,
 } from './routes/api-capture.js'
 import type { ApiCaptureChunk, ApiCaptureDone, ApiCaptureProgress } from './api-capture/types.js'
 import { getAiAgentMonitorSnapshot } from './routes/gemini.js'
@@ -620,6 +621,8 @@ wss.on('connection', (ws, req) => {
         sourceVersion?: string
         /** agent 斷線重連時還在收尾的 UI 截圖 run（有的話維持忙碌） */
         uiScreenshotActive?: string | null
+        /** API 參數紀錄：agent 手上還在跑（含收尾）的 runId；舊版 agent 不送 */
+        apiCaptureActive?: string | null
         sessionId?: string
         event?: unknown
         machineCode?: string
@@ -682,6 +685,8 @@ wss.on('connection', (ws, req) => {
         }
         // 同一個 agentId 還掛著舊連線（斷線但 close 還沒到）→ 先把舊的當斷線收尾，再登記新的
         agentLifecycle.register(info)
+        // API 參數紀錄：這台 agent 有隔離中的紀錄 → 依它回報的手上狀態決定放不放鎖
+        onApiCaptureAgentReady(info, msg.apiCaptureActive)
         myInfo = info
         log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)
         return

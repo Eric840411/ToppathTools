@@ -19,7 +19,7 @@ interface Run {
   calibration: Calibration | null
   completeness: { front: { complete: boolean; reasons: string[] }; backend: { complete: boolean; reasons: string[]; inWindow: number; outsideWindow: number } } | null
   summary: { front?: { stopReason: string; spins: { n: number; win: number | null }[]; exitOk: boolean } } | null
-  baselineRunId: string | null; operatorName: string | null
+  baselineRunId: string | null; operatorName: string | null; quarantined: boolean
 }
 interface TimelineRow { t: number; kind: 'step' | 'backend'; action: string; api: string; direction: string; req: string; res: string; source: string }
 interface WsRow { t: number; source: 'frame' | 'console'; dir: string; route: string; text: string }
@@ -175,6 +175,12 @@ export function ApiCapturePage() {
     const r = await api('POST', `/api/api-capture/runs/${encodeURIComponent(run.id)}/stop`)
     setFlash(r.ok ? { ok: true, text: '已送出取消，等 agent 退出機台' } : { ok: false, text: r.message || '取消失敗' })
   }
+  async function releaseQuarantine() {
+    if (!run || !window.confirm('確認 agent 已經退出機台、不會再下注？解除後別人就能用這台機台與帳號。')) return
+    const r = await api('POST', `/api/api-capture/runs/${encodeURIComponent(run.id)}/release`)
+    setFlash(r.ok ? { ok: true, text: '已解除隔離' } : { ok: false, text: r.message || '解除失敗' })
+    void loadDetail(run.id)
+  }
   function exportExcel() {
     if (!run) return
     const q = new URLSearchParams({ ignoreVolatile: ignoreVolatile ? '1' : '0', noise: showNoise ? '1' : '0' })
@@ -292,6 +298,7 @@ export function ApiCapturePage() {
           {run && (
             <div className={`acp-status acp-status--${run.status}`}>
               <b>{run.statusLabel}</b>{run.message ? `｜${run.message}` : ''}{run.agentHost ? `｜Agent ${run.agentHost}` : ''}
+              {run.quarantined && <button className="acp-btn acp-btn--danger acp-release" onClick={releaseQuarantine}>人工確認已停止</button>}
             </div>
           )}
           <div className="acp-tabs">

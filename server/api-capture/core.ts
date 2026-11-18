@@ -227,7 +227,9 @@ export interface ApiSig {
   request: Record<string, PathInfo>
   response: Record<string, PathInfo>
 }
-export interface Signature { version: 1; apis: Record<string, ApiSig> }
+/** 簽名格式版本。改了路徑規則就要加一，server 比對時遇到舊版會從原始事件重建（v2：HTTP 送出參數分 query／body） */
+export const SIGNATURE_VERSION = 2
+export interface Signature { version: number; apis: Record<string, ApiSig> }
 
 /** 時間戳／流水號：比對時只忽略「值」，存在與型別照樣檢查 */
 const VOLATILE_KEY = /(time|timestamp|date|_at$|At$|^reference$|roundid|transactionid|^hash$|token|^_id$|\$oid|\$date|\$numberlong|^id$|seq|serial|nonce|^sign$|uuid|requestid|traceid|reqid|^ts$|^t$)/i
@@ -355,7 +357,7 @@ export function buildSignature(input: { backend: BackendItem[]; front: FrontEven
       }
     }
   }
-  return { version: 1, apis }
+  return { version: SIGNATURE_VERSION, apis }
 }
 
 // ─── 比對 ──────────────────────────────────────────────────────────────────────

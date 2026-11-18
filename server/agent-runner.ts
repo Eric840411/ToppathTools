@@ -2446,6 +2446,8 @@ function connect() {
       sourceVersion: readSourceVersion(),
       // 斷線重連時 UI 截圖可能還在收尾——告訴伺服器，否則新連線會被當成空閒而被派新工作
       uiScreenshotActive: [...uiScreenshotRuns.keys()][0] ?? null,
+      // API 參數紀錄：斷線重連時告訴伺服器「手上那筆是不是還在收尾」，伺服器據此決定放不放機台鎖
+      apiCaptureActive: apiCaptureRun?.runId ?? null,
     }))
   })
 
@@ -2972,7 +2974,8 @@ function connect() {
       currentRunner = runner
       let seq = 0
       let total = 0
-      const send = (payload: object) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload)) }
+      // 原連線斷了就改送到重連後的新連線（伺服器在隔離中等這筆的 done 才放鎖）
+      const send = (payload: object) => { const w = ws.readyState === ws.OPEN ? ws : currentWs(); if (w && w.readyState === w.OPEN) w.send(JSON.stringify(payload)) }
       const flush = () => {
         const items: FrontEvent[] = runner.drain()
         for (let i = 0; i < items.length; i += API_CAPTURE_CHUNK_SIZE) {

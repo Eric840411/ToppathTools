@@ -19,7 +19,7 @@ import { agentUpdateStatus } from './machine-test.js'
 import { maskText, maskUrl } from '../api-capture/mask.js'
 import { machineKey, parseMachineInput } from '../api-capture/parse.js'
 import {
-  buildSignature, buildTimeline, calibrate, diffSignatures, splitByWindow, httpComparable, parsePinusConsole,
+  buildSignature, buildTimeline, calibrate, diffSignatures, splitByWindow, httpComparable, parsePinusConsole, SIGNATURE_VERSION,
   type BackendItem, type Calibration, type Signature,
 } from '../api-capture/core.js'
 import { fetchBackendLogs, type BackendConfig } from '../api-capture/backend-client.js'
@@ -81,12 +81,19 @@ db.exec(`
   );
 `)
 
+// v5.90.2：隔離狀態要持久化（斷線／重啟後仍保留鎖，CodeX 1118 [P1]）
+{
+  const cols = db.prepare('PRAGMA table_info(api_capture_runs)').all() as { name: string }[]
+  if (!cols.some(c => c.name === 'quarantined')) db.exec('ALTER TABLE api_capture_runs ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0')
+}
+
 type RunRow = {
   id: string; env: CaptureEnv; channel_id: string; account: string; machine: string; machine_key: string; lobby_url_masked: string
   stop_condition: string; spins: number | null; max_spins: number | null; agent_id: string | null; agent_host: string | null; task_id: string | null
   status: RunStatus; phase: string | null; message: string | null; started_at: number; finished_at: number | null
   front_started_at: number | null; front_finished_at: number | null; time_calibration: string | null; completeness: string | null
   baseline_run_id: string | null; signature: string | null; summary: string | null; operator_key: string | null; operator_name: string | null
+  quarantined: number
 }
 type RunStatus = 'running' | 'collecting' | 'done' | 'incomplete' | 'failed' | 'cancelled'
 
@@ -142,17 +149,20 @@ interface Active {
   runId: string
   agentId: string
   heavy: HeavyTaskToken | null
+  /** 重啟後復原的隔離紀錄沒有 token，用 id 放重任務鎖 */
+  taskId: string | null
   lockKeys: string[]
   received: number
   chunkSeqs: Set<number>
-  watchdog: NodeJS.Timeout
+  watchdog: NodeJS.Timeout | null
   stopTimer: NodeJS.Timeout | null
   operatorKey: string
   /** 逾時觸發過（已送 stop，等 agent 回報） */
   timedOut: boolean
   /**
-   * 送了 stop、寬限期內 agent 沒回報：紀錄標失敗，但**機台／帳號鎖、重任務鎖、agent 忙碌都保留**，
-   * 直到 agent 回報結束或斷線（CodeX 1118 [P1]：沒確認停下注就放鎖，新任務會跟還在下注的舊 runner 撞在同一台）
+   * 隔離：agent 沒確認停下來（stop 寬限期過了、斷線、伺服器重啟）→ 紀錄標失敗，但**機台／帳號鎖、重任務鎖都保留**，
+   * 只有三種情況放：agent 送來 api_capture_done、這台 agent 重新連線並回報手上沒有這筆（agent_ready.apiCaptureActive）、人工確認。
+   * 存在 DB（quarantined=1），worker 重啟會復原（CodeX 1118 兩次 [P1]：stop()／斷線都不是「已停止」的確認）
    */
   quarantined: boolean
 }
@@ -172,10 +182,12 @@ export function lockKeysFor(env: CaptureEnv, machine: string, account: string): 
 function releaseRun(runId: string) {
   const a = active.get(runId)
   if (!a) return
-  clearTimeout(a.watchdog)
+  if (a.watchdog) clearTimeout(a.watchdog)
   if (a.stopTimer) clearTimeout(a.stopTimer)
   for (const k of a.lockKeys) if (lockOwners.get(k) === runId) lockOwners.delete(k)
-  finishHeavyTask(a.heavy)
+  if (a.heavy) finishHeavyTask(a.heavy)
+  else if (a.taskId) releaseHeavyTaskById(a.taskId, 'API 參數紀錄：隔離解除')
+  if (a.quarantined) db.prepare('UPDATE api_capture_runs SET quarantined = 0 WHERE id = ?').run(runId)
   const agent = agentConnections.get(a.agentId)
   if (agent && agent.sessionId === runId) { agent.busy = false; agent.sessionId = null }
   active.delete(runId)
@@ -188,20 +200,11 @@ function patchRun(id: string, patch: Partial<RunRow>) {
   db.prepare(`UPDATE api_capture_runs SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map(k => (patch as Record<string, unknown>)[k] as never), id)
 }
 
-/** 收尾失敗（斷線、逾時、伺服器重啟）：沒有前台結果就不查後台，直接標失敗 */
-function failRun(runId: string, message: string) {
-  const run = getRun(runId)
-  releaseRun(runId)
-  if (!run || !['running'].includes(run.status)) return
-  patchRun(runId, { status: 'failed', phase: 'done', message, finished_at: Date.now() })
-  saveHistory(runId)
-}
-
 /** 要 agent 停下來（退出機台），寬限期內沒回報就隔離（不放鎖） */
 function requestStop(a: Active) {
   const agent: AgentInfo | undefined = agentConnections.get(a.agentId)
   if (agent && agent.ws.readyState === agent.ws.OPEN) agent.ws.send(JSON.stringify({ type: 'api_capture_stop', runId: a.runId }))
-  a.stopTimer ??= setTimeout(() => quarantine(a.runId), STOP_GRACE_MS)
+  a.stopTimer ??= setTimeout(() => quarantine(a.runId, `${a.timedOut ? '逾時' : '取消'}後 agent 沒有確認停止`), STOP_GRACE_MS)
 }
 
 function onTimeout(runId: string) {
@@ -212,26 +215,53 @@ function onTimeout(runId: string) {
   requestStop(a)
 }
 
-function quarantine(runId: string) {
+const QUARANTINE_TAIL = '機台／帳號鎖先保留，等這台 agent 回報已停止（或重新連線回報手上沒有這筆），或在畫面按「人工確認已停止」'
+
+function quarantine(runId: string, why: string) {
   const a = active.get(runId)
   if (!a || a.quarantined) return
   a.quarantined = true
-  clearTimeout(a.watchdog)
+  if (a.watchdog) clearTimeout(a.watchdog)
   const run = getRun(runId)
-  if (run && run.status === 'running') {
-    patchRun(runId, { status: 'failed', phase: 'done', finished_at: Date.now(), message: `${a.timedOut ? '逾時' : '取消'}後 agent 沒有確認停止：機台／帳號鎖與這台 agent 先保留，等 agent 回報或斷線才釋放` })
-    saveHistory(runId)
+  const wasRunning = run?.status === 'running'
+  patchRun(runId, { quarantined: 1, ...(wasRunning ? { status: 'failed', phase: 'done', finished_at: Date.now() } : {}), message: `${why}：${QUARANTINE_TAIL}` })
+  if (wasRunning) saveHistory(runId)
+}
+
+/** 有隔離紀錄的 agent 重新連上：reported＝agent 自己說手上正在跑的 runId（舊版 agent 不會送＝undefined） */
+export function onApiCaptureAgentReady(info: AgentInfo, reported: string | null | undefined) {
+  for (const a of [...active.values()]) {
+    if (!a.quarantined || a.agentId !== info.agentId) continue
+    if (reported === undefined) {
+      patchRun(a.runId, { message: `${getRun(a.runId)?.message ?? ''}（這台 agent 是舊版、回報不了手上狀態，請確認它已退出機台後人工解除）` })
+    } else if (reported === a.runId) {
+      // 還在收尾（退出機台中）：維持忙碌，等它送 api_capture_done
+      info.busy = true
+      info.sessionId = a.runId
+    } else {
+      releaseRun(a.runId)
+      patchRun(a.runId, { message: `${getRun(a.runId)?.message ?? ''}；agent 重新連線回報已停止，鎖已釋放` })
+    }
   }
 }
 
-/** worker 啟動時呼叫：上一個 process 留下的 running 一律標失敗，並放掉它們的重任務鎖（鎖會從 DB 復原，沒人放就一直擋） */
+/** worker 啟動時呼叫：上一個 process 留下的執行中紀錄標失敗；前台還沒結束的（agent 可能還在機台裡）進隔離，鎖從 DB 復原 */
 export function initApiCapture() {
-  const n = db.prepare("UPDATE api_capture_runs SET status = 'failed', phase = 'done', message = '伺服器重啟，這筆紀錄中斷', finished_at = ? WHERE status IN ('running', 'collecting')").run(Date.now()).changes
-  if (n) console.log(`[api-capture] 伺服器重啟：${n} 筆執行中的紀錄標成失敗`)
-  // 重啟後記憶體裡沒有任何進行中的紀錄 → 這個功能所有 running 的重任務鎖都是孤兒（agent 也會因 WS 斷線停下 runner）
+  const now = Date.now()
+  db.prepare(`UPDATE api_capture_runs SET status = 'failed', phase = 'done', quarantined = 1, finished_at = ?, message = ? WHERE status = 'running'`)
+    .run(now, `伺服器重啟，這筆紀錄中斷：${QUARANTINE_TAIL}`)
+  db.prepare(`UPDATE api_capture_runs SET status = 'failed', phase = 'done', finished_at = ?, message = '伺服器重啟，查後台中斷' WHERE status = 'collecting'`).run(now)
+  const qs = db.prepare('SELECT * FROM api_capture_runs WHERE quarantined = 1').all() as RunRow[]
+  for (const r of qs) {
+    const lockKeys = lockKeysFor(r.env, r.machine, r.account)
+    active.set(r.id, { runId: r.id, agentId: r.agent_id ?? '', heavy: null, taskId: r.task_id, lockKeys, received: 0, chunkSeqs: new Set(), watchdog: null, stopTimer: null, operatorKey: r.operator_key ?? '', timedOut: false, quarantined: true })
+    for (const k of lockKeys) lockOwners.set(k, r.id)
+  }
+  if (qs.length) console.log(`[api-capture] 伺服器重啟：${qs.length} 筆紀錄維持隔離（鎖保留）`)
+  // 不是隔離紀錄的 running 重任務鎖＝孤兒（重任務鎖會從 DB 復原，沒人放會一直擋）
+  const keep = new Set(qs.map(r => r.task_id).filter(Boolean))
   const locks = db.prepare("SELECT id FROM heavy_tasks WHERE type = 'api-capture' AND status = 'running'").all() as { id: string }[]
-  for (const l of locks) releaseHeavyTaskById(l.id, 'API 參數紀錄：伺服器重啟，釋放上一個 process 留下的鎖')
-  if (locks.length) console.log(`[api-capture] 伺服器重啟：釋放 ${locks.length} 筆重任務鎖`)
+  for (const l of locks) if (!keep.has(l.id)) releaseHeavyTaskById(l.id, 'API 參數紀錄：伺服器重啟，釋放上一個 process 留下的鎖')
   // 事件明細保留 180 天
   const old = Date.now() - 180 * 86400_000
   db.prepare('DELETE FROM api_capture_events WHERE run_id IN (SELECT id FROM api_capture_runs WHERE started_at < ?)').run(old)
@@ -244,6 +274,8 @@ export function initApiCapture() {
 export function handleApiCaptureAgentMessage(msg: ApiCaptureProgress | ApiCaptureChunk | ApiCaptureDone, owns: (runId: string) => boolean) {
   const a = active.get(msg.runId)
   if (!a || !owns(msg.runId)) return
+  // 隔離中只等 done（紀錄已判失敗，收尾階段的事件不再收）
+  if (a.quarantined && msg.type !== 'api_capture_done') return
   if (msg.type === 'api_capture_progress') {
     patchRun(msg.runId, { phase: msg.phase, message: maskText(msg.message).slice(0, 300) })
     return
@@ -295,7 +327,8 @@ export function handleApiCaptureAgentMessage(msg: ApiCaptureProgress | ApiCaptur
 
 export function handleApiCaptureAgentDisconnect(runId: string, reason: string) {
   if (!active.has(runId)) return
-  failRun(runId, `Local Agent 斷線（${reason}），這筆紀錄中斷`)
+  // 斷線不等於停了：agent 端只是收到停止旗標，可能還在機台裡（CodeX 1118 [P1]）→ 隔離，不放鎖
+  quarantine(runId, `Local Agent 斷線（${reason}），這筆紀錄中斷`)
 }
 
 // ─── 彙整 ──────────────────────────────────────────────────────────────────────
@@ -474,7 +507,7 @@ router.post('/api/api-capture/start', (req, res) => {
     .run(runId, b.env, b.channelId || cfg.channelId, account, b.machine, machineKey(b.machine), maskUrl(b.lobbyUrl), b.stopCondition, b.spins, b.maxSpins, agent.agentId, agent.hostname, heavy.token.id, Date.now(), u.email, u.label)
   for (const k of lockKeys) lockOwners.set(k, runId)
   active.set(runId, {
-    runId, agentId: agent.agentId, heavy: heavy.token, lockKeys, received: 0, chunkSeqs: new Set(), stopTimer: null, operatorKey: u.email,
+    runId, agentId: agent.agentId, heavy: heavy.token, taskId: heavy.token.id, lockKeys, received: 0, chunkSeqs: new Set(), stopTimer: null, operatorKey: u.email,
     timedOut: false, quarantined: false,
     watchdog: setTimeout(() => onTimeout(runId), RUN_TIMEOUT_MS),
   })
@@ -490,10 +523,22 @@ router.post('/api/api-capture/runs/:id/stop', (req, res) => {
   const a = active.get(req.params.id)
   if (!a) return res.status(404).json({ ok: false, message: '這筆紀錄不在執行中' })
   if (a.operatorKey !== u.email && !u.isAdmin) return res.status(403).json({ ok: false, message: '只能停止自己開的紀錄' })
-  if (a.quarantined) return res.status(409).json({ ok: false, message: '已經在等 agent 確認停止' })
+  if (a.quarantined) return res.status(409).json({ ok: false, message: '已經在等 agent 確認停止；確認 agent 已退出機台後可按「人工確認已停止」' })
   patchRun(a.runId, { message: '取消中：等 agent 退出機台' })
   // agent 沒回應：紀錄判失敗，但鎖先保留到 agent 回報或斷線（不能放給新任務撞上還在下注的舊 runner）
   requestStop(a)
+  res.json({ ok: true })
+})
+
+/** 人工確認：agent 已經退出機台（舊版 agent、或 agent 一直沒回來）→ 解除隔離 */
+router.post('/api/api-capture/runs/:id/release', (req, res) => {
+  const u = need(res); if (!u) return
+  const a = active.get(req.params.id)
+  if (!a || !a.quarantined) return res.status(404).json({ ok: false, message: '這筆紀錄不在隔離中' })
+  if (a.operatorKey !== u.email && !u.isAdmin) return res.status(403).json({ ok: false, message: '只能解除自己開的紀錄（或請管理員）' })
+  releaseRun(a.runId)
+  patchRun(a.runId, { message: `${getRun(a.runId)?.message ?? ''}；${u.label} 人工確認已停止，鎖已釋放` })
+  addHistory('api-capture', `API 參數紀錄：人工解除隔離 ${a.runId}`, `${u.label} 確認 agent 已退出機台`, { runId: a.runId }, { operator: { key: u.email, name: u.label } })
   res.json({ ok: true })
 })
 
@@ -506,7 +551,7 @@ function publicRun(r: RunRow) {
     calibration: r.time_calibration ? JSON.parse(r.time_calibration) : null,
     completeness: r.completeness ? JSON.parse(r.completeness) : null,
     summary: r.summary ? JSON.parse(r.summary) : null,
-    baselineRunId: r.baseline_run_id, operatorName: r.operator_name,
+    baselineRunId: r.baseline_run_id, operatorName: r.operator_name, quarantined: !!r.quarantined,
   }
 }
 
@@ -549,10 +594,23 @@ router.get('/api/api-capture/runs/:id', (req, res) => {
   })
 })
 
+/**
+ * 參數簽名；格式版本跟目前不同（例如 v5.90.1 起 HTTP 送出參數改成 query／body 兩層）就從存下來的原始事件重建再存回，
+ * 不能拿舊格式直接比（CodeX 1118 [P2]：同一個 {"amount":18} 會被報「缺少 amount、新增 body.amount」）
+ */
+function signatureOf(r: RunRow): Signature | null {
+  if (!r.signature) return null
+  const sig = JSON.parse(r.signature) as Signature
+  if (sig.version === SIGNATURE_VERSION) return sig
+  const rebuilt = buildSignature({ backend: loadBackend(r.id), front: loadFront(r.id) })
+  patchRun(r.id, { signature: JSON.stringify(rebuilt) })
+  return rebuilt
+}
+
 function compareFor(r: RunRow, baselineId: string | undefined, ignoreVolatile: boolean) {
   const base = baselineId === 'none' ? undefined : baselineId ? getRun(baselineId) : (r.baseline_run_id ? getRun(r.baseline_run_id) : findDefaultBaseline(r))
-  const cur = r.signature ? JSON.parse(r.signature) as Signature : null
-  const bs = base?.signature ? JSON.parse(base.signature) as Signature : null
+  const cur = signatureOf(r)
+  const bs = base ? signatureOf(base) : null
   const diff = cur ? diffSignatures(cur, bs, { ignoreVolatile }) : null
   return { base, diff }
 }

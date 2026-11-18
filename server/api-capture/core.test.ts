@@ -111,6 +111,7 @@ ok('靜態 json 不進比對', !keys.some(k => k.includes('lucky_hours')))
   const dq = diffSignatures(qb, qa, { ignoreVolatile: true })
   eq('HTTP query 參數變更被標出', dq.apis[0].items.map(i => `${i.kind}:${i.part}.${i.path}`).sort(), ['added:request.query.new', 'missing:request.query.old'])
 }
+eq('簽名帶目前格式版本', sig.version, 2)
 eq('authenticate 回傳 playerLevel 是 number', sig.apis['backend:authenticate'].response['playerLevel']?.types, ['number'])
 ok('timestamp 標成 volatile', !!sig.apis['backend:recharge'].request['timestamp']?.volatile)
 ok('amount 不是 volatile', !sig.apis['backend:recharge'].request['amount']?.volatile)

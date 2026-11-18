@@ -23,12 +23,15 @@
    - QAT 預設：`https://backendservertest.osmslot.org`、Origin `https://qat-cp.osmslot.org`、渠道 873（11/13 實跑驗過）
    - **UAT 預設：`https://uat-backendservertest.osmslot.org`、Origin `http://uat-cp.osmslot.org`、渠道 4186——取自 OSM QA 記憶（gameRecordList 實測過），Log 端點沒實測過**，畫面有標「尚未實測」
 3. **鎖**：重任務鎖（`tryStartHeavyTask(req,'api-capture')`，綁 runId）＋本功能自己的機台鎖／帳號鎖（**含環境**：`qat|machine|144`、`qat|account|9421000006`）。
-   成功、失敗、取消、agent 斷線（worker `onLost` 的 `ac_` 分支）都會釋放。
-   **逾時（60 分鐘，局數上限 300）與取消都是先送 `api_capture_stop` 要 agent 退出機台**；90 秒內 agent 沒回報 → 紀錄標失敗，
-   但**機台／帳號鎖、重任務鎖、agent 忙碌都先保留（隔離）**，等 agent 遲到的 `api_capture_done` 或 agent 斷線才放（v5.90.1，CodeX 1118 [P1]：
-   原本逾時直接放鎖，舊 runner 可能還在下注、新任務已經進同一台）。
-   worker 重啟時（`initApiCapture()`）上一個 process 留下的執行中紀錄一律標失敗，**並用 `releaseHeavyTaskById` 放掉這個功能所有 running 的重任務鎖**
-   （重任務鎖會從 DB 復原，沒放的話使用者會一直被擋；v5.90.1，CodeX 1118 [P1]）。
+   正常結束（agent 送 `api_capture_done`）才放鎖。**「沒確認 agent 停下來」一律進隔離**（CodeX 1118 兩輪 [P1]：`stop()` 只是旗標、斷線也不代表停了）：
+   - 逾時（60 分鐘，局數上限 300）與取消：先送 `api_capture_stop`，90 秒內沒回報 → 隔離
+   - agent 斷線（worker `onLost` 的 `ac_` 分支）→ 隔離
+   - worker 重啟：前台還沒結束的紀錄（`running`）→ 隔離；已在查後台的（`collecting`）→ 只標失敗
+   - **隔離**＝紀錄標失敗、`quarantined=1` 存 DB，**機台／帳號鎖與重任務鎖都保留**（重啟時從 DB 復原），只有三種情況放：
+     agent 送來這筆的 `api_capture_done`；這台 agent 重新連線、`agent_ready.apiCaptureActive` 回報手上沒有這筆（回報「還在收尾」就繼續等它的 done）；
+     畫面按「人工確認已停止」（`POST /runs/:id/release`，本人或管理員）
+   - 舊版 agent 不送 `apiCaptureActive`：重連也不放，只能人工確認
+   - worker 重啟時，**不屬於隔離紀錄**的 `api-capture` running 重任務鎖用 `releaseHeavyTaskById` 放掉（重任務鎖會從 DB 復原，沒放會一直擋人）
    ⚠️ 機台鎖只擋「本功能自己」重複用同一台；機台測試在 Toppath 這邊沒有機台層級的鎖可以共用（它只有重任務鎖），同一個人同時開兩種重任務會被重任務鎖擋掉
 4. **資料**：
    - `api_capture_runs`：env、channel_id、account、machine、machine_key（比對用，`DFDCGRAND-144`／`144`）、lobby_url_masked、停止條件、agent、task_id（重任務鎖 id）、狀態、階段、開始／結束、前台起訖（agent 時鐘）、`time_calibration`、`completeness`、`baseline_run_id`、`signature`（參數簽名 JSON）、`summary`
@@ -39,6 +42,7 @@
    以 **API＋方向＋request/response 巢狀路徑** 比對（陣列用 `[]`），分「新增／缺少／型別變更／值變更」；
    時間戳、流水號（key 像 time/timestamp/reference/roundId/transactionId/hash/token/_id，或值像 13 位毫秒、24 位 ObjectId）**只忽略值**，存在與型別照樣比；
    基準有、這次沒錄到的 API 標「**未觀測**」，不算刪除；這次多出來的 API 標「新 API」。
+   參數簽名有格式版本（`SIGNATURE_VERSION`，目前 2）：比對時遇到舊版本，從 DB 裡的原始事件重建再存回，不拿舊格式直接比（CodeX 1118 [P2]）。
    比對對象：後台每個 event（authenticate／balance／recharge／recordBet…）、前台 HTTP（排除雜訊與靜態檔；送出參數＝`request.query.*`＋`request.body.*`，v5.90.1 起含網址 query）、前台 WS route（console 的 SEND/ON，`ON: 0` 是推播）。
 6. **遮罩**：`server/api-capture/mask.ts` 一支，agent 送出前、server 落盤前、匯出 Excel 前各過一次。OSM 玩家 token（`32hex-uid`，含網址編碼後的 `%3D…`）、後台登入 token、JSON／網址／console 裡的 token、password、privateMapKey 等一律 `***`。
    前台 HTTP 預設把 GA、xtrace（阿里雲 RUM）、posthog、RTC 等第三方當雜訊：照樣保留但內容截短、畫面與 Excel 預設不顯示、不進比對。
@@ -76,9 +80,9 @@ agent 本機時鐘常常不準（本機慢 160 秒那次）。順序：
 | 後台設定（管理員） | 各環境後台 API 網址、Origin、預設渠道、帳號、密碼 |
 
 ## 驗證
-- `npx tsx server/api-capture/core.test.ts`（77 項，含 CodeX 1118 的兩個重現：均勻局距歧義、HTTP query 變更）：遮罩、機台輸入、時間校正（1113 fixture）、時間軸、參數簽名、**注入差異**（新增／型別變更／缺少／時間戳忽略／新 API／未觀測）、Excel 四分頁與遮罩、後台分頁（假 fetch：分頁、total 不符、某頁失敗、登入失敗、40200 重登）
+- `npx tsx server/api-capture/core.test.ts`（78 項，含 CodeX 1118 的兩個重現：均勻局距歧義、HTTP query 變更）：遮罩、機台輸入、時間校正（1113 fixture）、時間軸、參數簽名、**注入差異**（新增／型別變更／缺少／時間戳忽略／新 API／未觀測）、Excel 四分頁與遮罩、後台分頁（假 fetch：分頁、total 不符、某頁失敗、登入失敗、40200 重登）
 - 突變（`.tmp` 腳本，跑完還原）：拿掉比對邏輯 8 紅、型別混成值 1 紅、未觀測當缺少 3 紅、時間戳不忽略 1 紅、時間校正失效 6 紅、歧義選最早 3 紅、HTTP query 不進比對 1 紅、遮罩拿掉玩家 token 1 紅、筆數不符不標不完整 1 紅
-- 端對端冒煙（DB 副本＋build 後 main 3999／worker 3998＋假 agent WS＋假後台 3997 回 1113 fixture）52 項：權限、密碼密文、網址檢查、機台鎖、完成＋recordBet 校時、遮罩、預設基準與注入的型別變更、Excel 四分頁、取消、agent 斷線、**逾時→送 stop→寬限期過了標失敗但鎖保留→遲到的 done 才放鎖**、**worker 重啟→紀錄標失敗＋重任務鎖釋放→可再開**、普通版／修仙版畫面無 pageerror、無 emoji
+- 端對端冒煙（DB 副本＋build 後 main 3999／worker 3998＋假 agent WS＋假後台 3997 回 1113 fixture）63 項：斷線隔離（重連回報收尾中仍鎖、done 後才放）、舊版 agent 只能人工解除（別人不能解）、重啟後機台鎖與重任務鎖從 DB 復原、agent 重連回報已停止才放、**舊格式簽名重建不誤報**；注入「斷線直接放鎖」＋「舊簽名不重建」→ 8 項紅；其餘：權限、密碼密文、網址檢查、機台鎖、完成＋recordBet 校時、遮罩、預設基準與注入的型別變更、Excel 四分頁、取消、agent 斷線、**逾時→送 stop→寬限期過了標失敗但鎖保留→遲到的 done 才放鎖**、**worker 重啟→紀錄標失敗＋重任務鎖釋放→可再開**、普通版／修仙版畫面無 pageerror、無 emoji
 - fixture：`server/__fixtures__/api-capture/front-1113.json`、`backend-1113.json`（由 osm-qa-agent 1113 原始資料轉換，已遮罩、WS 只留部分幀）
 - ⚠️ **未經真 agent／真機台驗證**；UAT 後台 Log 端點未實測
 
