@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { db, addHistory, accountHasPermission } from '../shared.js'
 import { encryptSecret, decryptSecret } from '../secret-crypto.js'
 import { agentConnections, getAvailableAgents, type AgentInfo } from '../agent-hub.js'
-import { tryStartHeavyTask, finishHeavyTask, heavyTaskConflict, bindHeavyTaskOwner, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { tryStartHeavyTask, finishHeavyTask, heavyTaskConflict, bindHeavyTaskOwner, releaseHeavyTaskById, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthEmailFromContext, getOperatorFromContext } from '../request-context.js'
 import { agentUpdateStatus } from './machine-test.js'
 import { maskText, maskUrl } from '../api-capture/mask.js'
@@ -148,12 +148,21 @@ interface Active {
   watchdog: NodeJS.Timeout
   stopTimer: NodeJS.Timeout | null
   operatorKey: string
+  /** 逾時觸發過（已送 stop，等 agent 回報） */
+  timedOut: boolean
+  /**
+   * 送了 stop、寬限期內 agent 沒回報：紀錄標失敗，但**機台／帳號鎖、重任務鎖、agent 忙碌都保留**，
+   * 直到 agent 回報結束或斷線（CodeX 1118 [P1]：沒確認停下注就放鎖，新任務會跟還在下注的舊 runner 撞在同一台）
+   */
+  quarantined: boolean
 }
 const active = new Map<string, Active>()
 /** 鎖（含環境）：`qat|machine|144`、`qat|account|9421000006` → runId */
 const lockOwners = new Map<string, string>()
-const RUN_TIMEOUT_MS = 45 * 60_000
-const STOP_GRACE_MS = 90_000
+/** 最多 300 局 × 一局約 5 秒＝25 分鐘，加上進出機台與看不到 moneyNtc 時的等待，留到 60 分鐘。環境變數只給冒煙測試縮短用 */
+const RUN_TIMEOUT_MS = Number(process.env.API_CAPTURE_TIMEOUT_MS) || 60 * 60_000
+/** 送 stop 之後等 agent 回報的寬限期 */
+const STOP_GRACE_MS = Number(process.env.API_CAPTURE_STOP_GRACE_MS) || 90_000
 
 export function lockKeysFor(env: CaptureEnv, machine: string, account: string): string[] {
   const m = parseMachineInput(machine)
@@ -188,10 +197,41 @@ function failRun(runId: string, message: string) {
   saveHistory(runId)
 }
 
-/** worker 啟動時呼叫：上一個 process 留下的 running 一律標失敗（鎖只在記憶體，重啟後沒有人握著） */
+/** 要 agent 停下來（退出機台），寬限期內沒回報就隔離（不放鎖） */
+function requestStop(a: Active) {
+  const agent: AgentInfo | undefined = agentConnections.get(a.agentId)
+  if (agent && agent.ws.readyState === agent.ws.OPEN) agent.ws.send(JSON.stringify({ type: 'api_capture_stop', runId: a.runId }))
+  a.stopTimer ??= setTimeout(() => quarantine(a.runId), STOP_GRACE_MS)
+}
+
+function onTimeout(runId: string) {
+  const a = active.get(runId)
+  if (!a) return
+  a.timedOut = true
+  patchRun(runId, { message: `超過 ${Math.round(RUN_TIMEOUT_MS / 60_000)} 分鐘沒有結束，已要求 agent 停止並退出機台` })
+  requestStop(a)
+}
+
+function quarantine(runId: string) {
+  const a = active.get(runId)
+  if (!a || a.quarantined) return
+  a.quarantined = true
+  clearTimeout(a.watchdog)
+  const run = getRun(runId)
+  if (run && run.status === 'running') {
+    patchRun(runId, { status: 'failed', phase: 'done', finished_at: Date.now(), message: `${a.timedOut ? '逾時' : '取消'}後 agent 沒有確認停止：機台／帳號鎖與這台 agent 先保留，等 agent 回報或斷線才釋放` })
+    saveHistory(runId)
+  }
+}
+
+/** worker 啟動時呼叫：上一個 process 留下的 running 一律標失敗，並放掉它們的重任務鎖（鎖會從 DB 復原，沒人放就一直擋） */
 export function initApiCapture() {
   const n = db.prepare("UPDATE api_capture_runs SET status = 'failed', phase = 'done', message = '伺服器重啟，這筆紀錄中斷', finished_at = ? WHERE status IN ('running', 'collecting')").run(Date.now()).changes
   if (n) console.log(`[api-capture] 伺服器重啟：${n} 筆執行中的紀錄標成失敗`)
+  // 重啟後記憶體裡沒有任何進行中的紀錄 → 這個功能所有 running 的重任務鎖都是孤兒（agent 也會因 WS 斷線停下 runner）
+  const locks = db.prepare("SELECT id FROM heavy_tasks WHERE type = 'api-capture' AND status = 'running'").all() as { id: string }[]
+  for (const l of locks) releaseHeavyTaskById(l.id, 'API 參數紀錄：伺服器重啟，釋放上一個 process 留下的鎖')
+  if (locks.length) console.log(`[api-capture] 伺服器重啟：釋放 ${locks.length} 筆重任務鎖`)
   // 事件明細保留 180 天
   const old = Date.now() - 180 * 86400_000
   db.prepare('DELETE FROM api_capture_events WHERE run_id IN (SELECT id FROM api_capture_runs WHERE started_at < ?)').run(old)
@@ -224,6 +264,13 @@ export function handleApiCaptureAgentMessage(msg: ApiCaptureProgress | ApiCaptur
     return
   }
   if (msg.type === 'api_capture_done') {
+    if (a.quarantined) {
+      // 已經判失敗、只是在等 agent 確認停下來：現在確認了，放鎖
+      releaseRun(msg.runId)
+      const r = getRun(msg.runId)
+      patchRun(msg.runId, { message: `${r?.message ?? ''}；agent 已回報停止，鎖已釋放` })
+      return
+    }
     const run = getRun(msg.runId)
     const frontReasons: string[] = []
     if (a.received !== msg.total) frontReasons.push(`前台事件應有 ${msg.total} 筆，只收到 ${a.received} 筆`)
@@ -236,7 +283,7 @@ export function handleApiCaptureAgentMessage(msg: ApiCaptureProgress | ApiCaptur
     patchRun(msg.runId, {
       status: 'collecting', phase: 'backend', message: '查後台日誌中',
       front_started_at: msg.startedAt, front_finished_at: msg.finishedAt,
-      summary: JSON.stringify({ front: { ok: msg.ok, cancelled: msg.cancelled, error: msg.error ? maskText(msg.error) : null, stopReason: msg.stopReason, spins: msg.spins, exitOk: msg.exitOk, payoutObservable: msg.payoutObservable, total: msg.total }, frontReasons, agentToServerMs }),
+      summary: JSON.stringify({ front: { ok: msg.ok, cancelled: msg.cancelled, error: msg.error ? maskText(msg.error) : null, stopReason: msg.stopReason, spins: msg.spins, exitOk: msg.exitOk, payoutObservable: msg.payoutObservable, total: msg.total }, frontReasons, agentToServerMs, timedOut: a.timedOut }),
     })
     void finalizeRun(msg.runId).catch(e => {
       console.error('[api-capture] 彙整失敗', e)
@@ -264,7 +311,7 @@ function loadBackend(runId: string, onlyInWindow = true): BackendItem[] {
 async function finalizeRun(runId: string, deps: { fetchLogs?: typeof fetchBackendLogs } = {}) {
   const run = getRun(runId)
   if (!run) return
-  const summary = JSON.parse(run.summary || '{}') as { front?: { ok: boolean; cancelled: boolean; spins: ApiCaptureDone['spins']; stopReason: string }; frontReasons?: string[]; agentToServerMs?: number }
+  const summary = JSON.parse(run.summary || '{}') as { front?: { ok: boolean; cancelled: boolean; spins: ApiCaptureDone['spins']; stopReason: string }; frontReasons?: string[]; agentToServerMs?: number; timedOut?: boolean }
   const front = loadFront(runId)
   const cfg = loadBackendConfig(run.env)
   const agentToServer = typeof summary.agentToServerMs === 'number' ? summary.agentToServerMs : 0
@@ -273,8 +320,8 @@ async function finalizeRun(runId: string, deps: { fetchLogs?: typeof fetchBacken
   // 查寬一點（前 10 分、後 5 分），校正完再裁回前台時間窗
   const fetched = await (deps.fetchLogs ?? fetchBackendLogs)({ ...cfg, channelId: run.channel_id || cfg.channelId }, { userName: run.account, fromMs: fs0 - 10 * 60_000, toMs: fs1 + 5 * 60_000 })
   const spins = summary.front?.spins ?? []
-  const rbTimes = fetched.items.filter(i => i.event === 'recordBet' && i.reqtime >= fs0 - 10 * 60_000).map(i => i.reqtime)
-  const cal: Calibration = calibrate(spins, rbTimes, typeof summary.agentToServerMs === 'number' ? summary.agentToServerMs : null)
+  const rbs = fetched.items.filter(i => i.event === 'recordBet' && i.reqtime >= fs0 - 10 * 60_000).map(recordBetPoint)
+  const cal: Calibration = calibrate(spins, rbs, typeof summary.agentToServerMs === 'number' ? summary.agentToServerMs : null)
   // 有 recordBet 校正（誤差 < 3 秒）時前緣只留 10 秒：開大廳的 authenticate 一定在前台開始之後，更早的是別次嘗試；
   // 只有伺服器時差時誤差不明，留 60 秒
   const padBefore = cal.method === 'recordBet' ? 10_000 : 60_000
@@ -293,7 +340,7 @@ async function finalizeRun(runId: string, deps: { fetchLogs?: typeof fetchBacken
   const frontComplete = !!summary.front?.ok && frontReasons.length === 0
   const signature = buildSignature({ backend: win.inside, front })
   const baseline = findDefaultBaseline(run)
-  const status: RunStatus = summary.front?.cancelled ? 'cancelled' : !summary.front?.ok ? 'failed'
+  const status: RunStatus = summary.timedOut ? 'failed' : summary.front?.cancelled ? 'cancelled' : !summary.front?.ok ? 'failed'
     : frontComplete && backendComplete && cal.method !== 'none' ? 'done' : 'incomplete'
   const completeness = {
     front: { complete: frontComplete, reasons: frontReasons },
@@ -302,11 +349,18 @@ async function finalizeRun(runId: string, deps: { fetchLogs?: typeof fetchBacken
   const frontErr = (summary.front as { error?: string } | undefined)?.error
   patchRun(runId, {
     status, phase: 'done', finished_at: Date.now(),
-    message: status === 'done' ? '彙整完成' : status === 'incomplete' ? `資料不完整：${[...frontReasons, ...backendReasons][0] ?? cal.note}` : status === 'cancelled' ? '已取消（已錄到的內容保留）' : `前台失敗：${frontErr ?? '未知原因'}`,
+    message: summary.timedOut ? `超過 ${Math.round(RUN_TIMEOUT_MS / 60_000)} 分鐘沒有結束，已停止（錄到的內容保留）` : status === 'done' ? '彙整完成' : status === 'incomplete' ? `資料不完整：${[...frontReasons, ...backendReasons][0] ?? cal.note}` : status === 'cancelled' ? '已取消（已錄到的內容保留）' : `前台失敗：${frontErr ?? '未知原因'}`,
     time_calibration: JSON.stringify(cal), completeness: JSON.stringify(completeness),
     baseline_run_id: baseline?.id ?? null, signature: JSON.stringify(signature),
   })
   saveHistory(runId)
+}
+
+/** recordBet → 校時用的點（時間＋派彩，派彩拿來辨認是哪一局） */
+function recordBetPoint(b: BackendItem): { reqtime: number; payout: number | null } {
+  let payout: number | null = null
+  try { const pd = JSON.parse(b.postData) as { payout?: unknown }; if (typeof pd.payout === 'number') payout = pd.payout } catch { /* 不是 JSON 就沒有 */ }
+  return { reqtime: b.reqtime, payout }
 }
 
 /** 預設基準：同環境＋同渠道＋同帳號＋同機台、比這筆早、狀態 done 的最新一筆 */
@@ -339,8 +393,8 @@ const startSchema = z.object({
   machine: z.string().trim().min(1).max(80),
   channelId: z.string().trim().max(20).optional().default(''),
   stopCondition: z.enum(['payout', 'spins']).default('payout'),
-  spins: z.number().int().min(1).max(500).default(10),
-  maxSpins: z.number().int().min(1).max(500).default(100),
+  spins: z.number().int().min(1).max(300).default(10),
+  maxSpins: z.number().int().min(1).max(300).default(100),
   agentId: z.string().trim().optional().default(''),
   headed: z.boolean().optional().default(false),
 })
@@ -421,7 +475,8 @@ router.post('/api/api-capture/start', (req, res) => {
   for (const k of lockKeys) lockOwners.set(k, runId)
   active.set(runId, {
     runId, agentId: agent.agentId, heavy: heavy.token, lockKeys, received: 0, chunkSeqs: new Set(), stopTimer: null, operatorKey: u.email,
-    watchdog: setTimeout(() => failRun(runId, `超過 ${RUN_TIMEOUT_MS / 60_000} 分鐘沒有結束，視為逾時`), RUN_TIMEOUT_MS),
+    timedOut: false, quarantined: false,
+    watchdog: setTimeout(() => onTimeout(runId), RUN_TIMEOUT_MS),
   })
   agent.busy = true
   agent.sessionId = runId
@@ -435,11 +490,10 @@ router.post('/api/api-capture/runs/:id/stop', (req, res) => {
   const a = active.get(req.params.id)
   if (!a) return res.status(404).json({ ok: false, message: '這筆紀錄不在執行中' })
   if (a.operatorKey !== u.email && !u.isAdmin) return res.status(403).json({ ok: false, message: '只能停止自己開的紀錄' })
-  const agent: AgentInfo | undefined = agentConnections.get(a.agentId)
-  if (agent && agent.ws.readyState === agent.ws.OPEN) agent.ws.send(JSON.stringify({ type: 'api_capture_stop', runId: a.runId }))
+  if (a.quarantined) return res.status(409).json({ ok: false, message: '已經在等 agent 確認停止' })
   patchRun(a.runId, { message: '取消中：等 agent 退出機台' })
-  // agent 沒回應就強制收掉，鎖不能卡著
-  a.stopTimer ??= setTimeout(() => failRun(a.runId, '取消後 agent 沒有回應，已強制結束'), STOP_GRACE_MS)
+  // agent 沒回應：紀錄判失敗，但鎖先保留到 agent 回報或斷線（不能放給新任務撞上還在下注的舊 runner）
+  requestStop(a)
   res.json({ ok: true })
 })
 
@@ -482,11 +536,13 @@ router.get('/api/api-capture/runs/:id', (req, res) => {
   const timeline = buildTimeline(steps, loadBackend(r.id), off)
   const WS_MAX = 3000
   const wsAll = front.filter(e => e.kind === 'ws' || (e.kind === 'console' && parsePinusConsole(e.text)))
+  // 畫面只看前段（完整內容在 Excel），每格截短，避免一次回幾十 MB
+  const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
   const ws = wsAll.slice(0, WS_MAX).map(e => e.kind === 'ws'
-    ? { t: e.t + off, source: 'frame', dir: e.dir, route: '', text: e.text }
-    : { t: e.t + off, source: 'console', dir: (e as { text: string }).text.trim().startsWith('SEND') ? 'send' : 'recv', route: parsePinusConsole((e as { text: string }).text)?.route ?? '', text: (e as { text: string }).text })
+    ? { t: e.t + off, source: 'frame', dir: e.dir, route: '', text: cut(e.text, 600) }
+    : { t: e.t + off, source: 'console', dir: (e as { text: string }).text.trim().startsWith('SEND') ? 'send' : 'recv', route: parsePinusConsole((e as { text: string }).text)?.route ?? '', text: cut((e as { text: string }).text, 600) })
   const httpAll = front.filter((e): e is Extract<FrontEvent, { kind: 'http' }> => e.kind === 'http')
-  const http = httpAll.map(e => ({ t: e.t + off, method: e.method, url: e.url, status: e.status, req: e.req, res: e.res, noise: e.noise, comparable: httpComparable(e) }))
+  const http = httpAll.map(e => ({ t: e.t + off, method: e.method, url: cut(e.url, 600), status: e.status, req: cut(e.req, 600), res: cut(e.res, 600), noise: e.noise, comparable: httpComparable(e) }))
   res.json({
     ok: true, run: publicRun(r), timeline, ws, wsTotal: wsAll.length, wsTruncated: wsAll.length > WS_MAX, http,
     backendOutside: loadBackend(r.id, false).filter(b => !timeline.some(t => t.backendId === b.id)).map(b => ({ t: b.reqtime, event: b.event, source: b.source })),

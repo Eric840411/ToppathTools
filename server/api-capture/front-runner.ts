@@ -26,21 +26,26 @@ const CONSOLE_KEEP = /SEND:|ON:|Ntc|Req\b|Res\b|errcode|request |response /
 export class ApiCaptureFrontRunner extends EventEmitter {
   private stopped = false
   private browser: Browser | null = null
+  /** 還沒送出的事件（drain 之後清空，長跑不會一直累積） */
   private events: FrontEvent[] = []
-  private sentUpTo = 0
+  /** 判斷每局開始／結束用：只留 moneyNtc（drain 不會清掉它） */
+  private money: { t: number; coin: number; reason: string }[] = []
 
   constructor(private msg: ApiCaptureStartMessage) { super() }
 
   stop() { this.stopped = true }
 
-  private push(ev: FrontEvent) { this.events.push(ev) }
+  private push(ev: FrontEvent) {
+    this.events.push(ev)
+    if (ev.kind === 'console') { const mn = parseMoneyNtc(ev.text); if (mn) this.money.push({ t: ev.t, ...mn }) }
+  }
   private step(action: string, detail?: Record<string, unknown>) { this.push({ kind: 'step', t: Date.now(), action, ...(detail ? { detail } : {}) }) }
   private progress(phase: CapturePhase, message: string, spin?: number) { this.emit('progress', { phase, message, spin }) }
 
   /** 把還沒送的事件吐出去（呼叫端決定怎麼分批） */
   drain(): FrontEvent[] {
-    const out = this.events.slice(this.sentUpTo)
-    this.sentUpTo = this.events.length
+    const out = this.events
+    this.events = []
     return out
   }
 
@@ -130,11 +135,9 @@ export class ApiCaptureFrontRunner extends EventEmitter {
   private async waitMoney(fromIdx: number, reason: 'begin' | 'end', ms: number): Promise<{ t: number; coin: number } | null> {
     const end = Date.now() + ms
     while (Date.now() < end && !this.stopped) {
-      for (let i = fromIdx; i < this.events.length; i++) {
-        const e = this.events[i]
-        if (e.kind !== 'console') continue
-        const mn = parseMoneyNtc(e.text)
-        if (mn && mn.reason === reason) return { t: e.t, coin: mn.coin }
+      for (let i = fromIdx; i < this.money.length; i++) {
+        const mn = this.money[i]
+        if (mn.reason === reason) return { t: mn.t, coin: mn.coin }
       }
       await sleep(300)
     }
@@ -177,12 +180,12 @@ export class ApiCaptureFrontRunner extends EventEmitter {
       await sleep(2000)
 
       let payoutObservable = false
-      const max = Math.max(1, Math.min(this.msg.maxSpins, 500))
+      const max = Math.max(1, Math.min(this.msg.maxSpins, 300))
       const target = this.msg.stopCondition === 'spins' ? Math.min(Math.max(1, this.msg.spins), max) : max
       stopReason = this.msg.stopCondition === 'spins' ? 'spins' : 'max-spins'
       for (let n = 1; n <= target; n++) {
         if (this.stopped) throw new Error('stopped')
-        const from = this.events.length
+        const from = this.money.length
         const tClick = Date.now()
         const sel = await clickSpin(page, '.btn_spin')
         if (!sel) throw new Error(`第 ${n} 局找不到可按的 Spin 鍵`)

@@ -53,7 +53,8 @@ eq('machineKey 一致', [machineKey('873-DFDCGRAND-0144'), machineKey('dfdcgrand
 eq('moneyNtc', parseMoneyNtc('ON: 0 moneyNtc {event: moneyNtc, coin: 999982, reason: begin}'), { coin: 999982, reason: 'begin' })
 
 console.log('\n3) 時間校正（1113 實跑：本機比後台慢約 183.7 秒）')
-const recordBets = backend.filter(b => b.event === 'recordBet').map(b => b.reqtime)
+const rbPoint = (b: BackendItem) => ({ reqtime: b.reqtime, payout: (JSON.parse(b.postData) as { payout?: number }).payout ?? null })
+const recordBets = backend.filter(b => b.event === 'recordBet').map(rbPoint)
 eq('fixture 有 4 局、4 筆 recordBet', [frontFx.spins.length, recordBets.length], [4, 4])
 const cal = calibrate(frontFx.spins, recordBets, 0)
 eq('方法＝recordBet、4 組', [cal.method, cal.pairs], ['recordBet', 4])
@@ -64,6 +65,19 @@ const extra = [...frontFx.spins, { n: 5, tClick: 0, tEnd: frontFx.spins[3].tEnd!
 ok('多一局也對得齊', Math.abs(calibrate(extra, recordBets, 0).offsetMs - 183_700) < 1000)
 eq('沒有 recordBet → 退回伺服器時差', calibrate(frontFx.spins, [], 1234).method, 'server-clock')
 eq('都沒有 → none', calibrate([], [], null).method, 'none')
+// CodeX 1118 重現：局距均勻（60 秒）、前面多一筆 recordBet → 位移 0 與位移 1 一樣集中；實際時差 0
+{
+  const sp = (n: number, t: number, win: number | null): SpinRecord => ({ n, tClick: t - 3000, tEnd: t, coinBegin: null, coinEnd: null, win })
+  const even = [sp(1, 1_000, 0), sp(2, 61_000, 0), sp(3, 121_000, 0)]
+  const rbsEven = [-59_000, 1_000, 61_000, 121_000].map(t => ({ reqtime: t, payout: 0 }))
+  eq('均勻局距＋派彩分不出來＋沒有伺服器時差 → 不校正', calibrate(even, rbsEven, null).method, 'none')
+  const withPrior = calibrate(even, rbsEven, 200)
+  eq('均勻局距＋有伺服器時差 → 挑最接近的（0 秒，不是 −60 秒）', [withPrior.method, withPrior.offsetMs], ['recordBet', 0])
+  const rbsPayout = [-59_000, 1_000, 61_000, 121_000].map((t, i) => ({ reqtime: t, payout: i === 3 ? 8 : 0 }))
+  const evenWin = [sp(1, 1_000, 0), sp(2, 61_000, 0), sp(3, 121_000, 8)]
+  eq('派彩對得上的位移勝出（不需要伺服器時差）', [calibrate(evenWin, rbsPayout, null).method, calibrate(evenWin, rbsPayout, null).offsetMs], ['recordBet', 0])
+  eq('伺服器時差剛好在兩者中間 → 分不出來就退回伺服器時差', calibrate(even, rbsEven, -30_000).method, 'server-clock')
+}
 
 console.log('\n4) 時間軸')
 const steps = frontFx.front.filter((e): e is Extract<FrontEvent, { kind: 'step' }> => e.kind === 'step')
@@ -89,6 +103,14 @@ for (const k of ['backend:authenticate', 'backend:recharge', 'backend:recordBet'
 ok('前台 HTTP getprivatekey 有進比對', keys.some(k => k.startsWith('http:POST') && k.includes('/status/getprivatekey')))
 ok('GA／xtrace 不進比對', !keys.some(k => /google-analytics|xtrace|aliyuncs/.test(k)))
 ok('靜態 json 不進比對', !keys.some(k => k.includes('lucky_hours')))
+// CodeX 1118 重現：GET 參數 ?old=1 → ?new=2 原本回 same
+{
+  const mk = (url: string): FrontEvent => ({ kind: 'http', t: 1, method: 'GET', url, status: 200, resourceType: 'xhr', req: '', res: '{"ok":1}', noise: false })
+  const qa = buildSignature({ backend: [], front: [mk('https://osm-h5.osmslot.org/api/x?old=1')] })
+  const qb = buildSignature({ backend: [], front: [mk('https://osm-h5.osmslot.org/api/x?new=2')] })
+  const dq = diffSignatures(qb, qa, { ignoreVolatile: true })
+  eq('HTTP query 參數變更被標出', dq.apis[0].items.map(i => `${i.kind}:${i.part}.${i.path}`).sort(), ['added:request.query.new', 'missing:request.query.old'])
+}
 eq('authenticate 回傳 playerLevel 是 number', sig.apis['backend:authenticate'].response['playerLevel']?.types, ['number'])
 ok('timestamp 標成 volatile', !!sig.apis['backend:recharge'].request['timestamp']?.volatile)
 ok('amount 不是 volatile', !sig.apis['backend:recharge'].request['amount']?.volatile)

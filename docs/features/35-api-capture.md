@@ -23,8 +23,12 @@
    - QAT 預設：`https://backendservertest.osmslot.org`、Origin `https://qat-cp.osmslot.org`、渠道 873（11/13 實跑驗過）
    - **UAT 預設：`https://uat-backendservertest.osmslot.org`、Origin `http://uat-cp.osmslot.org`、渠道 4186——取自 OSM QA 記憶（gameRecordList 實測過），Log 端點沒實測過**，畫面有標「尚未實測」
 3. **鎖**：重任務鎖（`tryStartHeavyTask(req,'api-capture')`，綁 runId）＋本功能自己的機台鎖／帳號鎖（**含環境**：`qat|machine|144`、`qat|account|9421000006`）。
-   成功、失敗、取消、agent 斷線（worker `onLost` 的 `ac_` 分支）、45 分鐘逾時、取消後 90 秒 agent 沒回應，都會釋放。
-   worker 重啟時（`initApiCapture()`）上一個 process 留下的執行中紀錄一律標失敗（鎖只在記憶體）。
+   成功、失敗、取消、agent 斷線（worker `onLost` 的 `ac_` 分支）都會釋放。
+   **逾時（60 分鐘，局數上限 300）與取消都是先送 `api_capture_stop` 要 agent 退出機台**；90 秒內 agent 沒回報 → 紀錄標失敗，
+   但**機台／帳號鎖、重任務鎖、agent 忙碌都先保留（隔離）**，等 agent 遲到的 `api_capture_done` 或 agent 斷線才放（v5.90.1，CodeX 1118 [P1]：
+   原本逾時直接放鎖，舊 runner 可能還在下注、新任務已經進同一台）。
+   worker 重啟時（`initApiCapture()`）上一個 process 留下的執行中紀錄一律標失敗，**並用 `releaseHeavyTaskById` 放掉這個功能所有 running 的重任務鎖**
+   （重任務鎖會從 DB 復原，沒放的話使用者會一直被擋；v5.90.1，CodeX 1118 [P1]）。
    ⚠️ 機台鎖只擋「本功能自己」重複用同一台；機台測試在 Toppath 這邊沒有機台層級的鎖可以共用（它只有重任務鎖），同一個人同時開兩種重任務會被重任務鎖擋掉
 4. **資料**：
    - `api_capture_runs`：env、channel_id、account、machine、machine_key（比對用，`DFDCGRAND-144`／`144`）、lobby_url_masked、停止條件、agent、task_id（重任務鎖 id）、狀態、階段、開始／結束、前台起訖（agent 時鐘）、`time_calibration`、`completeness`、`baseline_run_id`、`signature`（參數簽名 JSON）、`summary`
@@ -35,13 +39,15 @@
    以 **API＋方向＋request/response 巢狀路徑** 比對（陣列用 `[]`），分「新增／缺少／型別變更／值變更」；
    時間戳、流水號（key 像 time/timestamp/reference/roundId/transactionId/hash/token/_id，或值像 13 位毫秒、24 位 ObjectId）**只忽略值**，存在與型別照樣比；
    基準有、這次沒錄到的 API 標「**未觀測**」，不算刪除；這次多出來的 API 標「新 API」。
-   比對對象：後台每個 event（authenticate／balance／recharge／recordBet…）、前台 HTTP（排除雜訊與靜態檔）、前台 WS route（console 的 SEND/ON，`ON: 0` 是推播）。
+   比對對象：後台每個 event（authenticate／balance／recharge／recordBet…）、前台 HTTP（排除雜訊與靜態檔；送出參數＝`request.query.*`＋`request.body.*`，v5.90.1 起含網址 query）、前台 WS route（console 的 SEND/ON，`ON: 0` 是推播）。
 6. **遮罩**：`server/api-capture/mask.ts` 一支，agent 送出前、server 落盤前、匯出 Excel 前各過一次。OSM 玩家 token（`32hex-uid`，含網址編碼後的 `%3D…`）、後台登入 token、JSON／網址／console 裡的 token、password、privateMapKey 等一律 `***`。
    前台 HTTP 預設把 GA、xtrace（阿里雲 RUM）、posthog、RTC 等第三方當雜訊：照樣保留但內容截短、畫面與 Excel 預設不顯示、不進比對。
 
 ## 時間校正
 agent 本機時鐘常常不準（本機慢 160 秒那次）。順序：
-1. **recordBet 對齊**：前台每局 moneyNtc end 的時間 vs 後台 recordBet 的 reqtime，**依順序**嘗試每種位移，挑差值最集中的（不用「找最近一筆」——一局 4 秒、時鐘可能差幾分鐘，最近那筆常是隔壁局）。誤差 > 3 秒不採用
+1. **recordBet 對齊**：前台每局 moneyNtc end 的時間 vs 後台 recordBet 的 reqtime，**依順序**嘗試每種位移（不用「找最近一筆」——一局 4 秒、時鐘可能差幾分鐘，最近那筆常是隔壁局）。
+   排序：先比「局識別」——前台每局派彩（moneyNtc end − begin）要等於 recordBet 的 payout，對不上的位移扣分；再比差值集中度。誤差 > 3 秒不採用。
+   **歧義**（局距均勻、派彩都是 0，多種位移一樣吻合）：用 agent↔server 時差挑最接近的，且要明顯比第二名近；挑不出來就退回伺服器時差／不校正，**不能隨便選最早那個**（v5.90.1，CodeX 1118 [P2] 重現：實際時差 0 卻採 −60 秒）
 2. 退而求其次：`api_capture_done` 收到當下的 server 時間 − agent 時間（假設 server≈後台）
 3. 都沒有：未校正
 時間窗：校正後的前台起訖，前緣留 10 秒（recordBet 校正時；只有伺服器時差時留 60 秒）、後緣留 120 秒。窗外的後台日誌保留在 DB、不列入時間軸與比對——1113 那次前面 3 次找不到機台的重試所產生的 authenticate 就是這樣排掉的。
@@ -70,8 +76,9 @@ agent 本機時鐘常常不準（本機慢 160 秒那次）。順序：
 | 後台設定（管理員） | 各環境後台 API 網址、Origin、預設渠道、帳號、密碼 |
 
 ## 驗證
-- `npx tsx server/api-capture/core.test.ts`（72 項）：遮罩、機台輸入、時間校正（1113 fixture）、時間軸、參數簽名、**注入差異**（新增／型別變更／缺少／時間戳忽略／新 API／未觀測）、Excel 四分頁與遮罩、後台分頁（假 fetch：分頁、total 不符、某頁失敗、登入失敗、40200 重登）
-- 突變（`.tmp` 腳本，跑完還原）：拿掉比對邏輯 7 紅、型別混成值 1 紅、未觀測當缺少 3 紅、時間戳不忽略 1 紅、時間校正失效 3 紅、遮罩拿掉玩家 token 1 紅、筆數不符不標不完整 1 紅
+- `npx tsx server/api-capture/core.test.ts`（77 項，含 CodeX 1118 的兩個重現：均勻局距歧義、HTTP query 變更）：遮罩、機台輸入、時間校正（1113 fixture）、時間軸、參數簽名、**注入差異**（新增／型別變更／缺少／時間戳忽略／新 API／未觀測）、Excel 四分頁與遮罩、後台分頁（假 fetch：分頁、total 不符、某頁失敗、登入失敗、40200 重登）
+- 突變（`.tmp` 腳本，跑完還原）：拿掉比對邏輯 8 紅、型別混成值 1 紅、未觀測當缺少 3 紅、時間戳不忽略 1 紅、時間校正失效 6 紅、歧義選最早 3 紅、HTTP query 不進比對 1 紅、遮罩拿掉玩家 token 1 紅、筆數不符不標不完整 1 紅
+- 端對端冒煙（DB 副本＋build 後 main 3999／worker 3998＋假 agent WS＋假後台 3997 回 1113 fixture）52 項：權限、密碼密文、網址檢查、機台鎖、完成＋recordBet 校時、遮罩、預設基準與注入的型別變更、Excel 四分頁、取消、agent 斷線、**逾時→送 stop→寬限期過了標失敗但鎖保留→遲到的 done 才放鎖**、**worker 重啟→紀錄標失敗＋重任務鎖釋放→可再開**、普通版／修仙版畫面無 pageerror、無 emoji
 - fixture：`server/__fixtures__/api-capture/front-1113.json`、`backend-1113.json`（由 osm-qa-agent 1113 原始資料轉換，已遮罩、WS 只留部分幀）
 - ⚠️ **未經真 agent／真機台驗證**；UAT 後台 Log 端點未實測
 

@@ -55,6 +55,7 @@ function pretty(s: string) {
 const short = (s: string, n = 48) => { const one = (s ?? '').replace(/\s+/g, ' '); return one.length > n ? one.slice(0, n) + '…' : one }
 const usernameOf = (url: string) => { try { return new URL(url).searchParams.get('username') ?? '' } catch { return '' } }
 
+const STATUS_TEXT: Record<Status, string> = { running: '執行中', collecting: '查後台中', done: '完成', incomplete: '資料不完整', failed: '失敗', cancelled: '已取消' }
 const KIND_LABEL = { added: '新增', missing: '缺少', type: '型別變更', value: '值變更' } as const
 const API_STATUS_LABEL = { changed: '有差異', 'new-api': '新 API', unobserved: '未觀測', same: '相同' } as const
 const STEPS = [
@@ -222,12 +223,12 @@ export function ApiCapturePage() {
                 <option value="payout">有派彩</option>
                 <option value="spins">固定局數</option>
               </select>
-              {stopCondition === 'spins' && <input className="acp-input acp-w64" type="number" min={1} max={500} value={spins} onChange={e => setSpins(Math.max(1, Number(e.target.value) || 1))} />}
+              {stopCondition === 'spins' && <input className="acp-input acp-w64" type="number" min={1} max={300} value={spins} onChange={e => setSpins(Math.max(1, Number(e.target.value) || 1))} />}
             </div>
           </div>
           <div className="acp-field">
             <label>最多局數</label>
-            <input className="acp-input acp-w64" type="number" min={1} max={500} value={maxSpins} onChange={e => setMaxSpins(Math.max(1, Number(e.target.value) || 1))} />
+            <input className="acp-input acp-w64" type="number" min={1} max={300} value={maxSpins} onChange={e => setMaxSpins(Math.max(1, Number(e.target.value) || 1))} />
           </div>
           <div className="acp-field">
             <label>&nbsp;</label>
@@ -394,7 +395,7 @@ export function ApiCapturePage() {
           <select className="acp-input acp-full" value={baselineSel} disabled={!run || live} onChange={e => setBaselineSel(e.target.value)}>
             <option value="">上次成功紀錄・同環境／渠道／帳號／機台</option>
             <option value="none">不比對</option>
-            {(compare?.candidates ?? []).map(c => <option key={c.id} value={c.id}>{fmt(c.startedAt)}｜{ENV_LABEL[c.env]} {c.account} 機台 {c.machine}{c.sameTarget ? '' : '（不同對象）'}｜{c.status}</option>)}
+            {(compare?.candidates ?? []).map(c => <option key={c.id} value={c.id}>{fmt(c.startedAt)}｜{ENV_LABEL[c.env]} {c.account} 機台 {c.machine}{c.sameTarget ? '' : '（不同對象）'}｜{STATUS_TEXT[c.status]}</option>)}
           </select>
           <div className="acp-hint">{live ? '紀錄完成後才會比對' : compare?.baseline ? `基準：${fmt(compare.baseline.startedAt)}（${compare.baseline.account}／機台 ${compare.baseline.machine}）` : '無基準'}</div>
           {compare?.diff?.hasBaseline && (

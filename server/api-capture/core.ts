@@ -91,31 +91,58 @@ export interface Calibration {
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
 
 /**
- * 依「順序」對齊前台局與後台 recordBet：嘗試每一種位移，挑差值最集中的那一種。
+ * 依「順序」對齊前台局與後台 recordBet：嘗試每一種位移，挑最可信的那一種。
  * ⚠️ 不用「找最近的一筆」——一局 4 秒、時鐘可能差好幾分鐘，最近那筆常常是隔壁局。
+ * 局識別（CodeX 1118 [P2]）：前台每局的派彩（moneyNtc end − begin）要等於 recordBet 的 payout，對不上的位移扣分；
+ * 局距均勻時多種位移會一樣集中——那時用 agent↔server 時差挑最接近的，**挑不出來就不校正**（不能隨便選最早那個）。
  */
-export function calibrate(spins: SpinRecord[], recordBetTimes: number[], agentToServerMs: number | null): Calibration {
-  const ends = spins.map(s => s.tEnd).filter((t): t is number => typeof t === 'number').sort((a, b) => a - b)
-  const rbs = [...recordBetTimes].sort((a, b) => a - b)
+export interface RecordBetPoint { reqtime: number; payout: number | null }
+
+export function calibrate(spins: SpinRecord[], recordBets: RecordBetPoint[], agentToServerMs: number | null): Calibration {
+  const ends = spins.filter((s): s is SpinRecord & { tEnd: number } => typeof s.tEnd === 'number').sort((a, b) => a.tEnd - b.tEnd)
+  const rbs = [...recordBets].sort((a, b) => a.reqtime - b.reqtime)
   const fallback = (note: string): Calibration => agentToServerMs !== null
     ? { method: 'server-clock', offsetMs: agentToServerMs, pairs: 0, spreadMs: null, agentToServerMs, note }
     : { method: 'none', offsetMs: 0, pairs: 0, spreadMs: null, agentToServerMs, note }
   if (!ends.length || !rbs.length) return fallback(ends.length ? '後台沒有 recordBet 可對齊' : '前台沒有看到每局結束（moneyNtc end）')
-  let best: { diffs: number[]; spread: number } | null = null
+  type Cand = { diffs: number[]; spread: number; mismatch: number; offset: number }
+  const cands: Cand[] = []
   const need = Math.min(ends.length, rbs.length)
   for (let k = -(ends.length - 1); k <= rbs.length - 1; k++) {
     const diffs: number[] = []
-    for (let i = 0; i < ends.length; i++) { const j = i + k; if (j >= 0 && j < rbs.length) diffs.push(rbs[j] - ends[i]) }
+    let mismatch = 0
+    for (let i = 0; i < ends.length; i++) {
+      const j = i + k
+      if (j < 0 || j >= rbs.length) continue
+      diffs.push(rbs[j].reqtime - ends[i].tEnd)
+      const w = ends[i].win, p = rbs[j].payout
+      if (w !== null && p !== null && Math.abs(w - p) > 0.001) mismatch++
+    }
     if (diffs.length < need) continue   // 只接受最大重疊（避免只對上一筆就被當成最集中）
-    const spread = Math.max(...diffs) - Math.min(...diffs)
-    if (!best || spread < best.spread) best = { diffs, spread }
+    cands.push({ diffs, spread: Math.max(...diffs) - Math.min(...diffs), mismatch, offset: Math.round(median(diffs)) })
   }
-  if (!best) return fallback('對不齊')
-  const offsetMs = Math.round(median(best.diffs))
+  if (!cands.length) return fallback('對不齊')
+  cands.sort((a, b) => a.mismatch - b.mismatch || a.spread - b.spread)
+  const top = cands[0]
+  if (top.spread > 3000) return { ...fallback(`recordBet 對齊誤差 ${(top.spread / 1000).toFixed(1)} 秒過大，改用伺服器時差`), spreadMs: top.spread }
+  // 跟最好的一樣好（派彩一樣對得上、誤差也在 3 秒內）的其他位移＝歧義
+  const ties = cands.filter(c => c !== top && c.mismatch === top.mismatch && c.spread <= 3000 && Math.abs(c.offset - top.offset) > 1000)
+  let best = top
+  let tieNote = ''
+  if (ties.length) {
+    if (agentToServerMs === null) return fallback(`有 ${ties.length + 1} 種對齊方式一樣吻合（每局派彩分不出來），無法判斷`)
+    const byPrior = [top, ...ties].sort((a, b) => Math.abs(a.offset - agentToServerMs) - Math.abs(b.offset - agentToServerMs))
+    const d0 = Math.abs(byPrior[0].offset - agentToServerMs), d1 = Math.abs(byPrior[1].offset - agentToServerMs)
+    // 最接近伺服器時差的那個要明顯比第二名近（差 ≥ 半個局距、至少 1 秒），不然還是分不出來
+    const gap = Math.max(1000, Math.abs(byPrior[1].offset - byPrior[0].offset) / 2)
+    if (d1 - d0 < gap) return fallback(`有 ${ties.length + 1} 種對齊方式一樣吻合，伺服器時差也分不出來`)
+    best = byPrior[0]
+    tieNote = `（有 ${ties.length + 1} 種對齊一樣吻合，以伺服器時差挑最接近的）`
+  }
   // 只有一組時無從判斷集中度：跟 agent↔server 時差差太多（>5 分鐘）就不信
-  if (best.diffs.length === 1 && agentToServerMs !== null && Math.abs(offsetMs - agentToServerMs) > 300_000) return fallback('只有一局可對、且跟伺服器時差不一致')
-  if (best.spread > 3000) return { ...fallback(`recordBet 對齊誤差 ${(best.spread / 1000).toFixed(1)} 秒過大，改用伺服器時差`), spreadMs: best.spread }
-  return { method: 'recordBet', offsetMs, pairs: best.diffs.length, spreadMs: best.spread, agentToServerMs, note: `以 ${best.diffs.length} 局 recordBet 對齊，誤差 ${(best.spread / 1000).toFixed(2)} 秒` }
+  if (best.diffs.length === 1 && agentToServerMs !== null && Math.abs(best.offset - agentToServerMs) > 300_000) return fallback('只有一局可對、且跟伺服器時差不一致')
+  if (best.mismatch > 0) return { ...fallback(`recordBet 的派彩跟前台對不上 ${best.mismatch} 局，改用伺服器時差`), spreadMs: best.spread }
+  return { method: 'recordBet', offsetMs: best.offset, pairs: best.diffs.length, spreadMs: best.spread, agentToServerMs, note: `以 ${best.diffs.length} 局 recordBet 對齊，誤差 ${(best.spread / 1000).toFixed(2)} 秒${tieNote}` }
 }
 
 // ─── 時間軸 ────────────────────────────────────────────────────────────────────
@@ -278,6 +305,17 @@ function parseBody(s: string): unknown {
   return undefined
 }
 
+/** 前台 HTTP 的送出參數＝網址 query＋body（CodeX 1118 [P2]：只看 body 會漏掉 GET 參數的變更） */
+export function httpRequestParts(e: Extract<FrontEvent, { kind: 'http' }>): Record<string, unknown> | undefined {
+  let query: Record<string, string> = {}
+  try { query = Object.fromEntries(new URL(e.url).searchParams) } catch { /* 網址壞掉就沒有 query */ }
+  const body = parseBody(e.req)
+  const out: Record<string, unknown> = {}
+  if (Object.keys(query).length) out.query = query
+  if (body !== undefined) out.body = body
+  return Object.keys(out).length ? out : undefined
+}
+
 export function buildSignature(input: { backend: BackendItem[]; front: FrontEvent[] }): Signature {
   const apis: Record<string, ApiSig> = {}
   const acc = new Map<string, { req: Map<string, { types: Set<string>; values: Set<string> }>; res: Map<string, { types: Set<string>; values: Set<string> }> }>()
@@ -300,7 +338,7 @@ export function buildSignature(input: { backend: BackendItem[]; front: FrontEven
   for (const e of input.front) {
     if (e.kind === 'http' && httpComparable(e)) {
       const k = httpKey(e)
-      add(k.key, { key: k.key, label: k.label, source: 'http', direction: 'H5 → Server' }, parseBody(e.req), parseBody(e.res))
+      add(k.key, { key: k.key, label: k.label, source: 'http', direction: 'H5 → Server' }, httpRequestParts(e), parseBody(e.res))
     } else if (e.kind === 'console') {
       const p = parsePinusConsole(e.text)
       if (!p) continue
