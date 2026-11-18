@@ -122,3 +122,19 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 - **真 server 驗證注意**：3999 的 server 會把 `/api/autospin/*` 轉給 `WORKER_URL`（預設 127.0.0.1:3010＝本機 pm2 的主 repo worker、讀主 repo DB）。驗 worktree 的 AutoSpin 路由要另起 `WORKER_PORT=3998` 的 worker 並設 `WORKER_URL`，否則測到的是舊程式
 - **v5.76.2**：AutoSpin 對帳台 `reconcileLogin(cfg, env)` 的 token 存回 `qat_{env}_token／lastlogintime`（綁 QAT＋profile），reconcile_config 只在網址相同時一起更新；token 過期重試直接用這次登入回傳的 token，不靠重讀
 - **v5.76.3**：AutoSpin 對帳台**不再讀 `reconcile_config`**（只有一組、不分 OSM／GCP，兩個 profile 又共用同一個網址，網址比對擋不住互蓋）。執行路徑只讀寫 `qat_osm_`／`qat_gcp_`；`/api/autospin/reconcile/config` 的 GET/PUT 還在、但存進去的值不再被使用
+
+### v5.91.0 後台 EGM Performance Meter 日報對照（Eric 1118、CodeX 同意）
+
+起因：後台 EGM Performance Meter 日報這次有錯，但工具只用 Hourly 快照相減，看不出日報哪裡錯。
+
+- 整天查詢時另外打 `egmPerformanceMeter`（gameDay／dateType 跟著 Gaming Day／自然日走），結果另列「後台 EGM Performance Meter 日報對照」卡，**不影響主判定**（主判定仍是 Hourly vs Game Record）；查詢失敗不拖垮主對帳。
+- 三組比對（邏輯在 `server/meter-perf-daily.ts`）：
+  1. 日報內部公式：欄 26 WIN/LOSE vs 用 6/10/29 現算；欄 2 RTP vs WIN/LOSE ÷ Coin In（**欄 2 尺度未實測**，小數與 % 兩種都比，容差 0.01 個百分點）
+  2. 日報 vs Hourly 差值：Coin In／Coin Out／Jackpot Wins／Games Played（Hourly 至少 2 個快照才比）
+  3. 日報 vs Game Record：Coin Out（OSM＝GR 總 Win＋Attendant Paid JP−日報 JP；GCP＝GR 總 Win）、Games Played（GR 筆數＋JP 筆數）
+- 有自訂時間 → 不比（日報只有整天）；查無資料 → 「尚未產生」（約 15:15 後才有當日）不算錯；API 失敗／缺欄 → 無法比對，不當 0。
+- 待驗：自然日（gameDay=0、dateType=1）參數沿用 Hourly 那組、日報沒資料時回應形狀，都沒對真後台打過。
+
+| 操作 | 說明 |
+|---|---|
+| 看後台日報有沒有錯 | 整天查詢後看「後台 EGM Performance Meter 日報對照」卡，不一致的列標紅，「比對」欄看是公式、Hourly 還是 Game Record 對不上 |

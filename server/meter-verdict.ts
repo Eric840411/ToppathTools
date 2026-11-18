@@ -87,6 +87,8 @@ export const METER_VALID = {
   // 有紀錄時 sumData 的 bet／win 必須是數字（CodeX 64cbfa8 [P2]：有 1 筆卻缺 sumData.win 會被 num() 轉成 0、照樣判通過）
   gameRecord: (d: any) => typeof d.data === 'object' && d.data !== null && (Object.keys(d.data).length === 0 || (typeof d.data.sumData === 'object' && d.data.sumData !== null && Number.isFinite(Number(d.data.total)) && (Number(d.data.total) === 0 || (isNum(d.data.sumData.bet) && isNum(d.data.sumData.win))))),
   handPay: (d: any) => Array.isArray(d.data.items),
+  // v5.91.0 EGM Performance Meter 日報：items 陣列；沒資料比照 gameRecord 可能回 data:{}（未實測）
+  daily: (d: any) => Array.isArray(d.data?.items) || (typeof d.data === 'object' && d.data !== null && Object.keys(d.data).length === 0),
 }
 
 /** CodeX 64cbfa8 [P2]：外層結構對了還不夠——必填數值缺了會被 num() 轉成 0、照樣判通過。數值要先驗得出來（字串數字也可以） */

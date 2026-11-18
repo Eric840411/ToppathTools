@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.90.3'
+export const APP_VERSION = '5.91.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.91.0', date: '2026-11-18', changes: ['feat(Performance Meter 對帳)：整天查詢時另外對照後台 EGM Performance Meter 日報（Eric 1118：日報有錯但工具看不出原因；CodeX 同意）——日報內部公式（欄 26 WIN/LOSE、欄 2 RTP vs 用 6/10/29 現算）、日報 vs Hourly 差值、日報 vs Game Record 三組，另列一張卡、不影響主判定；有自訂時間不比、查無資料標「尚未產生」、API 失敗／缺欄標無法比對'] },
   { version: '5.90.3', date: '2026-11-18', changes: ['fix(API 參數紀錄)：CodeX 複審 e242199 [P2]——舊格式簽名的原始事件超過 180 天被清掉時，原本會重建成空簽名蓋回去、之後比對全變未觀測／新 API → 沒有原始資料就保留舊簽名、標「無法跨版本比較」、不出差異（畫面與 Excel 說明頁）。冒煙 66 項'] },
   { version: '5.90.2', date: '2026-11-18', changes: ['fix(API 參數紀錄)：CodeX 複審 a539b46——[P1] agent 斷線、worker 重啟原本仍直接放鎖（斷線／stop 都不是「已停止」的確認）→ 一律進隔離：紀錄標失敗、quarantined 存 DB，機台／帳號鎖與重任務鎖保留（重啟從 DB 復原），只在 agent 送來 done、重連時 agent_ready.apiCaptureActive 回報手上沒有這筆、或畫面「人工確認已停止」才放；舊版 agent 只能人工解除', '[P2] 參數簽名加格式版本，比對遇到舊版從原始事件重建，不再把同一個 amount 報成「缺少 amount、新增 body.amount」', 'agent 原連線斷了，收尾的 done 改送到重連後的新連線', 'test: core 78 項；冒煙 63 項，注入「斷線直接放鎖」與「舊簽名不重建」8 項轉紅'] },
   { version: '5.90.1', date: '2026-11-18', changes: ['fix(API 參數紀錄)：CodeX 審 2019f3c 的四項——[P1] 逾時原本直接放鎖、沒叫 agent 停 → 改成先送 stop，90 秒內沒回報就標失敗但機台／帳號鎖、重任務鎖、agent 忙碌都保留，等 agent 回報或斷線才放（取消同一套）；[P1] worker 重啟只改紀錄狀態，重任務鎖會從 DB 復原繼續擋人 → 重啟時一併釋放；[P2] 前台 HTTP 只比 body，GET 參數變更回「相同」→ 送出參數改成 query＋body；[P2] 局距均勻時多種對齊一樣吻合、原本挑最早的（實際 0 秒卻採 −60 秒）→ 加局識別（前台派彩＝recordBet payout），仍有歧義就用伺服器時差挑、挑不出來就不校正', '另外：agent 端事件送出後就清掉（長跑不累積）、紀錄明細 API 每格截短（完整內容在 Excel）、局數上限 300、逾時 60 分鐘', 'test: core.test.ts 77 項，9 種突變都會紅；端對端冒煙 52 項（含逾時隔離、worker 重啟）'] },

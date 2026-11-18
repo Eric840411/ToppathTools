@@ -60,6 +60,7 @@ interface MeterResult {
   rawMeterRow: Record<string, unknown> | null
   /** v5.84.0：局數不同時的分段定位（舊紀錄沒有這欄） */
   countDiag?: CountDiag | { error: string } | null
+  perfDaily?: PerfDaily
   message?: string
 }
 
@@ -154,6 +155,64 @@ function CountDiagCard({ diag }: { diag: CountDiag | { error: string } }) {
 }
 
 /** v5.85.0：盒子日誌逐局比對結果 */
+/** v5.91.0：後台 EGM Performance Meter 日報對照（server/meter-perf-daily.ts） */
+interface PerfDailyCheck { group: 'formula' | 'hourly' | 'gameRecord'; label: string; daily: number | null; other: number | null; otherLabel: string; diff: number | null; ok: boolean | null; note?: string }
+interface PerfDaily {
+  status: 'ok' | 'mismatch' | 'skipped' | 'notReady' | 'apiError'
+  why: string
+  values?: { coinIn: number; coinOut: number; jackpotWins: number; gamesPlayed: number; winLossRaw: number | null; rtpRaw: number | null; winLossCalc: number; rtpCalc: number | null }
+  checks: PerfDailyCheck[]
+}
+
+const PD_GROUP: Record<PerfDailyCheck['group'], string> = { formula: '日報內部公式', hourly: '日報 vs Hourly 差值', gameRecord: '日報 vs Game Record' }
+
+function PerfDailyCard({ pd, fmt }: { pd: PerfDaily; fmt: (n: number | null | undefined, d?: number) => string }) {
+  const bad = pd.status === 'mismatch'
+  const good = pd.status === 'ok'
+  const fg = bad ? '#f87171' : good ? '#4ade80' : '#cbd5e1'
+  const border = bad ? 'rgba(239,68,68,.45)' : good ? 'rgba(34,197,94,.35)' : 'rgba(148,163,184,.4)'
+  const v = pd.values
+  return (
+    <section className="section-card st-card" style={{ borderColor: border }}>
+      <h3 className="section-title">後台 EGM Performance Meter 日報對照</h3>
+      <div className="st-hint st-card-sub">egmPerformanceMeter · 只比整天、不影響上方通過／失敗判定 · 當日數據約 15:15 後才有</div>
+      <div style={{ color: fg, fontWeight: 700, margin: '6px 0' }}>{pd.why}</div>
+      {v && (
+        <div className="st-hint" style={{ marginBottom: 6 }}>
+          日報原值：Coin In {fmt(v.coinIn)} · Coin Out {fmt(v.coinOut)} · Jackpot Wins {fmt(v.jackpotWins)} · Games Played {fmt(v.gamesPlayed, 0)} · WIN/LOSE {v.winLossRaw === null ? '—' : fmt(v.winLossRaw)} · RTP（欄 2）{v.rtpRaw === null ? '—' : String(v.rtpRaw)}
+        </div>
+      )}
+      {pd.checks.length > 0 && (
+        <table className="st-pd-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: '#94a3b8' }}>
+              <th style={{ padding: '4px 6px' }}>比對</th><th style={{ padding: '4px 6px' }}>項目</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right' }}>日報</th><th style={{ padding: '4px 6px', textAlign: 'right' }}>對照值</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right' }}>差（日報 − 對照）</th><th style={{ padding: '4px 6px' }}>結果</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pd.checks.map((c, i) => {
+              const rtp = c.label === 'RTP'
+              const col = c.ok === false ? '#f87171' : c.ok ? '#4ade80' : '#94a3b8'
+              return (
+                <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,.15)' }}>
+                  <td style={{ padding: '4px 6px' }}>{PD_GROUP[c.group]}</td>
+                  <td style={{ padding: '4px 6px' }}>{c.label}<div className="st-dim" style={{ fontSize: 10.5 }}>對照：{c.otherLabel}{c.note ? ` · ${c.note}` : ''}</div></td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{c.daily === null ? '—' : rtp ? String(c.daily) : fmt(c.daily, c.label === 'Games Played' ? 0 : undefined)}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{c.other === null ? '—' : rtp ? `${c.other.toFixed(4)}%` : fmt(c.other, c.label === 'Games Played' ? 0 : undefined)}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: col }}>{c.diff === null ? '—' : fmt(c.diff, c.label === 'Games Played' ? 0 : undefined)}</td>
+                  <td style={{ padding: '4px 6px', color: col, fontWeight: 700 }}>{c.ok === null ? '無法比' : c.ok ? '一致' : '不一致'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
+  )
+}
+
 interface BoxLogResult {
   complete: boolean
   grTotal: number
@@ -491,6 +550,7 @@ export function MeterReconcilePage() {
         <p className="st-q-hint">
           查詢範圍：比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒。
           自訂時間：選填，可只填起始或結束、可到秒；Game Record／Jackpot Abnormality 照填的時間查，EGM Hourly Meter 取對應的整點快照相減（只有整點快照，填非整點會往外擴到整點）。Gaming Day 下早於 06:00 的時間算隔天凌晨。
+          後台日報：整天查詢時會另外對照 OSM/GCP 後台 EGM Performance Meter（日報內部公式、與 Hourly 差值、與 Game Record 三種比對），結果另列一張卡，不影響通過／失敗判定。
           盒子日誌：選填，可一次選多個檔，只在瀏覽器解析、原檔不會上傳；有選的話會逐局對 Game Record，找出重複寫入、漏寫、多出、金額不同的局。
         </p>
       </section>
@@ -617,6 +677,7 @@ export function MeterReconcilePage() {
             </section>
           </div>
 
+          {result.perfDaily && <PerfDailyCard pd={result.perfDaily} fmt={fmt} />}
           {result.countDiag && <CountDiagCard diag={result.countDiag} />}
           {(boxLoading || box || boxError) && <BoxLogCard box={box} loading={boxLoading} error={boxError} />}
 

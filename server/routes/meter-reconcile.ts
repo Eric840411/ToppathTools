@@ -5,6 +5,7 @@ import { apiProblem, countDelta, isNum, meterHistoryLine, meterVerdict, METER_VA
 import { winLossJackpotTerm } from '../../shared/meter-rtp.js'
 import { nextDateStr, pickMeterSnapshots, resolveQueryWindow, toUtcIso } from '../meter-window.js'
 import { compareBoxLog, type BoxLogParse, type BoxSpin, type GrSpin } from '../../shared/box-log-spins.js'
+import { comparePerfDaily, type PerfDailyResult } from '../meter-perf-daily.js'
 import { buildCountIntervals, hourBucketFromRow, mapLimit, summarizeCountDiag, type HourBucket, type IntervalResult } from '../meter-count-diag.js'
 
 export const router = Router()
@@ -591,6 +592,32 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       } catch (e) { countDiag = { error: `分段定位失敗：${e instanceof Error ? e.message : String(e)}` } }
     }
 
+    // v5.91.0（Eric 1118、CodeX 同意）：另外對照後台 EGM Performance Meter 日報；獨立結果，不改上面的主判定，失敗也不拖垮主對帳
+    let perfDaily: PerfDailyResult
+    if (hasCustom) perfDaily = comparePerfDaily({ profile, hasCustom: true, apiError: null, row: null, hourly: null, gameRecord, attendantPaidJp, handpayCount: jpItems.length })
+    else {
+      try {
+        const pdParams = new URLSearchParams({
+          page: '1', pageSize: '10',
+          gameDay: boundary === 'gaming' ? '1' : '0', isShowClient: '1', dateType: apiDateType,
+          machineName: '', clientMachineName: machineName, gameType: '',
+          orderType: '0', channelId,
+        })
+        pdParams.append('date[]', date)
+        pdParams.append('date[]', date)
+        if (profile === 'gcp') pdParams.append('bgType', '2')
+        const pd = await meterGet(env, profile, cfg, perfPath, pdParams)
+        const pr = apiProblem('EGM Performance Meter', pd, METER_VALID.daily)
+        perfDaily = comparePerfDaily({
+          profile, hasCustom: false, apiError: pr, row: pr ? null : (pd?.data?.items?.[0] ?? null),
+          hourly: meter && !usedDaily && hourBuckets >= 2 ? meter : null,
+          gameRecord, attendantPaidJp, handpayCount: jpItems.length,
+        })
+      } catch (e) {
+        perfDaily = comparePerfDaily({ profile, hasCustom: false, apiError: e instanceof Error ? e.message : String(e), row: null, hourly: null, gameRecord, attendantPaidJp, handpayCount: jpItems.length })
+      }
+    }
+
     const result = {
       ok: true,
       machineName, source: profile, date, dayBoundary: boundary,
@@ -602,6 +629,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       jackpotAbnormality: { records: jpItems, sumHandpay: attendantPaidJp, count: jpItems.length },
       rawMeterRow: meterRow, meterWindow,
       countDiag,
+      perfDaily,
     }
 
     addHistory(
