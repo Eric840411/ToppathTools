@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.89.2'
+export const APP_VERSION = '5.89.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.89.3', date: '2026-11-18', changes: ['fix(worker)：正式站更新後 worker 開機卡死（CPU 93%、3010 沒開，Local Agent／install.bat 全部 fetch failed）——開機的 backfillFindings 去重查詢跨已結案、吃不到 partial index，資料多時 N×M 全表掃描，而且 ESM 下排在 listen 綁 port 之前。補完整索引 idx_recon_finding_ref，回填延後 30 秒到 listen 之後'] },
   { version: '5.89.2', date: '2026-11-13', changes: ['fix(Performance Meter 對帳)：公式列第二行（WIN/LOSE、RTP）跑版——新版畫面的公式列是 flex，<br> 不會換行，「WIN / LOSE ＝」被擠到下一行、公式本身跑到上一行。改成每行一個區塊、各自換行。純版面'] },
   { version: '5.89.1', date: '2026-11-13', changes: ['fix(盒子日誌逐局比對)：摘要原本只寫整份日誌的局數，設了自訂時間會看起來比 Game Record 多一截 → 日誌局數比查詢時間內的局多時，補一句「查詢時間內 N 局，另 M 局在時間外不比對」（判準跟比對同一套：有結束看結算時間、沒結束看開局時間）。只改顯示，不改判定（Eric 11-13 同意）'] },
   { version: '5.89.0', date: '2026-11-13', changes: ['feat(Performance Meter 對帳)：有自訂時間時 EGM Hourly Meter 也跟著縮——取「不晚於起點」與「不早於終點」的整點快照相減，不再拿整天（Eric 11-13：只填結束 14:00:00＝查 06:00～14:00，不能顯示整個內容）', 'Meter 只有整點快照，填非整點會往外擴到整點，Meter 卡片註明；沒填自訂時間時跟以前一樣是整天', '實測 UAT moneygong-149 11/13 只填結束 14:00:00：原本 Meter 仍是整天 338 局、改後只算 06:00～14:00', 'test: meter-window.test.ts 加 5 項（pickMeterSnapshots）'] },

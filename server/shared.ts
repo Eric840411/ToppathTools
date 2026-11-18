@@ -1291,6 +1291,9 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_open ON recon_finding (env
 //    交易裡有寫入時還握著寫鎖（2026-11-11 正式站 worker 70 秒一輪、Agent 重連、database is locked）。
 //    加這個後本機 17ms。recordFinding 不帶 resolvedAt IS NULL（跨已結案去重），吃不到這個，刻意不改（CodeX 1111）
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_ref_open ON recon_finding (env, refType, refId, line) WHERE resolvedAt IS NULL`)
+// recordFinding 的去重刻意跨已結案（不帶 resolvedAt IS NULL），吃不到上面那個 partial index → 補一個完整的。
+// 沒有它時 worker 開機的 backfillFindings 是 N×M 全表掃描：2026-11-18 正式站 worker CPU 93% 卡在開機、3010 一直沒開。
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_ref ON recon_finding (env, refType, refId, line)`)
 
 /**
  * 門檻參數存 DB 不寫死（規格書明訂）。

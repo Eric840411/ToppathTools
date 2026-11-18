@@ -633,12 +633,13 @@ export function startLiveLedgerLoop(): void {
   if (timer) return
   // 一次性回填：findings 機制上線前就判定的 MISSING／AMBIGUOUS 補記錄，
   // 否則「近期告警 0」會跟「真的沒問題」長得一樣。
-  void import('./live-ledger.js').then(m => {
+  // ⚠️ 延後跑：ESM 下這個 then 會排在 server.listen 綁 port 之前，同步回填資料多時會讓 worker 一直開不了 3010（2026-11-18 正式站）
+  setTimeout(() => void import('./live-ledger.js').then(m => {
     for (const env of ['qat', 'uat'] as const) {
       const n = m.backfillFindings(env)
       if (n) console.log(`[live-ledger] ${env} 回填 ${n} 筆既有 finding`)
     }
-  }).catch(e => console.warn('[live-ledger] finding 回填失敗:', e))
+  }).catch(e => console.warn('[live-ledger] finding 回填失敗:', e)), 30_000)
   const tick = async () => {
     if (running) return
     running = true

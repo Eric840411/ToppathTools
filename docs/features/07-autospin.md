@@ -653,6 +653,7 @@ fixture `server/fixtures/live-compare/qat-1104-session-chain.json`＝QAT 一個�
 - 症狀（2026-11-11 正式站）：worker 日誌約 70 秒才印一批（live-ledger 應 15 秒一輪）、Agent 同時被迫重連、Dashboard「Worker 無法連線」（health 1.8 秒逾時）、AutoSpin 上傳逾時、server 端 `SqliteError: database is locked`。
 - 嫌疑：`cleanupNonRoundFindings` 每輪撈全部 not_started／no_bet 的 spin，逐筆查 recon_finding 未結案那筆，只有 `(env, resolvedAt, detectedAt)` 索引可用＝N×M；better-sqlite3 是同步的，整段卡住 event loop，交易內一有寫入就握寫鎖（預設等鎖 5 秒）。
 - 修正：加 partial index `idx_recon_finding_ref_open (env, refType, refId, line) WHERE resolvedAt IS NULL`，本機 3451 筆 1.9 秒→11～17ms。**不**限最近 N 天、**不**改成只掃新列（會漏舊列後續變更）；busy_timeout 維持 5 秒（調大只會拉長阻塞）。`recordFinding` 去重刻意跨已結案，吃不到這個索引。
+- **v5.89.3（2026-11-18 正式站 worker 開機卡死）**：吃不到索引的 `recordFinding` 在 worker 開機的 `backfillFindings`（最近 7 天 MISSING／AMBIGUOUS 逐筆）變成 N×M，CPU 93%、3010 一直沒開，Local Agent／install.bat 全部 `fetch failed`。補完整索引 `idx_recon_finding_ref (env, refType, refId, line)`；回填改 `setTimeout` 30 秒——ESM 下 `import().then` 是 microtask，會跑在 `server.listen` 綁 port（nextTick）之前。
 - 部署後要看：對帳台「迴圈耗時」燈、worker 日誌是否恢復 15 秒一輪、locked 是否消失；仍慢再查持鎖交易。
 
 
