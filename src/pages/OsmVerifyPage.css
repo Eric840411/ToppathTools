@@ -144,3 +144,12 @@ textarea.ovf-input { resize: vertical; }
 :root[data-theme-mode="xianxia"] .ovf-chip--verified { color: #9be3c8; border-color: rgba(98, 198, 165, .4); }
 :root[data-theme-mode="xianxia"] .ovf-batches tbody tr.is-on td:first-child { box-shadow: inset 3px 0 0 #d6b25e; }
 :root[data-theme-mode="xianxia"] .ovf-hint-row td { background: rgba(214, 178, 94, .07); }
+
+/* 項目表比內容區寬時會橫向捲動：操作欄固定在右側，開單鈕不會被捲到看不見（1120 本機冒煙發現） */
+.ovf-table--items th:last-child,
+.ovf-table--items tbody tr > td:last-child:not([colspan]) {
+  position: sticky; right: 0; z-index: 1;
+  background: var(--ovf-card);
+  box-shadow: -8px 0 10px -8px rgba(0, 0, 0, .6);
+}
+.ovf-table--items th:last-child { background: var(--ovf-head-row); }

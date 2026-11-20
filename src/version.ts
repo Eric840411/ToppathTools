@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.92.1'
+export const APP_VERSION = '5.92.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.92.2', date: '2026-11-20', changes: ['fix(版本驗證表)：本機冒煙發現項目表在 1440 寬下操作欄（編輯／刪除）被擠出可視範圍，改成操作欄固定在右側；新增 scripts/ui-checks/osm-verify-smoke.mjs（真 server＋真登入走新增批次→新增項目→上正式擋下→修改履歷→刪除），拿掉修正會紅'] },
   { version: '5.92.1', date: '2026-11-20', changes: ['fix(版本驗證表)：CodeX 審 2e39970——P1 到遠端查改成完整比對 key（原本 includes 會讓 …-1 命中 …-10 而誤綁單號）；P2 名稱查無時改全類型以 key 再查一次（遠端改名後不再回查無誘發重複開單，超過翻頁上限維持結果不明）；test 94 條，兩項突變都紅'] },
   { version: '5.92.0', date: '2026-11-20', changes: ['feat(版本驗證表)：OSM Tools 新子分頁，取代 Lark「驗證表單_v2」、工具就是主檔（規格 v2，CodeX 審過；版面 CodeX 出圖、Eric 同意）——批次清單（年份＋批次、發布狀態與學習狀態分開、正式版本快照）、上正式檢查（至少綁一筆有效版本紀錄、平台都要有版本紀錄涵蓋，管理設定可設平台對應）、驗證項目表；樂觀鎖 409、軟刪除、完整快照修改履歷；被批次綁定的 OSM 版本紀錄不能刪（路由 409＋DB trigger）', '開單：按下即送出、逐列回報，用自己綁定的 Meegle 帳號；空間（測試限管理員）與工作項類型可選、依類型重驗必填；冪等 key 原子搶占（DB 唯一）並寫進描述最後一行，逾時／不明標「結果不明」、到遠端查查無也不自動重送，確認重送限原開單人且綁定沒換、再開一張才換 key', '學習事件（首版 pull）：GET /api/osm-verify/events 游標分頁＋POST events/:id/ack（batchRev 比事件當下的、重複 ack 冪等），只收 Bearer 服務憑證（管理設定產生、DB 只存雜湊、明文只顯示一次）；事件 batch.released／batch.ticket_created／batch.revised，學習狀態由未 ack 事件推出，舊事件不會把新版標成已完成', 'Lark 一次匯入（只讀，冪等）；三層權限 osm-verify／-edit／-manage 後端逐項驗；普通版＋仙俠版配色', 'test: server/osm-verify.test.ts 89 條（含直接跑 osm-qa-agent pull-events.cjs 相容測試），17 種突變都紅在斷言上'] },
   { version: '5.91.1', date: '2026-11-18', changes: ['fix(Performance Meter 對帳)：CodeX 審 d2f8585 四項 P2——Game Record／Jackpot／Hourly 回應無效時日報不跟它比（原本拿轉成 0 的值比）；有列無法驗證時整卡標「無法完整驗證」不顯示一致；RTP 欄 2 尺度未確認前只列出不判定（原本小數與 % 都接受會放過 100 倍錯誤）；查詢日距今 2 天以上仍查無日報標「可能缺報」，不再一律當尚未產生'] },
