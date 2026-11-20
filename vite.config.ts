@@ -24,7 +24,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',   // 讓區網其他人也能連
     port: 5173,
-    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/private-data/**', '**/.toppath-private/**'] },
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/private-data/**', '**/.toppath-private/**'] },
     proxy: {
       // OSM 環境導航頁由 server 驗登入＋權限後下發，dev 也要轉過去
       '/osm-env-nav': {
