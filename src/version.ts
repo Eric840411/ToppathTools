@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.93.0'
+export const APP_VERSION = '5.93.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.93.1', date: '2026-11-20', changes: ['fix(OSM 環境導航)：CodeX 審 379cc7f——P1 導航頁 HTML 改放專案目錄外（預設 ~/.toppath-private/，可用 OSM_ENV_NAV_HTML 指定），兩份 Vite 設定另外擋 private-data 路徑，dev server 不能再不經登入取得帳密', 'P2 兩份 Vite 設定補 /osm-env-nav proxy（開發模式原本載到 SPA 殼）；P2 切普通版／仙俠版不再重載 iframe，頁內未存的編輯不會被清掉'] },
   { version: '5.93.0', date: '2026-11-20', changes: ['feat(OSM 環境導航)：OSM Tools 新子分頁（OSM 版號同步下方），取代 Lark「主頁」——QAT／UAT／Prod 渠道入口與各環境共用入口、正式／測試帳號、工具捷徑（拖動排序、抽屜編輯）、銀月功德；版面由使用者在 Lark 逐項定稿', '第一階段預覽（CodeX 同意，附條件）：頁面由 /osm-env-nav/page 下發，自己驗登入＋osm-env-nav 權限、no-store、掛在 SPA fallback 前；內含真實帳密，HTML 放 private-data/（gitignore），不進 git、不打包前端；頁內編輯只在記憶體，重新整理還原，第二階段才進 DB＋加密＋修改紀錄'] },
   { version: '5.92.2', date: '2026-11-20', changes: ['fix(版本驗證表)：本機冒煙發現項目表在 1440 寬下操作欄（編輯／刪除）被擠出可視範圍，改成操作欄固定在右側；新增 scripts/ui-checks/osm-verify-smoke.mjs（真 server＋真登入走新增批次→新增項目→上正式擋下→修改履歷→刪除），拿掉修正會紅'] },
   { version: '5.92.1', date: '2026-11-20', changes: ['fix(版本驗證表)：CodeX 審 2e39970——P1 到遠端查改成完整比對 key（原本 includes 會讓 …-1 命中 …-10 而誤綁單號）；P2 名稱查無時改全類型以 key 再查一次（遠端改名後不再回查無誘發重複開單，超過翻頁上限維持結果不明）；test 94 條，兩項突變都紅'] },

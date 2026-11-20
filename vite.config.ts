@@ -1,13 +1,36 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+
+// 含帳密的私有資料不准由 dev server 直接吐出（OSM 環境導航，CodeX 審 379cc7f P1）
+const blockPrivateData: Plugin = {
+  name: 'block-private-data',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      let path = (req.url ?? '').split('?')[0]
+      try { path = decodeURIComponent(path) } catch { /* 保留原字串 */ }
+      if (/(^|[\\/])(private-data|\.toppath-private)([\\/]|$)/i.test(path)) {
+        res.statusCode = 404
+        res.end()
+        return
+      }
+      next()
+    })
+  },
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [blockPrivateData, react()],
   server: {
     host: '0.0.0.0',   // 讓區網其他人也能連
     port: 5173,
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/private-data/**', '**/.toppath-private/**'] },
     proxy: {
+      // OSM 環境導航頁由 server 驗登入＋權限後下發，dev 也要轉過去
+      '/osm-env-nav': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       // SSE endpoints — must be listed before the generic /api rule
       '/api/gs/img-compare/capture': {
         target: 'http://localhost:3000',

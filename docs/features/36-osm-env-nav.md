@@ -20,7 +20,7 @@ OSM Tools → **OSM 環境導航**（OSM 版號同步下方）。取代 Lark「�
 - `src/pages/OsmEnvNavPage.tsx`：只放 iframe → `/osm-env-nav/page?embed=1&theme=…`。
 - `server/routes/osm-env-nav.ts`：照 `office.ts`，**掛在 static／SPA fallback 之前**，自己驗登入＋`osm-env-nav` 權限；
   `Cache-Control: no-store`；iframe 內未登入只回文字（避免登入頁套在內框）。
-- HTML 放 `private-data/osm-env-nav.html`（**gitignore**；可用 `OSM_ENV_NAV_HTML` 改路徑）。檔案裡有 Lark 上的真實帳密與 token，
+- HTML 放**專案目錄外**的 `~/.toppath-private/osm-env-nav.html`（可用 `OSM_ENV_NAV_HTML` 改路徑）。v5.93.1 前放在專案內 `private-data/`，CodeX 實測 Vite dev server 不經登入就能直接拿到原始 HTML，所以搬出去，兩份 Vite 設定也另外擋 `private-data`／`.toppath-private` 路徑並代理 `/osm-env-nav`。檔案裡有 Lark 上的真實帳密與 token，
   **不進 git、不打包前端**；部署到別台要手動放檔，沒放會回 404 文字。
 - 頁內編輯只在記憶體，重新整理就還原（畫面上方有提示）；帳密不寫 localStorage（CodeX 要求）。
 
@@ -37,7 +37,7 @@ OSM Tools → **OSM 環境導航**（OSM 版號同步下方）。取代 Lark「�
 ## 產生／更新 HTML
 
 目前由模擬稿流程產生（暫存目錄 `%TEMP%/tp-sheet`：`grid.json` → `gen.cjs` → `sheet-data.json`，`main.html`＋`extra.css`＋`app.js`＋`merit-inject.*` → `splice.py`），
-產出 `mockup-osm-env-nav.html` 後複製到 `private-data/osm-env-nav.html`。第二階段改成資料進 DB 後，這段流程就退場。
+產出 `mockup-osm-env-nav.html` 後複製到 `~/.toppath-private/osm-env-nav.html`。第二階段改成資料進 DB 後，這段流程就退場。
 
 ## 使用者可執行的操作
 
@@ -47,3 +47,5 @@ OSM Tools → **OSM 環境導航**（OSM 版號同步下方）。取代 Lark「�
 4. 切換正式／測試帳號
 5. 拖動工具捷徑排序；開編輯模式後用抽屜新增／編輯／刪除（預覽版不會存）
 6. 敲木魚積功德、點角色或切換鈕變身
+
+- 切普通版／仙俠版**不重載** iframe（重載會清掉頁內還沒存的編輯）：src 固定用第一次的主題，之後直接改同源內框的 `data-theme-mode`。
