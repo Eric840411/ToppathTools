@@ -135,6 +135,16 @@ export const ticketKey = (batchId: string, itemId: number, seq: number) => `OSMV
 export const KEY_MARK = '[osm-verify-key]'
 export const keyLine = (key: string) => `${KEY_MARK} ${key}`
 
+/**
+ * 描述裡有沒有「完整」這把 key：前後都不能接 key 字元，否則查 …-1 會命中 …-10（CodeX 審 v5.92.0 P1）。
+ * 不綁 KEY_MARK 格式：Meegle 會重排 Markdown（方括號可能被跳脫），key 本身 OSMV- 開頭已夠獨特。
+ */
+export function descriptionHasKey(description: unknown, key: string): boolean {
+  const text = typeof description === 'string' ? description : JSON.stringify(description ?? '')
+  const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![0-9A-Za-z-])${esc}(?![0-9A-Za-z-])`).test(text)
+}
+
 /** 單名：跟 Lark 表「摘要」公式一樣是 [主題][類別]描述 */
 export function ticketName(item: { type: string; platform: string; description: string }): string {
   const first = item.description.split('\n').map(l => l.trim()).find(Boolean) ?? ''

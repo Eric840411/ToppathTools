@@ -12,7 +12,7 @@
  */
 import { call, defaultRunner, meegleTarget, queryAll, mqlString, listRequirements, resolveDetailUrlBase, type CallOutcome, type Runner } from './meegle-workitem.js'
 import { spaceEnv, type MeegleSpace } from './meegle-space.js'
-import type { CreateFieldDef, TypeCreateSchema } from '../shared/osm-verify-rules.js'
+import { descriptionHasKey, type CreateFieldDef, type TypeCreateSchema } from '../shared/osm-verify-rules.js'
 
 /** 這個空間＋類型的 env：project key 由 spaceEnv 換、類型 key 換成選的（meegleTarget 從 env 讀） */
 export function typeEnv(space: MeegleSpace, typeKey: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -123,17 +123,25 @@ export async function createWorkItem(token: string, env: NodeJS.ProcessEnv, fiel
 }
 
 /**
- * 「到遠端查」：同空間同類型、名稱相同的單裡，找描述帶這把 key 的。
- * 只認描述原文裡真的出現 key 的（名稱只是縮小範圍），讀不到描述的不算找到。
+ * 「到遠端查」：同空間同類型裡，找描述帶「完整」這把 key 的單。
+ * 先用名稱縮小範圍；名稱查無再全類型掃一次（遠端改名後 key 還在，不能回查無而誘發重複開單——CodeX 審 v5.92.0 P2）。
+ * 全掃超過翻頁上限 → queryAll 回 unknown，維持「不明」不自動重送。讀不到描述的不算找到。
  */
 export async function lookupByKey(token: string, env: NodeJS.ProcessEnv, name: string, key: string, runner: Runner = defaultRunner): Promise<CallOutcome<{ workItemId: string; url: string }[]>> {
   const t = meegleTarget(env)
-  const r = await queryAll(token, t.projectKey, `SELECT \`work_item_id\`, \`description\` FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\` WHERE \`name\` = ${mqlString(name)}`, runner)
-  if (r.kind !== 'ok') return r
-  const hits = r.value
-    .filter(row => JSON.stringify(row.description ?? '').includes(key))
+  const from = `SELECT \`work_item_id\`, \`description\` FROM \`${t.projectKey}\`.\`${t.taskTypeKey}\``
+  const pick = (rows: Array<Record<string, Record<string, unknown>>>) => rows
+    .filter(row => descriptionHasKey(row.description, key))
     .map(row => String(row.work_item_id?.long_value ?? ''))
     .filter(id => /^\d+$/.test(id))
+  const byName = await queryAll(token, t.projectKey, `${from} WHERE \`name\` = ${mqlString(name)}`, runner)
+  if (byName.kind !== 'ok') return byName
+  let hits = pick(byName.value)
+  if (!hits.length) {
+    const all = await queryAll(token, t.projectKey, from, runner)
+    if (all.kind !== 'ok') return all
+    hits = pick(all.value)
+  }
   if (!hits.length) return { kind: 'ok', value: [] }
   const base = await resolveDetailUrlBase(token, runner, env)
   return { kind: 'ok', value: [...new Set(hits)].map(id => ({ workItemId: id, url: base.kind === 'ok' ? base.value + id : '' })) }

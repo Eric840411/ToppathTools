@@ -17,8 +17,9 @@ import {
 } from './osm-verify-store.js'
 import { upsertTab, addComponent, createRelease, deleteRelease, getRelease } from './osm-release-store.js'
 import { buildOsmVerifyRouter } from './osm-verify-router.js'
+import { lookupByKey } from './osm-verify-meegle.js'
 import { parseVerifySheet, applyVerifySections } from './osm-verify-import.js'
-import { releaseCheck, splitPlatforms, resolveCreateValues, ticketKey, keyLine } from '../shared/osm-verify-rules.js'
+import { releaseCheck, splitPlatforms, resolveCreateValues, ticketKey, keyLine, descriptionHasKey } from '../shared/osm-verify-rules.js'
 import type { CliResult } from './meegle-cli.js'
 
 let pass = 0
@@ -397,6 +398,29 @@ async function ticketAndEventSuite() {
   }
   return { bodies, historyDump }
 }
+
+// 到遠端查：key 要完整比對、遠端改名也要找得到（CodeX 審 v5.92.0 P1／P2）
+async function lookupSuite() {
+  const K1 = ticketKey('11111111-2222', 7, 1)
+  eq('完整 key 命中', descriptionHasKey(`...\n${keyLine(K1)}`, K1), true)
+  eq('…-1 不命中 …-10', descriptionHasKey(`...\n${keyLine(K1 + '0')}`, K1), false)
+  eq('跳脫過的標記仍命中', descriptionHasKey({ doc: `\[osm-verify-key\] ${K1}\n` }, K1), true)
+  const mk = (rows: { id: number; desc: string }[]) => JSON.stringify({
+    data: { g: rows.map(r => ({ moql_field_list: [{ key: 'work_item_id', value: { long_value: r.id } }, { key: 'description', value: { string_value: r.desc } }] })) },
+    list: [{ count: rows.length }],
+  })
+  const env = { MEEGLE_PROJECT_KEY: 'p', MEEGLE_TASK_TYPE_KEY: 't' } as NodeJS.ProcessEnv
+  const runnerFor = (byName: { id: number; desc: string }[], all: { id: number; desc: string }[]) => async (args: string[]): Promise<CliResult> => {
+    const mql = args[args.indexOf('--mql') + 1] ?? ''
+    if (args[1] === 'query') return { exitCode: 0, stdout: mk(mql.includes('WHERE') ? byName : all), stderr: '', timedOut: false }
+    return { exitCode: 0, stdout: '{}', stderr: '', timedOut: false }
+  }
+  const collide = await lookupByKey('tok', env, 'n', K1, runnerFor([{ id: 10, desc: keyLine(K1 + '0') }], [{ id: 10, desc: keyLine(K1 + '0') }]))
+  eq('前綴碰撞不算找到', collide.kind === 'ok' ? collide.value.length : -1, 0)
+  const renamed = await lookupByKey('tok', env, 'n', K1, runnerFor([], [{ id: 22, desc: `x\n${keyLine(K1)}` }]))
+  eq('遠端改名後仍以 key 找到', renamed.kind === 'ok' ? renamed.value.map(v => v.workItemId) : null, ['22'])
+}
+await lookupSuite()
 
 const a = await httpSuite()
 const b = await ticketAndEventSuite()
