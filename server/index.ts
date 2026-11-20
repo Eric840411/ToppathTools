@@ -42,6 +42,7 @@ import { router as attachmentsRouter } from './routes/attachments.js'
 import { router as osmReleasesRouter } from './routes/osm-releases.js'
 import { router as osmVerifyRouter } from './routes/osm-verify.js'
 import { router as officeRouter } from './routes/office.js'
+import { router as osmEnvNavRouter } from './routes/osm-env-nav.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 import { closeKbRelay, handleKbRelayUpgrade, kbRelayHttp } from './kb-relay.js'
@@ -420,6 +421,8 @@ app.use(osmReleasesRouter)
 app.use(osmVerifyRouter)
 // 文書工具：/office/* 靜態檔自己驗登入＋權限，一定要在下面的 static／SPA fallback 之前
 app.use(officeRouter)
+// OSM 環境導航（預覽）：/osm-env-nav/page 自己驗登入＋權限，一樣要在 static／SPA fallback 之前
+app.use(osmEnvNavRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

@@ -27,6 +27,7 @@ const LarkNotifySettingsPage = lazy(() => import('./pages/LarkNotifySettingsPage
 const AutoSpinNotifySettingsPage = lazy(() => import('./pages/AutoSpinNotifySettingsPage').then(m => ({ default: m.AutoSpinNotifySettingsPage })))
 const CultivationLeaderboardPage = lazy(() => import('./pages/CultivationLeaderboardPage').then(m => ({ default: m.CultivationLeaderboardPage })))
 const OsmReleasesPage = lazy(() => import('./pages/OsmReleasesPage').then(m => ({ default: m.OsmReleasesPage })))
+const OsmEnvNavPage = lazy(() => import('./pages/OsmEnvNavPage').then(m => ({ default: m.OsmEnvNavPage })))
 const OsmVerifyPage = lazy(() => import('./pages/OsmVerifyPage').then(m => ({ default: m.OsmVerifyPage })))
 const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m => ({ default: m.XianxiaQuotesPage })))
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
@@ -77,7 +78,7 @@ import { PageHead, Crumb } from './redesign/PageHead'
 // 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
-  | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'osm-releases' | 'osm-verify' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
+  | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'osm-releases' | 'osm-verify' | 'osm-env-nav' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
   | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'api-capture' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
 type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'office' | 'account'
 
@@ -154,6 +155,14 @@ const groups: Group[] = [
         icon: 'O',
         iconClass: 'tab-icon--osm',
         description: '即時同步各渠道機台版本，並解析 ImageRecon 週報',
+      },
+      {
+        id: 'osm-env-nav',
+        label: 'OSM 環境導航',
+        themeLabel: '洞府',
+        icon: 'N',
+        iconClass: 'tab-icon--osm',
+        description: 'QAT／UAT／Prod 各渠道入口、帳號與工具捷徑（取代 Lark「主頁」）',
       },
       {
         id: 'machinetest',
@@ -1146,6 +1155,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-releases' && <OsmReleasesPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-verify' && <OsmVerifyPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-env-nav' && <OsmEnvNavPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'scripted-bet' && <ScriptedBetPage currentAccount={globalAccount} />}

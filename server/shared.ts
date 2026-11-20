@@ -2388,6 +2388,8 @@ export const ALL_PAGE_KEYS = [
   'osm-verify','osm-verify-edit','osm-verify-manage',
   // 文書工具（Eric Office 嵌入，v5.68.0）：/office/* 靜態檔與 /api/office/apps 都驗這個 key
   'office',
+  // OSM 環境導航（v5.93.0 預覽）：/osm-env-nav/page 驗這個 key；頁內含真實帳密，只開給該看的人
+  'osm-env-nav',
   // API 參數紀錄（v5.90.0）：前台 WS／HTTP＋後台 Log Third 彙整、與上次比對
   'api-capture',
   // 功能開關（不是頁面）：沿用同一套權限 key 機制，讓後台權限頁不用另外長出第二套 UI。

@@ -72,4 +72,6 @@ server/ui-screenshot-saves/
 
 # 文書工具（Eric Office）版本檔：不進 git，部署時另外上傳（docs/features/34-office.md）
 office-dist/
+# OSM 環境導航頁含真實帳密與 token，只放伺服器本機，不進 git
+private-data/
 office-release/

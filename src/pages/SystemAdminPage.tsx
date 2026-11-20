@@ -44,6 +44,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'meter-reconcile', label: 'Performance Meter 對帳', group: 'OSM Tools' },
   { key: 'egm-daycount', label: 'Egm DayCount 對帳', group: 'OSM Tools' },
   { key: 'api-capture',  label: 'API 參數紀錄',      group: 'OSM Tools' },
+  { key: 'osm-env-nav',  label: 'OSM 環境導航（含帳密）', group: 'OSM Tools' },
   { key: 'osm-releases', label: 'OSM 版本更新紀錄（查看）', group: 'OSM Tools' },
   { key: 'osm-releases-edit', label: 'OSM 版本更新紀錄（編輯紀錄）', group: '功能開關' },
   { key: 'osm-releases-manage', label: 'OSM 版本更新紀錄（管理設定）', group: '功能開關' },
