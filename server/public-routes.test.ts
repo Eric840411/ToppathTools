@@ -18,6 +18,9 @@ shut('PATCH', '/api/accounts/a@x/role'); shut('GET', '/api/accounts/extra')
 open('POST', '/api/machine-test/ocr-proxy'); shut('GET', '/api/machine-test/ocr-proxy')
 open('GET', '/api/osm-uat/upload-assets/abc/raw'); shut('DELETE', '/api/osm-uat/upload-assets/abc'); shut('GET', '/api/osm-uat/upload-assets')
 open('POST', '/api/frontend-auto/runs/r1/evidence'); shut('POST', '/api/frontend-auto/runs/r1/stop')
+open('GET', '/api/osm-verify/events'); open('POST', '/api/osm-verify/events/e1/ack')
+shut('POST', '/api/osm-verify/events'); shut('GET', '/api/osm-verify/events/e1'); shut('POST', '/api/osm-verify/events/e1/ack/x')
+shut('GET', '/api/osm-verify/batches'); shut('POST', '/api/osm-verify/settings/event-key'); shut('POST', '/api/osm-verify/tickets')
 
 open('GET', '/api/machine-test/agent/source-manifest'); open('GET', '/api/machine-test/agent/source/server/agent-runner.ts')
 shut('GET', '/api/machine-test/agent/install.bat')           // 會發 agent token，必須登入

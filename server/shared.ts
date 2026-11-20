@@ -2384,6 +2384,8 @@ export const ALL_PAGE_KEYS = [
   'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report','lark-notify',
   // OSM 版本更新紀錄：查看／編輯紀錄／管理設定（v5.67.0，後端逐項驗）
   'osm-releases','osm-releases-edit','osm-releases-manage',
+  // 版本驗證表：查看／編輯與開單／上正式・刪除・匯入・設定（v5.92.0，後端逐項驗）
+  'osm-verify','osm-verify-edit','osm-verify-manage',
   // 文書工具（Eric Office 嵌入，v5.68.0）：/office/* 靜態檔與 /api/office/apps 都驗這個 key
   'office',
   // API 參數紀錄（v5.90.0）：前台 WS／HTTP＋後台 Log Third 彙整、與上次比對

@@ -1,0 +1,146 @@
+/* 版本驗證表。版面：CodeX 出圖、Eric 1120 同意（批次清單 → 標題列 → 上正式檢查 → 滿寬驗證項目表）。
+   配色沿用 OSM 版本更新紀錄的深底；修仙版只換配色（墨黑／青玉／符金），結構不變。
+   彈窗用 createPortal 掛在 body，不在 .ovf-page 底下，所以變數兩邊都要定義。不用 emoji。 */
+
+.ovf-page, .ovf-portal {
+  --ovf-card: #162032; --ovf-card2: #0f172a; --ovf-border: #2d3f55; --ovf-input: #0f172a; --ovf-input-border: #334155;
+  --ovf-text: #e2e8f0; --ovf-muted: #8a9bb2; --ovf-primary: #38bdf8; --ovf-primary-text: #04131c; --ovf-chip: #1a2740;
+  --ovf-ok: #34d399; --ovf-bad: #f87171; --ovf-warn: #f5b73b; --ovf-head-row: #1b2940; --ovf-sel: rgba(56, 189, 248, .1);
+  color: var(--ovf-text);
+}
+.ovf-page { display: flex; flex-direction: column; gap: 12px; padding: 0 0 48px; }
+
+.ovf-muted { color: var(--ovf-muted); }
+.ovf-small { font-size: 12px; }
+.ovf-mono { font-family: Consolas, "Cascadia Mono", monospace; }
+.ovf-nowrap { white-space: nowrap; }
+.ovf-grow { flex: 1; min-width: 0; }
+.ovf-full { width: 100%; }
+.ovf-ok { color: var(--ovf-ok); }
+.ovf-bad, .ovf-danger { color: var(--ovf-bad); }
+.ovf-warn { color: var(--ovf-warn); }
+.ovf-err { color: var(--ovf-bad); font-size: 12px; margin-top: 3px; }
+.ovf-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.ovf-pre { white-space: pre-wrap; word-break: break-word; }
+.ovf-tk { font-family: Consolas, monospace; color: var(--ovf-primary); margin-left: 6px; text-decoration: none; }
+a.ovf-tk:hover { text-decoration: underline; }
+.ovf-tag { display: inline-block; margin: 0 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(248, 113, 113, .45); color: var(--ovf-bad); font-size: 12px; }
+
+.ovf-card { background: var(--ovf-card); border: 1px solid var(--ovf-border); border-radius: 10px; }
+.ovf-empty { padding: 24px; text-align: center; color: var(--ovf-muted); }
+.ovf-msg { padding: 14px 16px; }
+.ovf-msg--bad { color: var(--ovf-bad); }
+
+.ovf-head-actions, .ovf-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.ovf-btn { padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid var(--ovf-input-border); background: #263345; color: #cbd5e1; white-space: nowrap; }
+.ovf-btn--primary { background: var(--ovf-primary); border-color: var(--ovf-primary); color: var(--ovf-primary-text); }
+.ovf-btn--danger { border-color: rgba(248, 113, 113, .5); color: var(--ovf-bad); background: transparent; }
+.ovf-btn--sm { padding: 4px 10px; font-size: 12px; }
+.ovf-btn.is-on { border-color: var(--ovf-primary); color: var(--ovf-text); }
+.ovf-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ovf-btn:not(:disabled):hover { filter: brightness(1.12); }
+.ovf-link { background: none; border: 0; padding: 0 4px; color: var(--ovf-muted); cursor: pointer; font: inherit; }
+.ovf-link:hover { color: var(--ovf-primary); }
+.ovf-x-btn { background: none; border: 0; color: var(--ovf-muted); cursor: pointer; font-size: 15px; }
+
+.ovf-input { padding: 7px 10px; border: 1px solid var(--ovf-input-border); border-radius: 7px; background: var(--ovf-input); color: var(--ovf-text); font-size: 13px; box-sizing: border-box; min-width: 0; font-family: inherit; }
+.ovf-input:focus { outline: none; border-color: var(--ovf-primary); }
+.ovf-input.is-bad { border-color: var(--ovf-bad); }
+select.ovf-input { cursor: pointer; }
+textarea.ovf-input { resize: vertical; }
+
+.ovf-flash { padding: 8px 12px; border-radius: 7px; font-size: 13px; cursor: pointer; border: 1px solid; }
+.ovf-flash--ok { color: var(--ovf-ok); border-color: rgba(52, 211, 153, .35); background: rgba(52, 211, 153, .07); }
+.ovf-flash--bad { color: var(--ovf-bad); border-color: rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .07); }
+
+/* 標籤 */
+.ovf-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--ovf-border); background: var(--ovf-chip); color: var(--ovf-muted); white-space: nowrap; }
+.ovf-chip--verified { color: #7dd3fc; border-color: rgba(125, 211, 252, .4); }
+.ovf-chip--released, .ovf-chip--learn-done, .ovf-chip--t-created { color: var(--ovf-ok); border-color: rgba(52, 211, 153, .4); background: rgba(52, 211, 153, .08); }
+.ovf-chip--learn-learning, .ovf-chip--t-pending { color: #a5b4fc; border-color: rgba(165, 180, 252, .4); }
+.ovf-chip--learn-failed, .ovf-chip--t-failed { color: var(--ovf-bad); border-color: rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .08); }
+.ovf-chip--t-unknown { color: var(--ovf-warn); border-color: rgba(245, 183, 59, .45); background: rgba(245, 183, 59, .08); }
+
+/* 表格 */
+.ovf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ovf-table th { text-align: left; font-weight: 600; color: var(--ovf-muted); font-size: 12px; padding: 8px 10px; background: var(--ovf-head-row); border-bottom: 1px solid var(--ovf-border); white-space: nowrap; }
+.ovf-table td { padding: 8px 10px; border-bottom: 1px solid rgba(45, 63, 85, .55); vertical-align: top; }
+.ovf-table tbody tr:last-child td { border-bottom: 0; }
+.ovf-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ovf-batches { overflow-x: auto; }
+.ovf-batches tbody tr { cursor: pointer; }
+.ovf-batches tbody tr:hover td { background: rgba(255, 255, 255, .025); }
+.ovf-batches tbody tr.is-on td { background: var(--ovf-sel); }
+.ovf-batches tbody tr.is-on td:first-child { box-shadow: inset 3px 0 0 var(--ovf-primary); }
+.ovf-scroll { overflow-x: auto; }
+.ovf-table--items { min-width: 1280px; }
+.ovf-table--items .ovf-desc { min-width: 240px; max-width: 420px; white-space: pre-wrap; word-break: break-word; }
+.ovf-table--items td.ovf-pre { max-width: 220px; }
+.ovf-cb { width: 28px; }
+.ovf-table--items tr.has-hint td { border-bottom: 0; }
+.ovf-hint-row td { background: rgba(245, 183, 59, .06); padding: 6px 10px 10px 38px; }
+.ovf-hint-row td > * { margin-right: 10px; }
+.ovf-hint-actions { display: inline-flex; gap: 6px; }
+.ovf-msgline { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+/* 標題列 */
+.ovf-titlebar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ovf-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 15px; }
+
+/* 上正式檢查 */
+.ovf-check { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.ovf-check.is-bad { border-color: rgba(248, 113, 113, .35); }
+.ovf-check.is-ok { border-color: rgba(52, 211, 153, .3); }
+.ovf-check-head { display: flex; align-items: center; gap: 10px; }
+.ovf-check-list { margin: 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.ovf-bound { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--ovf-border); padding-top: 8px; }
+.ovf-bound-row, .ovf-pick-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 4px 0; }
+.ovf-bound-row.is-gone { color: var(--ovf-bad); text-decoration: line-through; }
+
+/* 工具列與開單設定 */
+.ovf-items { display: flex; flex-direction: column; }
+.ovf-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--ovf-border); }
+.ovf-panel { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; padding: 12px; border-bottom: 1px solid var(--ovf-border); background: var(--ovf-card2); }
+.ovf-panel-note { flex-basis: 100%; display: flex; gap: 12px; font-size: 12px; }
+.ovf-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ovf-muted); min-width: 160px; }
+.ovf-field > .ovf-input { color: var(--ovf-text); }
+.ovf-field--block { flex-basis: 100%; }
+
+/* 彈窗 */
+.ovf-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(2, 6, 23, .6); display: flex; }
+.ovf-modal { margin: auto; width: min(560px, calc(100vw - 32px)); max-height: 84vh; overflow-y: auto; background: var(--ovf-card); border: 1px solid var(--ovf-border); border-radius: 10px; padding: 16px 20px; box-sizing: border-box; font-size: 13px; display: flex; flex-direction: column; gap: 10px; }
+.ovf-modal--wide { width: min(820px, calc(100vw - 32px)); }
+.ovf-modal-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.ovf-modal-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ovf-border); }
+.ovf-form { display: flex; flex-direction: column; gap: 10px; }
+.ovf-form--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
+.ovf-section { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--ovf-border); }
+.ovf-key { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--ovf-warn); border-radius: 7px; word-break: break-all; }
+.ovf-revs { display: flex; flex-direction: column; }
+.ovf-rev { border-bottom: 1px solid var(--ovf-border); }
+.ovf-rev-head { display: flex; gap: 12px; padding: 7px 0; width: 100%; text-align: left; color: var(--ovf-text); }
+.ovf-rev-body { max-height: 280px; overflow: auto; font-size: 11.5px; background: var(--ovf-card2); padding: 8px; border-radius: 6px; margin: 0 0 8px; }
+.ovf-pick { display: flex; flex-direction: column; max-height: 52vh; overflow-y: auto; }
+.ovf-pick-row { border-bottom: 1px solid rgba(45, 63, 85, .55); }
+
+/* 新版外框：頁首按鈕被 portal 到頁首，--ovf-* 吃不到，靠 lst-btn／submit-btn／btn-ghost 的既有樣式 */
+:root[data-ui="redesign"] #rd-page-actions .ovf-head-actions { display: inline-flex; align-items: center; gap: 8px; }
+:root[data-ui="redesign"] .ovf-page { gap: 16px; }
+
+/* ═══ 修仙版：只換配色（墨黑底、青玉主色、符金邊框），結構不變 ═══ */
+:root[data-theme-mode="xianxia"] .ovf-page,
+:root[data-theme-mode="xianxia"] .ovf-portal {
+  --ovf-card: rgba(8, 20, 19, .86); --ovf-card2: rgba(3, 12, 11, .72); --ovf-border: rgba(214, 178, 94, .3); --ovf-input: rgba(3, 12, 11, .78); --ovf-input-border: rgba(111, 227, 195, .28);
+  --ovf-text: #e8efe9; --ovf-muted: #9bb5ab; --ovf-primary: #2bc59f; --ovf-primary-text: #06110e; --ovf-chip: rgba(18, 40, 36, .9);
+  --ovf-ok: #6fe3c3; --ovf-warn: #e6c77f; --ovf-head-row: rgba(12, 32, 29, .95); --ovf-sel: rgba(111, 227, 195, .08);
+}
+:root[data-theme-mode="xianxia"] .ovf-portal .ovf-modal { background: #0a1a18; }
+:root[data-theme-mode="xianxia"] .ovf-card { box-shadow: inset 0 0 0 1px rgba(214, 178, 94, .08); }
+:root[data-theme-mode="xianxia"] .ovf-btn { background: transparent; border-color: rgba(214, 178, 94, .55); color: #e6c77f; }
+:root[data-theme-mode="xianxia"] .ovf-btn--primary { background: linear-gradient(180deg, #43dcb2, #12896b); border-color: #2bc59f; color: #06110e; }
+:root[data-theme-mode="xianxia"] .ovf-btn--danger { border-color: rgba(248, 113, 113, .5); color: var(--ovf-bad); }
+:root[data-theme-mode="xianxia"] .ovf-tk { color: #6fe3c3; }
+:root[data-theme-mode="xianxia"] .ovf-chip--verified { color: #9be3c8; border-color: rgba(98, 198, 165, .4); }
+:root[data-theme-mode="xianxia"] .ovf-batches tbody tr.is-on td:first-child { box-shadow: inset 3px 0 0 #d6b25e; }
+:root[data-theme-mode="xianxia"] .ovf-hint-row td { background: rgba(214, 178, 94, .07); }

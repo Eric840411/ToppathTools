@@ -31,6 +31,9 @@ export const PUBLIC_API_RULES: Rule[] = [
   r('POST', /^\/api\/machine-test\/ocr-proxy$/, 'Local Agent：x-agent-token + x-agent-owner'),
   r('GET', /^\/api\/osm-uat\/upload-assets\/[^/]+\/raw$/, 'UAT runner 取素材：?token= 一次性票'),
   r('POST', /^\/api\/frontend-auto\/runs\/[^/]+\/evidence$/, 'Local Agent 回傳 H5/PC 證據：body.token'),
+  // 版本驗證表學習事件：osm-qa-agent 的 scripts/verify-form/pull-events.cjs 定期拉＋ack；路由內自己驗 Bearer 服務憑證（不看 session）
+  r('GET', /^\/api\/osm-verify\/events$/, 'osm-qa-agent pull-events：Authorization Bearer 服務憑證'),
+  r('POST', /^\/api\/osm-verify\/events\/[^/]+\/ack$/, 'osm-qa-agent pull-events ack：Authorization Bearer 服務憑證'),
 
   // ── 3. AGENT_NO_CRED（程式碼本身就在 repo 裡，下載不構成洩漏）──
   r('GET', /^\/api\/machine-test\/agent\/(source-manifest|seed-manifest|agent-package\.json)$/, 'Local Agent／install.bat 下載程式碼'),

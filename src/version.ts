@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.91.1'
+export const APP_VERSION = '5.92.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.92.0', date: '2026-11-20', changes: ['feat(版本驗證表)：OSM Tools 新子分頁，取代 Lark「驗證表單_v2」、工具就是主檔（規格 v2，CodeX 審過；版面 CodeX 出圖、Eric 同意）——批次清單（年份＋批次、發布狀態與學習狀態分開、正式版本快照）、上正式檢查（至少綁一筆有效版本紀錄、平台都要有版本紀錄涵蓋，管理設定可設平台對應）、驗證項目表；樂觀鎖 409、軟刪除、完整快照修改履歷；被批次綁定的 OSM 版本紀錄不能刪（路由 409＋DB trigger）', '開單：按下即送出、逐列回報，用自己綁定的 Meegle 帳號；空間（測試限管理員）與工作項類型可選、依類型重驗必填；冪等 key 原子搶占（DB 唯一）並寫進描述最後一行，逾時／不明標「結果不明」、到遠端查查無也不自動重送，確認重送限原開單人且綁定沒換、再開一張才換 key', '學習事件（首版 pull）：GET /api/osm-verify/events 游標分頁＋POST events/:id/ack（batchRev 比事件當下的、重複 ack 冪等），只收 Bearer 服務憑證（管理設定產生、DB 只存雜湊、明文只顯示一次）；事件 batch.released／batch.ticket_created／batch.revised，學習狀態由未 ack 事件推出，舊事件不會把新版標成已完成', 'Lark 一次匯入（只讀，冪等）；三層權限 osm-verify／-edit／-manage 後端逐項驗；普通版＋仙俠版配色', 'test: server/osm-verify.test.ts 89 條（含直接跑 osm-qa-agent pull-events.cjs 相容測試），17 種突變都紅在斷言上'] },
   { version: '5.91.1', date: '2026-11-18', changes: ['fix(Performance Meter 對帳)：CodeX 審 d2f8585 四項 P2——Game Record／Jackpot／Hourly 回應無效時日報不跟它比（原本拿轉成 0 的值比）；有列無法驗證時整卡標「無法完整驗證」不顯示一致；RTP 欄 2 尺度未確認前只列出不判定（原本小數與 % 都接受會放過 100 倍錯誤）；查詢日距今 2 天以上仍查無日報標「可能缺報」，不再一律當尚未產生'] },
   { version: '5.91.0', date: '2026-11-18', changes: ['feat(Performance Meter 對帳)：整天查詢時另外對照後台 EGM Performance Meter 日報（Eric 1118：日報有錯但工具看不出原因；CodeX 同意）——日報內部公式（欄 26 WIN/LOSE、欄 2 RTP vs 用 6/10/29 現算）、日報 vs Hourly 差值、日報 vs Game Record 三組，另列一張卡、不影響主判定；有自訂時間不比、查無資料標「尚未產生」、API 失敗／缺欄標無法比對'] },
   { version: '5.90.3', date: '2026-11-18', changes: ['fix(API 參數紀錄)：CodeX 複審 e242199 [P2]——舊格式簽名的原始事件超過 180 天被清掉時，原本會重建成空簽名蓋回去、之後比對全變未觀測／新 API → 沒有原始資料就保留舊簽名、標「無法跨版本比較」、不出差異（畫面與 Excel 說明頁）。冒煙 66 項'] },

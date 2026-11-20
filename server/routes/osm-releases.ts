@@ -18,9 +18,12 @@ import {
   listViews, saveView, deleteView,
 } from '../osm-release-store.js'
 import { parseReleaseSheet, applyParsedSheet } from '../osm-release-import.js'
+import { initOsmVerifySchema, releaseDeleteBlocker } from '../osm-verify-store.js'
 
 export const router = Router()
 initOsmReleaseSchema(db)
+// 版本驗證表會綁版本紀錄：被綁的不能刪（trigger 掛在 osm_releases 上，這裡先建好）
+initOsmVerifySchema(db)
 
 type Level = 'view' | 'edit' | 'manage'
 const KEY: Record<Level, string> = { view: 'osm-releases', edit: 'osm-releases-edit', manage: 'osm-releases-manage' }
@@ -137,6 +140,8 @@ router.delete('/api/osm-releases/:id', (req, res) => {
   const id = Number(req.params.id)
   const rev = Number(req.query.rev)
   if (!Number.isInteger(rev)) return res.status(400).json({ ok: false, message: '缺少版本號 rev' })
+  const blocker = releaseDeleteBlocker(db, id)
+  if (blocker) return res.status(409).json({ ok: false, code: 'REFERENCED', message: blocker })
   const r = deleteRelease(db, id, rev, actorOf(p))
   if ('current' in r) return res.status(409).json({ ok: false, code: 'CONFLICT', message: '這筆在你開啟後被改過，請重新載入再刪除', current: r.current })
   if (!r.ok) return res.status(404).json({ ok: false, message: '找不到這筆紀錄' })

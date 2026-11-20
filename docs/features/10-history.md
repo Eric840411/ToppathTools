@@ -35,6 +35,7 @@
 | `meegle-batch-edit` | Meegle 批量修改（一批送完寫一筆：完成張數；明細有來源 Sheet、每列的單號、列號、改了哪些欄位（含清空）、各步驟結果） |
 | `meegle-backfill` | Meegle 補回填（每次按「補寫回」寫一筆：寫回 N／M 筆；明細有每列的工具、單號、成功與否、原因）。v5.12.0 起「移出清單」也記在這個 key，標題「Meegle 補回填：移出清單」、明細 `action: dismiss`、移出的人與每列（重複移出不重複記）。v5.26.0 起「補回 Sheet 上被清掉的回填」也記在這裡，標題「Meegle 補回填：補回被清掉的回填」、明細 `action: restore-cleared` 與每列結果 |
 | `osm-releases` | OSM 版本更新紀錄：新增／修改（第幾版）／刪除一筆、從 Lark 匯入（每個頁籤新增幾筆） |
+| `osm-verify` | 版本驗證表：新增／修改／刪除批次、刪除項目、綁定／解除版本紀錄、標記已上正式、開單（幾列成功、空間）、遠端查到結果不明的單、從 Lark 匯入、修改平台對應、重新產生事件 API 金鑰（不記明文） |
 | `lark-notify` | Lark 通知設定（儲存設定：記改了哪幾項，**不記 Secret 內容**；試發：送到哪個群、成功與否） |
 | `machine-test` | 機台自動化測試結果 / 設定檔儲存 |
 | `autospin` | AutoSpin session 結束 |

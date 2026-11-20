@@ -124,6 +124,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'lark-notify': 'Lark 通知設定',
   'meter-reconcile': 'Meter 對帳',
   'osm-releases': 'OSM 版本更新紀錄',
+  'osm-verify': '版本驗證表',
   'egm-daycount': 'Egm DayCount 對帳',
   'api-capture': 'API 參數紀錄',
 }
@@ -162,6 +163,7 @@ const FEATURE_COLORS: Record<string, string> = {
   'osm-config-compare': '#065f46',
   'meter-reconcile': '#f97316',
   'osm-releases': '#84cc16',
+  'osm-verify': '#22c55e',
   'egm-daycount': '#eab308',
   'api-capture': '#22d3ee',
 }
@@ -170,7 +172,7 @@ const FEATURE_COLORS: Record<string, string> = {
  *  新增功能沒放進任何一組時會自動落到「文件與其他」，不會從篩選消失 */
 const FEATURE_GROUPS: { label: string; keys: string[] }[] = [
   { label: 'Meegle', keys: ['meegle-batch-create', 'meegle-batch-comment', 'meegle-batch-status', 'meegle-batch-edit', 'meegle-backfill', 'meegle-account', 'jira', 'jira-comment'] },
-  { label: 'OSM 版本', keys: ['osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'osm-config-compare', 'osm-releases'] },
+  { label: 'OSM 版本', keys: ['osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'osm-config-compare', 'osm-releases', 'osm-verify'] },
   { label: '機台與對帳', keys: ['machine-test', 'ui-screenshot', 'scripted-bet', 'autospin', 'live-ledger', 'meter-reconcile', 'egm-daycount', 'api-capture'] },
   { label: 'Game Show', keys: ['gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2'] },
   { label: '文件與其他', keys: ['testcase', 'image-check', 'weekly-report', 'lark-notify'] },
