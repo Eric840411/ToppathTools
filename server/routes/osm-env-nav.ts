@@ -90,7 +90,9 @@ function meritCount(week: string): number {
 
 function meritState(nowMs: number = Date.now()) {
   const weekStart = meritWeekStart(nowMs)
-  return { ok: true as const, weekStart, count: meritCount(weekStart), evoAt: MERIT_EVO_AT }
+  // serverNow／nextResetAt 給前端校準時鐘：敲的當下屬於哪一週要用伺服器時間判斷（CodeX 複審 bf939c2 P2）
+  const nextResetAt = Date.parse(weekStart + 'T00:00:00Z') - TAIPEI_OFFSET_MS + 7 * DAY_MS
+  return { ok: true as const, weekStart, count: meritCount(weekStart), evoAt: MERIT_EVO_AT, serverNow: nowMs, nextResetAt }
 }
 
 /** 累加一個批次；同一個 batchId 只算一次。回傳這次有沒有真的加進去。 */

@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.94.0'
+export const APP_VERSION = '5.94.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.94.1', date: '2026-11-26', changes: ['fix(OSM 環境導航)：CodeX 複審 bf939c2 兩項 P2——敲的當下屬於哪一週改用伺服器時間校準（API 多回 serverNow／nextResetAt），過了週一 00:00 還沒同步的分頁不會把新敲的算進上週；離開頁面時用 keepalive 把還沒送的功德送掉（路上那批沿用原 batchId）'] },
   { version: '5.94.0', date: '2026-11-26', changes: ['feat(OSM 環境導航)：銀月功德改成全員共用的每週計數（存 DB，新表 osm_env_nav_merit／osm_env_nav_merit_batch，GET /api/osm-env-nav/merit、POST /api/osm-env-nav/merit/hit，驗登入＋osm-env-nav 權限）；本週合計滿 30 才變人形、不能手動切換，型態切換鈕與「點角色變身」拿掉；週一 00:00（台北）歸零回狐形', 'CodeX 確認的設計：累加用原子 UPSERT、批次 batchId 去重與累加同一個 transaction、批次所屬的週由前端帶（只收本週與上週）、變身只看伺服器確認值、固定 400ms 送出一批最多 20、每帳號每分鐘上限 300；冒煙 scripts/ui-checks/osm-env-nav-merit-smoke.mjs'] },
   { version: '5.93.2', date: '2026-11-20', changes: ['fix(Vite 設定)：CodeX 複審 6e46a96 P1——自訂 fs.deny 會蓋掉 Vite 預設值，補回 **/.git/**；實測 /.git/config?raw 與 /@fs/…/.git/config 由 200 變 403'] },
   { version: '5.93.1', date: '2026-11-20', changes: ['fix(OSM 環境導航)：CodeX 審 379cc7f——P1 導航頁 HTML 改放專案目錄外（預設 ~/.toppath-private/，可用 OSM_ENV_NAV_HTML 指定），兩份 Vite 設定另外擋 private-data 路徑，dev server 不能再不經登入取得帳密', 'P2 兩份 Vite 設定補 /osm-env-nav proxy（開發模式原本載到 SPA 殼）；P2 切普通版／仙俠版不再重載 iframe，頁內未存的編輯不會被清掉'] },
